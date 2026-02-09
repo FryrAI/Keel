@@ -40,20 +40,23 @@
     property: (property_identifier) @ref.call.name)) @ref.call
 
 ; --- Import statements ---
-(import_statement
-  source: (string) @ref.import.source) @ref.import
-
-; Named imports
+; Import with named imports: import { X, Y } from 'source'
 (import_statement
   (import_clause
     (named_imports
       (import_specifier
-        name: (identifier) @ref.import.name))))
+        name: (identifier) @ref.import.name)))
+  source: (string) @ref.import.source) @ref.import
 
-; Default import
+; Default import: import X from 'source'
 (import_statement
   (import_clause
-    (identifier) @ref.import.name))
+    (identifier) @ref.import.name)
+  source: (string) @ref.import.source) @ref.import
+
+; Side-effect import: import 'source' (no names)
+(import_statement
+  source: (string) @ref.import.source) @ref.import
 
 ; --- Export statements ---
 (export_statement) @def.export
