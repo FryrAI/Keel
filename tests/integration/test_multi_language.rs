@@ -24,63 +24,49 @@ fn keel_bin() -> std::path::PathBuf {
     path
 }
 
-/// Create a mixed-language project with TS, Python, Go, and Rust files.
+/// Create a mixed-language project with .ts, .py, .go, and .rs files.
+/// All functions are private/non-exported to avoid E002/E003 checks.
 fn setup_mixed_project() -> TempDir {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
 
-    // TypeScript
+    // TypeScript file
     fs::write(
-        src.join("app.ts"),
-        r#"function greet(name: string): string {
-    return "Hello " + name;
-}
-
-function run(): void {
-    greet("world");
+        src.join("math.ts"),
+        r#"function add(a: number, b: number): number {
+    return a + b;
 }
 "#,
     )
     .unwrap();
 
-    // Python
+    // Python file
     fs::write(
-        src.join("helper.py"),
-        r#"def add(a: int, b: int) -> int:
-    return a + b
-
-def multiply(x: int, y: int) -> int:
-    return add(x, y)
+        src.join("utils.py"),
+        r#"def greet(name: str) -> str:
+    return f"Hello {name}"
 "#,
     )
     .unwrap();
 
-    // Go
+    // Go file (needs package declaration)
     fs::write(
-        src.join("main.go"),
-        r#"package main
+        src.join("helper.go"),
+        r#"package src
 
-func Hello(name string) string {
-    return "Hello " + name
-}
-
-func Run() {
-    Hello("world")
+func multiply(a int, b int) int {
+	return a * b
 }
 "#,
     )
     .unwrap();
 
-    // Rust
+    // Rust file
     fs::write(
         src.join("lib.rs"),
-        r#"pub fn compute(x: i32, y: i32) -> i32 {
-    x + y
-}
-
-pub fn process() -> i32 {
-    compute(1, 2)
+        r#"fn divide(a: f64, b: f64) -> f64 {
+    a / b
 }
 "#,
     )
@@ -89,7 +75,7 @@ pub fn process() -> i32 {
     dir
 }
 
-/// Initialize and map a project.
+/// Init and map the project, asserting success.
 fn init_and_map(dir: &TempDir) {
     let keel = keel_bin();
 
@@ -97,7 +83,7 @@ fn init_and_map(dir: &TempDir) {
         .arg("init")
         .current_dir(dir.path())
         .output()
-        .expect("init failed");
+        .expect("keel init failed");
     assert!(
         output.status.success(),
         "init failed: {}",
@@ -108,7 +94,7 @@ fn init_and_map(dir: &TempDir) {
         .arg("map")
         .current_dir(dir.path())
         .output()
-        .expect("map failed");
+        .expect("keel map failed");
     assert!(
         output.status.success(),
         "map failed: {}",
@@ -116,7 +102,7 @@ fn init_and_map(dir: &TempDir) {
     );
 }
 
-/// Query the graph database to find a function node's hash by name.
+/// Find a function hash by name in the graph DB.
 fn find_hash_by_name(dir: &TempDir, name: &str) -> Option<String> {
     let db_path = dir.path().join(".keel/graph.db");
     let store =
@@ -138,58 +124,113 @@ fn find_hash_by_name(dir: &TempDir, name: &str) -> Option<String> {
 fn test_map_detects_all_four_languages() {
     let dir = setup_mixed_project();
     init_and_map(&dir);
-    let keel = keel_bin();
 
-    // Use stats to check what was mapped
-    let output = Command::new(&keel)
-        .arg("stats")
-        .current_dir(dir.path())
-        .output()
-        .expect("stats failed");
-
-    assert!(
-        output.status.success(),
-        "stats failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Stats should show files for all languages (at least 4 files mapped)
-    assert!(
-        stdout.contains("files"),
-        "stats should mention files, got: {}",
-        stdout
-    );
-
-    // Verify graph.db has nodes from multiple files
+    // Open the graph DB and check for nodes from each language
     let db_path = dir.path().join(".keel/graph.db");
     let store =
-        keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).unwrap();
+        keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap())
+            .expect("should open graph.db");
+
     let modules = keel_core::store::GraphStore::get_all_modules(&store);
 
-    // Should have modules for each language file
-    let file_paths: Vec<String> = modules.iter().map(|m| m.file_path.clone()).collect();
+    // Collect all nodes across all modules
+    let mut all_nodes = Vec::new();
+    for module in &modules {
+        let nodes =
+            keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
+        all_nodes.extend(nodes);
+    }
+
+    // Check for nodes from each language by file extension
+    let file_paths: Vec<&str> = all_nodes.iter().map(|n| n.file_path.as_str()).collect();
+    let has_ts = file_paths.iter().any(|p| p.ends_with(".ts"));
+    let has_py = file_paths.iter().any(|p| p.ends_with(".py"));
+    let has_go = file_paths.iter().any(|p| p.ends_with(".go"));
+    let has_rs = file_paths.iter().any(|p| p.ends_with(".rs"));
+
     assert!(
-        file_paths.iter().any(|f| f.ends_with(".ts")),
-        "Should have TypeScript module, got: {:?}",
+        has_ts,
+        "graph should contain TypeScript nodes, found paths: {:?}",
         file_paths
     );
     assert!(
-        file_paths.iter().any(|f| f.ends_with(".py")),
-        "Should have Python module, got: {:?}",
+        has_py,
+        "graph should contain Python nodes, found paths: {:?}",
         file_paths
     );
     assert!(
-        file_paths.iter().any(|f| f.ends_with(".go")),
-        "Should have Go module, got: {:?}",
+        has_go,
+        "graph should contain Go nodes, found paths: {:?}",
         file_paths
     );
     assert!(
-        file_paths.iter().any(|f| f.ends_with(".rs")),
-        "Should have Rust module, got: {:?}",
+        has_rs,
+        "graph should contain Rust nodes, found paths: {:?}",
         file_paths
     );
+
+    // Verify specific function names from each language
+    let names: Vec<&str> = all_nodes.iter().map(|n| n.name.as_str()).collect();
+    assert!(names.contains(&"add"), "should find TS add function");
+    assert!(names.contains(&"greet"), "should find Python greet function");
+    assert!(
+        names.contains(&"multiply"),
+        "should find Go multiply function"
+    );
+    assert!(names.contains(&"divide"), "should find Rust divide function");
+}
+
+#[test]
+fn test_discover_works_across_languages() {
+    let dir = setup_mixed_project();
+    init_and_map(&dir);
+    let keel = keel_bin();
+
+    // Try discovering each language's function by hash
+    let functions = ["add", "greet", "multiply", "divide"];
+    let langs = ["TypeScript", "Python", "Go", "Rust"];
+
+    for (func, lang) in functions.iter().zip(langs.iter()) {
+        let hash = find_hash_by_name(&dir, func);
+        assert!(
+            hash.is_some(),
+            "{lang} function '{func}' should be in graph"
+        );
+        let hash = hash.unwrap();
+
+        let output = Command::new(&keel)
+            .args(["discover", &hash, "--json"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap_or_else(|_| panic!("keel discover failed for {lang} {func}"));
+
+        assert!(
+            output.status.success(),
+            "discover failed for {lang} {func}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !stdout.trim().is_empty(),
+            "discover should produce output for {lang} {func}"
+        );
+
+        let json: serde_json::Value = serde_json::from_str(&stdout)
+            .unwrap_or_else(|_| panic!("discover output for {lang} {func} should be valid JSON"));
+        assert_eq!(
+            json["command"], "discover",
+            "discover output should have command field"
+        );
+        assert!(
+            json["target"].is_object(),
+            "discover output should have target for {lang} {func}"
+        );
+        assert_eq!(
+            json["target"]["name"], *func,
+            "target name should be {func}"
+        );
+    }
 }
 
 #[test]
@@ -212,16 +253,12 @@ fn test_compile_typescript_in_mixed_project() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Modify the TS file: change greet signature (arity change)
+    // Modify the TS file: change add signature (arity change)
     let src = dir.path().join("src");
     fs::write(
-        src.join("app.ts"),
-        r#"function greet(): string {
-    return "Hello";
-}
-
-function run(): void {
-    greet("world");
+        src.join("math.ts"),
+        r#"function add(a: number): number {
+    return a;
 }
 "#,
     )
@@ -239,7 +276,6 @@ function run(): void {
         "compile should not crash"
     );
 
-    // Should not be internal error
     assert_ne!(
         output.status.code(),
         Some(2),
@@ -257,12 +293,9 @@ fn test_compile_python_in_mixed_project() {
     // Modify Python file: remove type hints
     let src = dir.path().join("src");
     fs::write(
-        src.join("helper.py"),
-        r#"def add(a, b):
-    return a + b
-
-def multiply(x, y):
-    return add(x, y)
+        src.join("utils.py"),
+        r#"def greet(name):
+    return f"Hello {name}"
 "#,
     )
     .unwrap();
@@ -279,7 +312,6 @@ def multiply(x, y):
         "compile should not crash"
     );
 
-    // Should not be internal error
     assert_ne!(
         output.status.code(),
         Some(2),
@@ -304,18 +336,14 @@ fn test_compile_go_in_mixed_project() {
     init_and_map(&dir);
     let keel = keel_bin();
 
-    // Modify Go file: change function signature
+    // Modify Go file: change function signature (add extra param)
     let src = dir.path().join("src");
     fs::write(
-        src.join("main.go"),
-        r#"package main
+        src.join("helper.go"),
+        r#"package src
 
-func Hello(name string, greeting string) string {
-    return greeting + " " + name
-}
-
-func Run() {
-    Hello("world")
+func multiply(a int, b int, c int) int {
+	return a * b * c
 }
 "#,
     )
@@ -347,12 +375,12 @@ fn test_compile_rust_in_mixed_project() {
     init_and_map(&dir);
     let keel = keel_bin();
 
-    // Modify Rust file: remove the compute function
+    // Modify Rust file: remove the divide function
     let src = dir.path().join("src");
     fs::write(
         src.join("lib.rs"),
-        r#"pub fn process() -> i32 {
-    42
+        r#"fn remainder(a: f64, b: f64) -> f64 {
+    a % b
 }
 "#,
     )
@@ -376,55 +404,4 @@ fn test_compile_rust_in_mixed_project() {
         "compile internal error: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-#[test]
-fn test_discover_works_across_languages() {
-    let dir = setup_mixed_project();
-    init_and_map(&dir);
-    let keel = keel_bin();
-
-    // Try discover for a function in each language
-    let function_names = vec!["greet", "add", "Hello", "compute"];
-
-    for name in &function_names {
-        if let Some(hash) = find_hash_by_name(&dir, name) {
-            let output = Command::new(&keel)
-                .args(["discover", &hash, "--json"])
-                .current_dir(dir.path())
-                .output()
-                .expect("discover failed");
-
-            assert!(
-                output.status.success(),
-                "discover failed for {} (hash {}): {}",
-                name,
-                hash,
-                String::from_utf8_lossy(&output.stderr)
-            );
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                !stdout.trim().is_empty(),
-                "discover should produce output for {} (hash {})",
-                name,
-                hash
-            );
-
-            // Parse JSON to verify structure
-            let json: serde_json::Value = serde_json::from_str(&stdout).expect(
-                &format!("discover output for {} should be valid JSON", name),
-            );
-            assert_eq!(json["command"], "discover");
-            assert!(
-                json["target"].is_object(),
-                "discover for {} should have target",
-                name
-            );
-            assert_eq!(
-                json["target"]["name"], *name,
-                "discover target name should match"
-            );
-        }
-    }
 }

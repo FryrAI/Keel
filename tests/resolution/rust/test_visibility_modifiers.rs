@@ -1,48 +1,144 @@
 // Tests for Rust visibility modifier resolution (Spec 005 - Rust Resolution)
 //
-// use keel_parsers::rust::RustAnalyzerResolver;
+// Tests `pub` vs private detection in the RustLangResolver's Tier 2 heuristic.
+
+use std::path::Path;
+use keel_parsers::rust_lang::RustLangResolver;
+use keel_parsers::resolver::LanguageResolver;
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// `pub` items should be accessible from any crate.
+/// `pub` items should be marked as public by the resolver.
 fn test_pub_visibility() {
-    // GIVEN `pub fn process()` in module A
-    // WHEN called from any other module
-    // THEN the call resolves successfully
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub fn process(input: &str) -> String {
+    input.to_uppercase()
+}
+"#;
+    let result = resolver.parse_file(Path::new("lib.rs"), source);
+    assert_eq!(result.definitions.len(), 1);
+    assert_eq!(result.definitions[0].name, "process");
+    assert!(
+        result.definitions[0].is_public,
+        "pub fn should be marked as public"
+    );
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "pub(crate) not distinguished by heuristic resolver"]
 /// `pub(crate)` items should be accessible only within the same crate.
 fn test_pub_crate_visibility() {
-    // GIVEN `pub(crate) fn internal()` in module A
-    // WHEN called from another module in the same crate
-    // THEN the call resolves successfully
+    // The current heuristic only checks for `pub ` prefix.
+    // `pub(crate) fn` starts with `pub ` so it IS detected as public,
+    // but we can't distinguish it from fully-public `pub fn`.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub(crate) fn internal() -> i32 {
+    42
+}
+"#;
+    let result = resolver.parse_file(Path::new("lib.rs"), source);
+    assert_eq!(result.definitions.len(), 1);
+    // The heuristic treats pub(crate) as public since the line starts with "pub "
+    assert!(result.definitions[0].is_public);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "pub(super) not distinguished by heuristic resolver"]
 /// `pub(super)` items should be accessible only from the parent module.
 fn test_pub_super_visibility() {
-    // GIVEN `pub(super) fn helper()` in module A::B
-    // WHEN called from module A
-    // THEN the call resolves successfully
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub(super) fn helper() -> bool {
+    true
+}
+"#;
+    let result = resolver.parse_file(Path::new("inner/mod.rs"), source);
+    assert_eq!(result.definitions.len(), 1);
+    // Heuristic: pub(super) starts with "pub " so detected as public
+    assert!(result.definitions[0].is_public);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Private items (no visibility modifier) should only be accessible within the same module.
+/// Private items (no visibility modifier) should be marked as not public.
 fn test_private_visibility() {
-    // GIVEN `fn private_helper()` (no pub) in module A
-    // WHEN called from module B
-    // THEN a resolution error is produced (private item not accessible)
+    let resolver = RustLangResolver::new();
+    let source = r#"
+fn private_helper(x: i32) -> i32 {
+    x * 2
+}
+"#;
+    let result = resolver.parse_file(Path::new("lib.rs"), source);
+    assert_eq!(result.definitions.len(), 1);
+    assert_eq!(result.definitions[0].name, "private_helper");
+    assert!(
+        !result.definitions[0].is_public,
+        "fn without pub should be marked as private"
+    );
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+/// Multiple functions with mixed visibility should each be correctly classified.
+fn test_mixed_visibility() {
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub fn public_one(a: i32) -> i32 { a }
+
+fn private_one(b: &str) -> bool { b.is_empty() }
+
+pub fn public_two() -> String { String::new() }
+
+fn private_two(x: f64) -> f64 { x * 2.0 }
+"#;
+    let result = resolver.parse_file(Path::new("mixed.rs"), source);
+    assert_eq!(result.definitions.len(), 4);
+
+    // Check each by name
+    let public_one = result.definitions.iter().find(|d| d.name == "public_one").unwrap();
+    assert!(public_one.is_public, "public_one should be public");
+
+    let private_one = result.definitions.iter().find(|d| d.name == "private_one").unwrap();
+    assert!(!private_one.is_public, "private_one should be private");
+
+    let public_two = result.definitions.iter().find(|d| d.name == "public_two").unwrap();
+    assert!(public_two.is_public, "public_two should be public");
+
+    let private_two = result.definitions.iter().find(|d| d.name == "private_two").unwrap();
+    assert!(!private_two.is_public, "private_two should be private");
+}
+
+#[test]
+/// Rust definitions should always have type_hints_present = true (statically typed).
+fn test_rust_type_hints_always_present() {
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub fn typed(x: i32, y: &str) -> bool { true }
+
+fn also_typed(a: Vec<String>) -> Option<i32> { None }
+"#;
+    let result = resolver.parse_file(Path::new("typed.rs"), source);
+    assert_eq!(result.definitions.len(), 2);
+    for def in &result.definitions {
+        assert!(
+            def.type_hints_present,
+            "{} should have type_hints_present = true",
+            def.name
+        );
+    }
+}
+
+#[test]
+#[ignore = "pub(in path) not distinguished by heuristic resolver"]
 /// `pub(in path)` should restrict visibility to the specified module path.
 fn test_pub_in_path_visibility() {
-    // GIVEN `pub(in crate::graph) fn internal()` in module graph::store
-    // WHEN called from module graph::query
-    // THEN the call resolves successfully (within the graph module tree)
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub(in crate::graph) fn internal() -> i32 {
+    42
+}
+"#;
+    let result = resolver.parse_file(Path::new("graph/store.rs"), source);
+    assert_eq!(result.definitions.len(), 1);
+    // Heuristic: pub(in ...) starts with "pub " so detected as public
+    assert!(result.definitions[0].is_public);
 }
