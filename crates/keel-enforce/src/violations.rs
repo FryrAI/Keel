@@ -456,10 +456,61 @@ mod tests {
         assert_eq!(count_params("def bar(x, y, z)"), 3);
     }
 
+    // E005 edge cases: zero params, many params, edge patterns
+    #[test]
+    fn test_count_params_zero() {
+        assert_eq!(count_params("fn foo()"), 0);
+        assert_eq!(count_params("def bar()"), 0);
+        assert_eq!(count_params("func Baz()"), 0);
+    }
+
+    #[test]
+    fn test_count_params_no_parens() {
+        assert_eq!(count_params("fn foo"), 0);
+        assert_eq!(count_params(""), 0);
+    }
+
+    #[test]
+    fn test_count_params_many() {
+        assert_eq!(count_params("fn f(a: i32, b: i32, c: i32, d: i32)"), 4);
+        assert_eq!(count_params("def g(a, b, c, d, e)"), 5);
+    }
+
+    #[test]
+    fn test_count_params_self_receiver() {
+        // Rust method with self
+        assert_eq!(count_params("fn method(&self, x: i32)"), 2);
+    }
+
+    #[test]
+    fn test_count_call_args_empty() {
+        assert_eq!(count_call_args("foo()"), 0);
+    }
+
+    #[test]
+    fn test_count_call_args_no_parens() {
+        assert_eq!(count_call_args("foo"), 0);
+    }
+
+    #[test]
+    fn test_count_call_args_multiple() {
+        assert_eq!(count_call_args("foo(a, b, c)"), 3);
+    }
+
     #[test]
     fn test_extract_prefix() {
         assert_eq!(extract_prefix("handleRequest"), "handle");
         assert_eq!(extract_prefix("process_order"), "process");
         assert_eq!(extract_prefix("x"), "");
+    }
+
+    #[test]
+    fn test_extract_prefix_all_lowercase() {
+        assert_eq!(extract_prefix("process"), "");
+    }
+
+    #[test]
+    fn test_extract_prefix_snake_case_multi() {
+        assert_eq!(extract_prefix("get_user_name"), "get");
     }
 }
