@@ -47,9 +47,11 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Auto-compile on save
+    // Auto-compile on save (respects keel.compileOnSave setting)
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument((doc) => {
+            const enabled = vscode.workspace.getConfiguration('keel').get('compileOnSave', true);
+            if (!enabled) return;
             const ext = path.extname(doc.fileName);
             if (['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs'].includes(ext)) {
                 runCompileFile(doc.uri);

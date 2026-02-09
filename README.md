@@ -7,7 +7,7 @@
     <a href="https://github.com/FryrAI/Keel/actions/workflows/ci.yml"><img src="https://github.com/FryrAI/Keel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust 1.75+">
     <img src="https://img.shields.io/badge/license-FSL--1.1--MIT-blue" alt="License: FSL-1.1-MIT">
-    <img src="https://img.shields.io/badge/status-Phase%201-yellow" alt="Status: Phase 1">
+    <img src="https://img.shields.io/badge/status-Phase%204-green" alt="Status: Phase 4">
   </p>
 </p>
 
@@ -97,10 +97,10 @@ keel where a7Bx3kM9f2Q
 
 | Language | Tier 1 (tree-sitter) | Tier 2 (Enhancer) | Status |
 |----------|---------------------|-------------------|--------|
-| TypeScript/JavaScript | `tree-sitter-typescript` | Oxc (`oxc_resolver` + `oxc_semantic`) | In progress |
-| Python | `tree-sitter-python` | ty (subprocess) | In progress |
-| Go | `tree-sitter-go` | tree-sitter heuristics | In progress |
-| Rust | `tree-sitter-rust` | rust-analyzer (lazy-load) | In progress |
+| TypeScript/JavaScript | `tree-sitter-typescript` | Oxc (`oxc_resolver` + `oxc_semantic`) | Tier 1 Complete |
+| Python | `tree-sitter-python` | ty (subprocess) | Tier 1 Complete |
+| Go | `tree-sitter-go` | tree-sitter heuristics | Tier 1 Complete |
+| Rust | `tree-sitter-rust` | rust-analyzer (lazy-load) | Tier 1 Complete |
 
 ## Configuration
 
@@ -223,12 +223,12 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 0 | Contracts, schemas, project scaffold | Complete |
-| Phase 1 | Tree-sitter foundation + resolvers | **In progress** |
-| Phase 2 | Enforcement engine + CLI commands | Pending |
-| Phase 3 | Server, integrations, VS Code | Pending |
-| Phase 4 | Polish, cross-platform, distribution | Pending |
+| Phase 1 | Tree-sitter foundation + resolvers | Complete |
+| Phase 2 | Enforcement engine + CLI commands | Complete |
+| Phase 3 | Server, integrations, VS Code | Complete |
+| Phase 4 | Polish, cross-platform, distribution | **In progress** |
 
-**Current:** 24 tests passing (13 core + 11 parsers).
+**Current:** 76 tests passing (13 core + 33 parsers + 15 enforce + 15 server).
 
 ## Roadmap
 

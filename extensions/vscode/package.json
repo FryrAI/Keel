@@ -13,7 +13,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:.keel/config.toml"
+    "workspaceContains:.keel"
   ],
   "main": "./out/extension.js",
   "contributes": {
