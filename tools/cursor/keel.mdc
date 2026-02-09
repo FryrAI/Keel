@@ -1,0 +1,22 @@
+---
+description: keel code graph enforcement — structural validation for every edit
+globs: ["**/*.ts", "**/*.tsx", "**/*.py", "**/*.go", "**/*.rs", "**/*.js", "**/*.jsx"]
+alwaysApply: true
+---
+
+# keel — Code Graph Enforcement
+
+This project uses keel (keel.engineer) for code graph enforcement.
+Hooks handle automatic validation. Follow this workflow for proactive checks:
+
+## Mandatory workflow:
+1. Before editing a function with callers (↑ > 0), run: `keel discover <hash>`
+2. After EVERY file edit, `keel compile` runs automatically via hooks
+3. If errors returned, FIX THEM immediately
+4. Type hints mandatory. Docstrings mandatory on public functions.
+5. Check map before creating new functions. Place in correct module.
+
+## Commands:
+- `keel discover <hash>` — callers, callees, module context
+- `keel compile <file>` — validate (auto-runs via hooks, can also run manually)
+- `keel where <hash>` — resolve hash to file:line

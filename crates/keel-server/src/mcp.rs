@@ -48,7 +48,7 @@ struct JsonRpcError {
 
 // --- MCP tool listing ---
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct ToolInfo {
     name: String,
     description: String,
@@ -83,6 +83,14 @@ fn tool_list() -> Vec<ToolInfo> {
 
 fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<Value, JsonRpcError> {
     match method {
+        "initialize" => Ok(serde_json::json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": { "tools": {} },
+            "serverInfo": {
+                "name": "keel",
+                "version": env!("CARGO_PKG_VERSION")
+            }
+        })),
         "tools/list" => serde_json::to_value(tool_list()).map_err(internal_err),
         "keel/compile" => handle_compile(params),
         "keel/discover" => handle_discover(store, params),
@@ -94,6 +102,48 @@ fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<
             message: format!("Method not found: {}", method),
         }),
     }
+}
+
+/// Process a single JSON-RPC line and return the response as a JSON string.
+/// Useful for testing without stdin/stdout.
+pub fn process_line(store: &SharedStore, line: &str) -> String {
+    if line.trim().is_empty() {
+        return String::new();
+    }
+
+    let request: JsonRpcRequest = match serde_json::from_str(line) {
+        Ok(r) => r,
+        Err(e) => {
+            let err_resp = JsonRpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32700,
+                    message: format!("Parse error: {}", e),
+                }),
+                id: Value::Null,
+            };
+            return serde_json::to_string(&err_resp).unwrap_or_default();
+        }
+    };
+
+    let id = request.id.clone().unwrap_or(Value::Null);
+    let response = match dispatch(store, &request.method, request.params) {
+        Ok(result) => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            result: Some(result),
+            error: None,
+            id,
+        },
+        Err(error) => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(error),
+            id,
+        },
+    };
+
+    serde_json::to_string(&response).unwrap_or_default()
 }
 
 fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
@@ -276,51 +326,18 @@ pub fn run_stdio(store: SharedStore) -> io::Result<()> {
 
     for line in stdin.lock().lines() {
         let line = line?;
-        if line.trim().is_empty() {
+        let response = process_line(&store, &line);
+        if response.is_empty() {
             continue;
         }
-
-        let request: JsonRpcRequest = match serde_json::from_str(&line) {
-            Ok(r) => r,
-            Err(e) => {
-                let err_resp = JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(JsonRpcError {
-                        code: -32700,
-                        message: format!("Parse error: {}", e),
-                    }),
-                    id: Value::Null,
-                };
-                let mut out = stdout.lock();
-                serde_json::to_writer(&mut out, &err_resp).ok();
-                writeln!(out)?;
-                out.flush()?;
-                continue;
-            }
-        };
-
-        let id = request.id.clone().unwrap_or(Value::Null);
-        let response = match dispatch(&store, &request.method, request.params) {
-            Ok(result) => JsonRpcResponse {
-                jsonrpc: "2.0".into(),
-                result: Some(result),
-                error: None,
-                id,
-            },
-            Err(error) => JsonRpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(error),
-                id,
-            },
-        };
-
         let mut out = stdout.lock();
-        serde_json::to_writer(&mut out, &response).ok();
-        writeln!(out)?;
+        writeln!(out, "{}", response)?;
         out.flush()?;
     }
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "mcp_tests.rs"]
+mod tests;
