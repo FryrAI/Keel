@@ -7,8 +7,38 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  test:
+    name: Test before release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
   build:
+    needs: test
     strategy:
       matrix:
         include:
@@ -38,6 +68,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+
       - name: Install cross-compilation tools (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
@@ -51,36 +92,76 @@ jobs:
 
       - name: Rename binary (unix)
         if: runner.os != 'Windows'
-        run: |
-          cp target/${{ matrix.target }}/release/keel ${{ matrix.artifact }}
+        run: cp target/${{ matrix.target }}/release/keel ${{ matrix.artifact }}
 
       - name: Rename binary (windows)
         if: runner.os == 'Windows'
-        run: |
-          copy target\${{ matrix.target }}\release\keel.exe ${{ matrix.artifact }}
+        run: copy target\${{ matrix.target }}\release\keel.exe ${{ matrix.artifact }}
+
+      - name: Generate SHA-256 checksum
+        shell: bash
+        run: shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
 
   release:
     needs: build
     runs-on: ubuntu-latest
-
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Collect all artifacts
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            cp "$dir"* release/ 2>/dev/null || true
+          done
+          # Generate combined checksums file
+          cat release/*.sha256 > release/checksums-sha256.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            artifacts/keel-linux-amd64/keel-linux-amd64
-            artifacts/keel-linux-arm64/keel-linux-arm64
-            artifacts/keel-darwin-amd64/keel-darwin-amd64
-            artifacts/keel-darwin-arm64/keel-darwin-arm64
-            artifacts/keel-windows-amd64.exe/keel-windows-amd64.exe
+            release/keel-linux-amd64
+            release/keel-linux-arm64
+            release/keel-darwin-amd64
+            release/keel-darwin-arm64
+            release/keel-windows-amd64.exe
+            release/checksums-sha256.txt
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        run: |
+          cargo publish -p keel-core --allow-dirty
+          sleep 30
+          cargo publish -p keel-parsers --allow-dirty
+          sleep 30
+          cargo publish -p keel-output --allow-dirty
+          sleep 30
+          cargo publish -p keel-enforce --allow-dirty
+          sleep 30
+          cargo publish -p keel-server --allow-dirty
+          sleep 30
+          cargo publish -p keel-cli --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

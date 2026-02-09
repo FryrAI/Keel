@@ -5,12 +5,17 @@
 #   curl -fsSL https://keel.engineer/install.sh | bash
 #   # or with a specific version:
 #   curl -fsSL https://keel.engineer/install.sh | bash -s -- v0.1.0
+#
+# Environment variables:
+#   KEEL_INSTALL_DIR — override install directory (default: ~/.local/bin)
+#   KEEL_SKIP_CHECKSUM — set to 1 to skip checksum verification
 
 set -euo pipefail
 
 REPO="keel-engineer/keel"
 INSTALL_DIR="${KEEL_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${1:-latest}"
+SKIP_CHECKSUM="${KEEL_SKIP_CHECKSUM:-0}"
 
 # Detect platform
 OS="$(uname -s)"
@@ -37,11 +42,13 @@ esac
 
 ARTIFACT="keel-${PLATFORM}-${ARCH_SUFFIX}"
 
-# Resolve version
+# Resolve version and URLs
 if [ "$VERSION" = "latest" ]; then
     DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/$ARTIFACT"
+    CHECKSUM_URL="https://github.com/$REPO/releases/latest/download/checksums-sha256.txt"
 else
     DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$ARTIFACT"
+    CHECKSUM_URL="https://github.com/$REPO/releases/download/$VERSION/checksums-sha256.txt"
 fi
 
 echo "Installing keel ($PLATFORM/$ARCH_SUFFIX)..."
@@ -51,29 +58,74 @@ echo "  To:   $INSTALL_DIR/keel"
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
-# Download
-if command -v curl &>/dev/null; then
-    curl -fsSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/keel"
-elif command -v wget &>/dev/null; then
-    wget -q "$DOWNLOAD_URL" -O "$INSTALL_DIR/keel"
-else
-    echo "Error: curl or wget required" >&2
-    exit 1
+# Download helper
+download() {
+    local url="$1" dest="$2"
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$url" -o "$dest"
+    elif command -v wget &>/dev/null; then
+        wget -q "$url" -O "$dest"
+    else
+        echo "Error: curl or wget required" >&2
+        exit 1
+    fi
+}
+
+# Download binary
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+download "$DOWNLOAD_URL" "$TMPDIR/keel"
+
+# Verify checksum
+if [ "$SKIP_CHECKSUM" != "1" ]; then
+    echo "Verifying checksum..."
+    download "$CHECKSUM_URL" "$TMPDIR/checksums.txt"
+
+    EXPECTED=$(grep "$ARTIFACT" "$TMPDIR/checksums.txt" | awk '{print $1}')
+    if [ -z "$EXPECTED" ]; then
+        echo "Warning: no checksum found for $ARTIFACT, skipping verification" >&2
+    else
+        if command -v sha256sum &>/dev/null; then
+            ACTUAL=$(sha256sum "$TMPDIR/keel" | awk '{print $1}')
+        elif command -v shasum &>/dev/null; then
+            ACTUAL=$(shasum -a 256 "$TMPDIR/keel" | awk '{print $1}')
+        else
+            echo "Warning: no sha256sum or shasum found, skipping verification" >&2
+            ACTUAL="$EXPECTED"
+        fi
+
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "Error: checksum mismatch!" >&2
+            echo "  Expected: $EXPECTED" >&2
+            echo "  Actual:   $ACTUAL" >&2
+            exit 1
+        fi
+        echo "  Checksum verified."
+    fi
 fi
 
+# Install binary
+cp "$TMPDIR/keel" "$INSTALL_DIR/keel"
 chmod +x "$INSTALL_DIR/keel"
 
 # Verify
 if "$INSTALL_DIR/keel" --version &>/dev/null; then
-    echo "✓ keel installed successfully: $("$INSTALL_DIR/keel" --version)"
+    echo "keel installed successfully: $("$INSTALL_DIR/keel" --version)"
 else
-    echo "✓ keel binary installed at $INSTALL_DIR/keel"
+    echo "keel binary installed at $INSTALL_DIR/keel"
 fi
 
 # Check PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
     echo ""
     echo "Note: $INSTALL_DIR is not in your PATH."
+    SHELL_NAME="$(basename "${SHELL:-/bin/bash}")"
+    case "$SHELL_NAME" in
+        zsh)  RC_FILE="~/.zshrc" ;;
+        fish) RC_FILE="~/.config/fish/config.fish" ;;
+        *)    RC_FILE="~/.bashrc" ;;
+    esac
     echo "Add it with:"
-    echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+    echo "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $RC_FILE"
 fi
