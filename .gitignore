@@ -1,0 +1,13 @@
+# Rust
+/target/
+
+# keel
+.keel/graph.db
+.keel/telemetry.db
+.keel/session.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

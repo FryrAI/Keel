@@ -1,0 +1,160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keel.engineer/schemas/discover_output.json",
+  "title": "keel discover output",
+  "description": "JSON schema for the output of `keel discover <hash>`",
+  "type": "object",
+  "required": ["version", "command", "target", "upstream", "downstream", "module_context"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "keel version that produced this output"
+    },
+    "command": {
+      "type": "string",
+      "const": "discover",
+      "description": "The command that produced this output"
+    },
+    "target": {
+      "$ref": "#/definitions/target_node",
+      "description": "The node being discovered"
+    },
+    "upstream": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/caller_info" },
+      "description": "Functions that call the target (callers)"
+    },
+    "downstream": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/callee_info" },
+      "description": "Functions that the target calls (callees)"
+    },
+    "module_context": {
+      "$ref": "#/definitions/module_context",
+      "description": "Module-level context for the target node"
+    }
+  },
+  "definitions": {
+    "target_node": {
+      "type": "object",
+      "required": [
+        "hash", "name", "signature", "file",
+        "line_start", "line_end",
+        "type_hints_present", "has_docstring"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Content hash of the target node"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the target function/class"
+        },
+        "signature": {
+          "type": "string",
+          "description": "Full type signature"
+        },
+        "file": {
+          "type": "string",
+          "description": "File path of the definition"
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "First line of the definition"
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Last line of the definition"
+        },
+        "docstring": {
+          "type": ["string", "null"],
+          "description": "Docstring content, if present"
+        },
+        "type_hints_present": {
+          "type": "boolean",
+          "description": "Whether all parameters and return value have type annotations"
+        },
+        "has_docstring": {
+          "type": "boolean",
+          "description": "Whether the node has a docstring"
+        }
+      }
+    },
+    "caller_info": {
+      "type": "object",
+      "required": ["hash", "name", "signature", "file", "line", "call_line"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": { "type": "string" },
+        "name": { "type": "string" },
+        "signature": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "docstring": { "type": ["string", "null"] },
+        "call_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line where the call to the target occurs"
+        }
+      }
+    },
+    "callee_info": {
+      "type": "object",
+      "required": ["hash", "name", "signature", "file", "line", "call_line"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": { "type": "string" },
+        "name": { "type": "string" },
+        "signature": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "docstring": { "type": ["string", "null"] },
+        "call_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line where the target calls this function"
+        }
+      }
+    },
+    "module_context": {
+      "type": "object",
+      "required": [
+        "module", "sibling_functions",
+        "responsibility_keywords", "function_count",
+        "external_endpoints"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string",
+          "description": "Module path containing the target"
+        },
+        "sibling_functions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Other functions in the same module"
+        },
+        "responsibility_keywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keywords describing the module's responsibility"
+        },
+        "function_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total functions in the module"
+        },
+        "external_endpoints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "External endpoints served or consumed by the module"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+mod test_broken_callers;
+mod test_type_hints;
+mod test_docstrings;
+mod test_placement;
+mod test_duplicate_detection;
+mod test_circuit_breaker;
+mod test_batch_mode;
+mod test_suppress;
+mod test_explain;
+mod test_clean_compile;
+mod test_progressive_adoption;
+mod test_arity_mismatch;
+mod test_function_removed;

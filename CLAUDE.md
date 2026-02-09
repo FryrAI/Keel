@@ -123,8 +123,9 @@ Keel uses Claude Code's native agent teams for parallel development. Enable befo
 - Team leads run in **delegate mode** — coordinate only, don't edit code
 - Teammates are spawned with detailed prompts referencing their spec files — they load this CLAUDE.md automatically
 - Orchestrator is a standalone session (not part of any team) using `/tmux-observe` and `/ralph-loop`
-- All sessions launch with `--sandbox --dangerously-skip-permissions` — sandbox (bubblewrap on Linux) restricts writes to CWD (worktree directory) and network to whitelisted domains. See [[agent-swarm#16. Sandbox Hardening|Sandbox Hardening]] for full config.
-- See [[agent-swarm|Agent Swarm Playbook]] for full architecture and spawn prompts
+- All sessions launch with `--sandbox --dangerously-skip-permissions` — sandbox (bubblewrap on Linux) restricts writes to CWD (worktree directory) and network to whitelisted domains. See [[agent-swarm/infrastructure#6. Sandbox Hardening|Sandbox Hardening]] for full config.
+- See [[agent-swarm/README|Agent Swarm Playbook]] for full architecture and spawn prompts
+- **CRITICAL:** Read [[agent-swarm/scope-limits|scope-limits.md]] before spawning any agents — hard limits on files, tool calls, and context
 
 **Skills used:**
 - `/ralph-loop` — autonomous test-fix-test cycles for every agent
@@ -206,6 +207,7 @@ These trait/struct signatures are frozen in Phase 0. Breaking a contract = immed
 
 - [[design-principles|Design Principles]] — the "why" document (read before implementation)
 - [[constitution|Constitution]] — non-negotiable articles
-- [[agent-swarm|Agent Swarm Playbook]] — how agents coordinate
+- [[agent-swarm/README|Agent Swarm Playbook]] — how agents coordinate (decomposed into 6 files)
+- [[agent-swarm/scope-limits|Scope Limits]] — hard limits on agent scope and context management
 - [[keel-speckit/test-harness/strategy|Test Harness Strategy]] — oracle definitions
 - [[PRD_1|PRD v2.1]] — master source (do NOT read directly — use specs)

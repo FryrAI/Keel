@@ -1,0 +1,11 @@
+mod test_init;
+mod test_init_merge;
+mod test_map;
+mod test_discover;
+mod test_compile;
+mod test_compile_batch;
+mod test_where;
+mod test_explain;
+mod test_deinit;
+mod test_stats;
+mod test_exit_codes;

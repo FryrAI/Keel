@@ -1,0 +1,11 @@
+[package]
+name = "keel-enforce"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+keel-core = { workspace = true }
+keel-parsers = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

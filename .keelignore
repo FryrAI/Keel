@@ -1,0 +1,14 @@
+# Default keel ignore patterns
+generated/
+**/generated/
+vendor/
+node_modules/
+**/migrations/
+dist/
+build/
+.next/
+target/
+__pycache__/
+*.pyc
+**/testdata/
+**/fixtures/

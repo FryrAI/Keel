@@ -1,0 +1,12 @@
+[package]
+name = "keel-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rusqlite = { workspace = true }
+petgraph = { workspace = true }
+xxhash-rust = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,43 @@
+{
+  "name": "keel-vscode",
+  "displayName": "Keel",
+  "description": "Structural code enforcement for LLM coding agents",
+  "version": "0.1.0",
+  "publisher": "keel-engineer",
+  "license": "FSL-1.1-MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:.keel/config.toml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "keel.compile",
+        "title": "Keel: Compile"
+      },
+      {
+        "command": "keel.discover",
+        "title": "Keel: Discover"
+      },
+      {
+        "command": "keel.stats",
+        "title": "Keel: Stats"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

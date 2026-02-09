@@ -1,0 +1,16 @@
+[package]
+name = "keel-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+keel-core = { workspace = true }
+keel-enforce = { workspace = true }
+keel-output = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+notify = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

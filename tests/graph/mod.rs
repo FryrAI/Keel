@@ -1,0 +1,8 @@
+mod test_node_creation;
+mod test_edge_creation;
+mod test_hash_computation;
+mod test_hash_collision;
+mod test_module_profile;
+mod test_sqlite_storage;
+mod test_schema_migration;
+mod test_previous_hashes;

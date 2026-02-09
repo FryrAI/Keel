@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keel.engineer/schemas/explain_output.json",
+  "title": "keel explain output",
+  "description": "JSON schema for the output of `keel explain <code> <hash>`",
+  "type": "object",
+  "required": [
+    "version", "command", "error_code", "hash",
+    "confidence", "resolution_tier",
+    "resolution_chain", "summary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "keel version that produced this output"
+    },
+    "command": {
+      "type": "string",
+      "const": "explain",
+      "description": "The command that produced this output"
+    },
+    "error_code": {
+      "type": "string",
+      "pattern": "^[EWS]\\d{3}$",
+      "description": "The error code being explained"
+    },
+    "hash": {
+      "type": "string",
+      "description": "Content hash of the node in question"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Resolution confidence for this error"
+    },
+    "resolution_tier": {
+      "type": "string",
+      "enum": ["tier1", "tier2", "tier3"],
+      "description": "Which resolution tier produced the result"
+    },
+    "resolution_chain": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/resolution_step" },
+      "description": "Step-by-step resolution chain showing how the error was identified"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Human-readable summary of the resolution"
+    }
+  },
+  "definitions": {
+    "resolution_step": {
+      "type": "object",
+      "required": ["kind", "file", "line", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["import", "call", "type_ref", "re_export"],
+          "description": "Type of resolution step"
+        },
+        "file": {
+          "type": "string",
+          "description": "File where this step occurs"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line number of the step"
+        },
+        "text": {
+          "type": "string",
+          "description": "Source text excerpt for this step"
+        }
+      }
+    }
+  }
+}

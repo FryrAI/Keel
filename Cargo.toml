@@ -1,0 +1,76 @@
+[workspace]
+members = [
+    "crates/keel-core",
+    "crates/keel-parsers",
+    "crates/keel-enforce",
+    "crates/keel-cli",
+    "crates/keel-server",
+    "crates/keel-output",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "FSL-1.1-MIT"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Core
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# Graph
+petgraph = "0.7"
+
+# Hashing
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Parsing
+tree-sitter = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-rust = "0.23"
+
+# TypeScript resolution
+oxc_resolver = "3"
+oxc_semantic = "0.49"
+oxc_allocator = "0.49"
+oxc_parser = "0.49"
+oxc_span = "0.49"
+
+# Parallelism
+rayon = "1.10"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Server
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+notify = "7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# File handling
+ignore = "0.4"
+walkdir = "2"
+globset = "0.4"
+
+# Internal crates
+keel-core = { path = "crates/keel-core" }
+keel-parsers = { path = "crates/keel-parsers" }
+keel-enforce = { path = "crates/keel-enforce" }
+keel-cli = { path = "crates/keel-cli" }
+keel-server = { path = "crates/keel-server" }
+keel-output = { path = "crates/keel-output" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keel.engineer/schemas/map_output.json",
+  "title": "keel map output",
+  "description": "JSON schema for the output of `keel map`",
+  "type": "object",
+  "required": ["version", "command", "summary", "modules"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "keel version that produced this output"
+    },
+    "command": {
+      "type": "string",
+      "const": "map",
+      "description": "The command that produced this output"
+    },
+    "summary": {
+      "$ref": "#/definitions/map_summary",
+      "description": "Aggregate statistics for the entire codebase graph"
+    },
+    "modules": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/module_entry" },
+      "description": "Per-module breakdown of the graph"
+    }
+  },
+  "definitions": {
+    "map_summary": {
+      "type": "object",
+      "required": [
+        "total_nodes", "total_edges", "modules",
+        "functions", "classes", "external_endpoints",
+        "languages", "type_hint_coverage", "docstring_coverage"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "total_nodes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of nodes in the graph"
+        },
+        "total_edges": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of edges in the graph"
+        },
+        "modules": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of module nodes"
+        },
+        "functions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of function nodes"
+        },
+        "classes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of class nodes"
+        },
+        "external_endpoints": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total external endpoints discovered"
+        },
+        "languages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Languages detected in the codebase"
+        },
+        "type_hint_coverage": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Fraction of functions with complete type annotations"
+        },
+        "docstring_coverage": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Fraction of functions with docstrings"
+        }
+      }
+    },
+    "module_entry": {
+      "type": "object",
+      "required": ["path", "function_count", "class_count", "edge_count"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Module file path"
+        },
+        "function_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "class_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "edge_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "responsibility_keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "external_endpoints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

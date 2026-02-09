@@ -1,0 +1,180 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://keel.engineer/schemas/compile_output.json",
+  "title": "keel compile output",
+  "description": "JSON schema for the output of `keel compile`",
+  "type": "object",
+  "required": ["version", "command", "status", "files_analyzed", "errors", "warnings", "info"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "keel version that produced this output"
+    },
+    "command": {
+      "type": "string",
+      "const": "compile",
+      "description": "The command that produced this output"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "error", "warning"],
+      "description": "Overall compile status"
+    },
+    "files_analyzed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of file paths that were analyzed"
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/violation" },
+      "description": "All ERROR-severity violations"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/violation" },
+      "description": "All WARNING-severity violations"
+    },
+    "info": {
+      "$ref": "#/definitions/compile_info",
+      "description": "Summary information about the compile pass"
+    }
+  },
+  "definitions": {
+    "violation": {
+      "type": "object",
+      "required": [
+        "code", "severity", "category", "message",
+        "file", "line", "hash", "confidence",
+        "resolution_tier", "suppressed", "affected"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[EWS]\\d{3}$",
+          "description": "Error code (e.g. E001, W001, S001)"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ERROR", "WARNING", "INFO"],
+          "description": "Violation severity level"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "broken_caller",
+            "missing_type_hints",
+            "missing_docstring",
+            "function_removed",
+            "arity_mismatch",
+            "placement",
+            "duplicate_name",
+            "suppressed"
+          ],
+          "description": "Violation category"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable violation description"
+        },
+        "file": {
+          "type": "string",
+          "description": "File path where the violation occurred"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line number of the violation"
+        },
+        "hash": {
+          "type": "string",
+          "description": "Content hash of the affected node"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Resolution confidence (0.0 = guess, 1.0 = certain)"
+        },
+        "resolution_tier": {
+          "type": "string",
+          "enum": ["tier1", "tier2", "tier3"],
+          "description": "Which resolution tier produced this result"
+        },
+        "fix_hint": {
+          "type": ["string", "null"],
+          "description": "Suggested fix for ERROR violations"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "description": "Whether this violation has been suppressed"
+        },
+        "suppress_hint": {
+          "type": ["string", "null"],
+          "description": "How to suppress this violation"
+        },
+        "affected": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/affected_node" },
+          "description": "Other nodes affected by this violation"
+        },
+        "suggested_module": {
+          "type": ["string", "null"],
+          "description": "Suggested module for W001 placement warnings"
+        },
+        "existing": {
+          "oneOf": [
+            { "$ref": "#/definitions/existing_node" },
+            { "type": "null" }
+          ],
+          "description": "Existing node info for W002 duplicate name warnings"
+        }
+      }
+    },
+    "affected_node": {
+      "type": "object",
+      "required": ["hash", "name", "file", "line"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": { "type": "string" },
+        "name": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "existing_node": {
+      "type": "object",
+      "required": ["hash", "file", "line"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "compile_info": {
+      "type": "object",
+      "required": ["nodes_updated", "edges_updated", "hashes_changed"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes_updated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of nodes added or modified"
+        },
+        "edges_updated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of edges added or modified"
+        },
+        "hashes_changed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hashes of nodes whose content changed"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+mod test_language_resolver_contract;
+mod test_graph_store_contract;
+mod test_result_structs_contract;
+mod test_json_schema_contract;

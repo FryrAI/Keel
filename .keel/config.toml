@@ -1,0 +1,56 @@
+# keel configuration — Constitution Article 6
+# Place this file at the root of your repository as .keel/config.toml
+
+[keel]
+version = "0.1.0"
+
+[languages]
+# Enable/disable language support
+typescript = true
+python = true
+go = true
+rust = true
+
+[enforcement]
+# Error severity for pre-existing code (new code always = ERROR)
+# Options: "error", "warning", "off"
+preexisting_severity = "warning"
+
+# Whether to enforce type hints
+type_hints = true
+
+# Whether to enforce docstrings
+docstrings = true
+
+# Whether to enforce placement analysis
+placement = true
+
+[batch]
+# Auto-expire batch mode after this many seconds of inactivity
+auto_expire_seconds = 60
+
+[circuit_breaker]
+# Number of consecutive failures before auto-downgrade to WARNING
+max_failures = 3
+
+[output]
+# Default output format: "json", "llm", "human"
+format = "json"
+
+# Include resolution tier in output
+show_resolution_tier = false
+
+# Include confidence scores in output
+show_confidence = false
+
+[ignore]
+# Additional patterns to ignore (on top of .keelignore and .gitignore)
+patterns = [
+    "node_modules/",
+    "__pycache__/",
+    "vendor/",
+    "target/",
+    ".git/",
+    "dist/",
+    "build/",
+]
