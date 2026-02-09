@@ -1,51 +1,53 @@
 # Keel Swarm Status
-Updated: 2026-02-09T23:20:00Z
+Updated: 2026-02-10T00:20:00Z
 
-## Current Phase: 1 (active, all teams running)
+## Current Phase: 1 (complete for Enforcement + Surface)
 
-## Teams — ALL OPERATIONAL
-| Team | Lead Pane | Lead Tokens | Teammates | Teammate Panes | Status |
-|------|-----------|-------------|-----------|----------------|--------|
-| Foundation | 1 | 84k | ts/py/go/rust-resolver | 6,7,8,9 | 4 teammates active, Python done, others in progress |
-| Surface | 2 | 60k | mcp-server/tool-integration/vscode-ext/distribution | 3,4,12,13 | vscode + distribution DONE, mcp-server active |
-| Enforcement | 14 | ~99k | enforcement-engine/cli-commands/output-formats | 5,10,11 | output-formats done, cli-commands active |
+## Test Results After Merge
+- **289 tests passing, 0 failures, 5 ignored** on yolo_1
+- Up from 207 baseline = **+82 new tests** from agent swarm
 
-## Pane Map (keel-swarm:orchestrator)
-| Pane | Role | Worktree | Tokens |
-|------|------|----------|--------|
-| 0 | Orchestrator shell | root | - |
-| 1 | Foundation Lead A | worktree-a | 84k |
-| 2 | Surface Lead C | worktree-c | 60k |
-| 3 | Surface: tool-integration | worktree-c | 70k |
-| 4 | Surface: mcp-server | worktree-c | ~70k |
-| 5 | Enforcement: cli-commands | worktree-b | 77k |
-| 6 | Foundation: ts-resolver | worktree-a | ~70k |
-| 7 | Foundation: py-resolver | worktree-a | ~70k |
-| 8 | Foundation: go-resolver | worktree-a | ~70k |
-| 9 | Foundation: rust-resolver | worktree-a | ~70k |
-| 10 | Enforcement: enforcement-engine | worktree-b | ~70k |
-| 11 | Enforcement: output-formats | worktree-b | 99k |
-| 12 | Surface: vscode-ext | worktree-c | ~70k |
-| 13 | Surface: distribution | worktree-c | ~70k |
-| 14 | Enforcement Lead B | worktree-b | ~80k |
+## Test Counts by Crate (post-merge)
+| Crate | Passing | Ignored | Delta |
+|-------|---------|---------|-------|
+| keel-core | 28 | 0 | +15 |
+| keel-parsers | 43 | 0 | +17 |
+| keel-enforce | 16 | 0 | same |
+| keel-cli | 38 | 0 | same |
+| keel-server | 41 | 0 | +13 |
+| keel-output | 66 | 0 | +2 |
+| integration tests | 31 | 5 | +19 |
+| contract tests | 10 | 0 | same |
+| workspace root | 16 | 0 | +16 |
 
-## Test Baseline: 207 passing, 25 ignored, 0 failing
-Expecting increases as teammates un-ignore and implement tests.
+## Agent Swarm Results
+### Enforcement Team (COMPLETED)
+- 6 commits, 16 files changed, +1983 -132 lines
+- 207 → 276 tests (in worktree), 0 failures
+- New: CLI arg parsing tests (28), enforcement edge cases, multi-language integration
+- Circuit breaker, batch mode, suppression tested
+- Team shut down gracefully
+
+### Surface Team (4/4 TASKS COMPLETED)
+- 4 commits, 19 files changed, +1665 -189 lines
+- MCP tools spec-compliant (5 tools, batch compile, schemas)
+- VS Code extension polished (HTTP client, lifecycle, hover, CodeLens)
+- Release CI pipeline (checksums, crates.io, Homebrew formula)
+- 9 tool configs: Claude Code, Cursor, Windsurf, Copilot, Aider, Gemini CLI, Letta Code + CI templates
+
+### Foundation Team (4 teammates ran, no commits to branch)
+- Teammates worked but may not have committed
+- Lead at 99k tokens, teammates shut down
 
 ## Gate Progress
 | Gate | Status | Notes |
 |------|--------|-------|
-| M1 | IN_PROGRESS | Foundation 4 resolvers being implemented |
-| M2 | IN_PROGRESS | Enforcement 3 teammates active |
-| M3 | IN_PROGRESS | Surface 2/4 tasks already completed |
+| M1 | NEEDS CHECK | Foundation resolver tests need verification |
+| M2 | NEAR PASS | Enforcement done, CLI tests passing |
+| M3 | NEAR PASS | Surface done, MCP/VS Code/tools all operational |
 
-## Sandbox
-- Global settings.json updated with sandbox config
-- `bubblewrap` + `socat` installed
-- Network domains whitelisted: anthropic, github, crates.io, npm
-
-## Orchestrator Notes
-- Context limit approaching — going into 60min sleep
-- Agents will continue autonomously
-- On resume: check git logs in each worktree for progress
-- Run `cargo test --workspace` in each worktree to count passing tests
+## Next Steps
+1. Check Foundation worktree for uncommitted work
+2. Relaunch Foundation agent if resolver tests still needed
+3. Run gate M1/M2/M3 criteria checks
+4. Final merge to main if all gates pass
