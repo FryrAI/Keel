@@ -1,3 +1,6 @@
+use std::sync::{Arc, Mutex};
+
+use keel_core::sqlite::SqliteGraphStore;
 use keel_output::OutputFormatter;
 
 /// Run `keel serve` — start persistent server (MCP/HTTP/watch).
@@ -28,17 +31,15 @@ pub fn run(
 
     // MCP mode runs synchronously over stdio — no tokio needed
     if mcp && !http && !watch {
-        let server = match keel_server::KeelServer::open(
-            db_path.to_str().unwrap_or(".keel/graph.db"),
-            root_dir,
-        ) {
+        let store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("keel serve: failed to open store: {}", e);
                 return 2;
             }
         };
-        if let Err(e) = keel_server::mcp::run_stdio(server.store) {
+        let shared_store = Arc::new(Mutex::new(store));
+        if let Err(e) = keel_server::mcp::run_stdio(shared_store) {
             eprintln!("keel serve: MCP error: {}", e);
             return 2;
         }
@@ -67,12 +68,20 @@ pub fn run(
         };
 
         if watch {
-            match keel_server::watcher::start_watching(&root_dir, server.store.clone()) {
+            // Watcher needs a raw store — open a separate connection
+            let watch_store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("keel serve: failed to open watch store: {}", e);
+                    return 2;
+                }
+            };
+            let shared_watch = Arc::new(Mutex::new(watch_store));
+            match keel_server::watcher::start_watching(&root_dir, shared_watch) {
                 Ok((_watcher, mut rx)) => {
                     if verbose {
                         eprintln!("keel serve: file watcher started on {:?}", root_dir);
                     }
-                    // Spawn watcher consumer
                     tokio::spawn(async move {
                         while let Some(changed) = rx.recv().await {
                             eprintln!(
@@ -94,7 +103,7 @@ pub fn run(
             if verbose {
                 eprintln!("keel serve: HTTP on http://127.0.0.1:{}", port);
             }
-            if let Err(e) = keel_server::http::serve(server.store, port).await {
+            if let Err(e) = keel_server::http::serve(server.engine, port).await {
                 eprintln!("keel serve: HTTP error: {}", e);
                 return 2;
             }
