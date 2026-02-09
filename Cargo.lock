@@ -579,8 +579,10 @@ dependencies = [
  "keel-enforce",
  "keel-output",
  "keel-parsers",
+ "keel-server",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
