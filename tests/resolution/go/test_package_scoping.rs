@@ -1,48 +1,105 @@
 // Tests for Go package-level scoping resolution (Spec 004 - Go Resolution)
-//
-// use keel_parsers::go::GoHeuristicResolver;
+use std::path::Path;
+
+use keel_parsers::go::GoResolver;
+use keel_parsers::resolver::{CallSite, LanguageResolver};
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "Cross-file same-package resolution not yet implemented"]
 /// Functions within the same package should resolve to each other without imports.
 fn test_same_package_function_resolution() {
-    // GIVEN two files in package "handlers": a.go defines Process(), b.go calls Process()
-    // WHEN the call site in b.go is resolved
-    // THEN it resolves to Process() in a.go within the same package
+    // The GoResolver uses a per-file cache model. Cross-file same-package
+    // resolution would require parsing both files and merging their scopes.
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Functions in different packages require explicit import to resolve.
+/// This tests that a qualified call (utils.Process) resolves via the import.
 fn test_cross_package_requires_import() {
-    // GIVEN package "handlers" calling package "utils".Process()
-    // WHEN the call site is resolved
-    // THEN it resolves via the import statement to utils.Process()
+    let resolver = GoResolver::new();
+    let source = r#"
+package handlers
+
+import "github.com/user/project/utils"
+
+func Handle() {
+    utils.Process()
+}
+"#;
+    let result = resolver.parse_file(Path::new("handlers.go"), source);
+
+    // Verify the import was found
+    assert!(
+        !result.imports.is_empty(),
+        "Should have at least one import"
+    );
+
+    // Resolve the cross-package call
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "handlers.go".into(),
+        line: 7,
+        callee_name: "utils.Process".into(),
+        receiver: None,
+    });
+    assert!(edge.is_some(), "Should resolve utils.Process via import");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "Process");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "Cross-file same-package resolution not yet implemented"]
 /// Package-level variables should be accessible from any file in the same package.
 fn test_package_level_variable_resolution() {
-    // GIVEN a package-level var defined in a.go and referenced in b.go
-    // WHEN the reference is resolved
-    // THEN it resolves to the variable definition in a.go
+    // Requires cross-file package scope merging.
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "Cross-file same-package resolution not yet implemented"]
 /// Multiple files in the same package should share the same scope.
 fn test_multi_file_package_scope() {
-    // GIVEN 5 files in package "models" all defining functions
-    // WHEN cross-file function calls are resolved
-    // THEN all resolve correctly within the package scope
+    // Requires cross-file package scope merging.
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+/// Same-file function calls resolve via the single-file cache.
+/// This is the simplest form of "package scope" — one file calling
+/// another function defined in the same file.
+fn test_same_file_function_call() {
+    let resolver = GoResolver::new();
+    let source = r#"
+package handlers
+
+func helper() int {
+    return 42
+}
+
+func Process() int {
+    return helper()
+}
+"#;
+    let path = Path::new("handlers.go");
+    resolver.parse_file(path, source);
+
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "handlers.go".into(),
+        line: 9,
+        callee_name: "helper".into(),
+        receiver: None,
+    });
+    assert!(edge.is_some(), "Should resolve same-file call to helper()");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "helper");
+    assert_eq!(edge.target_file, "handlers.go");
+    assert!(
+        edge.confidence >= 0.90,
+        "Same-package call should have high confidence"
+    );
+}
+
+#[test]
+#[ignore = "Test file package scope requires cross-file resolution"]
 /// Test packages (_test.go) should be treated as the same package scope.
 fn test_test_file_package_scope() {
-    // GIVEN handler.go and handler_test.go in the same package
-    // WHEN the test file calls functions from handler.go
-    // THEN they resolve correctly (same package scope)
+    // _test.go files share package scope with the main package.
+    // Requires cross-file resolution.
 }
