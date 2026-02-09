@@ -1,3 +1,9 @@
+[package]
+name = "keel-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
 [workspace]
 members = [
     "crates/keel-core",
@@ -69,6 +75,23 @@ keel-enforce = { path = "crates/keel-enforce" }
 keel-cli = { path = "crates/keel-cli" }
 keel-server = { path = "crates/keel-server" }
 keel-output = { path = "crates/keel-output" }
+
+[dependencies]
+keel-core = { path = "crates/keel-core" }
+keel-parsers = { path = "crates/keel-parsers" }
+keel-enforce = { path = "crates/keel-enforce" }
+keel-output = { path = "crates/keel-output" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+jsonschema = "0.29"
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "performance"
+harness = false
 
 [profile.release]
 lto = true
