@@ -5,8 +5,10 @@ edition.workspace = true
 
 [dependencies]
 keel-core = { workspace = true }
+keel-parsers = { workspace = true }
 keel-enforce = { workspace = true }
 keel-output = { workspace = true }
+xxhash-rust = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 notify = { workspace = true }

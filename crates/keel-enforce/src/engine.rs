@@ -13,14 +13,14 @@ use crate::violations;
 
 /// Core enforcement engine. Owns a GraphStore and orchestrates validation.
 pub struct EnforcementEngine {
-    store: Box<dyn GraphStore>,
+    store: Box<dyn GraphStore + Send>,
     circuit_breaker: CircuitBreaker,
     batch_state: Option<BatchState>,
     suppressions: SuppressionManager,
 }
 
 impl EnforcementEngine {
-    pub fn new(store: Box<dyn GraphStore>) -> Self {
+    pub fn new(store: Box<dyn GraphStore + Send>) -> Self {
         Self {
             store,
             circuit_breaker: CircuitBreaker::new(),
