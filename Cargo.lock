@@ -1100,12 +1100,14 @@ dependencies = [
  "keel-core",
  "keel-enforce",
  "keel-output",
+ "keel-parsers",
  "notify",
  "serde",
  "serde_json",
  "tokio",
  "tower",
  "tower-http",
+ "xxhash-rust",
 ]
 
 [[package]]
