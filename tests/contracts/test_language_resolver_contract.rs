@@ -1,12 +1,10 @@
 /// Contract tests for the LanguageResolver trait.
 ///
-/// These tests verify that all 4 language resolver stubs implement the
-/// LanguageResolver trait correctly. Each stub must:
+/// These tests verify that all 4 language resolvers implement the
+/// LanguageResolver trait correctly. Each resolver must:
 /// - Return the correct language name
 /// - Accept arbitrary content in parse_file without panicking
 /// - Return valid (possibly empty) results from all methods
-///
-/// All tests are #[ignore] until the resolver implementations are complete.
 use std::path::Path;
 
 use keel_parsers::resolver::LanguageResolver;
@@ -20,14 +18,12 @@ use keel_parsers::rust_lang::RustLangResolver;
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn ts_resolver_returns_correct_language() {
     let resolver = TsResolver::new();
     assert_eq!(resolver.language(), "typescript");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn ts_resolver_parse_file_empty_content() {
     let resolver = TsResolver::new();
     let result = resolver.parse_file(Path::new("test.ts"), "");
@@ -37,7 +33,6 @@ fn ts_resolver_parse_file_empty_content() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn ts_resolver_parse_file_simple_function() {
     let resolver = TsResolver::new();
     let content = "export function greet(name: string): string { return `Hello ${name}`; }";
@@ -47,7 +42,6 @@ fn ts_resolver_parse_file_simple_function() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn ts_resolver_resolve_definitions_returns_vec() {
     let resolver = TsResolver::new();
     let defs = resolver.resolve_definitions(Path::new("nonexistent.ts"));
@@ -56,7 +50,6 @@ fn ts_resolver_resolve_definitions_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn ts_resolver_resolve_references_returns_vec() {
     let resolver = TsResolver::new();
     let refs = resolver.resolve_references(Path::new("nonexistent.ts"));
@@ -64,7 +57,6 @@ fn ts_resolver_resolve_references_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn ts_resolver_resolve_call_edge_returns_option() {
     let resolver = TsResolver::new();
     let call_site = keel_parsers::resolver::CallSite {
@@ -83,14 +75,12 @@ fn ts_resolver_resolve_call_edge_returns_option() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn py_resolver_returns_correct_language() {
     let resolver = PyResolver::new();
     assert_eq!(resolver.language(), "python");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn py_resolver_parse_file_empty_content() {
     let resolver = PyResolver::new();
     let result = resolver.parse_file(Path::new("test.py"), "");
@@ -100,7 +90,6 @@ fn py_resolver_parse_file_empty_content() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn py_resolver_parse_file_simple_function() {
     let resolver = PyResolver::new();
     let content = "def greet(name: str) -> str:\n    return f'Hello {name}'";
@@ -110,7 +99,6 @@ fn py_resolver_parse_file_simple_function() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn py_resolver_resolve_definitions_returns_vec() {
     let resolver = PyResolver::new();
     let defs = resolver.resolve_definitions(Path::new("nonexistent.py"));
@@ -118,7 +106,6 @@ fn py_resolver_resolve_definitions_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn py_resolver_resolve_references_returns_vec() {
     let resolver = PyResolver::new();
     let refs = resolver.resolve_references(Path::new("nonexistent.py"));
@@ -126,7 +113,6 @@ fn py_resolver_resolve_references_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn py_resolver_resolve_call_edge_returns_option() {
     let resolver = PyResolver::new();
     let call_site = keel_parsers::resolver::CallSite {
@@ -144,14 +130,12 @@ fn py_resolver_resolve_call_edge_returns_option() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn go_resolver_returns_correct_language() {
     let resolver = GoResolver::new();
     assert_eq!(resolver.language(), "go");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn go_resolver_parse_file_empty_content() {
     let resolver = GoResolver::new();
     let result = resolver.parse_file(Path::new("test.go"), "");
@@ -161,7 +145,6 @@ fn go_resolver_parse_file_empty_content() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn go_resolver_parse_file_simple_function() {
     let resolver = GoResolver::new();
     let content = "package main\n\nfunc Greet(name string) string {\n\treturn \"Hello \" + name\n}";
@@ -171,7 +154,6 @@ fn go_resolver_parse_file_simple_function() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn go_resolver_resolve_definitions_returns_vec() {
     let resolver = GoResolver::new();
     let defs = resolver.resolve_definitions(Path::new("nonexistent.go"));
@@ -179,7 +161,6 @@ fn go_resolver_resolve_definitions_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn go_resolver_resolve_references_returns_vec() {
     let resolver = GoResolver::new();
     let refs = resolver.resolve_references(Path::new("nonexistent.go"));
@@ -187,7 +168,6 @@ fn go_resolver_resolve_references_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn go_resolver_resolve_call_edge_returns_option() {
     let resolver = GoResolver::new();
     let call_site = keel_parsers::resolver::CallSite {
@@ -205,14 +185,12 @@ fn go_resolver_resolve_call_edge_returns_option() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn rust_resolver_returns_correct_language() {
     let resolver = RustLangResolver::new();
     assert_eq!(resolver.language(), "rust");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn rust_resolver_parse_file_empty_content() {
     let resolver = RustLangResolver::new();
     let result = resolver.parse_file(Path::new("test.rs"), "");
@@ -222,7 +200,6 @@ fn rust_resolver_parse_file_empty_content() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn rust_resolver_parse_file_simple_function() {
     let resolver = RustLangResolver::new();
     let content = "pub fn greet(name: &str) -> String {\n    format!(\"Hello {}\", name)\n}";
@@ -232,7 +209,6 @@ fn rust_resolver_parse_file_simple_function() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn rust_resolver_resolve_definitions_returns_vec() {
     let resolver = RustLangResolver::new();
     let defs = resolver.resolve_definitions(Path::new("nonexistent.rs"));
@@ -240,7 +216,6 @@ fn rust_resolver_resolve_definitions_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn rust_resolver_resolve_references_returns_vec() {
     let resolver = RustLangResolver::new();
     let refs = resolver.resolve_references(Path::new("nonexistent.rs"));
@@ -248,7 +223,6 @@ fn rust_resolver_resolve_references_returns_vec() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn rust_resolver_resolve_call_edge_returns_option() {
     let resolver = RustLangResolver::new();
     let call_site = keel_parsers::resolver::CallSite {
@@ -266,7 +240,6 @@ fn rust_resolver_resolve_call_edge_returns_option() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "Not yet implemented"]
 fn all_resolvers_are_object_safe() {
     // Verify that LanguageResolver can be used as a trait object (Send + Sync)
     let resolvers: Vec<Box<dyn LanguageResolver>> = vec![
