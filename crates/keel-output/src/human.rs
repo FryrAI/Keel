@@ -1,5 +1,5 @@
 use crate::OutputFormatter;
-use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult, Violation};
+use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult, MapResult, Violation};
 
 pub struct HumanFormatter;
 
@@ -107,6 +107,27 @@ impl OutputFormatter for HumanFormatter {
         }
 
         out.push_str(&format!("\n{}\n", result.summary));
+        out
+    }
+
+    fn format_map(&self, result: &MapResult) -> String {
+        let s = &result.summary;
+        let mut out = format!(
+            "Map: {} nodes, {} edges, {} modules, {} functions, {} classes\n",
+            s.total_nodes, s.total_edges, s.modules, s.functions, s.classes,
+        );
+        out.push_str(&format!(
+            "Languages: {}  Type hints: {:.0}%  Docstrings: {:.0}%\n",
+            s.languages.join(", "),
+            s.type_hint_coverage * 100.0,
+            s.docstring_coverage * 100.0,
+        ));
+        for m in &result.modules {
+            out.push_str(&format!(
+                "  {} ({} fns, {} classes, {} edges)\n",
+                m.path, m.function_count, m.class_count, m.edge_count,
+            ));
+        }
         out
     }
 }

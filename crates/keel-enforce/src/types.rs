@@ -125,3 +125,36 @@ pub struct ResolutionStep {
     pub line: u32,
     pub text: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapResult {
+    pub version: String,
+    pub command: String,
+    pub summary: MapSummary,
+    pub modules: Vec<ModuleEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MapSummary {
+    pub total_nodes: u32,
+    pub total_edges: u32,
+    pub modules: u32,
+    pub functions: u32,
+    pub classes: u32,
+    pub external_endpoints: u32,
+    pub languages: Vec<String>,
+    pub type_hint_coverage: f64,
+    pub docstring_coverage: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleEntry {
+    pub path: String,
+    pub function_count: u32,
+    pub class_count: u32,
+    pub edge_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub responsibility_keywords: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_endpoints: Option<Vec<String>>,
+}

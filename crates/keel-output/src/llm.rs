@@ -1,5 +1,5 @@
 use crate::OutputFormatter;
-use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult, Violation};
+use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult, MapResult, Violation};
 
 pub struct LlmFormatter;
 
@@ -87,6 +87,27 @@ impl OutputFormatter for LlmFormatter {
         }
 
         out.push_str(&format!("SUMMARY {}\n", result.summary));
+        out
+    }
+
+    fn format_map(&self, result: &MapResult) -> String {
+        let s = &result.summary;
+        let mut out = format!(
+            "MAP nodes={} edges={} modules={} fns={} classes={}\n",
+            s.total_nodes, s.total_edges, s.modules, s.functions, s.classes,
+        );
+        out.push_str(&format!(
+            "LANGS {} HINTS={:.2} DOCS={:.2}\n",
+            s.languages.join(","),
+            s.type_hint_coverage,
+            s.docstring_coverage,
+        ));
+        for m in &result.modules {
+            out.push_str(&format!(
+                "  {} fns={} cls={} edges={}\n",
+                m.path, m.function_count, m.class_count, m.edge_count,
+            ));
+        }
         out
     }
 }

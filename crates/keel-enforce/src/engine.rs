@@ -782,6 +782,142 @@ mod tests {
         assert!(s001.unwrap().suppressed);
     }
 
+    // --- Edge case tests ---
+
+    #[test]
+    fn test_e001_and_e002_combined_on_same_file() {
+        let store = SqliteGraphStore::in_memory().unwrap();
+        // Store a function with old hash (will trigger E001 when signature changes)
+        let old_hash = keel_core::hash::compute_hash("fn foo(x: i32)", "{ x + 1 }", "Doc for foo");
+        let mut node = make_node(1, &old_hash, "foo", "fn foo(x: i32)", "src/lib.py");
+        node.docstring = Some("Doc for foo".to_string());
+        store.insert_node(&node).unwrap();
+
+        // Store a caller
+        let caller = make_node(2, "cal11111111", "bar", "fn bar()", "src/bar.py");
+        store.insert_node(&caller).unwrap();
+
+        let mut store_mut = store;
+        store_mut
+            .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/bar.py"))])
+            .unwrap();
+
+        let mut engine = EnforcementEngine::new(Box::new(store_mut));
+
+        // File with changed foo (triggers E001) AND a new public function without type hints (E002)
+        let mut changed_foo = make_definition("foo", "fn foo(x: i32, y: i32)", "{ x + y }", "src/lib.py");
+        changed_foo.type_hints_present = true;
+
+        let mut no_hints = make_definition("process", "def process(x)", "pass", "src/lib.py");
+        no_hints.type_hints_present = false;
+
+        let file = FileIndex {
+            file_path: "src/lib.py".to_string(),
+            content_hash: 0,
+            definitions: vec![changed_foo, no_hints],
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+            parse_duration_us: 0,
+        };
+
+        let result = engine.compile(&[file]);
+        assert_eq!(result.status, "error");
+
+        let e001 = result.errors.iter().filter(|v| v.code == "E001").count();
+        let e002 = result.errors.iter().filter(|v| v.code == "E002").count();
+        assert!(e001 > 0, "E001 broken_caller should fire");
+        assert!(e002 > 0, "E002 missing_type_hints should fire");
+    }
+
+    #[test]
+    fn test_suppression_prevents_circuit_breaker_escalation() {
+        let store = SqliteGraphStore::in_memory().unwrap();
+        let mut engine = EnforcementEngine::new(Box::new(store));
+
+        // Suppress E002 before compiling
+        engine.suppress("E002");
+
+        let mut def = make_definition("process", "def process(x)", "pass", "app.py");
+        def.type_hints_present = false;
+
+        let file = FileIndex {
+            file_path: "app.py".to_string(),
+            content_hash: 0,
+            definitions: vec![def],
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+            parse_duration_us: 0,
+        };
+
+        // Compile 3 times — suppressed violations should become S001/INFO
+        for _ in 0..3 {
+            let result = engine.compile(&[file.clone()]);
+            let e002_errors = result.errors.iter().filter(|v| v.code == "E002").count();
+            assert_eq!(e002_errors, 0, "E002 should be suppressed in every iteration");
+
+            let s001 = result.warnings.iter().filter(|v| v.code == "S001").count();
+            assert!(s001 > 0, "Suppressed E002 should appear as S001");
+        }
+    }
+
+    #[test]
+    fn test_batch_expired_flushes_deferred() {
+        let store = SqliteGraphStore::in_memory().unwrap();
+        let mut engine = EnforcementEngine::new(Box::new(store));
+
+        // Set batch state to already expired
+        engine.batch_state = Some(crate::batch::BatchState::new_expired());
+
+        let mut def = make_definition("process", "def process(x)", "pass", "app.py");
+        def.type_hints_present = false;
+
+        let file = FileIndex {
+            file_path: "app.py".to_string(),
+            content_hash: 0,
+            definitions: vec![def],
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+            parse_duration_us: 0,
+        };
+
+        // Compile with expired batch — should flush and include E002 immediately
+        let result = engine.compile(&[file]);
+        assert_eq!(result.status, "error");
+        let e002 = result.errors.iter().filter(|v| v.code == "E002").count();
+        assert!(e002 > 0, "E002 should fire immediately when batch is expired");
+        // Batch state should be consumed
+        assert!(engine.batch_state.is_none(), "Expired batch should be consumed");
+    }
+
+    #[test]
+    fn test_e003_and_e002_both_fire_for_same_function() {
+        let store = SqliteGraphStore::in_memory().unwrap();
+        let mut engine = EnforcementEngine::new(Box::new(store));
+
+        let mut def = make_definition("handler", "def handler(x)", "pass", "app.py");
+        def.type_hints_present = false;
+        def.docstring = None;
+
+        let file = FileIndex {
+            file_path: "app.py".to_string(),
+            content_hash: 0,
+            definitions: vec![def],
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+            parse_duration_us: 0,
+        };
+
+        let result = engine.compile(&[file]);
+        assert_eq!(result.status, "error");
+        let codes: Vec<&str> = result.errors.iter().map(|v| v.code.as_str()).collect();
+        assert!(codes.contains(&"E002"), "E002 should fire for missing type hints");
+        assert!(codes.contains(&"E003"), "E003 should fire for missing docstring");
+    }
+
     #[test]
     fn test_circuit_breaker_downgrade() {
         let store = SqliteGraphStore::in_memory().unwrap();
