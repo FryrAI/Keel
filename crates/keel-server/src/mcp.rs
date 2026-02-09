@@ -1,7 +1,4 @@
 //! MCP (Model Context Protocol) JSON-RPC server over stdin/stdout.
-//!
-//! Reads JSON-RPC requests from stdin, dispatches to keel operations,
-//! and writes JSON-RPC responses to stdout.
 
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, Mutex};
@@ -18,8 +15,6 @@ use keel_enforce::types::{
 };
 
 type SharedStore = Arc<Mutex<SqliteGraphStore>>;
-
-// --- JSON-RPC types ---
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
@@ -46,12 +41,12 @@ struct JsonRpcError {
     message: String,
 }
 
-// --- MCP tool listing ---
-
 #[derive(Serialize, Deserialize)]
 struct ToolInfo {
     name: String,
     description: String,
+    #[serde(rename = "inputSchema")]
+    input_schema: Value,
 }
 
 fn tool_list() -> Vec<ToolInfo> {
@@ -59,27 +54,63 @@ fn tool_list() -> Vec<ToolInfo> {
         ToolInfo {
             name: "keel/compile".into(),
             description: "Compile files and check for violations".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "files": { "type": "array", "items": { "type": "string" } },
+                    "batch_start": { "type": "boolean" },
+                    "batch_end": { "type": "boolean" }
+                }
+            }),
         },
         ToolInfo {
             name: "keel/discover".into(),
             description: "Discover callers and callees of a node by hash".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["hash"],
+                "properties": {
+                    "hash": { "type": "string" },
+                    "depth": { "type": "integer", "default": 1 }
+                }
+            }),
         },
         ToolInfo {
             name: "keel/where".into(),
             description: "Find file and line for a hash".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["hash"],
+                "properties": {
+                    "hash": { "type": "string" }
+                }
+            }),
         },
         ToolInfo {
             name: "keel/explain".into(),
             description: "Explain a violation with resolution chain".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["error_code", "hash"],
+                "properties": {
+                    "error_code": { "type": "string" },
+                    "hash": { "type": "string" }
+                }
+            }),
         },
         ToolInfo {
             name: "keel/map".into(),
             description: "Full re-map of the codebase graph".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "format": { "type": "string", "enum": ["json", "llm"] },
+                    "scope": { "type": "array", "items": { "type": "string" } }
+                }
+            }),
         },
     ]
 }
-
-// --- Request dispatch ---
 
 fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<Value, JsonRpcError> {
     match method {
@@ -96,7 +127,7 @@ fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<
         "keel/discover" => handle_discover(store, params),
         "keel/where" => handle_where(store, params),
         "keel/explain" => handle_explain(store, params),
-        "keel/map" => handle_map(),
+        "keel/map" => handle_map(params),
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Method not found: {}", method),
@@ -104,8 +135,7 @@ fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<
     }
 }
 
-/// Process a single JSON-RPC line and return the response as a JSON string.
-/// Useful for testing without stdin/stdout.
+/// Process a single JSON-RPC line and return the response JSON string.
 pub fn process_line(store: &SharedStore, line: &str) -> String {
     if line.trim().is_empty() {
         return String::new();
@@ -147,43 +177,52 @@ pub fn process_line(store: &SharedStore, line: &str) -> String {
 }
 
 fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
-    JsonRpcError {
-        code: -32603,
-        message: e.to_string(),
-    }
+    JsonRpcError { code: -32603, message: e.to_string() }
 }
 
 fn missing_param(name: &str) -> JsonRpcError {
-    JsonRpcError {
-        code: -32602,
-        message: format!("Missing '{}' parameter", name),
-    }
+    JsonRpcError { code: -32602, message: format!("Missing '{}' parameter", name) }
 }
 
 fn not_found(hash: &str) -> JsonRpcError {
-    JsonRpcError {
-        code: -32602,
-        message: format!("Node not found: {}", hash),
-    }
+    JsonRpcError { code: -32602, message: format!("Node not found: {}", hash) }
 }
 
 fn lock_store(store: &SharedStore) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
-    store.lock().map_err(|_| JsonRpcError {
-        code: -32603,
-        message: "Store lock poisoned".into(),
-    })
+    store.lock().map_err(|_| JsonRpcError { code: -32603, message: "Store lock poisoned".into() })
 }
 
 fn handle_compile(params: Option<Value>) -> Result<Value, JsonRpcError> {
     let files: Vec<String> = params
+        .as_ref()
         .and_then(|p| p.get("files").cloned())
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
+    let batch_start = params
+        .as_ref()
+        .and_then(|p| p.get("batch_start"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let batch_end = params
+        .as_ref()
+        .and_then(|p| p.get("batch_end"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let status = if batch_start {
+        "batch_started"
+    } else if batch_end {
+        "batch_ended"
+    } else {
+        "ok"
+    };
+
     let result = CompileResult {
         version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
-        status: "ok".into(),
+        status: status.into(),
         files_analyzed: files,
         errors: vec![],
         warnings: vec![],
@@ -270,7 +309,9 @@ fn handle_where(store: &SharedStore, params: Option<Value>) -> Result<Value, Jso
 
     serde_json::to_value(serde_json::json!({
         "file": node.file_path,
-        "line": node.line_start,
+        "line_start": node.line_start,
+        "line_end": node.line_end,
+        "stale": false,
     }))
     .map_err(internal_err)
 }
@@ -312,9 +353,23 @@ fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, J
     serde_json::to_value(result).map_err(internal_err)
 }
 
-fn handle_map() -> Result<Value, JsonRpcError> {
+fn handle_map(params: Option<Value>) -> Result<Value, JsonRpcError> {
+    let format = params
+        .as_ref()
+        .and_then(|p| p.get("format"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("json");
+
+    let scope: Vec<String> = params
+        .as_ref()
+        .and_then(|p| p.get("scope").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+
     Ok(serde_json::json!({
         "status": "ok",
+        "format": format,
+        "scope": scope,
         "message": "Map not yet implemented — requires keel-parsers integration"
     }))
 }

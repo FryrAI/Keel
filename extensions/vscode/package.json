@@ -24,11 +24,27 @@
       },
       {
         "command": "keel.discover",
-        "title": "Keel: Discover Hash"
+        "title": "Keel: Discover"
       },
       {
         "command": "keel.where",
         "title": "Keel: Where (locate hash)"
+      },
+      {
+        "command": "keel.showMap",
+        "title": "Keel: Show Map"
+      },
+      {
+        "command": "keel.startServer",
+        "title": "Keel: Start Server"
+      },
+      {
+        "command": "keel.stopServer",
+        "title": "Keel: Stop Server"
+      },
+      {
+        "command": "keel.showOutput",
+        "title": "Keel: Show Output"
       }
     ],
     "configuration": {
@@ -43,6 +59,16 @@
           "type": "boolean",
           "default": true,
           "description": "Run keel compile on file save"
+        },
+        "keel.autoStartServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-start keel serve --http --watch on activation"
+        },
+        "keel.serverPort": {
+          "type": "number",
+          "default": 4815,
+          "description": "Port for the keel HTTP server"
         }
       }
     }
