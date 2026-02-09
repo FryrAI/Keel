@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# keel pre-commit hook — blocks commits with structural violations.
+#
+# Install: cp .keel/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#   or: ln -sf ../../.keel/hooks/pre-commit .git/hooks/pre-commit
+#
+# Runs `keel compile --strict` on all staged files.
+# Exit 0 = pass (no violations), Exit 1 = violations found.
+
+set -euo pipefail
+
+# Get staged files that keel cares about
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx|py|go|rs)$' || true)
+
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+echo "keel: checking staged files..."
+
+# Run strict compile on staged files
+# shellcheck disable=SC2086
+if keel compile --strict $STAGED; then
+    echo "keel: clean compile ✓"
+    exit 0
+else
+    echo ""
+    echo "keel: violations found — commit blocked."
+    echo "Fix the violations above or use 'git commit --no-verify' to bypass."
+    exit 1
+fi

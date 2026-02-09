@@ -24,13 +24,28 @@
       },
       {
         "command": "keel.discover",
-        "title": "Keel: Discover"
+        "title": "Keel: Discover Hash"
       },
       {
-        "command": "keel.stats",
-        "title": "Keel: Stats"
+        "command": "keel.where",
+        "title": "Keel: Where (locate hash)"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Keel",
+      "properties": {
+        "keel.binaryPath": {
+          "type": "string",
+          "default": "keel",
+          "description": "Path to the keel binary"
+        },
+        "keel.compileOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run keel compile on file save"
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",
@@ -38,6 +53,7 @@
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
     "typescript": "^5.3.0"
   }
 }
