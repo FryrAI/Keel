@@ -217,7 +217,7 @@ impl SqliteGraphStore {
 
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {
         self.conn.execute(
-            "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
+            "INSERT OR REPLACE INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 node.id,
@@ -415,7 +415,7 @@ impl GraphStore for SqliteGraphStore {
         for change in changes {
             match change {
                 NodeChange::Add(node) => {
-                    // Check for hash collision
+                    // Check for hash collision (different function, same hash)
                     let existing: Option<String> = tx
                         .query_row(
                             "SELECT name FROM nodes WHERE hash = ?1",
@@ -432,8 +432,9 @@ impl GraphStore for SqliteGraphStore {
                             });
                         }
                     }
+                    // INSERT OR REPLACE to handle re-map of same nodes
                     tx.execute(
-                        "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
+                        "INSERT OR REPLACE INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                         params![
                             node.id,
@@ -487,7 +488,7 @@ impl GraphStore for SqliteGraphStore {
             match change {
                 EdgeChange::Add(edge) => {
                     tx.execute(
-                        "INSERT INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        "INSERT OR REPLACE INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                         params![
                             edge.id,
                             edge.source_id,
@@ -613,5 +614,46 @@ mod tests {
     fn test_schema_version() {
         let store = SqliteGraphStore::in_memory().unwrap();
         assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn test_readd_same_node_no_unique_constraint_error() {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let node = test_node(1, "abc12345678", "test_fn");
+        store.update_nodes(vec![NodeChange::Add(node.clone())]).unwrap();
+        store
+            .update_nodes(vec![NodeChange::Add(node)])
+            .expect("Re-adding same node should not fail with UNIQUE constraint");
+        let retrieved = store.get_node("abc12345678").unwrap();
+        assert_eq!(retrieved.name, "test_fn");
+    }
+
+    #[test]
+    fn test_readd_same_edge_no_unique_constraint_error() {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let n1 = test_node(1, "aaa12345678", "caller");
+        let n2 = test_node(2, "bbb12345678", "callee");
+        store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
+        let edge = GraphEdge {
+            id: 1, source_id: 1, target_id: 2, kind: EdgeKind::Calls,
+            file_path: "src/test.rs".to_string(), line: 5,
+        };
+        store.update_edges(vec![EdgeChange::Add(edge.clone())]).unwrap();
+        store
+            .update_edges(vec![EdgeChange::Add(edge)])
+            .expect("Re-adding same edge should not fail with UNIQUE constraint");
+        assert_eq!(store.get_edges(1, EdgeDirection::Outgoing).len(), 1);
+    }
+
+    #[test]
+    fn test_hash_collision_different_names_still_errors() {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let node1 = test_node(1, "collision_hash", "func_a");
+        store.update_nodes(vec![NodeChange::Add(node1)]).unwrap();
+        let node2 = test_node(2, "collision_hash", "func_b");
+        assert!(
+            store.update_nodes(vec![NodeChange::Add(node2)]).is_err(),
+            "Hash collision between different functions should still error"
+        );
     }
 }

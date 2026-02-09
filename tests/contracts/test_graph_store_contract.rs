@@ -313,10 +313,13 @@ fn contract_hash_collision_same_name_allowed() {
     let n1 = test_node(1, "same_hash_001", "func_a", NodeKind::Function, 0);
     store.update_nodes(vec![NodeChange::Add(n1)]).unwrap();
 
-    // Same hash + same name should not be a collision (it's the same function)
+    // Same hash + same name = same function re-mapped. Should succeed (INSERT OR REPLACE).
     let n2 = test_node(2, "same_hash_001", "func_a", NodeKind::Function, 0);
-    let result = store.update_nodes(vec![NodeChange::Add(n2)]);
-    // This will fail with a UNIQUE constraint on hash, which is expected
-    // The collision check only fires when names differ
-    assert!(result.is_err(), "Duplicate hash with different id should fail on unique constraint");
+    store
+        .update_nodes(vec![NodeChange::Add(n2)])
+        .expect("Re-adding same function (same hash + name) should succeed on re-map");
+
+    // The node should now exist with the new id
+    let node = store.get_node("same_hash_001").unwrap();
+    assert_eq!(node.name, "func_a");
 }

@@ -128,7 +128,6 @@ fn test_missing_graph_db_triggers_init_suggestion() {
 
 #[test]
 fn test_parse_failure_skips_file_gracefully() {
-    // Fresh project (not pre-mapped) to avoid UNIQUE constraint on re-map
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
