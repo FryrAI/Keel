@@ -165,7 +165,7 @@ pub fn resolve_import_to_module(
 
     // 3. Rust crate:: paths: convert to src/ file paths
     if import_source.starts_with("crate::") {
-        let rest = &import_source["crate::".len()..];
+        let rest = import_source.strip_prefix("crate::").unwrap_or(import_source);
         let segments: Vec<&str> = rest.split("::").collect();
         for depth in (1..=segments.len()).rev() {
             let module_path = segments[..depth].join("/");

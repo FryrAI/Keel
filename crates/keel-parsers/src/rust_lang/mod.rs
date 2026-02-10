@@ -124,10 +124,16 @@ impl LanguageResolver for RustLangResolver {
             let module_path = &callee[..sep_pos];
 
             // Look for matching import of the module
+            // After resolution, import source may be a file path (e.g., src/utils.rs)
+            // or an original path (e.g., crate::utils), so check both forms
             let module_import = caller_result
                 .imports
                 .iter()
-                .find(|imp| imp.source.ends_with(module_path));
+                .find(|imp| {
+                    imp.source.ends_with(module_path)
+                        || imp.source.ends_with(&format!("{module_path}.rs"))
+                        || imp.source.ends_with(&format!("{module_path}/mod.rs"))
+                });
 
             if let Some(imp) = module_import {
                 return Some(ResolvedEdge {

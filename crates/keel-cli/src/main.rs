@@ -30,7 +30,7 @@ fn main() {
             )
         }
         Commands::Where { hash } => {
-            commands::where_cmd::run(&*formatter, cli.verbose, hash)
+            commands::where_cmd::run(&*formatter, cli.verbose, hash, cli.json)
         }
         Commands::Explain { error_code, hash, tree } => {
             commands::explain::run(&*formatter, cli.verbose, error_code, hash, tree)
@@ -39,7 +39,7 @@ fn main() {
             commands::serve::run(&*formatter, cli.verbose, mcp, http, watch)
         }
         Commands::Deinit => commands::deinit::run(&*formatter, cli.verbose),
-        Commands::Stats => commands::stats::run(&*formatter, cli.verbose),
+        Commands::Stats => commands::stats::run(&*formatter, cli.verbose, cli.json),
     };
 
     std::process::exit(exit_code);

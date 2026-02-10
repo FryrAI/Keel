@@ -21,9 +21,11 @@ pub fn process(node: &GraphNode) -> bool {
     let result = resolver.parse_file(Path::new("processor.rs"), source);
     assert!(!result.imports.is_empty(), "should have at least one import");
     let import = &result.imports[0];
+    // After cross-file resolution, crate:: paths resolve to file paths (e.g. src/graph.rs)
+    // or remain as the original path if no Cargo.toml is found
     assert!(
-        import.source.contains("crate::graph::GraphNode"),
-        "import source should contain 'crate::graph::GraphNode', got: {}",
+        import.source.contains("graph"),
+        "import source should reference 'graph' module, got: {}",
         import.source
     );
     assert!(import.is_relative, "crate:: paths should be marked relative");

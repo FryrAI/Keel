@@ -59,7 +59,7 @@ impl EnforcementEngine {
             });
         }
 
-        let confidence = if self.circuit_breaker.is_downgraded(error_code, hash) {
+        let confidence = if self.circuit_breaker.is_downgraded(error_code, hash, &node.file_path) {
             0.5
         } else {
             0.92
