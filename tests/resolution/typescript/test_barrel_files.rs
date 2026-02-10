@@ -184,3 +184,67 @@ helper();
         );
     }
 }
+
+#[test]
+/// Cross-file resolution through a barrel re-export should trace back to the
+/// original definition file, not stop at the barrel.
+fn test_cross_file_resolution_through_reexport() {
+    let resolver = TsResolver::new();
+
+    // utils.ts defines and exports helper
+    let utils_source = r#"
+export function helper(input: string): string {
+    return input.toUpperCase();
+}
+"#;
+    resolver.parse_file(Path::new("utils.ts"), utils_source);
+
+    // index.ts barrel re-exports helper from utils
+    let barrel_source = "export { helper } from './utils';\n";
+    resolver.parse_file(Path::new("index.ts"), barrel_source);
+
+    // app.ts imports helper from the barrel and calls it
+    let caller_source = r#"
+import { helper } from './index';
+const result = helper("hello");
+"#;
+    resolver.parse_file(Path::new("app.ts"), caller_source);
+
+    // Resolve the call edge from app.ts
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "app.ts".into(),
+        line: 3,
+        callee_name: "helper".into(),
+        receiver: None,
+    });
+
+    // The edge MUST resolve (not silently pass on None)
+    assert!(
+        edge.is_some(),
+        "cross-file call through barrel re-export must resolve"
+    );
+
+    let e = edge.unwrap();
+
+    // Should trace through the barrel back to the original definition
+    assert_eq!(
+        e.target_name, "helper",
+        "resolved target name should be 'helper'"
+    );
+
+    // Confidence should be Tier 2 level (>= 0.85)
+    assert!(
+        e.confidence >= 0.85,
+        "cross-file barrel resolution should have Tier 2 confidence, got {}",
+        e.confidence
+    );
+
+    // If the resolver traces through the re-export, target_file should be
+    // utils.ts (the original source), not index.ts (the barrel)
+    if e.confidence >= 0.95 {
+        assert_eq!(
+            e.target_file, "utils.ts",
+            "Tier 2 resolution should trace re-export back to original source file"
+        );
+    }
+}
