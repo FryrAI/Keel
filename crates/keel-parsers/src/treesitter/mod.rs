@@ -200,6 +200,7 @@ fn extract_references(
 
     while let Some(m) = matches.next() {
         let mut call_name = None;
+        let mut receiver = None;
         let mut line = 0u32;
         let mut is_call = false;
 
@@ -210,6 +211,9 @@ fn extract_references(
                     call_name = Some(node_text(cap.node, source).to_string());
                     is_call = true;
                 }
+                "ref.call.receiver" => {
+                    receiver = Some(node_text(cap.node, source).to_string());
+                }
                 "ref.call" => {
                     line = cap.node.start_position().row as u32 + 1;
                 }
@@ -219,8 +223,20 @@ fn extract_references(
 
         if let Some(n) = call_name {
             if is_call {
+                // For qualified calls (e.g. fmt.Println, Vec::new), include the qualifier
+                let qualified_name = match &receiver {
+                    Some(recv) if !recv.is_empty() => {
+                        // Go uses dot separator, Rust uses ::
+                        if recv.contains("::") || n.contains("::") {
+                            format!("{recv}::{n}")
+                        } else {
+                            format!("{recv}.{n}")
+                        }
+                    }
+                    _ => n.clone(),
+                };
                 refs.push(Reference {
-                    name: n,
+                    name: qualified_name,
                     file_path: file_path.to_string(),
                     line,
                     kind: ReferenceKind::Call,
@@ -277,6 +293,25 @@ fn extract_imports(
                 || src.starts_with("../")
                 || src.starts_with("crate::")
                 || src.starts_with("super::");
+            // For Rust use paths, extract the last segment as the imported name
+            // e.g. "crate::store::GraphStore" → imported_names = ["GraphStore"]
+            if imported_names.is_empty() && src.contains("::") {
+                if let Some(last) = src.rsplit("::").next() {
+                    // Skip glob imports like "crate::prelude::*"
+                    if last != "*" && !last.is_empty() {
+                        imported_names.push(last.to_string());
+                    }
+                }
+            }
+            // For Go imports without explicit names, extract the package alias
+            // e.g. "github.com/spf13/cobra" → imported_names = ["cobra"]
+            if imported_names.is_empty() && src.contains('/') && !src.starts_with('.') {
+                if let Some(last) = src.rsplit('/').next() {
+                    if !last.is_empty() {
+                        imported_names.push(last.to_string());
+                    }
+                }
+            }
             imports.push(Import {
                 source: src,
                 imported_names,

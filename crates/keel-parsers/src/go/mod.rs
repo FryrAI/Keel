@@ -232,4 +232,56 @@ func main() { helper() }
         assert_eq!(go_package_alias("\"net/http\""), "http");
         assert_eq!(go_package_alias("\"github.com/user/repo/pkg\""), "pkg");
     }
+
+    #[test]
+    fn test_go_import_extracts_package_name() {
+        let resolver = GoResolver::new();
+        let source = r#"
+package main
+
+import (
+    "fmt"
+    "github.com/spf13/cobra"
+)
+
+func main() {
+    fmt.Println("hello")
+    cobra.Execute()
+}
+"#;
+        let path = Path::new("test_imports.go");
+        let result = resolver.parse_file(path, source);
+        // Go imports should have the package alias as imported_names
+        let cobra_imp = result.imports.iter().find(|i| i.source.contains("cobra"));
+        assert!(cobra_imp.is_some(), "should have cobra import");
+        let imp = cobra_imp.unwrap();
+        assert!(
+            imp.imported_names.contains(&"cobra".to_string()),
+            "imported_names should contain 'cobra', got: {:?}",
+            imp.imported_names
+        );
+    }
+
+    #[test]
+    fn test_go_cross_file_call_with_import() {
+        let resolver = GoResolver::new();
+        let source = r#"
+package main
+
+import "github.com/spf13/cobra"
+
+func main() {
+    cobra.Execute()
+}
+"#;
+        let path = Path::new("test_cross.go");
+        let result = resolver.parse_file(path, source);
+        // Verify the import has the right structure
+        assert!(!result.imports.is_empty(), "should have imports");
+        let imp = &result.imports[0];
+        assert!(
+            imp.source.contains("cobra"),
+            "import source should contain cobra"
+        );
+    }
 }

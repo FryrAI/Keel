@@ -184,7 +184,42 @@ fn resolve_rust_use_path(dir: &Path, source: &str) -> Option<String> {
         }
         return Some(as_file.to_string_lossy().to_string());
     }
-    // crate:: paths need project root context — return as-is
+    if source.starts_with("crate::") {
+        let rest = source.strip_prefix("crate::")?;
+        let segments: Vec<&str> = rest.split("::").collect();
+        // Walk up from current dir to find src/ or project root
+        let mut search_dir = dir;
+        let mut project_root = None;
+        loop {
+            if search_dir.join("Cargo.toml").exists() {
+                project_root = Some(search_dir.to_path_buf());
+                break;
+            }
+            match search_dir.parent() {
+                Some(p) if p != search_dir => search_dir = p,
+                _ => break,
+            }
+        }
+        if let Some(root) = project_root {
+            let src_dir = root.join("src");
+            // Try progressively shorter module paths
+            for depth in (1..=segments.len().min(3)).rev() {
+                let module_path = segments[..depth].join("/");
+                let as_file = src_dir.join(format!("{module_path}.rs"));
+                let as_mod = src_dir.join(&module_path).join("mod.rs");
+                if as_file.exists() {
+                    return Some(as_file.to_string_lossy().to_string());
+                }
+                if as_mod.exists() {
+                    return Some(as_mod.to_string_lossy().to_string());
+                }
+            }
+            // Return the best guess even if file doesn't exist yet
+            let module_name = segments[0];
+            let as_file = src_dir.join(format!("{module_name}.rs"));
+            return Some(as_file.to_string_lossy().to_string());
+        }
+    }
     None
 }
 
@@ -263,5 +298,55 @@ fn main() { helper(); }
         assert!(rust_is_public("pub fn greet() {}", 1));
         assert!(!rust_is_public("fn internal() {}", 1));
         assert!(rust_is_public("  pub fn greet() {}", 1));
+    }
+
+    #[test]
+    fn test_rust_resolver_parses_use_imports() {
+        let resolver = RustLangResolver::new();
+        let source = r#"
+use crate::store::GraphStore;
+use super::utils::helper;
+
+fn main() {
+    let s = GraphStore::new();
+    helper();
+}
+"#;
+        let path = Path::new("test_imports.rs");
+        let result = resolver.parse_file(path, source);
+        assert!(
+            result.imports.len() >= 2,
+            "expected at least 2 imports, got {}",
+            result.imports.len()
+        );
+        // crate:: import gets resolved to a file path by resolve_rust_use_path
+        let store_imp = result
+            .imports
+            .iter()
+            .find(|i| i.source.contains("store") && i.imported_names.contains(&"GraphStore".to_string()));
+        assert!(store_imp.is_some(), "should have store import with GraphStore name");
+        assert!(store_imp.unwrap().is_relative);
+    }
+
+    #[test]
+    fn test_rust_resolver_cross_file_call_via_import() {
+        let resolver = RustLangResolver::new();
+        let source = r#"
+use crate::store::GraphStore;
+
+fn main() {
+    GraphStore::new();
+}
+"#;
+        let path = Path::new("test_cross.rs");
+        resolver.parse_file(path, source);
+        let edge = resolver.resolve_call_edge(&CallSite {
+            file_path: "test_cross.rs".into(),
+            line: 5,
+            callee_name: "GraphStore".into(),
+            receiver: None,
+        });
+        // Should resolve via the use import
+        assert!(edge.is_some(), "should resolve GraphStore via use import");
     }
 }
