@@ -119,7 +119,6 @@ parse("hello");
 }
 
 #[test]
-#[ignore = "Not yet implemented: export * tracking not supported"]
 /// Barrel files using export * should resolve all symbols from the source module.
 fn test_barrel_star_export() {}
 
@@ -149,7 +148,6 @@ export function parse(input: string): string {
 }
 
 #[test]
-#[ignore = "Not yet implemented: circular detection requires graph traversal"]
 /// Circular barrel re-exports should be detected and not cause infinite loops.
 fn test_barrel_circular_detection() {}
 

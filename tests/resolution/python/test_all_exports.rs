@@ -5,7 +5,6 @@ use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
 
 #[test]
-#[ignore = "Not yet implemented — __all__ parsing not wired"]
 /// __all__ should define the public API of a module for star imports.
 fn test_all_defines_public_api() {
     // GIVEN module.py with __all__ = ['foo', 'Bar'] and also defines baz()
@@ -14,7 +13,6 @@ fn test_all_defines_public_api() {
 }
 
 #[test]
-#[ignore = "Not yet implemented — __all__ validation not wired"]
 /// __all__ with names not defined in the module should produce a warning.
 fn test_all_with_undefined_names() {
     // GIVEN module.py with __all__ = ['foo', 'nonexistent']
@@ -107,7 +105,6 @@ def greet(name):
 }
 
 #[test]
-#[ignore = "Not yet implemented — __all__ concatenation parsing not wired"]
 /// __all__ should be parsed even when defined with concatenation (__all__ = list1 + list2).
 fn test_all_with_concatenation() {
     // GIVEN module.py with __all__ = ['foo'] + ['bar']
@@ -116,7 +113,6 @@ fn test_all_with_concatenation() {
 }
 
 #[test]
-#[ignore = "Not yet implemented — incremental re-evaluation not wired"]
 /// __all__ changes should trigger re-evaluation of dependent imports.
 fn test_all_change_triggers_reevaluation() {
     // GIVEN module.py with __all__ = ['foo'] imported by consumer.py
@@ -125,7 +121,6 @@ fn test_all_change_triggers_reevaluation() {
 }
 
 #[test]
-#[ignore = "Not yet implemented — dynamic __all__ detection not wired"]
 /// Dynamic __all__ (e.g., computed at runtime) should be marked as unresolvable.
 fn test_dynamic_all_unresolvable() {
     // GIVEN module.py with __all__ = [x for x in dir() if not x.startswith('_')]

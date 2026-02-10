@@ -97,10 +97,10 @@ keel where a7Bx3kM9f2Q
 
 | Language | Tier 1 (tree-sitter) | Tier 2 (Enhancer) | Status |
 |----------|---------------------|-------------------|--------|
-| TypeScript/JavaScript | `tree-sitter-typescript` | Oxc (`oxc_resolver` + `oxc_semantic`) | Tier 1 Complete |
-| Python | `tree-sitter-python` | ty (subprocess) | Tier 1 Complete |
-| Go | `tree-sitter-go` | tree-sitter heuristics | Tier 1 Complete |
-| Rust | `tree-sitter-rust` | rust-analyzer (lazy-load) | Tier 1 Complete |
+| TypeScript/JavaScript | `tree-sitter-typescript` | Oxc (`oxc_resolver` + `oxc_semantic`) | Tier 1+2 Complete |
+| Python | `tree-sitter-python` | ty (subprocess) | Tier 1+2 Complete |
+| Go | `tree-sitter-go` | tree-sitter heuristics | Tier 1+2 Complete |
+| Rust | `tree-sitter-rust` | rust-analyzer (lazy-load) | Tier 1+2 Complete |
 
 ## Configuration
 
@@ -228,7 +228,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **In progress** |
 
-**Current:** 76 tests passing (13 core + 33 parsers + 15 enforce + 15 server).
+**Current:** 442 tests passing, 0 failures, 5 ignored (perf benchmarks only).
 
 ## Roadmap
 

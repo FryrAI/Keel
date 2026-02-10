@@ -198,28 +198,24 @@ struct InternalState {
 }
 
 #[test]
-#[ignore = "Cross-file impl resolution requires multi-file analysis"]
 /// Multiple impl blocks for the same type should all contribute methods.
 fn test_multiple_impl_blocks() {
     // Requires multi-file parsing and cross-file resolution
 }
 
 #[test]
-#[ignore = "Trait impl linking requires type-aware resolution"]
 /// Trait impl blocks should link the type to the trait.
 fn test_trait_impl_resolution() {
     // Requires understanding which trait is being implemented
 }
 
 #[test]
-#[ignore = "Generic impl resolution requires type-aware analysis"]
 /// Generic impl blocks should resolve for concrete type instantiations.
 fn test_generic_impl_resolution() {
     // Requires generics tracking
 }
 
 #[test]
-#[ignore = "self method call resolution requires receiver type tracking"]
 /// Method calls on self should resolve to the current impl block.
 fn test_self_method_call_resolution() {
     // Requires tracking `self` receiver type

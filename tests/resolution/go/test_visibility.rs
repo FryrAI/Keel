@@ -45,7 +45,6 @@ func helper(x int) int {
 }
 
 #[test]
-#[ignore = "Cross-package resolution not yet implemented"]
 /// Cross-package calls to unexported functions should produce resolution errors.
 fn test_cross_package_unexported_call_error() {
     // Requires multi-file cross-package resolution which the current

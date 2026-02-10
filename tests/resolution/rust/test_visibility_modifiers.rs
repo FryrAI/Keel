@@ -25,7 +25,6 @@ pub fn process(input: &str) -> String {
 }
 
 #[test]
-#[ignore = "pub(crate) not distinguished by heuristic resolver"]
 /// `pub(crate)` items should be accessible only within the same crate.
 fn test_pub_crate_visibility() {
     // The current heuristic only checks for `pub ` prefix.
@@ -44,7 +43,6 @@ pub(crate) fn internal() -> i32 {
 }
 
 #[test]
-#[ignore = "pub(super) not distinguished by heuristic resolver"]
 /// `pub(super)` items should be accessible only from the parent module.
 fn test_pub_super_visibility() {
     let resolver = RustLangResolver::new();
@@ -128,7 +126,6 @@ fn also_typed(a: Vec<String>) -> Option<i32> { None }
 }
 
 #[test]
-#[ignore = "pub(in path) not distinguished by heuristic resolver"]
 /// `pub(in path)` should restrict visibility to the specified module path.
 fn test_pub_in_path_visibility() {
     let resolver = RustLangResolver::new();

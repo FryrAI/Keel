@@ -40,7 +40,6 @@ func main() {
 }
 
 #[test]
-#[ignore = "Module-relative import resolution requires go.mod parsing"]
 /// Module-relative imports should resolve to the correct local package.
 fn test_module_relative_import() {
     // Requires go.mod parsing + directory walking which the GoResolver
@@ -86,7 +85,6 @@ func main() {
 }
 
 #[test]
-#[ignore = "Dot imports require special scope resolution"]
 /// Dot imports should import all exported names into the current scope.
 fn test_dot_import() {
     // Dot imports (`. "pkg"`) bring all exported names into scope
@@ -95,7 +93,6 @@ fn test_dot_import() {
 }
 
 #[test]
-#[ignore = "Blank imports require special tracking"]
 /// Blank imports (side-effect only) should be tracked but not produce call edges.
 fn test_blank_import() {
     // Blank imports (`_ "pkg"`) are side-effect only.

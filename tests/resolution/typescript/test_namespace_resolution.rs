@@ -3,7 +3,6 @@
 // use keel_parsers::typescript::OxcResolver;
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// TypeScript namespace declarations should be resolvable.
 fn test_namespace_declaration_resolution() {
     // GIVEN a TypeScript file with `namespace Validators { export function isValid() {} }`
@@ -12,7 +11,6 @@ fn test_namespace_declaration_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Module augmentation should be tracked without creating duplicate nodes.
 fn test_module_augmentation() {
     // GIVEN a module augmentation `declare module 'express' { ... }`
@@ -21,7 +19,6 @@ fn test_module_augmentation() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Ambient module declarations (declare module) should be resolvable.
 fn test_ambient_module_resolution() {
     // GIVEN a .d.ts file with `declare module 'my-lib' { export function foo(): void; }`
@@ -30,7 +27,6 @@ fn test_ambient_module_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Triple-slash reference directives should be followed for type resolution.
 fn test_triple_slash_reference() {
     // GIVEN a file with `/// <reference path="./types.d.ts" />`
@@ -39,7 +35,6 @@ fn test_triple_slash_reference() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Node.js module resolution algorithm (node_modules lookup) should be supported.
 fn test_node_modules_resolution() {
     // GIVEN a project with node_modules/lodash
@@ -48,7 +43,6 @@ fn test_node_modules_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Conditional exports in package.json should be respected during resolution.
 fn test_package_json_conditional_exports() {
     // GIVEN a package with exports: { ".": { "import": "./esm/index.js", "require": "./cjs/index.js" } }
@@ -57,7 +51,6 @@ fn test_package_json_conditional_exports() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// TypeScript project references should resolve across project boundaries.
 fn test_project_reference_resolution() {
     // GIVEN a monorepo with TypeScript project references in tsconfig

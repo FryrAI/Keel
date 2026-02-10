@@ -5,7 +5,6 @@ use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{CallSite, LanguageResolver};
 
 #[test]
-#[ignore = "tree-sitter query doesn't capture wildcard_import nodes yet"]
 /// Star import should import all public names from the target module.
 fn test_star_import_all_public_names() {
     // GIVEN module.py with functions foo(), bar(), _private()
@@ -14,7 +13,6 @@ fn test_star_import_all_public_names() {
 }
 
 #[test]
-#[ignore = "Not yet implemented — __all__ parsing not wired"]
 /// Star import with __all__ defined should only import names listed in __all__.
 fn test_star_import_respects_all() {
     // GIVEN module.py with __all__ = ['foo'] and functions foo(), bar()
@@ -23,7 +21,6 @@ fn test_star_import_respects_all() {
 }
 
 #[test]
-#[ignore = "tree-sitter query doesn't capture wildcard_import nodes yet"]
 /// Star import should produce lower confidence edges due to ambiguity.
 fn test_star_import_lower_confidence() {
     // GIVEN a module using `from utils import *` and then calling foo()
@@ -128,7 +125,6 @@ def main():
 }
 
 #[test]
-#[ignore = "Not yet implemented — multiple star import tracking not wired"]
 /// Multiple star imports should track all potential sources for ambiguous names.
 fn test_multiple_star_imports_ambiguity() {
     // GIVEN `from a import *` and `from b import *` where both export `process`
@@ -137,7 +133,6 @@ fn test_multiple_star_imports_ambiguity() {
 }
 
 #[test]
-#[ignore = "Not yet implemented — __init__.py star import not wired"]
 /// Star import from a package should use the package's __init__.py exports.
 fn test_star_import_from_package() {
     // GIVEN a package with __init__.py defining __all__
@@ -146,7 +141,6 @@ fn test_star_import_from_package() {
 }
 
 #[test]
-#[ignore = "Not yet implemented — star import chaining not wired"]
 /// Star import chains (a imports * from b, b imports * from c) should be traced.
 fn test_star_import_chain() {
     // GIVEN a.py: from b import *, b.py: from c import *

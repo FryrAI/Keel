@@ -3,7 +3,6 @@
 // use keel_parsers::python::TyResolver;
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Absolute import of a local package should resolve to the correct module.
 fn test_absolute_import_local_package() {
     // GIVEN a project with src/utils/parser.py
@@ -12,7 +11,6 @@ fn test_absolute_import_local_package() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Import of a third-party package should be recognized as external.
 fn test_third_party_package_import() {
     // GIVEN `import requests`
@@ -21,7 +19,6 @@ fn test_third_party_package_import() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Conditional imports (inside if/try blocks) should be tracked with lower confidence.
 fn test_conditional_import_resolution() {
     // GIVEN `try: import ujson as json except: import json`
@@ -30,7 +27,6 @@ fn test_conditional_import_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Importing a module by its full dotted path should resolve step by step.
 fn test_dotted_path_import() {
     // GIVEN `import package.subpackage.module`
@@ -39,7 +35,6 @@ fn test_dotted_path_import() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Python resolution should use ty subprocess (not library) for Tier 2 resolution.
 fn test_resolution_uses_ty_subprocess() {
     // GIVEN a Python file with ambiguous imports
@@ -48,7 +43,6 @@ fn test_resolution_uses_ty_subprocess() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// ty subprocess timeout should prevent resolution from blocking indefinitely.
 fn test_ty_subprocess_timeout() {
     // GIVEN a Python project that causes ty to hang

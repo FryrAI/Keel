@@ -3,7 +3,6 @@
 // use keel_parsers::python::TyResolver;
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// ty subprocess should be invoked with --output-format json flag.
 fn test_ty_invoked_with_json_output() {
     // GIVEN a Python file needing Tier 2 resolution
@@ -12,7 +11,6 @@ fn test_ty_invoked_with_json_output() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// ty JSON output should be parsed into resolution candidates.
 fn test_ty_json_output_parsing() {
     // GIVEN valid JSON output from ty subprocess
@@ -21,7 +19,6 @@ fn test_ty_json_output_parsing() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Missing ty binary should produce a clear error with installation instructions.
 fn test_ty_binary_not_found() {
     // GIVEN ty is not installed on the system
@@ -30,7 +27,6 @@ fn test_ty_binary_not_found() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// ty subprocess returning non-zero exit code should be handled gracefully.
 fn test_ty_subprocess_error_exit() {
     // GIVEN a Python file that causes ty to fail
@@ -39,7 +35,6 @@ fn test_ty_subprocess_error_exit() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// ty resolution results should be cached to avoid repeated subprocess calls.
 fn test_ty_result_caching() {
     // GIVEN a Python file already resolved by ty

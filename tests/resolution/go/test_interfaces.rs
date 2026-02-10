@@ -3,7 +3,6 @@
 // use keel_parsers::go::GoHeuristicResolver;
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Interface method calls should resolve to all implementing types.
 fn test_interface_method_resolution() {
     // GIVEN interface Repository with method Find() and two structs implementing it
@@ -12,7 +11,6 @@ fn test_interface_method_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Interface satisfaction is implicit in Go (no explicit implements keyword).
 fn test_implicit_interface_satisfaction() {
     // GIVEN a struct that has all methods of an interface but no explicit declaration
@@ -21,7 +19,6 @@ fn test_implicit_interface_satisfaction() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Empty interface (interface{}/any) should match all types.
 fn test_empty_interface_resolution() {
     // GIVEN a function accepting interface{} parameter
@@ -30,7 +27,6 @@ fn test_empty_interface_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Interface embedding should compose the method sets.
 fn test_interface_embedding_resolution() {
     // GIVEN interface ReadWriter embedding Reader and Writer interfaces
@@ -39,7 +35,6 @@ fn test_interface_embedding_resolution() {
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Dynamic dispatch through interfaces should produce WARNING not ERROR on low confidence.
 fn test_interface_dispatch_warning_not_error() {
     // GIVEN a call through an interface with multiple possible implementations

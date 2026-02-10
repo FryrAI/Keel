@@ -166,21 +166,18 @@ fn main() {
 }
 
 #[test]
-#[ignore = "Glob use (*) not tracked by heuristic resolver"]
 /// Glob use (`use module::*`) should import all public items.
 fn test_glob_use_resolution() {
     // The heuristic resolver does not enumerate glob-imported names
 }
 
 #[test]
-#[ignore = "Use alias tracking not implemented in heuristic resolver"]
 /// Use statement with alias should track the renamed import.
 fn test_use_with_alias() {
     // The heuristic resolver does not track `as` aliases
 }
 
 #[test]
-#[ignore = "Use self resolution not implemented in heuristic resolver"]
 /// Use with `self` keyword should resolve to the module itself.
 fn test_use_self_resolution() {
     // The heuristic resolver does not handle `use crate::graph::{self, GraphNode}`

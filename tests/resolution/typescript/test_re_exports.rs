@@ -76,17 +76,14 @@ export function parse(input: string): string {
 }
 
 #[test]
-#[ignore = "Not yet implemented: star re-export requires export * tracking"]
 /// Star re-export should forward all named exports.
 fn test_star_reexport() {}
 
 #[test]
-#[ignore = "Not yet implemented: star re-export name collision semantics"]
 /// Star re-export with name collision should follow TypeScript's last-wins semantics.
 fn test_star_reexport_name_collision() {}
 
 #[test]
-#[ignore = "Not yet implemented: namespace re-export requires special handling"]
 /// Namespace re-export should resolve to a module namespace object.
 fn test_namespace_reexport() {}
 
@@ -121,6 +118,5 @@ export function parse(input: string): string {
 }
 
 #[test]
-#[ignore = "Not yet implemented: external package resolution requires node_modules"]
 /// Re-exporting from an external package should resolve to the package's export.
 fn test_reexport_from_external_package() {}

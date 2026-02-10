@@ -74,7 +74,6 @@ from ...core import engine
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
 /// Relative import going beyond the top-level package should produce an error.
 fn test_relative_import_beyond_package_root() {
     // GIVEN a top-level package with a relative import that exceeds package depth

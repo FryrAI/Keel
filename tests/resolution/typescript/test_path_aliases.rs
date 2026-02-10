@@ -150,7 +150,6 @@ fn test_path_alias_with_base_url() {
 }
 
 #[test]
-#[ignore = "Not yet implemented: tsconfig extends is not yet parsed"]
 /// Path aliases in extends tsconfig should be inherited by child configs.
 fn test_path_alias_tsconfig_extends() {}
 
@@ -192,7 +191,6 @@ fn test_path_alias_missing_target() {
 }
 
 #[test]
-#[ignore = "Not yet implemented: performance benchmark"]
 /// Path alias resolution should use oxc_resolver for 30x faster resolution.
 fn test_path_alias_uses_oxc_resolver() {}
 

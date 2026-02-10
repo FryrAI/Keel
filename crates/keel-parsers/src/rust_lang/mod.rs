@@ -151,6 +151,7 @@ impl LanguageResolver for RustLangResolver {
 }
 
 /// Check if a Rust definition at the given line is `pub`.
+/// Handles `pub fn`, `pub(crate) fn`, `pub(super) fn`, `pub(in path) fn`.
 fn rust_is_public(content: &str, line_start: u32) -> bool {
     if line_start == 0 {
         return false;
@@ -159,7 +160,7 @@ fn rust_is_public(content: &str, line_start: u32) -> bool {
     let idx = (line_start as usize).saturating_sub(1);
     if idx < lines.len() {
         let line = lines[idx].trim_start();
-        return line.starts_with("pub ");
+        return line.starts_with("pub ") || line.starts_with("pub(");
     }
     false
 }
