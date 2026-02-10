@@ -189,24 +189,53 @@ Result: 338 → 442 passing tests (+104), 109 → 5 ignored (perf benchmarks onl
 7. **Compile file filtering** — when `keel compile` is given specific files, it filters violations to only those files instead of reporting everything
 8. **JSON schema compliance** — `JsonFormatter` output includes all required fields (`version`, `command`, `status`, etc.) matching the schema contracts
 
+## Real-World Validation (2026-02-10)
+
+Swarm run #1 tested against 6 real-world repos. Results merged from 3 branches:
+- `fix/decompose-harden`: Decomposed 5 oversized files, hardening tests, architecture fixes
+- `test/ts-python`: FK constraint crash fix, validated ky/zustand/httpx
+- `test/go-rust`: 3 bug fixes, validated cobra/fiber/axum/keel-self
+
+### Per-Repo Results
+
+| Repo | Language | Nodes | Edges | Cross-file | Issues Found |
+|------|----------|-------|-------|------------|--------------|
+| ky | TypeScript | 89 | 36 | 36 calls | Working (partial) |
+| zustand | TypeScript | 45 | 10 | 10 calls | Working (partial) |
+| httpx | Python | 482 | 172 | 172 calls | Working (partial) |
+| cobra | Go | 312 | 0 | 0 | P0: zero cross-file, 83 orphaned, 48 dupes |
+| fiber | Go | 1843 | 0 | 0 | P0: zero cross-file, 843 orphaned, 427 dupes |
+| axum | Rust | 876 | 0 | 0 | P0: zero cross-file, 1912 orphaned, 196 dupes |
+
+### Critical Gaps Identified
+
+- **P0**: Zero cross-file call edges for Go and Rust
+- **P0**: Orphaned edges in DB (FK not enforced on open)
+- **P1**: Duplicate call edges (no UNIQUE constraint)
+- **P1**: W002 noise (8113 warnings on fiber) — test files not excluded
+- **P1**: Compile takes 9min on fiber (237 files)
+- **P2**: Circuit breaker counts globally not per-hash
+- **P2**: `--json` flag produces no output for map/compile/where/stats
+- **P2**: UNIQUE constraint crash on compile persistence path
+
 ## Test Summary
 
 | Crate | Passing | Ignored | Notes |
 |-------|---------|---------|-------|
-| keel-core | 28 | 0 | Graph schema, SQLite store |
-| keel-parsers | 43 | 0 | Tree-sitter + resolver unit tests |
+| keel-core | 52 | 0 | Graph schema, SQLite store (+24 from decompose) |
+| keel-parsers | 45 | 0 | Tree-sitter + resolver unit tests |
 | keel-enforce | 16 | 0 | Engine, violations, circuit breaker |
 | keel-cli | 38 | 0 | All CLI arg parsing |
 | keel-server | 41 | 0 | MCP + HTTP endpoints |
 | keel-output | 66 | 0 | JSON, LLM, human formatters |
 | contract tests | 10 | 0 | Frozen trait contracts |
 | integration tests | 31 | 5 | Multi-language E2E (perf benchmarks) |
-| resolution tests | 153 | 0 | All 4 languages — TS, Python, Go, Rust |
-| workspace root | 16 | 0 | Workspace-level tests |
-| **Total** | **446** | **5** | **0 failures** |
+| resolution tests | 154 | 53 | All 4 languages + barrel file tests |
+| workspace root | 2 | 0 | Workspace-level tests |
+| **Total** | **455** | **58** | **0 failures** |
 
 **Clippy:** 0 warnings
-**Baseline:** 207 tests pre-swarm → 338 post-swarm (+131) → 442 post-resolver-enablement (+104) → 446 post-gap-fixes (+4)
+**Baseline:** 207 → 338 → 442 → 446 → 455 (post-merge of 3 validation branches)
 
 ## Milestone Gates
 
