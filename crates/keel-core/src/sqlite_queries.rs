@@ -165,10 +165,23 @@ impl GraphStore for SqliteGraphStore {
                             });
                         }
                     }
-                    // INSERT OR REPLACE to handle re-map of same nodes
+                    // UPSERT to handle re-map without cascade-deleting related rows
                     tx.execute(
-                        "INSERT OR REPLACE INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                        "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                         ON CONFLICT(hash) DO UPDATE SET
+                            kind = excluded.kind,
+                            name = excluded.name,
+                            signature = excluded.signature,
+                            file_path = excluded.file_path,
+                            line_start = excluded.line_start,
+                            line_end = excluded.line_end,
+                            docstring = excluded.docstring,
+                            is_public = excluded.is_public,
+                            type_hints_present = excluded.type_hints_present,
+                            has_docstring = excluded.has_docstring,
+                            module_id = excluded.module_id,
+                            updated_at = datetime('now')",
                         params![
                             node.id,
                             node.hash,
@@ -187,6 +200,23 @@ impl GraphStore for SqliteGraphStore {
                     )?;
                 }
                 NodeChange::Update(node) => {
+                    // Check for hash collision (different node, same hash)
+                    let existing: Option<(u64, String)> = tx
+                        .query_row(
+                            "SELECT id, name FROM nodes WHERE hash = ?1",
+                            params![node.hash],
+                            |row| Ok((row.get(0)?, row.get(1)?)),
+                        )
+                        .ok();
+                    if let Some((existing_id, existing_name)) = existing {
+                        if existing_id != node.id && existing_name != node.name {
+                            return Err(GraphError::HashCollision {
+                                hash: node.hash.clone(),
+                                existing: existing_name,
+                                new_fn: node.name.clone(),
+                            });
+                        }
+                    }
                     tx.execute(
                         "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, module_id = ?12, updated_at = datetime('now') WHERE id = ?13",
                         params![
@@ -221,7 +251,8 @@ impl GraphStore for SqliteGraphStore {
             match change {
                 EdgeChange::Add(edge) => {
                     tx.execute(
-                        "INSERT OR REPLACE INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        "INSERT INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                         ON CONFLICT(source_id, target_id, kind, file_path, line) DO NOTHING",
                         params![
                             edge.id,
                             edge.source_id,

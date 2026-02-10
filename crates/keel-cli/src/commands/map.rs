@@ -49,12 +49,6 @@ pub fn run(
         }
     };
 
-    // Full re-map: clear existing graph data so IDs start fresh
-    if let Err(e) = store.clear_all() {
-        eprintln!("keel map: failed to clear graph database: {}", e);
-        return 2;
-    }
-
     // Walk all source files
     let walker = FileWalker::new(&cwd);
     let entries = walker.walk();
@@ -72,9 +66,9 @@ pub fn run(
     // Disable FK enforcement for bulk operations (re-enabled after)
     let _ = store.set_foreign_keys(false);
 
-    // Clear existing data for a full re-map
+    // Full re-map: clear existing graph data so IDs start fresh
     if let Err(e) = store.clear_all() {
-        eprintln!("keel map: failed to clear existing data: {}", e);
+        eprintln!("keel map: failed to clear graph database: {}", e);
         return 2;
     }
 
@@ -341,7 +335,9 @@ pub fn run(
     }
 
     if verbose {
-        eprintln!("keel map: inserting {} nodes", node_changes.len());
+        let def_count = node_changes.iter().filter(|c| matches!(c, NodeChange::Add(n) if n.kind != NodeKind::Module)).count();
+        let mod_count = node_changes.iter().filter(|c| matches!(c, NodeChange::Add(n) if n.kind == NodeKind::Module)).count();
+        eprintln!("keel map: inserting {} definitions, {} modules", def_count, mod_count);
     }
 
     // Apply node changes
@@ -358,6 +354,17 @@ pub fn run(
 
     // Re-enable FK enforcement
     let _ = store.set_foreign_keys(true);
+
+    // Cleanup any orphaned edges (source/target referencing deleted nodes)
+    match store.cleanup_orphaned_edges() {
+        Ok(n) if n > 0 && verbose => {
+            eprintln!("keel map: cleaned up {} orphaned edges", n);
+        }
+        Err(e) => {
+            eprintln!("keel map: orphaned edge cleanup failed: {}", e);
+        }
+        _ => {}
+    }
 
     if verbose {
         eprintln!("keel map: mapped {} files", entries.len());

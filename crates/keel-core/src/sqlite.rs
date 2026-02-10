@@ -14,6 +14,7 @@ impl SqliteGraphStore {
     /// Open or create a graph database at the given path.
     pub fn open(path: &str) -> Result<Self, GraphError> {
         let conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         let store = SqliteGraphStore { conn };
         store.initialize_schema()?;
         Ok(store)
@@ -22,6 +23,7 @@ impl SqliteGraphStore {
     /// Create an in-memory graph database (for testing).
     pub fn in_memory() -> Result<Self, GraphError> {
         let conn = Connection::open_in_memory()?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         let store = SqliteGraphStore { conn };
         store.initialize_schema()?;
         Ok(store)
@@ -93,11 +95,12 @@ impl SqliteGraphStore {
                 target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
                 kind TEXT NOT NULL CHECK (kind IN ('calls', 'imports', 'inherits', 'contains')),
                 file_path TEXT NOT NULL,
-                line INTEGER NOT NULL
+                line INTEGER NOT NULL,
+                UNIQUE(source_id, target_id, kind, file_path, line)
             );
             CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
             CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
+            CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_id, kind);
 
             -- Module profiles
             CREATE TABLE IF NOT EXISTS module_profiles (
@@ -152,6 +155,15 @@ impl SqliteGraphStore {
         version
             .parse()
             .map_err(|e| GraphError::Internal(format!("Invalid schema version: {}", e)))
+    }
+
+    /// Remove edges whose source or target node no longer exists.
+    pub fn cleanup_orphaned_edges(&self) -> Result<u64, GraphError> {
+        let deleted = self.conn.execute(
+            "DELETE FROM edges WHERE source_id NOT IN (SELECT id FROM nodes) OR target_id NOT IN (SELECT id FROM nodes)",
+            [],
+        )?;
+        Ok(deleted as u64)
     }
 
     /// Clear all graph data (nodes, edges, etc.) for a full re-map.
@@ -294,8 +306,21 @@ impl SqliteGraphStore {
 
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             ON CONFLICT(hash) DO UPDATE SET
+                kind = excluded.kind,
+                name = excluded.name,
+                signature = excluded.signature,
+                file_path = excluded.file_path,
+                line_start = excluded.line_start,
+                line_end = excluded.line_end,
+                docstring = excluded.docstring,
+                is_public = excluded.is_public,
+                type_hints_present = excluded.type_hints_present,
+                has_docstring = excluded.has_docstring,
+                module_id = excluded.module_id,
+                updated_at = datetime('now')",
             params![
                 node.id,
                 node.hash,
@@ -313,7 +338,12 @@ impl SqliteGraphStore {
             ],
         )?;
 
-        // Insert external endpoints
+        // Clear old endpoints before re-inserting (UPSERT preserves the row,
+        // so CASCADE no longer cleans these up)
+        self.conn.execute(
+            "DELETE FROM external_endpoints WHERE node_id = ?1",
+            params![node.id],
+        )?;
         for ep in &node.external_endpoints {
             self.conn.execute(
                 "INSERT INTO external_endpoints (node_id, kind, method, path, direction) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -321,7 +351,7 @@ impl SqliteGraphStore {
             )?;
         }
 
-        // Insert previous hashes
+        // Insert previous hashes (PK constraint handles dedup)
         for ph in &node.previous_hashes {
             self.conn.execute(
                 "INSERT OR IGNORE INTO previous_hashes (node_id, hash) VALUES (?1, ?2)",
