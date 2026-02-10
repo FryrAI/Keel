@@ -49,6 +49,12 @@ pub fn run(
         }
     };
 
+    // Full re-map: clear existing graph data so IDs start fresh
+    if let Err(e) = store.clear_all() {
+        eprintln!("keel map: failed to clear graph database: {}", e);
+        return 2;
+    }
+
     // Walk all source files
     let walker = FileWalker::new(&cwd);
     let entries = walker.walk();
@@ -308,34 +314,44 @@ pub fn run(
         }
     }
 
+    // Collect valid node IDs
+    let valid_node_ids: std::collections::HashSet<u64> = node_changes
+        .iter()
+        .filter_map(|c| match c {
+            NodeChange::Add(n) => Some(n.id),
+            _ => None,
+        })
+        .collect();
+
+    // Filter out edges referencing non-existent nodes
+    let (valid_edges, invalid_edges): (Vec<_>, Vec<_>) = edge_changes
+        .into_iter()
+        .partition(|e| match e {
+            EdgeChange::Add(edge) => {
+                valid_node_ids.contains(&edge.source_id) && valid_node_ids.contains(&edge.target_id)
+            }
+            EdgeChange::Remove(_) => true,
+        });
+
+    if verbose && !invalid_edges.is_empty() {
+        eprintln!(
+            "keel map: filtered {} edges with invalid node references",
+            invalid_edges.len()
+        );
+    }
+
+    if verbose {
+        eprintln!("keel map: inserting {} nodes", node_changes.len());
+    }
+
     // Apply node changes
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
         return 2;
     }
 
-    // Filter edges: only keep edges where both endpoints are valid node IDs
-    let total_edges = edge_changes.len();
-    let valid_edge_changes: Vec<EdgeChange> = edge_changes
-        .into_iter()
-        .filter(|change| match change {
-            EdgeChange::Add(edge) => {
-                valid_node_ids.contains(&edge.source_id)
-                    && valid_node_ids.contains(&edge.target_id)
-            }
-            EdgeChange::Remove(_) => true,
-        })
-        .collect();
-    let filtered = total_edges - valid_edge_changes.len();
-    if filtered > 0 && verbose {
-        eprintln!(
-            "keel map: {} edges filtered (invalid node references)",
-            filtered
-        );
-    }
-
-    // Apply edge changes
-    if let Err(e) = store.update_edges(valid_edge_changes) {
+    // Apply edge changes (using valid_edges filtered above)
+    if let Err(e) = store.update_edges(valid_edges) {
         eprintln!("keel map: failed to update edges: {}", e);
         return 2;
     }
