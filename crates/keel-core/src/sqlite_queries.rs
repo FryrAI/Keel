@@ -145,6 +145,8 @@ impl GraphStore for SqliteGraphStore {
 
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError> {
         let tx = self.conn.transaction()?;
+        // Defer FK checks until commit — module nodes may be inserted after referencing nodes
+        tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         for change in changes {
             match change {
                 NodeChange::Add(node) => {
@@ -247,6 +249,8 @@ impl GraphStore for SqliteGraphStore {
 
     fn update_edges(&mut self, changes: Vec<EdgeChange>) -> Result<(), GraphError> {
         let tx = self.conn.transaction()?;
+        // Defer FK checks until commit — nodes may be inserted in a separate batch
+        tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         for change in changes {
             match change {
                 EdgeChange::Add(edge) => {
