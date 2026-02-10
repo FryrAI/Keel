@@ -174,42 +174,97 @@ impl SqliteGraphStore {
     }
 
     pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
-        let mut stmt = self
+        let mut stmt = match self
             .conn
             .prepare("SELECT kind, method, path, direction FROM external_endpoints WHERE node_id = ?1")
-            .unwrap_or_else(|_| panic!("Failed to prepare endpoint query"));
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] load_endpoints: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
 
-        stmt.query_map(params![node_id], |row| {
+        let result = match stmt.query_map(params![node_id], |row| {
             Ok(ExternalEndpoint {
                 kind: row.get(0)?,
                 method: row.get(1)?,
                 path: row.get(2)?,
                 direction: row.get(3)?,
             })
-        })
-        .unwrap_or_else(|_| panic!("Failed to query endpoints"))
-        .filter_map(|r| r.ok())
-        .collect()
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] load_endpoints: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 
     pub(crate) fn load_previous_hashes(&self, node_id: u64) -> Vec<String> {
-        let mut stmt = self
+        let mut stmt = match self
             .conn
             .prepare(
                 "SELECT hash FROM previous_hashes WHERE node_id = ?1 ORDER BY created_at DESC LIMIT 3",
             )
-            .unwrap_or_else(|_| panic!("Failed to prepare previous hashes query"));
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] load_previous_hashes: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
 
-        stmt.query_map(params![node_id], |row| row.get(0))
-            .unwrap_or_else(|_| panic!("Failed to query previous hashes"))
-            .filter_map(|r| r.ok())
-            .collect()
+        let result = match stmt.query_map(params![node_id], |row| row.get(0)) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] load_previous_hashes: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 
     pub(crate) fn node_with_relations(&self, mut node: GraphNode) -> GraphNode {
         node.external_endpoints = self.load_endpoints(node.id);
         node.previous_hashes = self.load_previous_hashes(node.id);
         node
+    }
+
+    /// Load circuit breaker state from the database.
+    pub fn load_circuit_breaker(&self) -> Result<Vec<(String, String, u32, bool)>, GraphError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT error_code, hash, consecutive_failures, downgraded FROM circuit_breaker",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, u32>(2)?,
+                    row.get::<_, i32>(3)? != 0,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Save circuit breaker state, replacing all existing rows.
+    pub fn save_circuit_breaker(
+        &self,
+        state: &[(String, String, u32, bool)],
+    ) -> Result<(), GraphError> {
+        self.conn.execute("DELETE FROM circuit_breaker", [])?;
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO circuit_breaker (error_code, hash, consecutive_failures, downgraded) \
+             VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for (code, hash, consecutive, downgraded) in state {
+            stmt.execute(params![code, hash, consecutive, *downgraded as i32])?;
+        }
+        Ok(())
     }
 
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {

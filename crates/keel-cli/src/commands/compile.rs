@@ -44,7 +44,11 @@ pub fn run(
         }
     };
 
+    // Load persisted circuit breaker state
+    let cb_state = store.load_circuit_breaker().unwrap_or_default();
+
     let mut engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
+    engine.import_circuit_breaker(&cb_state);
 
     // Apply suppressions
     if let Some(code) = &suppress {
@@ -147,6 +151,21 @@ pub fn run(
     }
 
     let result = engine.compile(&file_indices);
+
+    // Persist circuit breaker state back to SQLite
+    let cb_out = engine.export_circuit_breaker();
+    if !cb_out.is_empty() {
+        if let Ok(cb_store) =
+            keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
+        {
+            if let Err(e) = cb_store.save_circuit_breaker(&cb_out) {
+                if verbose {
+                    eprintln!("keel compile: failed to persist circuit breaker: {}", e);
+                }
+            }
+        }
+    }
+
     output_result(formatter, &result, strict, verbose)
 }
 

@@ -39,8 +39,14 @@ impl GraphStore for SqliteGraphStore {
             }
         };
 
-        let mut stmt = self.conn.prepare(query).unwrap();
-        stmt.query_map(params![node_id], |row| {
+        let mut stmt = match self.conn.prepare(query) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] get_edges: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map(params![node_id], |row| {
             let kind_str: String = row.get("kind")?;
             let kind = match kind_str.as_str() {
                 "calls" => EdgeKind::Calls,
@@ -57,10 +63,14 @@ impl GraphStore for SqliteGraphStore {
                 file_path: row.get("file_path")?,
                 line: row.get("line")?,
             })
-        })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] get_edges: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 
     fn get_module_profile(&self, module_id: u64) -> Option<ModuleProfile> {
@@ -90,27 +100,47 @@ impl GraphStore for SqliteGraphStore {
     }
 
     fn get_nodes_in_file(&self, file_path: &str) -> Vec<GraphNode> {
-        let mut stmt = self
+        let mut stmt = match self
             .conn
             .prepare("SELECT * FROM nodes WHERE file_path = ?1")
-            .unwrap();
-        stmt.query_map(params![file_path], Self::row_to_node)
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .map(|n| self.node_with_relations(n))
-            .collect()
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] get_nodes_in_file: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let nodes: Vec<GraphNode> = match stmt.query_map(params![file_path], Self::row_to_node) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] get_nodes_in_file: query failed: {e}");
+                return Vec::new();
+            }
+        };
+        // Batch-load relations: 2 queries total instead of 2*N
+        self.nodes_with_relations_batch(nodes)
     }
 
     fn get_all_modules(&self) -> Vec<GraphNode> {
-        let mut stmt = self
+        let mut stmt = match self
             .conn
             .prepare("SELECT * FROM nodes WHERE kind = 'module'")
-            .unwrap();
-        stmt.query_map([], Self::row_to_node)
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .map(|n| self.node_with_relations(n))
-            .collect()
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] get_all_modules: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let nodes: Vec<GraphNode> = match stmt.query_map([], Self::row_to_node) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] get_all_modules: query failed: {e}");
+                return Vec::new();
+            }
+        };
+        // Batch-load relations: 2 queries total instead of 2*N
+        self.nodes_with_relations_batch(nodes)
     }
 
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError> {

@@ -88,6 +88,29 @@ impl CircuitBreaker {
         let key = (error_code.to_string(), hash.to_string());
         self.state.get(&key).map_or(0, |s| s.consecutive)
     }
+
+    /// Export all circuit breaker state as tuples for persistence.
+    /// Returns Vec of (error_code, hash, consecutive_failures, downgraded).
+    pub fn export_state(&self) -> Vec<(String, String, u32, bool)> {
+        self.state
+            .iter()
+            .map(|((code, hash), st)| (code.clone(), hash.clone(), st.consecutive, st.downgraded))
+            .collect()
+    }
+
+    /// Import circuit breaker state from persistence.
+    /// Each tuple is (error_code, hash, consecutive_failures, downgraded).
+    pub fn import_state(&mut self, rows: &[(String, String, u32, bool)]) {
+        for (code, hash, consecutive, downgraded) in rows {
+            self.state.insert(
+                (code.clone(), hash.clone()),
+                FailureState {
+                    consecutive: *consecutive,
+                    downgraded: *downgraded,
+                },
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +143,58 @@ mod tests {
         cb.record_failure("E002", "abc");
         assert_eq!(cb.failure_count("E001", "abc"), 1);
         assert_eq!(cb.failure_count("E002", "abc"), 1);
+    }
+
+    #[test]
+    fn test_export_import_roundtrip() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E001", "abc");
+        cb.record_failure("E001", "abc"); // 2 failures
+        cb.record_failure("E002", "def");
+        cb.record_failure("E002", "def");
+        cb.record_failure("E002", "def"); // 3 failures → downgraded
+
+        let state = cb.export_state();
+        assert_eq!(state.len(), 2);
+
+        let mut cb2 = CircuitBreaker::new();
+        cb2.import_state(&state);
+
+        assert_eq!(cb2.failure_count("E001", "abc"), 2);
+        assert!(!cb2.is_downgraded("E001", "abc"));
+        assert_eq!(cb2.failure_count("E002", "def"), 3);
+        assert!(cb2.is_downgraded("E002", "def"));
+    }
+
+    #[test]
+    fn test_sqlite_full_roundtrip() {
+        // Full integration: CB → export → SQLite → load → new CB
+        let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
+
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E001", "hash1");
+        cb.record_failure("E001", "hash1");
+        cb.record_failure("E005", "hash2");
+        cb.record_failure("E005", "hash2");
+        cb.record_failure("E005", "hash2"); // downgraded
+
+        // Persist to SQLite
+        let state = cb.export_state();
+        store.save_circuit_breaker(&state).unwrap();
+
+        // Load from SQLite into a new CircuitBreaker
+        let loaded = store.load_circuit_breaker().unwrap();
+        let mut cb2 = CircuitBreaker::new();
+        cb2.import_state(&loaded);
+
+        assert_eq!(cb2.failure_count("E001", "hash1"), 2);
+        assert!(!cb2.is_downgraded("E001", "hash1"));
+        assert_eq!(cb2.failure_count("E005", "hash2"), 3);
+        assert!(cb2.is_downgraded("E005", "hash2"));
+
+        // Verify next failure on the restored CB works correctly
+        let action = cb2.record_failure("E001", "hash1");
+        assert_eq!(action, BreakerAction::Downgrade);
+        assert!(cb2.is_downgraded("E001", "hash1"));
     }
 }

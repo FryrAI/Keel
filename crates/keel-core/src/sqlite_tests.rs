@@ -130,6 +130,37 @@ fn test_readd_same_edge_no_unique_constraint_error() {
 }
 
 #[test]
+fn test_circuit_breaker_save_and_load() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let state = vec![
+        ("E001".to_string(), "abc123".to_string(), 2u32, false),
+        ("E002".to_string(), "def456".to_string(), 3u32, true),
+    ];
+    store.save_circuit_breaker(&state).unwrap();
+
+    let loaded = store.load_circuit_breaker().unwrap();
+    assert_eq!(loaded.len(), 2);
+    let mut sorted = loaded;
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(sorted[0], ("E001".to_string(), "abc123".to_string(), 2, false));
+    assert_eq!(sorted[1], ("E002".to_string(), "def456".to_string(), 3, true));
+
+    // Save again — should fully replace
+    store.save_circuit_breaker(&[("E003".to_string(), "ghi789".to_string(), 1, false)]).unwrap();
+    let reloaded = store.load_circuit_breaker().unwrap();
+    assert_eq!(reloaded.len(), 1);
+    assert_eq!(reloaded[0].0, "E003");
+}
+
+#[test]
+fn test_circuit_breaker_empty_roundtrip() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    assert!(store.load_circuit_breaker().unwrap().is_empty());
+    store.save_circuit_breaker(&[]).unwrap();
+    assert!(store.load_circuit_breaker().unwrap().is_empty());
+}
+
+#[test]
 fn test_hash_collision_different_names_still_errors() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let node1 = test_node(1, "collision_hash", "func_a");
@@ -139,4 +170,90 @@ fn test_hash_collision_different_names_still_errors() {
         store.update_nodes(vec![NodeChange::Add(node2)]).is_err(),
         "Hash collision between different functions should still error"
     );
+}
+
+#[test]
+fn test_batch_loaded_nodes_match_individual() {
+    use crate::types::ExternalEndpoint;
+
+    let store = SqliteGraphStore::in_memory().unwrap();
+
+    // Insert 3 nodes with endpoints and previous hashes
+    let mut n1 = test_node(1, "batch_aaa1234", "handler_a");
+    n1.file_path = "src/handlers.rs".to_string();
+    n1.external_endpoints = vec![ExternalEndpoint {
+        kind: "http".to_string(),
+        method: "GET".to_string(),
+        path: "/api/a".to_string(),
+        direction: "serves".to_string(),
+    }];
+    n1.previous_hashes = vec!["old_hash_a1".to_string(), "old_hash_a2".to_string()];
+
+    let mut n2 = test_node(2, "batch_bbb1234", "handler_b");
+    n2.file_path = "src/handlers.rs".to_string();
+    n2.external_endpoints = vec![
+        ExternalEndpoint {
+            kind: "http".to_string(),
+            method: "POST".to_string(),
+            path: "/api/b".to_string(),
+            direction: "serves".to_string(),
+        },
+        ExternalEndpoint {
+            kind: "grpc".to_string(),
+            method: "".to_string(),
+            path: "svc.DoB".to_string(),
+            direction: "calls".to_string(),
+        },
+    ];
+
+    let mut n3 = test_node(3, "batch_ccc1234", "handler_c");
+    n3.file_path = "src/handlers.rs".to_string();
+    // n3 has no endpoints or previous hashes (tests empty case)
+
+    store.insert_node(&n1).unwrap();
+    store.insert_node(&n2).unwrap();
+    store.insert_node(&n3).unwrap();
+
+    // Load individually (the old N+1 path)
+    let ind1 = store.node_with_relations(
+        store.conn.prepare("SELECT * FROM nodes WHERE id = 1").unwrap()
+            .query_row([], SqliteGraphStore::row_to_node).unwrap(),
+    );
+    let ind2 = store.node_with_relations(
+        store.conn.prepare("SELECT * FROM nodes WHERE id = 2").unwrap()
+            .query_row([], SqliteGraphStore::row_to_node).unwrap(),
+    );
+    let ind3 = store.node_with_relations(
+        store.conn.prepare("SELECT * FROM nodes WHERE id = 3").unwrap()
+            .query_row([], SqliteGraphStore::row_to_node).unwrap(),
+    );
+
+    // Load via batch (the new optimized path)
+    let batch = store.get_nodes_in_file("src/handlers.rs");
+    assert_eq!(batch.len(), 3, "batch should return all 3 nodes");
+
+    // Compare each node's relations
+    for ind in &[&ind1, &ind2, &ind3] {
+        let batch_node = batch.iter().find(|b| b.id == ind.id)
+            .unwrap_or_else(|| panic!("batch missing node {}", ind.id));
+        assert_eq!(
+            batch_node.external_endpoints.len(),
+            ind.external_endpoints.len(),
+            "endpoint count mismatch for node {}",
+            ind.id
+        );
+        for (be, ie) in batch_node.external_endpoints.iter()
+            .zip(ind.external_endpoints.iter())
+        {
+            assert_eq!(be.kind, ie.kind);
+            assert_eq!(be.method, ie.method);
+            assert_eq!(be.path, ie.path);
+            assert_eq!(be.direction, ie.direction);
+        }
+        assert_eq!(
+            batch_node.previous_hashes, ind.previous_hashes,
+            "previous_hashes mismatch for node {}",
+            ind.id
+        );
+    }
 }
