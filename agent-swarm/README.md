@@ -12,7 +12,7 @@ inspired_by: "Anthropic C Compiler Swarm (16-agent adaptation) + Claude Code Age
 
 > **What this document is**: A runnable playbook for implementing keel using 15 Claude Code agents organized as 3 nested agent teams + 1 AI orchestrator. Pre-flight checklist, infrastructure setup, test harness, phase-by-phase agent assignments, coordination patterns, and verification checklists.
 >
-> **What this document is NOT**: A design document. All design decisions are finalized in [[constitution|Constitution]] and 13 specs in [[keel-speckit/]]. This document assumes specs are locked.
+> **What this document is NOT**: A design document. All design decisions are finalized in [Constitution](../constitution.md) and 13 specs in `keel-speckit/`. This document assumes specs are locked.
 
 ---
 
@@ -22,14 +22,14 @@ This playbook is split into focused documents. **Read them in order for first-ti
 
 | File | Contents | Read When |
 |------|----------|-----------|
-| [[agent-swarm/README\|README.md]] (this file) | Overview, philosophy, risks, pre-flight checklist | First |
-| [[agent-swarm/scope-limits\|scope-limits.md]] | **Agent scope limits, context management rules, lessons learned** | **Before ANY agent work** |
-| [[agent-swarm/infrastructure\|infrastructure.md]] | tmux setup, git worktrees, sandbox, agent teams config | Setting up infrastructure |
-| [[agent-swarm/phases\|phases.md]] | Contracts, Phase 0-4 deliverables, execution model, gate criteria | During each phase |
-| [[agent-swarm/spawn-prompts\|spawn-prompts.md]] | Agent assignments, team architecture, all spawn prompts | Spawning agents |
-| [[agent-swarm/operations\|operations.md]] | Ralph loop, cross-team coordination, escalation, audit trail, verification | During autonomous runs |
+| [README.md](README.md) (this file) | Overview, philosophy, risks, pre-flight checklist | First |
+| [scope-limits.md](scope-limits.md) | **Agent scope limits, context management rules, lessons learned** | **Before ANY agent work** |
+| [infrastructure.md](infrastructure.md) | tmux setup, git worktrees, sandbox, agent teams config | Setting up infrastructure |
+| [phases.md](phases.md) | Contracts, Phase 0-4 deliverables, execution model, gate criteria | During each phase |
+| [spawn-prompts.md](spawn-prompts.md) | Agent assignments, team architecture, all spawn prompts | Spawning agents |
+| [operations.md](operations.md) | Ralph loop, cross-team coordination, escalation, audit trail, verification | During autonomous runs |
 
-> **CRITICAL: Read [[agent-swarm/scope-limits|scope-limits.md]] before spawning any agents.** It contains hard limits that prevent context exhaustion — the #1 failure mode for agent swarms.
+> **CRITICAL: Read [scope-limits.md](scope-limits.md) before spawning any agents.** It contains hard limits that prevent context exhaustion — the #1 failure mode for agent swarms.
 
 ---
 
@@ -71,10 +71,10 @@ KolBaer was web app CRUD with frontend/backend split. Keel is compiler-adjacent 
 | 3 | **ty (Python) is beta** — v0.0.15, API not stable | Subprocess may change behavior | Use as subprocess only (not library). Fallback to tree-sitter heuristics + Pyright LSP. |
 | 4 | **rust-analyzer lazy-load** — 60s+ startup | Performance impact on Rust projects | Lazy-loaded, not always-on. Only triggered when tree-sitter heuristics fail. |
 | 5 | **tree-sitter grammar versions** — may differ from installed | Parse failures on edge cases | Pin grammar versions in Cargo.toml. Test against corpus. |
-| 6 | **Agent spinning** — same test failure loops indefinitely | Wasted budget, zero progress | Error fingerprinting via `TeammateIdle` hooks: 5=hint, 8=force-skip, 15=cooldown (see [[design-principles#Principle 6|Principle 6]]) |
+| 6 | **Agent spinning** — same test failure loops indefinitely | Wasted budget, zero progress | Error fingerprinting via `TeammateIdle` hooks: 5=hint, 8=force-skip, 15=cooldown (see [Design Principles](../design-principles.md)) |
 | 7 | **Inter-agent contract drift** — Foundation's types != Enforcement's expectations | Integration failures at phase gates | Frozen contracts in Phase 0. Contract tests on every cycle. |
 | 8 | **Performance benchmarks fail on first pass** — <200ms compile not trivially achievable | Blocks M2 gate | Profile early. Use criterion benchmarks. Optimize hot paths (tree-sitter incremental, SQLite queries). |
-| 9 | **Context exhaustion from agent results** — Task subagents flood parent context | Session dies, all work lost | Hard limits in [[agent-swarm/scope-limits\|scope-limits.md]]. Max 15 files per session, max 30 tool calls per Task agent. |
+| 9 | **Context exhaustion from agent results** — Task subagents flood parent context | Session dies, all work lost | Hard limits in [scope-limits.md](scope-limits.md). Max 15 files per session, max 30 tool calls per Task agent. |
 
 ---
 
@@ -85,23 +85,23 @@ Complete ALL items before launching agents.
 ### Specs & Documents
 
 - [x] All 13 specs hardened with unambiguous acceptance criteria
-  - [x] [[keel-speckit/000-graph-schema/spec|000 Graph Schema]]
-  - [x] [[keel-speckit/001-treesitter-foundation/spec|001 Tree-sitter Foundation]]
-  - [x] [[keel-speckit/002-typescript-resolution/spec|002 TypeScript Resolution]]
-  - [x] [[keel-speckit/003-python-resolution/spec|003 Python Resolution]]
-  - [x] [[keel-speckit/004-go-resolution/spec|004 Go Resolution]]
-  - [x] [[keel-speckit/005-rust-resolution/spec|005 Rust Resolution]]
-  - [x] [[keel-speckit/006-enforcement-engine/spec|006 Enforcement Engine]]
-  - [x] [[keel-speckit/007-cli-commands/spec|007 CLI Commands]]
-  - [x] [[keel-speckit/008-output-formats/spec|008 Output Formats]]
-  - [x] [[keel-speckit/009-tool-integration/spec|009 Tool Integration]]
-  - [x] [[keel-speckit/010-mcp-http-server/spec|010 MCP/HTTP Server]]
-  - [x] [[keel-speckit/011-vscode-extension/spec|011 VS Code Extension]]
-  - [x] [[keel-speckit/012-distribution/spec|012 Distribution]]
-- [x] [[constitution|Constitution]] reviewed — all 10 articles satisfied by spec coverage
-- [x] [[design-principles|Design Principles]] reviewed — all 10 principles understood
-- [x] [[keel-speckit/test-harness/strategy|Test Harness Strategy]] reviewed — 4 oracles defined, corpus listed
-- [x] **[[agent-swarm/scope-limits|scope-limits.md]] read and understood** — context management rules prevent session crashes
+  - [x] [000 Graph Schema](../keel-speckit/000-graph-schema/spec.md)
+  - [x] [001 Tree-sitter Foundation](../keel-speckit/001-treesitter-foundation/spec.md)
+  - [x] [002 TypeScript Resolution](../keel-speckit/002-typescript-resolution/spec.md)
+  - [x] [003 Python Resolution](../keel-speckit/003-python-resolution/spec.md)
+  - [x] [004 Go Resolution](../keel-speckit/004-go-resolution/spec.md)
+  - [x] [005 Rust Resolution](../keel-speckit/005-rust-resolution/spec.md)
+  - [x] [006 Enforcement Engine](../keel-speckit/006-enforcement-engine/spec.md)
+  - [x] [007 CLI Commands](../keel-speckit/007-cli-commands/spec.md)
+  - [x] [008 Output Formats](../keel-speckit/008-output-formats/spec.md)
+  - [x] [009 Tool Integration](../keel-speckit/009-tool-integration/spec.md)
+  - [x] [010 MCP/HTTP Server](../keel-speckit/010-mcp-http-server/spec.md)
+  - [x] [011 VS Code Extension](../keel-speckit/011-vscode-extension/spec.md)
+  - [x] [012 Distribution](../keel-speckit/012-distribution/spec.md)
+- [x] [Constitution](../constitution.md) reviewed — all 10 articles satisfied by spec coverage
+- [x] [Design Principles](../design-principles.md) reviewed — all 10 principles understood
+- [x] [Test Harness Strategy](../keel-speckit/test-harness/strategy.md) reviewed — 4 oracles defined, corpus listed
+- [x] **[scope-limits.md](scope-limits.md) read and understood** — context management rules prevent session crashes
 
 ### Test Corpus
 
@@ -121,7 +121,7 @@ Complete ALL items before launching agents.
 
 - [x] Claude Code installed with experimental agent teams enabled
 - [x] Environment variable set: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- [x] Claude Code `settings.json` configured (see [[agent-swarm/infrastructure#Agent Teams Configuration|infrastructure.md]])
+- [x] Claude Code `settings.json` configured (see [infrastructure.md](infrastructure.md))
 - [x] tmux installed and available
 - [x] `/ralph-loop` and `/tmux-observe` skills installed in Claude Code
 - [x] `bubblewrap` and `socat` installed (Linux: `sudo apt install bubblewrap socat`)
@@ -169,8 +169,8 @@ All phases completed 2026-02-09 to 2026-02-10. Final result: **442 tests, 0 fail
 
 ## Related Documents
 
-- [[design-principles|Design Principles]] — the "why" document
-- [[constitution|Constitution]] — non-negotiable articles
-- [[keel-speckit/test-harness/strategy|Test Harness Strategy]] — oracle definitions and corpus
-- [[CLAUDE|CLAUDE.md]] — agent implementation guide
-- [[PRD_1|PRD v2.1]] — master source document (agents should NOT read this — use specs instead)
+- [Design Principles](../design-principles.md) — the "why" document
+- [Constitution](../constitution.md) — non-negotiable articles
+- [Test Harness Strategy](../keel-speckit/test-harness/strategy.md) — oracle definitions and corpus
+- [CLAUDE.md](../CLAUDE.md) — agent implementation guide
+- [PRD v2.1](../docs/research/PRD_1.md) — master source document (agents should NOT read this — use specs instead)

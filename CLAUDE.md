@@ -12,7 +12,7 @@ purpose: "Read this FIRST before any implementation work"
 
 keel is a **pure Rust CLI tool** for structural code enforcement across LLM coding agents. It provides a fast, incrementally-updated structural graph of codebases and enforces architectural contracts at generation time — not at review time, not at build time.
 
-- **Language:** Pure Rust (see [[constitution#Article 1 Technology Stack|Constitution Article 1]])
+- **Language:** Pure Rust (see [Constitution Article 1](constitution.md))
 - **Scope:** TypeScript, Python, Go, Rust (Phase 1)
 - **License:** FSL (Functional Source License)
 - **Website:** keel.engineer
@@ -123,9 +123,9 @@ Keel uses Claude Code's native agent teams for parallel development. Enable befo
 - Team leads run in **delegate mode** — coordinate only, don't edit code
 - Teammates are spawned with detailed prompts referencing their spec files — they load this CLAUDE.md automatically
 - Orchestrator is a standalone session (not part of any team) using `/tmux-observe` and `/ralph-loop`
-- All sessions launch with `--sandbox --dangerously-skip-permissions` — sandbox (bubblewrap on Linux) restricts writes to CWD (worktree directory) and network to whitelisted domains. See [[agent-swarm/infrastructure#6. Sandbox Hardening|Sandbox Hardening]] for full config.
-- See [[agent-swarm/README|Agent Swarm Playbook]] for full architecture and spawn prompts
-- **CRITICAL:** Read [[agent-swarm/scope-limits|scope-limits.md]] before spawning any agents — hard limits on files, tool calls, and context
+- All sessions launch with `--sandbox --dangerously-skip-permissions` — sandbox (bubblewrap on Linux) restricts writes to CWD (worktree directory) and network to whitelisted domains. See [Sandbox Hardening](agent-swarm/infrastructure.md) for full config.
+- See [Agent Swarm Playbook](agent-swarm/README.md) for full architecture and spawn prompts
+- **CRITICAL:** Read [scope-limits.md](agent-swarm/scope-limits.md) before spawning any agents — hard limits on files, tool calls, and context
 
 **Skills used:**
 - `/ralph-loop` — autonomous test-fix-test cycles for every agent
@@ -205,9 +205,9 @@ These trait/struct signatures are frozen in Phase 0. Breaking a contract = immed
 
 ## Related Documents
 
-- [[design-principles|Design Principles]] — the "why" document (read before implementation)
-- [[constitution|Constitution]] — non-negotiable articles
-- [[agent-swarm/README|Agent Swarm Playbook]] — how agents coordinate (decomposed into 6 files)
-- [[agent-swarm/scope-limits|Scope Limits]] — hard limits on agent scope and context management
-- [[keel-speckit/test-harness/strategy|Test Harness Strategy]] — oracle definitions
-- [[PRD_1|PRD v2.1]] — master source (do NOT read directly — use specs)
+- [Design Principles](design-principles.md) — the "why" document (read before implementation)
+- [Constitution](constitution.md) — non-negotiable articles
+- [Agent Swarm Playbook](agent-swarm/README.md) — how agents coordinate (decomposed into 6 files)
+- [Scope Limits](agent-swarm/scope-limits.md) — hard limits on agent scope and context management
+- [Test Harness Strategy](keel-speckit/test-harness/strategy.md) — oracle definitions
+- [PRD v2.1](docs/research/PRD_1.md) — master source (do NOT read directly — use specs)

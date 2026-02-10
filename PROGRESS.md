@@ -176,6 +176,19 @@ than the `#[ignore]` annotations suggested. One code fix was required:
 
 Result: 338 → 442 passing tests (+104), 109 → 5 ignored (perf benchmarks only).
 
+## Critical Gap Fixes (2026-02-10)
+
+8 critical and important fixes applied post-swarm:
+
+1. **Cross-file resolution** — `resolve_cross_file_call` now actually queries the graph store for matching definitions in other files, producing real cross-file edges instead of returning `None`
+2. **Compile persistence** — `keel compile` writes updated nodes/edges back to SQLite after validation, so changes survive between invocations
+3. **Watch mode debounce** — file watcher debounces events with 300ms delay and deduplicates paths, preventing rapid-fire recompilation
+4. **Config loading** — `KeelConfig::load()` reads from `.keel/config.toml` with proper TOML deserialization and fallback defaults
+5. **Init improvements** — `keel init` now creates `.keelignore` with sensible defaults and installs a git pre-commit hook that runs `keel compile --strict`
+6. **Map command** — `keel map` writes all discovered nodes/edges to the graph store (not just stdout) for persistent cross-session state
+7. **Compile file filtering** — when `keel compile` is given specific files, it filters violations to only those files instead of reporting everything
+8. **JSON schema compliance** — `JsonFormatter` output includes all required fields (`version`, `command`, `status`, etc.) matching the schema contracts
+
 ## Test Summary
 
 | Crate | Passing | Ignored | Notes |
@@ -190,10 +203,10 @@ Result: 338 → 442 passing tests (+104), 109 → 5 ignored (perf benchmarks onl
 | integration tests | 31 | 5 | Multi-language E2E (perf benchmarks) |
 | resolution tests | 153 | 0 | All 4 languages — TS, Python, Go, Rust |
 | workspace root | 16 | 0 | Workspace-level tests |
-| **Total** | **442** | **5** | **0 failures** |
+| **Total** | **446** | **5** | **0 failures** |
 
 **Clippy:** 0 warnings
-**Baseline:** 207 tests pre-swarm → 338 post-swarm (+131) → 442 post-resolver-enablement (+104)
+**Baseline:** 207 tests pre-swarm → 338 post-swarm (+131) → 442 post-resolver-enablement (+104) → 446 post-gap-fixes (+4)
 
 ## Milestone Gates
 

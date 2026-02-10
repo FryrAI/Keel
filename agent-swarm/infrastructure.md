@@ -6,8 +6,8 @@ status: completed
 note: "Some planned infrastructure (test-corpus, gate markers, hooks) was never deployed. See inline notes."
 ```
 
-> **Prerequisites:** Complete the [[agent-swarm/README#2. Pre-Flight Checklist|pre-flight checklist]] before running any setup.
-> **Scope limits:** Read [[agent-swarm/scope-limits|scope-limits.md]] before spawning any agents.
+> **Prerequisites:** Complete the [pre-flight checklist](README.md) before running any setup.
+> **Scope limits:** Read [scope-limits.md](scope-limits.md) before spawning any agents.
 
 ---
 
@@ -45,12 +45,12 @@ Pane 3: SURFACE (Claude Code + agent team "keel-surface")
   +-- Teammate: distribution     — Spec 012
 ```
 
-**Planned: 1 orchestrator + 3 leads + 11 teammates = 15 agents.** Actual: 3 worktrees with single agents + 1 human-orchestrated session. See [[agent-swarm/README#3. Retrospective|Retrospective]].
+**Planned: 1 orchestrator + 3 leads + 11 teammates = 15 agents.** Actual: 3 worktrees with single agents + 1 human-orchestrated session. See [Retrospective](README.md).
 
 ### Human Role: Manage Only the Orchestrator
 
 The human interacts ONLY with the orchestrator (pane 0). Everything else is autonomous:
-- Human launches Phase 0 (uses tmux panes, not agent teams — see [[#3. Phase 0 tmux Setup]])
+- Human launches Phase 0 (uses tmux panes, not agent teams — see Section 3 below)
 - Human starts the tmux session and kicks off the orchestrator
 - Orchestrator manages teams, enforces gates, handles escalation
 - Human intervenes only when orchestrator flags 15-repeat escalation or a gate decision needs judgment
@@ -96,7 +96,7 @@ $HOME/keel-worktree-c/          # Surface team
 
 ## 3. Phase 0 tmux Setup (Before Agent Teams Exist)
 
-Phase 0 does NOT use agent teams, but it DOES use multiple tmux panes for parallel sandboxed Claude sessions. Each session creates at most 15 files (see [[agent-swarm/scope-limits|scope-limits.md]]).
+Phase 0 does NOT use agent teams, but it DOES use multiple tmux panes for parallel sandboxed Claude sessions. Each session creates at most 15 files (see [scope-limits.md](scope-limits.md)).
 
 ```bash
 SESSION="keel-phase0"
@@ -152,8 +152,8 @@ tmux attach -t $SESSION
 ```
 
 Once each Claude Code session is running:
-- **Pane 0 (Orchestrator):** Tell it to run `/ralph-loop` with the orchestrator CLAUDE.md instructions (see [[agent-swarm/operations#Orchestrator Design|operations.md]])
-- **Panes 1-3 (Team Leads):** Each creates its agent team and spawns teammates (see [[agent-swarm/spawn-prompts|spawn-prompts.md]])
+- **Pane 0 (Orchestrator):** Tell it to run `/ralph-loop` with the orchestrator CLAUDE.md instructions (see [operations.md](operations.md))
+- **Panes 1-3 (Team Leads):** Each creates its agent team and spawns teammates (see [spawn-prompts.md](spawn-prompts.md))
 
 ---
 
@@ -370,7 +370,7 @@ Teammates can't spawn their own teams. However:
 - Leads CAN have teams (that's the whole architecture)
 - Teammates CAN use the Task tool to spawn subagents for complex subtasks
 - Subagents are not teammates — they're ephemeral helpers
-- **Subagents are subject to scope limits** (max 5 files, max 30 tool calls — see [[agent-swarm/scope-limits|scope-limits.md]])
+- **Subagents are subject to scope limits** (max 5 files, max 30 tool calls — see [scope-limits.md](scope-limits.md))
 
 ### No Session Resumption
 

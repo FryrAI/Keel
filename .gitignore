@@ -6,6 +6,9 @@
 .keel/telemetry.db
 .keel/session.json
 
+# Test corpus (cloned repos)
+/test-corpus/
+
 # IDE
 .idea/
 .vscode/

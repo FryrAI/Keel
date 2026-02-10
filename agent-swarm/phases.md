@@ -6,7 +6,7 @@ status: completed
 completed: 2026-02-10
 ```
 
-> **All phases are governed by [[agent-swarm/scope-limits|scope-limits.md]].**
+> **All phases are governed by [scope-limits.md](scope-limits.md).**
 > Every session — orchestrator, lead, teammate — must respect scope limits.
 
 ---
@@ -89,7 +89,7 @@ All `--json` outputs must validate against schemas in `tests/schemas/`:
 
 ## 2. Phase 0: Scaffold (~12-24 Hours)
 
-> **No agent teams yet.** Uses 4 sandboxed tmux panes for parallel scaffold work, coordinated via git commits. Each pane runs an independent Claude session with bounded scope (max 15 files per session). See [[agent-swarm/infrastructure#3. Phase 0 tmux Setup|infrastructure.md — Phase 0 tmux Setup]] for pane layout.
+> **No agent teams yet.** Uses 4 sandboxed tmux panes for parallel scaffold work, coordinated via git commits. Each pane runs an independent Claude session with bounded scope (max 15 files per session). See [infrastructure.md — Phase 0 tmux Setup](infrastructure.md) for pane layout.
 
 ### Phase 0 Deliverables (~20 items)
 
@@ -110,9 +110,9 @@ All `--json` outputs must validate against schemas in `tests/schemas/`:
        +-- vscode/             # VS Code extension (TypeScript)
    ```
 
-2. **Cargo.toml dependencies** matching [[constitution#Article 1 Technology Stack|Constitution Article 1]]
-3. **Graph schema Rust types** from [[keel-speckit/000-graph-schema/spec|Spec 000]]
-4. **SQLite schema** from [[keel-speckit/000-graph-schema/spec|Spec 000]]
+2. **Cargo.toml dependencies** matching [Constitution Article 1](../constitution.md)
+3. **Graph schema Rust types** from [Spec 000](../keel-speckit/000-graph-schema/spec.md)
+4. **SQLite schema** from [Spec 000](../keel-speckit/000-graph-schema/spec.md)
 5. **`LanguageResolver` trait** (Contract 1) — with stub implementations for all 4 languages
 6. **`GraphStore` trait** (Contract 2) — with SQLite implementation
 7. **Result structs** (Contract 3) — `CompileResult`, `DiscoverResult`, `ExplainResult`
@@ -132,7 +132,7 @@ All `--json` outputs must validate against schemas in `tests/schemas/`:
 
 ### Phase 0 Execution Model
 
-Phase 0 uses **multiple tmux panes** with sandboxed Claude sessions, NOT Task tool subagents in one session. See [[agent-swarm/scope-limits#7. Incident Reference|scope-limits.md]] for why.
+Phase 0 uses **multiple tmux panes** with sandboxed Claude sessions, NOT Task tool subagents in one session. See [scope-limits.md](scope-limits.md) for why.
 
 **Wave 1 — Structural files (4 parallel panes):**
 
@@ -174,7 +174,7 @@ Phase 0 uses **multiple tmux panes** with sandboxed Claude sessions, NOT Task to
 
 ## 3. Phase Sequencing
 
-> All phases are governed by [[agent-swarm/scope-limits|scope-limits.md]].
+> All phases are governed by [scope-limits.md](scope-limits.md).
 > Every session — orchestrator, lead, teammate — must respect scope limits.
 
 ```
@@ -321,4 +321,4 @@ Gate M3: Surface must achieve E2E on real repos
   -> Triggers: all-team dogfooding phase
 ```
 
-> **All phases and gates completed 2026-02-09 to 2026-02-10.** See [[agent-swarm/README#3. Retrospective|README.md Retrospective]] for plan-vs-reality analysis.
+> **All phases and gates completed 2026-02-09 to 2026-02-10.** See [README.md Retrospective](README.md) for plan-vs-reality analysis.

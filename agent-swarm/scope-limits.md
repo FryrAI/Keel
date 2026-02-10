@@ -36,7 +36,7 @@ These are real mistakes that have destroyed sessions. Do not repeat them:
 
 - **"Create all ~98 test files" as 1-2 agents** — split into 6-8 groups of 10-15 files
 - **Returning full file listings in agent results** — return only file count + any errors
-- **Using Task tool for work that should use separate tmux panes** — see [[#5. Task Agent vs. tmux Pane Decision Matrix|Section 5]]
+- **Using Task tool for work that should use separate tmux panes** — see Section 5 below
 - **Agents that do both "read specs" and "create files" in one invocation** — separate into read-only research agent + file creation agent
 - **Spawning 6+ Task agents in one session without tracking cumulative context** — after 3 agents, check if total received > 50k tokens
 
@@ -131,7 +131,7 @@ This provides:
 
 ## 4. Spawn Prompt Context Rules Appendix
 
-**Every spawn prompt in [[agent-swarm/spawn-prompts|spawn-prompts.md]] MUST include this block:**
+**Every spawn prompt in [spawn-prompts.md](spawn-prompts.md) MUST include this block:**
 
 ```
 MANDATORY: Read scope-limits.md (Section 2.5 + Section 19) before starting.
@@ -140,7 +140,7 @@ Git commits for coordination. Terse results only.
 If you're about to exceed any limit: STOP and decompose.
 ```
 
-**Every phase in [[agent-swarm/phases|phases.md]] is governed by these rules.**
+**Every phase in [phases.md](phases.md) is governed by these rules.**
 Every session — orchestrator, lead, teammate — must respect scope limits.
 
 ---

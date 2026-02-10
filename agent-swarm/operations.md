@@ -6,7 +6,7 @@ status: completed
 note: "Most operational infrastructure (gate markers, JSONL audit, error fingerprinting, status dashboard) was planned but not deployed. Git history + /tmux-observe sufficed. Retained as templates for future swarm runs."
 ```
 
-> **All operations are governed by [[agent-swarm/scope-limits|scope-limits.md]].**
+> **All operations are governed by [scope-limits.md](scope-limits.md).**
 > Every session — orchestrator, lead, teammate — must respect scope limits.
 
 ---
@@ -24,7 +24,7 @@ Each participant in the swarm runs `/ralph-loop` — Claude Code's autonomous te
 4. Run tests again
 5. Repeat until tests pass or escalation triggers
 
-**WARNING:** If `/ralph-loop` spawns Task subagents that create files, each subagent is subject to [[agent-swarm/scope-limits|scope limits]] (max 5 files, max 30 tool calls). If the fix requires creating many files, do it directly in the current session, not via Task subagent.
+**WARNING:** If `/ralph-loop` spawns Task subagents that create files, each subagent is subject to [scope limits](scope-limits.md) (max 5 files, max 30 tool calls). If the fix requires creating many files, do it directly in the current session, not via Task subagent.
 
 ### Who Runs `/ralph-loop`
 
@@ -141,7 +141,7 @@ Error fingerprinting prevents agent spinning. Within each team, `TeammateIdle` h
 
 ### Intra-Team Escalation (via `TeammateIdle` hooks)
 
-**Escalation thresholds** (from [[design-principles#Principle 6|Principle 6]]):
+**Escalation thresholds** (from [Design Principles](../design-principles.md)):
 - **5 consecutive failures:** Lead sends teammate a targeted hint
 - **8 consecutive failures:** Lead reassigns the task or handles it via subagent
 - **15 consecutive failures:** Lead flags to orchestrator via `ESCALATE:` commit message
@@ -160,7 +160,7 @@ The orchestrator (or parent session) MUST track context consumption:
 - After receiving 3+ Task agent results: check if total received > 50k tokens
 - If yes: STOP spawning Task agents. Switch to tmux panes or sequential work.
 - If a single agent result exceeds 30k tokens: that agent's scope was too large.
-- **Context exhaustion is a system failure, not a recoverable error.** See [[agent-swarm/scope-limits|scope-limits.md]].
+- **Context exhaustion is a system failure, not a recoverable error.** See [scope-limits.md](scope-limits.md).
 
 ### Error Fingerprint Format
 

@@ -6,7 +6,7 @@ status: completed
 note: "These prompts were used for the 2026-02-09 swarm. Adapt for future use. Path corrections applied 2026-02-10."
 ```
 
-> **All agents are governed by [[agent-swarm/scope-limits|scope-limits.md]].**
+> **All agents are governed by [scope-limits.md](scope-limits.md).**
 > Every spawn prompt includes context rules. Every session respects scope limits.
 
 ---
@@ -17,7 +17,7 @@ Each team is a Claude Code agent team with a lead in **delegate mode** (can't ed
 
 **Why 3 teams of 3-4, not 1 flat team of 11?** A single team with 11 teammates creates a coordination bottleneck at the lead. Three teams of 3-4 teammates each keeps coordination manageable and matches the natural Foundation -> Enforcement -> Surface dependency chain.
 
-> **CONTEXT RULES ([[agent-swarm/scope-limits|scope-limits.md]] — every agent must read):**
+> **CONTEXT RULES ([scope-limits.md](scope-limits.md) — every agent must read):**
 > - Max 15 files per session. If you need more, ask lead to split the task.
 > - Max 30 tool calls per Task subagent. Beyond 30 = scope too large.
 > - Results must be terse: counts + status only. No file listings.
@@ -32,10 +32,10 @@ Each team is a Claude Code agent team with a lead in **delegate mode** (can't ed
 
 | Teammate | Spec | Crate | Files Owned |
 |----------|------|-------|-------------|
-| `ts-resolver` | [[keel-speckit/002-typescript-resolution/spec\|002]] | `keel-parsers/src/typescript/` | All TypeScript resolver files |
-| `py-resolver` | [[keel-speckit/003-python-resolution/spec\|003]] | `keel-parsers/src/python/` | All Python resolver files |
-| `go-resolver` | [[keel-speckit/004-go-resolution/spec\|004]] | `keel-parsers/src/go/` | All Go resolver files |
-| `rust-resolver` | [[keel-speckit/005-rust-resolution/spec\|005]] | `keel-parsers/src/rust_lang/` | All Rust resolver files |
+| `ts-resolver` | [002](../keel-speckit/002-typescript-resolution/spec.md) | `keel-parsers/src/typescript/` | All TypeScript resolver files |
+| `py-resolver` | [003](../keel-speckit/003-python-resolution/spec.md) | `keel-parsers/src/python/` | All Python resolver files |
+| `go-resolver` | [004](../keel-speckit/004-go-resolution/spec.md) | `keel-parsers/src/go/` | All Go resolver files |
+| `rust-resolver` | [005](../keel-speckit/005-rust-resolution/spec.md) | `keel-parsers/src/rust_lang/` | All Rust resolver files |
 
 **Gate M1:** Resolution precision >85% per language measured against LSP ground truth.
 
@@ -47,9 +47,9 @@ Each team is a Claude Code agent team with a lead in **delegate mode** (can't ed
 
 | Teammate | Spec | Crate | Files Owned |
 |----------|------|-------|-------------|
-| `enforcement-engine` | [[keel-speckit/006-enforcement-engine/spec\|006]] | `keel-enforce/` | Enforcement logic, circuit breaker, placement scoring |
-| `cli-commands` | [[keel-speckit/007-cli-commands/spec\|007]] | `keel-cli/` | clap CLI, command routing |
-| `output-formats` | [[keel-speckit/008-output-formats/spec\|008]] | `keel-output/` | JSON/LLM/human formatters |
+| `enforcement-engine` | [006](../keel-speckit/006-enforcement-engine/spec.md) | `keel-enforce/` | Enforcement logic, circuit breaker, placement scoring |
+| `cli-commands` | [007](../keel-speckit/007-cli-commands/spec.md) | `keel-cli/` | clap CLI, command routing |
+| `output-formats` | [008](../keel-speckit/008-output-formats/spec.md) | `keel-output/` | JSON/LLM/human formatters |
 
 **Starts Phase 1 against mock graph fixtures.** Real graph integration at M1 gate.
 
@@ -63,10 +63,10 @@ Each team is a Claude Code agent team with a lead in **delegate mode** (can't ed
 
 | Teammate | Spec | Crate | Files Owned |
 |----------|------|-------|-------------|
-| `tool-integration` | [[keel-speckit/009-tool-integration/spec\|009]] | tool config generation, hook scripts | All tool integration files |
-| `mcp-server` | [[keel-speckit/010-mcp-http-server/spec\|010]] | `keel-server/` | MCP + HTTP server |
-| `vscode-ext` | [[keel-speckit/011-vscode-extension/spec\|011]] | `extensions/vscode/` | VS Code extension (TypeScript) |
-| `distribution` | [[keel-speckit/012-distribution/spec\|012]] | CI/CD, install scripts | Build + distribution |
+| `tool-integration` | [009](../keel-speckit/009-tool-integration/spec.md) | tool config generation, hook scripts | All tool integration files |
+| `mcp-server` | [010](../keel-speckit/010-mcp-http-server/spec.md) | `keel-server/` | MCP + HTTP server |
+| `vscode-ext` | [011](../keel-speckit/011-vscode-extension/spec.md) | `extensions/vscode/` | VS Code extension (TypeScript) |
+| `distribution` | [012](../keel-speckit/012-distribution/spec.md) | CI/CD, install scripts | Build + distribution |
 
 **Starts Phase 1 with template generation and tool detection logic.** Real compile integration at M2 gate.
 
