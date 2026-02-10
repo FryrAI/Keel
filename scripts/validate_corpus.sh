@@ -124,20 +124,21 @@ validate_repo() {
     # Map with timing (keel uses CWD)
     local map_start map_end map_ms
     map_start=$(date +%s%3N)
-    (cd "$repo_dir" && "$KEEL_BIN" map 2>"$stderr_file") || true
+    (cd "$repo_dir" && "$KEEL_BIN" map >/dev/null 2>"$stderr_file") || true
     map_end=$(date +%s%3N)
     map_ms=$((map_end - map_start))
 
     # Compile with timing
     local compile_start compile_end compile_ms compile_exit
     compile_start=$(date +%s%3N)
-    (cd "$repo_dir" && "$KEEL_BIN" compile --json 2>>"$stderr_file") || true
+    local compile_out="/tmp/claude/validate_compile_${name}.json"
+    (cd "$repo_dir" && "$KEEL_BIN" compile --json >"$compile_out" 2>>"$stderr_file") || true
     compile_exit=$?
     compile_end=$(date +%s%3N)
     compile_ms=$((compile_end - compile_start))
 
     # Query metrics directly from SQLite (more reliable than stats --json)
-    local db_file="$repo_dir/.keel/keel.db"
+    local db_file="$repo_dir/.keel/graph.db"
     local db_metrics
     db_metrics=$(query_db_metrics "$db_file")
     local nodes edges_total edges_calls edges_imports edges_contains cross_file files
@@ -208,7 +209,7 @@ METRICS_EOF
         check_regression "$name" "$PREV_DIR/${name}.json" "$metrics_file"
     fi
 
-    rm -f "$stderr_file"
+    rm -f "$stderr_file" "/tmp/claude/validate_compile_${name}.json"
 }
 
 check_regression() {
