@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use keel_core::hash::compute_hash;
+use keel_core::hash::{compute_hash, compute_hash_disambiguated};
 use keel_core::store::GraphStore;
 use keel_core::types::{
     EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind,
@@ -63,6 +63,15 @@ pub fn run(
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();
 
+    // Disable FK enforcement for bulk operations (re-enabled after)
+    let _ = store.set_foreign_keys(false);
+
+    // Clear existing data for a full re-map
+    if let Err(e) = store.clear_all() {
+        eprintln!("keel map: failed to clear existing data: {}", e);
+        return 2;
+    }
+
     let mut node_changes = Vec::new();
     let mut edge_changes = Vec::new();
     let mut next_id = 1u64;
@@ -72,6 +81,10 @@ pub fn run(
     let mut global_name_index: HashMap<String, Vec<(String, u64)>> = HashMap::new();
     // Per-file module IDs for creating Imports edges
     let mut file_module_ids: HashMap<String, u64> = HashMap::new();
+    // Track assigned hashes to detect collisions
+    let mut assigned_hashes: HashSet<String> = HashSet::new();
+    // Track all valid node IDs for edge validation
+    let mut valid_node_ids: HashSet<u64> = HashSet::new();
 
     // Collect per-file parse results for the cross-file second pass
     struct FileParseData {
@@ -109,6 +122,8 @@ pub fn run(
         let module_id = next_id;
         next_id += 1;
         let module_hash = compute_hash(&file_path, "", "");
+        assigned_hashes.insert(module_hash.clone());
+        valid_node_ids.insert(module_id);
         file_module_ids.insert(file_path.clone(), module_id);
         node_changes.push(NodeChange::Add(GraphNode {
             id: module_id,
@@ -130,13 +145,24 @@ pub fn run(
 
         // Create definition nodes
         for def in &result.definitions {
-            let hash = compute_hash(
+            let mut hash = compute_hash(
                 &def.signature,
                 &def.body_text,
                 def.docstring.as_deref().unwrap_or(""),
             );
+            // If hash already assigned to another node, disambiguate with file_path
+            if assigned_hashes.contains(&hash) {
+                hash = compute_hash_disambiguated(
+                    &def.signature,
+                    &def.body_text,
+                    def.docstring.as_deref().unwrap_or(""),
+                    &file_path,
+                );
+            }
+            assigned_hashes.insert(hash.clone());
             let node_id = next_id;
             next_id += 1;
+            valid_node_ids.insert(node_id);
 
             name_to_id.insert((file_path.clone(), def.name.clone()), node_id);
             global_name_index
@@ -288,11 +314,34 @@ pub fn run(
         return 2;
     }
 
+    // Filter edges: only keep edges where both endpoints are valid node IDs
+    let total_edges = edge_changes.len();
+    let valid_edge_changes: Vec<EdgeChange> = edge_changes
+        .into_iter()
+        .filter(|change| match change {
+            EdgeChange::Add(edge) => {
+                valid_node_ids.contains(&edge.source_id)
+                    && valid_node_ids.contains(&edge.target_id)
+            }
+            EdgeChange::Remove(_) => true,
+        })
+        .collect();
+    let filtered = total_edges - valid_edge_changes.len();
+    if filtered > 0 && verbose {
+        eprintln!(
+            "keel map: {} edges filtered (invalid node references)",
+            filtered
+        );
+    }
+
     // Apply edge changes
-    if let Err(e) = store.update_edges(edge_changes) {
+    if let Err(e) = store.update_edges(valid_edge_changes) {
         eprintln!("keel map: failed to update edges: {}", e);
         return 2;
     }
+
+    // Re-enable FK enforcement
+    let _ = store.set_foreign_keys(true);
 
     if verbose {
         eprintln!("keel map: mapped {} files", entries.len());

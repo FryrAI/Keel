@@ -27,6 +27,14 @@ impl SqliteGraphStore {
         Ok(store)
     }
 
+    /// Temporarily disable foreign key enforcement (for bulk re-map operations).
+    pub fn set_foreign_keys(&self, enabled: bool) -> Result<(), GraphError> {
+        let val = if enabled { "ON" } else { "OFF" };
+        self.conn
+            .execute_batch(&format!("PRAGMA foreign_keys = {};", val))?;
+        Ok(())
+    }
+
     fn initialize_schema(&self) -> Result<(), GraphError> {
         self.conn.execute_batch(
             "
@@ -144,6 +152,23 @@ impl SqliteGraphStore {
         version
             .parse()
             .map_err(|e| GraphError::Internal(format!("Invalid schema version: {}", e)))
+    }
+
+    /// Clear all graph data (nodes, edges, etc.) for a full re-map.
+    /// Preserves schema and metadata.
+    pub fn clear_all(&mut self) -> Result<(), GraphError> {
+        self.conn.execute_batch(
+            "
+            DELETE FROM edges;
+            DELETE FROM resolution_cache;
+            DELETE FROM circuit_breaker;
+            DELETE FROM module_profiles;
+            DELETE FROM external_endpoints;
+            DELETE FROM previous_hashes;
+            DELETE FROM nodes;
+            ",
+        )?;
+        Ok(())
     }
 
     pub(crate) fn row_to_node(row: &rusqlite::Row) -> SqlResult<GraphNode> {
