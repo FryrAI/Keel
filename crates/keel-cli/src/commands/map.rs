@@ -49,6 +49,12 @@ pub fn run(
         }
     };
 
+    // Full re-map: clear existing graph data so IDs start fresh
+    if let Err(e) = store.clear_all() {
+        eprintln!("keel map: failed to clear graph database: {}", e);
+        return 2;
+    }
+
     // Walk all source files
     let walker = FileWalker::new(&cwd);
     let entries = walker.walk();
@@ -282,14 +288,54 @@ pub fn run(
         }
     }
 
+    // Collect valid node IDs
+    let valid_node_ids: std::collections::HashSet<u64> = node_changes
+        .iter()
+        .filter_map(|c| match c {
+            NodeChange::Add(n) => Some(n.id),
+            _ => None,
+        })
+        .collect();
+
+    // Filter out edges referencing non-existent nodes
+    let (valid_edges, invalid_edges): (Vec<_>, Vec<_>) = edge_changes
+        .into_iter()
+        .partition(|e| match e {
+            EdgeChange::Add(edge) => {
+                valid_node_ids.contains(&edge.source_id) && valid_node_ids.contains(&edge.target_id)
+            }
+            EdgeChange::Remove(_) => true,
+        });
+
+    if verbose && !invalid_edges.is_empty() {
+        eprintln!(
+            "keel map: filtered {} edges with invalid node references",
+            invalid_edges.len()
+        );
+    }
+
+    if verbose {
+        eprintln!("keel map: inserting {} nodes", node_changes.len());
+    }
+
     // Apply node changes
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
         return 2;
     }
 
+    if verbose {
+        eprintln!("keel map: nodes inserted successfully");
+    }
+
+    // Debug: print edge stats
+    if verbose {
+        let valid_edge_count = valid_edges.len();
+        eprintln!("keel map: inserting {} valid edges (filtered {} invalid)", valid_edge_count, invalid_edges.len());
+    }
+
     // Apply edge changes
-    if let Err(e) = store.update_edges(edge_changes) {
+    if let Err(e) = store.update_edges(valid_edges) {
         eprintln!("keel map: failed to update edges: {}", e);
         return 2;
     }

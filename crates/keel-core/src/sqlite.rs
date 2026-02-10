@@ -30,6 +30,22 @@ impl SqliteGraphStore {
         Ok(store)
     }
 
+    /// Clear all graph data (nodes, edges, related tables) for a full re-map.
+    pub fn clear_all(&self) -> Result<(), GraphError> {
+        self.conn.execute_batch(
+            "
+            DELETE FROM edges;
+            DELETE FROM external_endpoints;
+            DELETE FROM previous_hashes;
+            DELETE FROM module_profiles;
+            DELETE FROM resolution_cache;
+            DELETE FROM circuit_breaker;
+            DELETE FROM nodes;
+            ",
+        )?;
+        Ok(())
+    }
+
     fn initialize_schema(&self) -> Result<(), GraphError> {
         self.conn.execute_batch(
             "
@@ -411,6 +427,8 @@ impl GraphStore for SqliteGraphStore {
     }
 
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError> {
+        // Disable FK checks for bulk operations (re-enabled after commit)
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
         let tx = self.conn.transaction()?;
         for change in changes {
             match change {
@@ -479,10 +497,13 @@ impl GraphStore for SqliteGraphStore {
             }
         }
         tx.commit()?;
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         Ok(())
     }
 
     fn update_edges(&mut self, changes: Vec<EdgeChange>) -> Result<(), GraphError> {
+        // Disable FK checks before transaction for bulk insert
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
         let tx = self.conn.transaction()?;
         for change in changes {
             match change {
@@ -505,6 +526,8 @@ impl GraphStore for SqliteGraphStore {
             }
         }
         tx.commit()?;
+        // Re-enable FK checks after commit
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         Ok(())
     }
 
