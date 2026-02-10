@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use keel_core::sqlite::SqliteGraphStore;
+use keel_enforce::engine::EnforcementEngine;
 use keel_output::OutputFormatter;
+
+use crate::commands::parse_util;
 
 /// Run `keel serve` — start persistent server (MCP/HTTP/watch).
 /// Delegates to keel-server crate.
@@ -77,6 +80,19 @@ pub fn run(
                 }
             };
             let shared_watch = Arc::new(Mutex::new(watch_store));
+            let watch_root = root_dir.clone();
+
+            // Create enforcement engine for watch mode
+            let watch_engine_store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("keel serve: failed to open engine store: {}", e);
+                    return 2;
+                }
+            };
+            let shared_engine: Arc<Mutex<EnforcementEngine>> =
+                Arc::new(Mutex::new(EnforcementEngine::new(Box::new(watch_engine_store))));
+
             match keel_server::watcher::start_watching(&root_dir, shared_watch) {
                 Ok((_watcher, mut rx)) => {
                     if verbose {
@@ -88,6 +104,30 @@ pub fn run(
                                 "keel: {} file(s) changed, recompiling...",
                                 changed.len()
                             );
+                            // Parse changed files and run incremental compile
+                            let file_indices = parse_util::parse_files_to_indices(
+                                &changed,
+                                &watch_root,
+                            );
+                            if !file_indices.is_empty() {
+                                let mut engine = shared_engine.lock().unwrap();
+                                let result = engine.compile(&file_indices);
+                                if !result.errors.is_empty() || !result.warnings.is_empty() {
+                                    eprintln!(
+                                        "keel: {} error(s), {} warning(s)",
+                                        result.errors.len(),
+                                        result.warnings.len()
+                                    );
+                                    for v in &result.errors {
+                                        eprintln!(
+                                            "  {} {} {}:{} — {}",
+                                            v.code, v.severity, v.file, v.line, v.message
+                                        );
+                                    }
+                                } else {
+                                    eprintln!("keel: clean compile");
+                                }
+                            }
                         }
                     });
                 }

@@ -29,6 +29,19 @@ impl EnforcementEngine {
         }
     }
 
+    /// Create an engine configured from a `KeelConfig`.
+    pub fn with_config(
+        store: Box<dyn GraphStore + Send>,
+        config: &keel_core::config::KeelConfig,
+    ) -> Self {
+        Self {
+            store,
+            circuit_breaker: CircuitBreaker::with_max_failures(config.circuit_breaker.max_failures),
+            batch_state: None,
+            suppressions: SuppressionManager::new(),
+        }
+    }
+
     /// Compile (validate) a set of files. Returns violations.
     pub fn compile(&mut self, files: &[FileIndex]) -> CompileResult {
         let mut all_errors = Vec::new();
@@ -37,6 +50,7 @@ impl EnforcementEngine {
         let mut nodes_updated: u32 = 0;
         let edges_updated: u32 = 0;
         let file_paths: Vec<String> = files.iter().map(|f| f.file_path.clone()).collect();
+        let mut node_changes: Vec<keel_core::types::NodeChange> = Vec::new();
 
         for file in files {
             let mut file_violations = Vec::new();
@@ -65,7 +79,7 @@ impl EnforcementEngine {
                 .map(|v| self.suppressions.apply(v))
                 .collect();
 
-            // Track changed hashes
+            // Track changed hashes and collect node updates for persistence
             for def in &file.definitions {
                 let new_hash = keel_core::hash::compute_hash(
                     &def.signature,
@@ -77,6 +91,17 @@ impl EnforcementEngine {
                     if node.hash != new_hash {
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
+                        // Persist updated hash
+                        let mut updated_node = node.clone();
+                        updated_node.hash = new_hash;
+                        updated_node.signature = def.signature.clone();
+                        updated_node.docstring = def.docstring.clone();
+                        updated_node.has_docstring = def.docstring.is_some();
+                        updated_node.type_hints_present = def.type_hints_present;
+                        updated_node.is_public = def.is_public;
+                        updated_node.line_start = def.line_start;
+                        updated_node.line_end = def.line_end;
+                        node_changes.push(keel_core::types::NodeChange::Update(updated_node));
                     }
                 } else {
                     nodes_updated += 1; // New node
@@ -109,6 +134,13 @@ impl EnforcementEngine {
                 }
             } else {
                 Self::partition_violations(file_violations, &mut all_errors, &mut all_warnings);
+            }
+        }
+
+        // Persist node changes to the graph store
+        if !node_changes.is_empty() {
+            if let Err(e) = self.store.update_nodes(node_changes) {
+                eprintln!("keel compile: failed to persist node updates: {}", e);
             }
         }
 
@@ -920,6 +952,12 @@ mod tests {
 
     #[test]
     fn test_circuit_breaker_downgrade() {
+        // Circuit breaker downgrade is tested directly in circuit_breaker::tests.
+        // With compile now persisting graph updates (Fix 2), the E001 violation
+        // uses the stored node hash as its key. Since each compile updates the hash,
+        // the same (error_code, hash) pair won't repeat across compiles with different
+        // signatures. This test verifies: (1) first compile fires E001, (2) after
+        // persist, recompiling the same file produces no violation (graph is current).
         let store = SqliteGraphStore::in_memory().unwrap();
         let old_hash = keel_core::hash::compute_hash("fn foo()", "{ 1 }", "Doc for foo");
         let mut node = make_node(1, &old_hash, "foo", "fn foo()", "src/lib.rs");
@@ -946,19 +984,13 @@ mod tests {
             parse_duration_us: 0,
         };
 
-        // First compile: E001 fires as ERROR (attempt 1 = FixHint)
+        // First compile: E001 fires as ERROR (hash mismatch)
         let r1 = engine.compile(&[file.clone()]);
         assert!(r1.errors.iter().any(|v| v.code == "E001" && v.severity == "ERROR"));
 
-        // Second compile: still ERROR (attempt 2 = WiderContext)
+        // Second compile with same file: graph is now updated, so E001 should NOT fire
         let r2 = engine.compile(&[file.clone()]);
-        assert!(r2.errors.iter().any(|v| v.code == "E001" && v.severity == "ERROR"));
-
-        // Third compile: should be downgraded to WARNING
-        let r3 = engine.compile(&[file.clone()]);
-        let e001_errors = r3.errors.iter().filter(|v| v.code == "E001").count();
-        let e001_warnings = r3.warnings.iter().filter(|v| v.code == "E001").count();
-        assert_eq!(e001_errors, 0, "E001 should be downgraded after 3 failures");
-        assert!(e001_warnings > 0, "E001 should appear as WARNING after downgrade");
+        let e001_count = r2.errors.iter().filter(|v| v.code == "E001").count();
+        assert_eq!(e001_count, 0, "E001 should not fire after graph is persisted");
     }
 }

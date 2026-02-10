@@ -68,7 +68,21 @@ pub fn run(
     let mut next_id = 1u64;
     // Map (file_path, name) -> node_id for building edges
     let mut name_to_id: HashMap<(String, String), u64> = HashMap::new();
+    // Global name index: name -> [(file_path, node_id)] for cross-file resolution
+    let mut global_name_index: HashMap<String, Vec<(String, u64)>> = HashMap::new();
+    // Per-file module IDs for creating Imports edges
+    let mut file_module_ids: HashMap<String, u64> = HashMap::new();
 
+    // Collect per-file parse results for the cross-file second pass
+    struct FileParseData {
+        file_path: String,
+        definitions: Vec<keel_parsers::resolver::Definition>,
+        references: Vec<keel_parsers::resolver::Reference>,
+        imports: Vec<keel_parsers::resolver::Import>,
+    }
+    let mut all_file_data: Vec<FileParseData> = Vec::new();
+
+    // === First pass: create nodes and same-file edges ===
     for entry in &entries {
         let content = match fs::read_to_string(&entry.path) {
             Ok(c) => c,
@@ -95,6 +109,7 @@ pub fn run(
         let module_id = next_id;
         next_id += 1;
         let module_hash = compute_hash(&file_path, "", "");
+        file_module_ids.insert(file_path.clone(), module_id);
         node_changes.push(NodeChange::Add(GraphNode {
             id: module_id,
             hash: module_hash,
@@ -124,6 +139,10 @@ pub fn run(
             next_id += 1;
 
             name_to_id.insert((file_path.clone(), def.name.clone()), node_id);
+            global_name_index
+                .entry(def.name.clone())
+                .or_default()
+                .push((file_path.clone(), node_id));
 
             node_changes.push(NodeChange::Add(GraphNode {
                 id: node_id,
@@ -156,14 +175,13 @@ pub fn run(
             }));
         }
 
-        // Create call edges from references
+        // Create same-file call edges from references
         for reference in &result.references {
             if reference.kind == keel_parsers::resolver::ReferenceKind::Call {
                 // Try to find the target in the same file
                 if let Some(&target_id) =
                     name_to_id.get(&(file_path.clone(), reference.name.clone()))
                 {
-                    // Find the source node (function containing this call)
                     let source_id = find_containing_def(
                         &result.definitions,
                         reference.line,
@@ -183,6 +201,81 @@ pub fn run(
                                 line: reference.line,
                             }));
                         }
+                    }
+                }
+            }
+        }
+
+        // Save parse data for cross-file second pass
+        all_file_data.push(FileParseData {
+            file_path,
+            definitions: result.definitions,
+            references: result.references,
+            imports: result.imports,
+        });
+    }
+
+    // === Second pass: cross-file call edges and import edges ===
+    for file_data in &all_file_data {
+        let file_path = &file_data.file_path;
+
+        // Create Imports edges between modules
+        if let Some(&src_module_id) = file_module_ids.get(file_path.as_str()) {
+            for imp in &file_data.imports {
+                // Try to match the import source to a known file module
+                let imp_source = &imp.source;
+                if let Some(&tgt_module_id) = file_module_ids.get(imp_source.as_str()) {
+                    let edge_id = next_id;
+                    next_id += 1;
+                    edge_changes.push(EdgeChange::Add(GraphEdge {
+                        id: edge_id,
+                        source_id: src_module_id,
+                        target_id: tgt_module_id,
+                        kind: EdgeKind::Imports,
+                        file_path: file_path.clone(),
+                        line: imp.line,
+                    }));
+                }
+            }
+        }
+
+        // Resolve cross-file call references
+        for reference in &file_data.references {
+            if reference.kind != keel_parsers::resolver::ReferenceKind::Call {
+                continue;
+            }
+            // Skip if already resolved same-file
+            if name_to_id.contains_key(&(file_path.clone(), reference.name.clone())) {
+                continue;
+            }
+
+            // Look through this file's imports to find the source module
+            let target_id = resolve_cross_file_call(
+                &reference.name,
+                &file_data.imports,
+                &global_name_index,
+                &file_module_ids,
+            );
+
+            if let Some(tgt_id) = target_id {
+                let source_id = find_containing_def(
+                    &file_data.definitions,
+                    reference.line,
+                    file_path,
+                    &name_to_id,
+                );
+                if let Some(src_id) = source_id {
+                    if src_id != tgt_id {
+                        let edge_id = next_id;
+                        next_id += 1;
+                        edge_changes.push(EdgeChange::Add(GraphEdge {
+                            id: edge_id,
+                            source_id: src_id,
+                            target_id: tgt_id,
+                            kind: EdgeKind::Calls,
+                            file_path: file_path.clone(),
+                            line: reference.line,
+                        }));
                     }
                 }
             }
@@ -215,6 +308,43 @@ fn make_relative(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .to_string()
+}
+
+/// Resolve a cross-file call reference by matching imports to the global name index.
+fn resolve_cross_file_call(
+    callee_name: &str,
+    imports: &[keel_parsers::resolver::Import],
+    global_name_index: &HashMap<String, Vec<(String, u64)>>,
+    file_module_ids: &HashMap<String, u64>,
+) -> Option<u64> {
+    // Check if any import brings this name into scope
+    for imp in imports {
+        let names_match = imp.imported_names.iter().any(|n| n == callee_name || n == "*");
+        if !names_match {
+            continue;
+        }
+        // Find the target definition in the imported module
+        if let Some(candidates) = global_name_index.get(callee_name) {
+            // Prefer candidates from the import's source file
+            let source = &imp.source;
+            for (file, node_id) in candidates {
+                if file == source {
+                    return Some(*node_id);
+                }
+            }
+            // Fallback: check if any candidate's file matches as a module
+            for (file, node_id) in candidates {
+                if file_module_ids.contains_key(file.as_str()) && source.contains(file.as_str()) {
+                    return Some(*node_id);
+                }
+            }
+            // Last resort: if only one candidate exists globally, use it
+            if candidates.len() == 1 {
+                return Some(candidates[0].1);
+            }
+        }
+    }
+    None
 }
 
 /// Find which definition contains a given line number.

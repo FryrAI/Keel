@@ -28,12 +28,15 @@ impl RustLangResolver {
         let mut parser = self.parser.lock().unwrap();
         let mut result = match parser.parse_file("rust", path, content) {
             Ok(r) => r,
-            Err(_) => ParseResult {
-                definitions: vec![],
-                references: vec![],
-                imports: vec![],
-                external_endpoints: vec![],
-            },
+            Err(e) => {
+                eprintln!("keel: warning: failed to parse {}: {}", path.display(), e);
+                ParseResult {
+                    definitions: vec![],
+                    references: vec![],
+                    imports: vec![],
+                    external_endpoints: vec![],
+                }
+            }
         };
 
         // Tier 2: enhance definitions with Rust-specific analysis

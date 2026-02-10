@@ -1,6 +1,7 @@
 pub mod init;
 pub mod map;
 pub mod compile;
+pub mod parse_util;
 pub mod discover;
 pub mod where_cmd;
 pub mod explain;

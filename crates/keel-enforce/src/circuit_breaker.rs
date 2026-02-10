@@ -8,6 +8,7 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct CircuitBreaker {
     state: HashMap<(String, String), FailureState>,
+    max_failures: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,15 @@ impl CircuitBreaker {
     pub fn new() -> Self {
         Self {
             state: HashMap::new(),
+            max_failures: 3,
+        }
+    }
+
+    /// Create a circuit breaker with a custom max_failures threshold.
+    pub fn with_max_failures(max_failures: u32) -> Self {
+        Self {
+            state: HashMap::new(),
+            max_failures: max_failures.max(1), // at least 1
         }
     }
 
@@ -49,13 +59,13 @@ impl CircuitBreaker {
         });
         entry.consecutive += 1;
 
-        match entry.consecutive {
-            1 => BreakerAction::FixHint,
-            2 => BreakerAction::WiderContext,
-            _ => {
-                entry.downgraded = true;
-                BreakerAction::Downgrade
-            }
+        if entry.consecutive >= self.max_failures {
+            entry.downgraded = true;
+            BreakerAction::Downgrade
+        } else if entry.consecutive == self.max_failures - 1 {
+            BreakerAction::WiderContext
+        } else {
+            BreakerAction::FixHint
         }
     }
 

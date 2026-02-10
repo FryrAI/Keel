@@ -100,12 +100,15 @@ impl TsResolver {
         let mut parser = self.parser.lock().unwrap();
         let mut result = match parser.parse_file("typescript", path, content) {
             Ok(r) => r,
-            Err(_) => ParseResult {
-                definitions: vec![],
-                references: vec![],
-                imports: vec![],
-                external_endpoints: vec![],
-            },
+            Err(e) => {
+                eprintln!("keel: warning: failed to parse {}: {}", path.display(), e);
+                ParseResult {
+                    definitions: vec![],
+                    references: vec![],
+                    imports: vec![],
+                    external_endpoints: vec![],
+                }
+            }
         };
         // Must drop parser lock before calling analyze_with_oxc (no deadlock)
         drop(parser);
