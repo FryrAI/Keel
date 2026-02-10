@@ -1,6 +1,7 @@
 pub mod json;
 pub mod llm;
 pub mod human;
+pub(crate) mod human_helpers;
 
 use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult, MapResult};
 

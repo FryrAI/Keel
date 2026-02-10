@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 /// Top-level keel configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeelConfig {
     pub version: String,
     pub languages: Vec<String>,
@@ -23,7 +23,7 @@ pub struct KeelConfig {
 }
 
 /// Enforcement severity toggles.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnforceConfig {
     #[serde(default = "default_true")]
     pub type_hints: bool,
@@ -34,14 +34,14 @@ pub struct EnforceConfig {
 }
 
 /// Circuit breaker tuning.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CircuitBreakerConfig {
     #[serde(default = "default_max_failures")]
     pub max_failures: u32,
 }
 
 /// Batch mode tuning.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BatchConfig {
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
@@ -133,6 +133,61 @@ mod tests {
         assert!(cfg.enforce.type_hints);
         assert!(cfg.enforce.docstrings);
         assert!(cfg.enforce.placement);
+    }
+
+    #[test]
+    fn test_roundtrip_all_non_default_values() {
+        // Build a KeelConfig with every field set to a non-default value.
+        let original = KeelConfig {
+            version: "99.88.77".to_string(),
+            languages: vec![
+                "typescript".to_string(),
+                "python".to_string(),
+                "go".to_string(),
+                "rust".to_string(),
+            ],
+            enforce: EnforceConfig {
+                type_hints: false,   // default is true
+                docstrings: false,   // default is true
+                placement: false,    // default is true
+            },
+            circuit_breaker: CircuitBreakerConfig {
+                max_failures: 42, // default is 3
+            },
+            batch: BatchConfig {
+                timeout_seconds: 999, // default is 60
+            },
+            ignore_patterns: vec![
+                "vendor/**".to_string(),
+                "node_modules/**".to_string(),
+                "*.generated.ts".to_string(),
+            ],
+        };
+
+        // Serialize to JSON
+        let json = serde_json::to_string_pretty(&original)
+            .expect("KeelConfig should serialize to JSON");
+
+        // Deserialize back
+        let roundtripped: KeelConfig = serde_json::from_str(&json)
+            .expect("KeelConfig JSON should deserialize back");
+
+        // Whole-struct equality (enabled by PartialEq derive)
+        assert_eq!(original, roundtripped, "Round-tripped config must match original");
+
+        // Belt-and-suspenders: also verify each field individually so failures
+        // are easy to diagnose if the PartialEq impl ever changes.
+        assert_eq!(roundtripped.version, "99.88.77");
+        assert_eq!(roundtripped.languages, vec!["typescript", "python", "go", "rust"]);
+        assert!(!roundtripped.enforce.type_hints);
+        assert!(!roundtripped.enforce.docstrings);
+        assert!(!roundtripped.enforce.placement);
+        assert_eq!(roundtripped.circuit_breaker.max_failures, 42);
+        assert_eq!(roundtripped.batch.timeout_seconds, 999);
+        assert_eq!(
+            roundtripped.ignore_patterns,
+            vec!["vendor/**", "node_modules/**", "*.generated.ts"]
+        );
     }
 
     #[test]
