@@ -2,7 +2,8 @@
 
 ```yaml
 tags: [keel, agent-swarm, agents, spawn-prompts]
-status: ready
+status: completed
+note: "These prompts were used for the 2026-02-09 swarm. Adapt for future use. Path corrections applied 2026-02-10."
 ```
 
 > **All agents are governed by [[agent-swarm/scope-limits|scope-limits.md]].**
@@ -34,7 +35,7 @@ Each team is a Claude Code agent team with a lead in **delegate mode** (can't ed
 | `ts-resolver` | [[keel-speckit/002-typescript-resolution/spec\|002]] | `keel-parsers/src/typescript/` | All TypeScript resolver files |
 | `py-resolver` | [[keel-speckit/003-python-resolution/spec\|003]] | `keel-parsers/src/python/` | All Python resolver files |
 | `go-resolver` | [[keel-speckit/004-go-resolution/spec\|004]] | `keel-parsers/src/go/` | All Go resolver files |
-| `rust-resolver` | [[keel-speckit/005-rust-resolution/spec\|005]] | `keel-parsers/src/rust/` | All Rust resolver files |
+| `rust-resolver` | [[keel-speckit/005-rust-resolution/spec\|005]] | `keel-parsers/src/rust_lang/` | All Rust resolver files |
 
 **Gate M1:** Resolution precision >85% per language measured against LSP ground truth.
 
@@ -115,7 +116,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are ts-resolver. Your sole focus is Spec 002 (TypeScript Resolution).
 
-Spec file: specs/002-typescript-resolution/spec.md — read this FIRST.
+Spec file: keel-speckit/002-typescript-resolution/spec.md — read this FIRST.
 Your crate: crates/keel-parsers/src/typescript/
 Test command: cargo test -p keel-parsers -- typescript
 Contract: LanguageResolver trait (frozen — do NOT change the signature)
@@ -137,7 +138,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are py-resolver. Your sole focus is Spec 003 (Python Resolution).
 
-Spec file: specs/003-python-resolution/spec.md — read this FIRST.
+Spec file: keel-speckit/003-python-resolution/spec.md — read this FIRST.
 Your crate: crates/keel-parsers/src/python/
 Test command: cargo test -p keel-parsers -- python
 Contract: LanguageResolver trait (frozen — do NOT change the signature)
@@ -158,7 +159,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are go-resolver. Your sole focus is Spec 004 (Go Resolution).
 
-Spec file: specs/004-go-resolution/spec.md — read this FIRST.
+Spec file: keel-speckit/004-go-resolution/spec.md — read this FIRST.
 Your crate: crates/keel-parsers/src/go/
 Test command: cargo test -p keel-parsers -- go
 Contract: LanguageResolver trait (frozen — do NOT change the signature)
@@ -178,8 +179,8 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are rust-resolver. Your sole focus is Spec 005 (Rust Resolution).
 
-Spec file: specs/005-rust-resolution/spec.md — read this FIRST.
-Your crate: crates/keel-parsers/src/rust/
+Spec file: keel-speckit/005-rust-resolution/spec.md — read this FIRST.
+Your crate: crates/keel-parsers/src/rust_lang/
 Test command: cargo test -p keel-parsers -- rust
 Contract: LanguageResolver trait (frozen — do NOT change the signature)
 
@@ -218,7 +219,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are enforcement-engine. Your sole focus is Spec 006 (Enforcement Engine).
 
-Spec file: specs/006-enforcement-engine/spec.md — read this FIRST.
+Spec file: keel-speckit/006-enforcement-engine/spec.md — read this FIRST.
 Your crate: crates/keel-enforce/
 Test command: cargo test -p keel-enforce
 Contracts you depend on: GraphStore trait (use mock fixtures until M1 gate)
@@ -238,7 +239,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are cli-commands. Your sole focus is Spec 007 (CLI Commands).
 
-Spec file: specs/007-cli-commands/spec.md — read this FIRST.
+Spec file: keel-speckit/007-cli-commands/spec.md — read this FIRST.
 Your crate: crates/keel-cli/
 Test command: cargo test -p keel-cli
 Contracts you depend on: CompileResult, DiscoverResult, ExplainResult (use mocks)
@@ -256,7 +257,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are output-formats. Your sole focus is Spec 008 (Output Formats).
 
-Spec file: specs/008-output-formats/spec.md — read this FIRST.
+Spec file: keel-speckit/008-output-formats/spec.md — read this FIRST.
 Your crate: crates/keel-output/
 Test command: cargo test -p keel-output
 Contracts you own: JSON output schemas in tests/schemas/ (frozen)
@@ -293,7 +294,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are tool-integration. Your sole focus is Spec 009 (Tool Integration).
 
-Spec file: specs/009-tool-integration/spec.md — read this FIRST.
+Spec file: keel-speckit/009-tool-integration/spec.md — read this FIRST.
 Your files: tool config templates, hook scripts, CI templates
 Test command: cargo test -- tool_integration
 Contracts you depend on: CLI commands from Enforcement (use mock CLI output)
@@ -311,7 +312,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are mcp-server. Your sole focus is Spec 010 (MCP/HTTP Server).
 
-Spec file: specs/010-mcp-http-server/spec.md — read this FIRST.
+Spec file: keel-speckit/010-mcp-http-server/spec.md — read this FIRST.
 Your crate: crates/keel-server/
 Test command: cargo test -p keel-server
 Contracts you depend on: Core library (use mock KeelCore)
@@ -329,7 +330,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are vscode-ext. Your sole focus is Spec 011 (VS Code Extension).
 
-Spec file: specs/011-vscode-extension/spec.md — read this FIRST.
+Spec file: keel-speckit/011-vscode-extension/spec.md — read this FIRST.
 Your directory: extensions/vscode/
 Test command: cd extensions/vscode && npm test
 Contracts you depend on: keel serve --http (use mock HTTP server)
@@ -347,7 +348,7 @@ SCOPE LIMITS: Read scope-limits.md. Max 15 files/session, 30 tool calls/Task, 5 
 ```
 You are distribution. Your sole focus is Spec 012 (Distribution).
 
-Spec file: specs/012-distribution/spec.md — read this FIRST.
+Spec file: keel-speckit/012-distribution/spec.md — read this FIRST.
 Your files: CI/CD workflows, install scripts, Dockerfile
 Test command: cargo build --release
 

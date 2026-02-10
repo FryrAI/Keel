@@ -2,7 +2,8 @@
 
 ```yaml
 tags: [keel, agent-swarm, infrastructure, tmux, sandbox]
-status: ready
+status: completed
+note: "Some planned infrastructure (test-corpus, gate markers, hooks) was never deployed. See inline notes."
 ```
 
 > **Prerequisites:** Complete the [[agent-swarm/README#2. Pre-Flight Checklist|pre-flight checklist]] before running any setup.
@@ -44,7 +45,7 @@ Pane 3: SURFACE (Claude Code + agent team "keel-surface")
   +-- Teammate: distribution     — Spec 012
 ```
 
-**Total: 1 orchestrator + 3 leads + 11 teammates = 15 agents** (comparable to Anthropic's 16-agent C compiler swarm)
+**Planned: 1 orchestrator + 3 leads + 11 teammates = 15 agents.** Actual: 3 worktrees with single agents + 1 human-orchestrated session. See [[agent-swarm/README#3. Retrospective|Retrospective]].
 
 ### Human Role: Manage Only the Orchestrator
 
@@ -71,37 +72,25 @@ echo "# keel" > README.md
 git add README.md && git commit -m "Initial commit"
 
 # Create worktrees for each team (after Phase 0 completes)
-git worktree add ../worktree-a -b foundation
-git worktree add ../worktree-b -b enforcement
-git worktree add ../worktree-c -b surface
+# Actual paths used: $HOME/keel-worktree-{a,b,c}
+git worktree add $HOME/keel-worktree-a -b foundation
+git worktree add $HOME/keel-worktree-b -b enforcement
+git worktree add $HOME/keel-worktree-c -b surface
 
-# Create shared directories
-mkdir -p .keel-swarm  # Gate marker files go here
-mkdir -p results      # Oracle test results per team
+# NOTE: .keel-swarm/ and results/ directories were planned but never created.
+# PROGRESS.md + git log served as the coordination mechanism instead.
 ```
 
-**Resulting folder structure:**
+**Actual folder structure (as used):**
 
 ```
-keel-swarm/
-+-- keel/                  # Root worktree (orchestrator)
-+-- worktree-a/            # Foundation team
-+-- worktree-b/            # Enforcement team
-+-- worktree-c/            # Surface team
-+-- test-corpus/           # Cloned test repos (shared, read-only)
-|   +-- excalidraw/        # TypeScript ~120k LOC
-|   +-- cal-com/           # TypeScript ~200k LOC
-|   +-- typescript-eslint/ # TypeScript ~80k LOC
-|   +-- fastapi/           # Python ~30k LOC
-|   +-- httpx/             # Python ~25k LOC
-|   +-- django-ninja/      # Python ~15k LOC
-|   +-- cobra/             # Go ~15k LOC
-|   +-- fiber/             # Go ~30k LOC
-|   +-- ripgrep/           # Rust ~25k LOC
-|   +-- axum/              # Rust ~20k LOC
-|   +-- keel-test-repo/    # Multi-language ~5k LOC (purpose-built)
-+-- specs/                 # Symlink to keel-speckit/ for agent context
+$HOME/Curosor_Projects/Keel/   # Root worktree (orchestrator)
+$HOME/keel-worktree-a/          # Foundation team
+$HOME/keel-worktree-b/          # Enforcement team
+$HOME/keel-worktree-c/          # Surface team
 ```
+
+> **Not created:** `test-corpus/` (unit tests sufficed), `specs/` symlink (agents used `keel-speckit/` directly), `.keel-swarm/` gate markers, `results/` directory.
 
 ---
 
@@ -127,7 +116,8 @@ tmux new-session -d -s $SESSION -n "scaffold"
 # Pane 3: schemas + fixtures + contracts + scripts + config (Group F)
 ```
 
-Each pane runs: `claude --sandbox --dangerously-skip-permissions`
+Each pane runs: `claude --dangerously-skip-permissions`
+Sandbox is configured via `~/.claude/settings.json` (NOT a CLI flag — there is no `--sandbox` flag).
 Coordination: git commit + git pull between panes. No Task tool cross-talk.
 
 **Wave 1 must commit before Wave 2 starts** — Wave 2 sessions pull from git to get the Cargo workspace and type definitions created in Wave 1.
@@ -144,19 +134,19 @@ SESSION="keel-swarm"
 tmux new-session -d -s $SESSION -n "swarm"
 
 # Pane 0 (top-left): Orchestrator — root worktree
-tmux send-keys -t $SESSION "cd keel-swarm/keel && claude --sandbox --dangerously-skip-permissions" C-m
+tmux send-keys -t $SESSION "cd keel-swarm/keel && claude --dangerously-skip-permissions" C-m
 
 # Pane 1 (top-right): Foundation team — worktree-a
 tmux split-window -h -t $SESSION
-tmux send-keys -t $SESSION "cd keel-swarm/worktree-a && claude --sandbox --dangerously-skip-permissions" C-m
+tmux send-keys -t $SESSION "cd keel-swarm/worktree-a && claude --dangerously-skip-permissions" C-m
 
 # Pane 2 (bottom-left): Enforcement team — worktree-b
 tmux split-window -v -t $SESSION:0.0
-tmux send-keys -t $SESSION "cd keel-swarm/worktree-b && claude --sandbox --dangerously-skip-permissions" C-m
+tmux send-keys -t $SESSION "cd keel-swarm/worktree-b && claude --dangerously-skip-permissions" C-m
 
 # Pane 3 (bottom-right): Surface team — worktree-c
 tmux split-window -v -t $SESSION:0.1
-tmux send-keys -t $SESSION "cd keel-swarm/worktree-c && claude --sandbox --dangerously-skip-permissions" C-m
+tmux send-keys -t $SESSION "cd keel-swarm/worktree-c && claude --dangerously-skip-permissions" C-m
 
 tmux attach -t $SESSION
 ```
@@ -183,7 +173,17 @@ Add to Claude Code `settings.json`:
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": false,
-    "excludedCommands": ["docker"]
+    "excludedCommands": ["docker"],
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com", "*.anthropic.com",
+        "github.com", "*.github.com",
+        "*.crates.io", "index.crates.io", "static.crates.io", "crates.io",
+        "*.npmjs.org", "registry.npmjs.org", "registry.yarnpkg.com",
+        "objects.githubusercontent.com"
+      ],
+      "allowLocalBinding": true
+    }
   },
   "permissions": {
     "allow": [
@@ -237,7 +237,7 @@ Add to Claude Code `settings.json`:
 
 ### Permission Pre-Approval
 
-To reduce friction across all 15 agents, pre-approve common operations. With `autoAllowBashIfSandboxed: true`, all bash commands are auto-approved inside the sandbox anyway — these explicit entries serve as documentation and fallback if sandbox is ever disabled:
+To reduce friction across agents, pre-approve common operations. With `autoAllowBashIfSandboxed: true`, all bash commands are auto-approved inside the sandbox anyway — these explicit entries serve as documentation and fallback if sandbox is ever disabled:
 
 - **Cargo ecosystem** — `cargo test/build/check/clippy/fmt/install/run` + `rustup`
 - **Node ecosystem** — `npm`, `npx` (for VS Code extension)
@@ -248,7 +248,9 @@ To reduce friction across all 15 agents, pre-approve common operations. With `au
 - **File tools** — `Read`, `Write`, `Edit`, `Glob`, `Grep` — always allowed (crate ownership prevents conflicts)
 - **Agent teams plumbing** — `Skill`, `Task`, `SendMessage`, `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`
 
-### `TeammateIdle` Hook Configuration
+### `TeammateIdle` Hook Configuration (Planned — Not Deployed)
+
+> **Note:** These hooks were designed but never deployed. Git history + `/tmux-observe` provided sufficient monitoring. Retained as a template for future swarm runs.
 
 Create `.claude/hooks.json` in each worktree:
 
@@ -290,7 +292,7 @@ This means:
 
 ### Why Sandbox?
 
-All 15 agents run with `--dangerously-skip-permissions` for extended unsupervised periods (days/weeks). Without sandboxing, a confused agent could write outside its worktree, exfiltrate secrets, or reach arbitrary network endpoints. OS-level sandboxing makes `--dangerously-skip-permissions` safe.
+Agents run with `--dangerously-skip-permissions` for extended unsupervised periods. Without sandboxing, a confused agent could write outside its worktree, exfiltrate secrets, or reach arbitrary network endpoints. OS-level sandboxing makes `--dangerously-skip-permissions` safe.
 
 ### 3-Layer Isolation Model
 
@@ -336,13 +338,9 @@ bwrap --version
 # Verify socat is installed (used by tmux teammate mode)
 socat -V | head -1
 
-# Test sandbox restricts writes outside CWD
-claude --sandbox --print "touch /tmp/should-fail.txt"
-# Expected: permission denied
-
-# Test sandbox allows writes inside CWD
-cd /tmp/test-sandbox && claude --sandbox --print "touch should-work.txt"
-# Expected: success
+# NOTE: There is no --sandbox CLI flag. Sandbox is configured via settings.json.
+# Enable sandbox via ~/.claude/settings.json "sandbox.enabled": true
+# Or enable per-session via the /sandbox command (choose option 1: auto-allow)
 ```
 
 ### Crash Recovery

@@ -58,7 +58,7 @@ loses all work in progress.
 ### Rule 2: Separate tmux Panes for Parallel Work
 
 Every independent workstream that creates files MUST run in its own tmux pane with
-its own sandboxed Claude session (`claude --sandbox --dangerously-skip-permissions`).
+its own sandboxed Claude session (`claude --dangerously-skip-permissions`, sandbox via settings.json).
 
 Communication between panes uses **git commits only** — never Task tool results.
 
@@ -206,6 +206,14 @@ Phase 0 scaffolding used Task tool subagents in a single session instead of sepa
 **Root cause:** No scope limits existed. The playbook said "one agent" but didn't define how to decompose 20 deliverables safely within context constraints.
 
 **Fix:** Sections 1-6 of this document — hard limits on files, tool calls, tokens, and duration per agent. Task agents for small work only; tmux panes for bulk creation. Git commits for coordination, not Task results.
+
+### 2026-02-10: Simpler Approach Beat Complex Plan
+
+Plan estimated 4 parallel agents + heavy resolver work to enable ~71 of 104 tests.
+Running the tests first revealed 101/104 already passed. One 1-line fix (`pub(` prefix
+check in `rust_is_public`) enabled all 104. Result: 442 passing vs plan estimate of ~409.
+
+**Lesson:** Always run the tests before building infrastructure to fix them.
 
 ### Key Takeaways
 

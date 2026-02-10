@@ -2,10 +2,11 @@
 
 ```yaml
 tags: [keel, implementation, agent-swarm, automation, agent-teams]
-status: ready
-agents: 15 (1 orchestrator + 3 leads + 11 teammates)
+status: completed
+agents_planned: 15 (1 orchestrator + 3 leads + 11 teammates)
+agents_actual: 3 worktrees with single agents + 1 orchestrator session (~2 days)
 budget_estimate: "Claude Max plan ($200/month) — expect 2-4 months based on Anthropic's C compiler data"
-estimated_runtime: "Phase 0: ~12-24 hours (single agent). Phases 1-3: ~2-4 weeks autonomous. Remaining 30-50%: 2-3 weeks human polish."
+actual_runtime: "~2 days (2026-02-09 to 2026-02-10). 442 tests, 0 failures."
 inspired_by: "Anthropic C Compiler Swarm (16-agent adaptation) + Claude Code Agent Teams"
 ```
 
@@ -40,8 +41,8 @@ This playbook is split into focused documents. **Read them in order for first-ti
 2. **Natural three-way split** along the dependency DAG: Foundation (parsing + graph) -> Enforcement (validation + commands) -> Surface (integration + distribution)
 3. **Typed contracts everywhere** — Rust traits and structs define interfaces between agents
 4. **Resolution engine parallelizes internally** — 4 language resolvers can be developed independently by separate teammates within the Foundation team
-5. **~667 pre-written tests** provide continuous feedback signal
-6. **15-agent architecture** matches Anthropic's proven C compiler swarm scale (16 agents, 2,000 sessions)
+5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (442 passing at completion)
+6. **Worktree-based parallelism** with separate Claude sessions proved more effective than the planned 15-agent nested team architecture
 
 ### "One Shot" — What It Actually Means
 
@@ -83,48 +84,86 @@ Complete ALL items before launching agents.
 
 ### Specs & Documents
 
-- [ ] All 13 specs hardened with unambiguous acceptance criteria
-  - [ ] [[keel-speckit/000-graph-schema/spec|000 Graph Schema]]
-  - [ ] [[keel-speckit/001-treesitter-foundation/spec|001 Tree-sitter Foundation]]
-  - [ ] [[keel-speckit/002-typescript-resolution/spec|002 TypeScript Resolution]]
-  - [ ] [[keel-speckit/003-python-resolution/spec|003 Python Resolution]]
-  - [ ] [[keel-speckit/004-go-resolution/spec|004 Go Resolution]]
-  - [ ] [[keel-speckit/005-rust-resolution/spec|005 Rust Resolution]]
-  - [ ] [[keel-speckit/006-enforcement-engine/spec|006 Enforcement Engine]]
-  - [ ] [[keel-speckit/007-cli-commands/spec|007 CLI Commands]]
-  - [ ] [[keel-speckit/008-output-formats/spec|008 Output Formats]]
-  - [ ] [[keel-speckit/009-tool-integration/spec|009 Tool Integration]]
-  - [ ] [[keel-speckit/010-mcp-http-server/spec|010 MCP/HTTP Server]]
-  - [ ] [[keel-speckit/011-vscode-extension/spec|011 VS Code Extension]]
-  - [ ] [[keel-speckit/012-distribution/spec|012 Distribution]]
-- [ ] [[constitution|Constitution]] reviewed — all 10 articles satisfied by spec coverage
-- [ ] [[design-principles|Design Principles]] reviewed — all 10 principles understood
-- [ ] [[keel-speckit/test-harness/strategy|Test Harness Strategy]] reviewed — 4 oracles defined, corpus listed
-- [ ] **[[agent-swarm/scope-limits|scope-limits.md]] read and understood** — context management rules prevent session crashes
+- [x] All 13 specs hardened with unambiguous acceptance criteria
+  - [x] [[keel-speckit/000-graph-schema/spec|000 Graph Schema]]
+  - [x] [[keel-speckit/001-treesitter-foundation/spec|001 Tree-sitter Foundation]]
+  - [x] [[keel-speckit/002-typescript-resolution/spec|002 TypeScript Resolution]]
+  - [x] [[keel-speckit/003-python-resolution/spec|003 Python Resolution]]
+  - [x] [[keel-speckit/004-go-resolution/spec|004 Go Resolution]]
+  - [x] [[keel-speckit/005-rust-resolution/spec|005 Rust Resolution]]
+  - [x] [[keel-speckit/006-enforcement-engine/spec|006 Enforcement Engine]]
+  - [x] [[keel-speckit/007-cli-commands/spec|007 CLI Commands]]
+  - [x] [[keel-speckit/008-output-formats/spec|008 Output Formats]]
+  - [x] [[keel-speckit/009-tool-integration/spec|009 Tool Integration]]
+  - [x] [[keel-speckit/010-mcp-http-server/spec|010 MCP/HTTP Server]]
+  - [x] [[keel-speckit/011-vscode-extension/spec|011 VS Code Extension]]
+  - [x] [[keel-speckit/012-distribution/spec|012 Distribution]]
+- [x] [[constitution|Constitution]] reviewed — all 10 articles satisfied by spec coverage
+- [x] [[design-principles|Design Principles]] reviewed — all 10 principles understood
+- [x] [[keel-speckit/test-harness/strategy|Test Harness Strategy]] reviewed — 4 oracles defined, corpus listed
+- [x] **[[agent-swarm/scope-limits|scope-limits.md]] read and understood** — context management rules prevent session crashes
 
 ### Test Corpus
 
-- [ ] Test corpus repos cloned and pinned to specific commits
-- [ ] Purpose-built test repo (#11) created with known cross-file references
-- [ ] LSP ground truth data generated for all repos (TypeScript/tsserver, Python/pyright, Go/gopls, Rust/rust-analyzer)
+- N/A Test corpus repos cloned and pinned to specific commits — **not needed; unit/integration tests sufficed**
+- N/A Purpose-built test repo (#11) — **not needed; inline test fixtures covered all cases**
+- N/A LSP ground truth data — **not needed; 153 resolver tests validated precision directly**
 
 ### External Dependencies Verified
 
-- [ ] `tree-sitter` crate with 4 language grammars compiles
-- [ ] `oxc_resolver` + `oxc_semantic` crate compiles (v0.111+)
-- [ ] `ty` CLI installed and `ty --output-format json` works on Python test corpus
-- [ ] `ra_ap_ide` crate compiles (note: 0.0.x unstable API)
-- [ ] `rusqlite` with `bundled` feature compiles
+- [x] `tree-sitter` crate with 4 language grammars compiles
+- [x] `oxc_resolver` + `oxc_semantic` crate compiles (v0.111+)
+- N/A `ty` CLI — Python resolver used heuristic approach instead
+- N/A `ra_ap_ide` crate — Rust resolver used heuristic approach instead
+- [x] `rusqlite` with `bundled` feature compiles
 
 ### Agent Teams Prerequisites
 
-- [ ] Claude Code installed with experimental agent teams enabled
-- [ ] Environment variable set: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- [ ] Claude Code `settings.json` configured (see [[agent-swarm/infrastructure#Agent Teams Configuration|infrastructure.md]])
-- [ ] tmux installed and available
-- [ ] `/ralph-loop` and `/tmux-observe` skills installed in Claude Code
-- [ ] `bubblewrap` and `socat` installed (Linux: `sudo apt install bubblewrap socat`)
-- [ ] Sandbox verified working: `claude --sandbox --print "echo hello"`
+- [x] Claude Code installed with experimental agent teams enabled
+- [x] Environment variable set: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+- [x] Claude Code `settings.json` configured (see [[agent-swarm/infrastructure#Agent Teams Configuration|infrastructure.md]])
+- [x] tmux installed and available
+- [x] `/ralph-loop` and `/tmux-observe` skills installed in Claude Code
+- [x] `bubblewrap` and `socat` installed (Linux: `sudo apt install bubblewrap socat`)
+- N/A Sandbox verified via `claude --sandbox` — **no `--sandbox` CLI flag; configured via settings.json**
+
+---
+
+## 3. Retrospective (2026-02-10)
+
+All phases completed 2026-02-09 to 2026-02-10. Final result: **442 tests, 0 failures, 0 clippy warnings.**
+
+### Plan vs Reality
+
+| Aspect | Planned | Actual |
+|--------|---------|--------|
+| Agents | 15 (1 orchestrator + 3 leads + 11 teammates) | 3 worktrees with single agents + 1 human-orchestrated |
+| Duration | 2-4 weeks autonomous + 2-3 weeks human polish | ~2 days |
+| Resolver tests | ~71 of 104 enabled via heavy work | 101/104 already passed; 1-line fix enabled all 104 |
+| Test count | ~667 pre-written | 442 passing (many were consolidated/merged) |
+| Test corpus | 11 real repos with LSP ground truth | Unit/integration tests only — no external repos needed |
+| Gate markers | `.keel-swarm/gate-m1-passed` files | Not created — progress tracked via PROGRESS.md + git log |
+| Audit trail | JSONL logs, error fingerprinting | Not deployed — git history was sufficient |
+
+### What Worked
+
+1. **Git worktrees** — true isolation between parallel agents, commits for coordination
+2. **Scope limits** (`scope-limits.md`) — prevented the context exhaustion that killed Phase 0's first attempt
+3. **Pre-written tests with `#[ignore]`** — agents had clear pass/fail signals from day one
+4. **Crate-based ownership** — natural file isolation prevented merge conflicts
+5. **Frozen contracts (Phase 0)** — teams could work independently against stable interfaces
+
+### What Was Overkill
+
+1. **15-agent nested team architecture** — 3 single-agent worktrees were faster and simpler
+2. **Gate marker files** — manual git log inspection was sufficient
+3. **JSONL audit trail and error fingerprinting** — never deployed; git blame was enough
+4. **Test corpus of 11 real repos** — inline test fixtures covered all validation needs
+5. **Swarm status dashboard** — PROGRESS.md served the same purpose with less overhead
+
+### Key Insight
+
+> "Test your assumptions before building infrastructure. 101 of 104 resolver tests already passed before any agent touched resolver code. The 1-line fix that enabled the remaining 3 was `pub(` prefix detection in `rust_is_public()`."
 
 ---
 
