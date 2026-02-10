@@ -218,24 +218,55 @@ Swarm run #1 tested against 6 real-world repos. Results merged from 3 branches:
 - **P2**: `--json` flag produces no output for map/compile/where/stats
 - **P2**: UNIQUE constraint crash on compile persistence path
 
+## Swarm Run #2: Critical Gap Fixes (2026-02-10)
+
+Three parallel agents fixed the critical gaps identified in swarm run #1:
+
+### fix/cross-file (7 files, +571/-70)
+- Go: extract last path segment from import path for module ID matching
+- Rust: implement `crate::` and `self::` path resolution for use statements
+- Create `EdgeKind::Imports` edges for all languages during map
+- Extract cross-file resolution to `map_resolve.rs` (332 lines, under 400)
+- Add edge count breakdown to stats command
+
+### fix/data-integrity (3 files, +87/-19)
+- Enable `PRAGMA foreign_keys = ON` in `open()` and `in_memory()`
+- UPSERT (`ON CONFLICT DO UPDATE`) instead of `INSERT OR REPLACE` for nodes
+- `UNIQUE(source_id, target_id, kind, file_path, line)` constraint on edges
+- Orphaned edge cleanup after map operations
+- Composite index `idx_edges_source_kind` for query performance
+
+### fix/enforcement (8 files, +323/-68)
+- Circuit breaker uses `(error_code, file_path)` key when hash is empty
+- `keel map --json` produces structured output via formatter
+- `keel compile --json` includes downgraded warnings
+- `keel where/stats --json` honor the flag with structured output
+- W002 excludes test files (`*_test.go`, `test_*.py`, `*.test.ts`)
+- Edge counts (calls/imports/contains) added to stats command
+
+### Gaps Remaining
+- **P1**: Compile performance on large repos (fiber: 237 files, 9min)
+- **P2**: Real-world re-validation needed to confirm cross-file edges > 0
+
 ## Test Summary
 
 | Crate | Passing | Ignored | Notes |
 |-------|---------|---------|-------|
-| keel-core | 52 | 0 | Graph schema, SQLite store (+24 from decompose) |
-| keel-parsers | 45 | 0 | Tree-sitter + resolver unit tests |
-| keel-enforce | 16 | 0 | Engine, violations, circuit breaker |
-| keel-cli | 38 | 0 | All CLI arg parsing |
+| keel-core | 24 | 0 | Graph schema, SQLite store, FK enforcement |
+| keel-parsers | 47 | 0 | Tree-sitter + resolver + crate:: resolution |
+| keel-enforce | 16 | 0 | Engine, violations, per-hash circuit breaker |
+| keel-cli | 42 | 0 | CLI arg parsing, --json output |
 | keel-server | 41 | 0 | MCP + HTTP endpoints |
 | keel-output | 66 | 0 | JSON, LLM, human formatters |
 | contract tests | 10 | 0 | Frozen trait contracts |
+| keel-cli (bin) | 34 | 0 | Binary integration tests |
 | integration tests | 31 | 5 | Multi-language E2E (perf benchmarks) |
 | resolution tests | 154 | 53 | All 4 languages + barrel file tests |
 | workspace root | 2 | 0 | Workspace-level tests |
-| **Total** | **455** | **58** | **0 failures** |
+| **Total** | **467** | **58** | **0 failures** |
 
 **Clippy:** 0 warnings
-**Baseline:** 207 → 338 → 442 → 446 → 455 (post-merge of 3 validation branches)
+**Baseline:** 207 → 338 → 442 → 446 → 455 → 467 (post swarm-2 critical fixes)
 
 ## Milestone Gates
 
