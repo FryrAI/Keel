@@ -15,6 +15,11 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::FileWalker;
 
+use super::map_resolve::{
+    find_containing_def, resolve_cross_file_call, resolve_import_to_module,
+    resolve_same_directory_call,
+};
+
 /// Run `keel map` — full re-parse of the codebase.
 pub fn run(
     formatter: &dyn OutputFormatter,
@@ -248,19 +253,20 @@ pub fn run(
         // Create Imports edges between modules
         if let Some(&src_module_id) = file_module_ids.get(file_path.as_str()) {
             for imp in &file_data.imports {
-                // Try to match the import source to a known file module
-                let imp_source = &imp.source;
-                if let Some(&tgt_module_id) = file_module_ids.get(imp_source.as_str()) {
-                    let edge_id = next_id;
-                    next_id += 1;
-                    edge_changes.push(EdgeChange::Add(GraphEdge {
-                        id: edge_id,
-                        source_id: src_module_id,
-                        target_id: tgt_module_id,
-                        kind: EdgeKind::Imports,
-                        file_path: file_path.clone(),
-                        line: imp.line,
-                    }));
+                let tgt_module_id = resolve_import_to_module(&imp.source, &file_module_ids);
+                if let Some(tgt_id) = tgt_module_id {
+                    if tgt_id != src_module_id {
+                        let edge_id = next_id;
+                        next_id += 1;
+                        edge_changes.push(EdgeChange::Add(GraphEdge {
+                            id: edge_id,
+                            source_id: src_module_id,
+                            target_id: tgt_id,
+                            kind: EdgeKind::Imports,
+                            file_path: file_path.clone(),
+                            line: imp.line,
+                        }));
+                    }
                 }
             }
         }
@@ -276,12 +282,22 @@ pub fn run(
             }
 
             // Look through this file's imports to find the source module
-            let target_id = resolve_cross_file_call(
+            let mut target_id = resolve_cross_file_call(
                 &reference.name,
                 &file_data.imports,
                 &global_name_index,
                 &file_module_ids,
             );
+
+            // Fallback: same-directory/same-package resolution (Go, Python)
+            // In Go, all files in the same directory share a package namespace.
+            if target_id.is_none() && !reference.name.contains('.') && !reference.name.contains("::") {
+                target_id = resolve_same_directory_call(
+                    &reference.name,
+                    file_path,
+                    &global_name_index,
+                );
+            }
 
             if let Some(tgt_id) = target_id {
                 let source_id = find_containing_def(
@@ -380,58 +396,4 @@ fn make_relative(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .to_string()
-}
-
-/// Resolve a cross-file call reference by matching imports to the global name index.
-fn resolve_cross_file_call(
-    callee_name: &str,
-    imports: &[keel_parsers::resolver::Import],
-    global_name_index: &HashMap<String, Vec<(String, u64)>>,
-    file_module_ids: &HashMap<String, u64>,
-) -> Option<u64> {
-    // Check if any import brings this name into scope
-    for imp in imports {
-        let names_match = imp.imported_names.iter().any(|n| n == callee_name || n == "*");
-        if !names_match {
-            continue;
-        }
-        // Find the target definition in the imported module
-        if let Some(candidates) = global_name_index.get(callee_name) {
-            // Prefer candidates from the import's source file
-            let source = &imp.source;
-            for (file, node_id) in candidates {
-                if file == source {
-                    return Some(*node_id);
-                }
-            }
-            // Fallback: check if any candidate's file matches as a module
-            for (file, node_id) in candidates {
-                if file_module_ids.contains_key(file.as_str()) && source.contains(file.as_str()) {
-                    return Some(*node_id);
-                }
-            }
-            // Last resort: if only one candidate exists globally, use it
-            if candidates.len() == 1 {
-                return Some(candidates[0].1);
-            }
-        }
-    }
-    None
-}
-
-/// Find which definition contains a given line number.
-fn find_containing_def(
-    definitions: &[keel_parsers::resolver::Definition],
-    line: u32,
-    file_path: &str,
-    name_to_id: &HashMap<(String, String), u64>,
-) -> Option<u64> {
-    for def in definitions {
-        if line >= def.line_start && line <= def.line_end {
-            return name_to_id
-                .get(&(file_path.to_string(), def.name.clone()))
-                .copied();
-        }
-    }
-    None
 }
