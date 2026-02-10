@@ -88,6 +88,66 @@ clone_and_pin \
     "axum" \
     "axum-v0.8.1"
 
+# ripgrep — workspace, complex module tree (~30k LOC)
+clone_and_pin \
+    "https://github.com/BurntSushi/ripgrep.git" \
+    "ripgrep" \
+    "14.1.1"
+
+# serde — derive macros, trait impls (~15k LOC)
+clone_and_pin \
+    "https://github.com/serde-rs/serde.git" \
+    "serde" \
+    "v1.0.217"
+
+# --- Extended TypeScript ---
+echo ""
+echo "=== Extended TypeScript ==="
+
+# trpc — monorepo, cross-package imports (~40k LOC)
+clone_and_pin \
+    "https://github.com/trpc/trpc.git" \
+    "trpc" \
+    "v11.9.0"
+
+# zod — generics, method chaining (~10k LOC)
+clone_and_pin \
+    "https://github.com/colinhacks/zod.git" \
+    "zod" \
+    "v3.24.1"
+
+# --- Extended Python ---
+echo ""
+echo "=== Extended Python ==="
+
+# pydantic — metaclass, validators (~40k LOC)
+clone_and_pin \
+    "https://github.com/pydantic/pydantic.git" \
+    "pydantic" \
+    "v2.10.6"
+
+# flask — blueprints, extension patterns (~15k LOC)
+clone_and_pin \
+    "https://github.com/pallets/flask.git" \
+    "flask" \
+    "3.1.0"
+
+# --- Extended Go ---
+echo ""
+echo "=== Extended Go ==="
+
+# gin — HTTP framework, embedded types (~20k LOC)
+clone_and_pin \
+    "https://github.com/gin-gonic/gin.git" \
+    "gin" \
+    "v1.10.0"
+
+# fzf — complex CLI, goroutine patterns (~25k LOC)
+clone_and_pin \
+    "https://github.com/junegunn/fzf.git" \
+    "fzf" \
+    "v0.57.0"
+
 echo ""
 echo "Test corpus setup complete."
 echo "Corpus directory: $CORPUS_DIR"
