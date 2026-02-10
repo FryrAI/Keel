@@ -1,7 +1,7 @@
 use keel_output::OutputFormatter;
 
 /// Run `keel where <hash>` — resolve hash to file:line.
-pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String) -> i32 {
+pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -31,18 +31,40 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String) -> i32
 
     match engine.where_hash(&hash) {
         Some((file, line)) => {
-            println!("{}:{}", file, line);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "version": "0.1.0",
+                        "command": "where",
+                        "hash": hash,
+                        "file": file,
+                        "line": line
+                    })
+                );
+            } else {
+                println!("{}:{}", file, line);
+            }
             0
         }
         None => {
-            if verbose {
-                eprintln!("keel where: hash {} not found", hash);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "version": "0.1.0",
+                        "command": "where",
+                        "hash": hash,
+                        "error": "hash not found"
+                    })
+                );
+            } else {
+                if verbose {
+                    eprintln!("keel where: hash {} not found", hash);
+                }
+                eprintln!("error: hash not found: {}", hash);
             }
-            eprintln!("error: hash not found: {}", hash);
             2
         }
     }
-
-    // formatter is available for --json/--llm modes in future
-    // Currently where just outputs file:line directly
 }

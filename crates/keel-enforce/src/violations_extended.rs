@@ -192,11 +192,17 @@ pub fn check_placement(
 }
 
 /// Check W002: duplicate_name — same function name in multiple modules.
+/// Excludes test files from comparison to reduce noise.
 pub fn check_duplicate_names(
     file: &FileIndex,
     store: &dyn GraphStore,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
+
+    // Skip W002 entirely if the current file is a test file
+    if is_test_file(&file.file_path) {
+        return violations;
+    }
 
     for def in &file.definitions {
         if def.kind != NodeKind::Function {
@@ -205,6 +211,10 @@ pub fn check_duplicate_names(
 
         let all_modules = store.get_all_modules();
         for module in &all_modules {
+            // Skip test files in comparison targets
+            if is_test_file(&module.file_path) {
+                continue;
+            }
             let nodes = store.get_nodes_in_file(&module.file_path);
             for node in &nodes {
                 if node.name == def.name
@@ -245,6 +255,32 @@ pub fn check_duplicate_names(
     }
 
     violations
+}
+
+/// Check if a file path is a test file by language convention.
+/// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
+/// *.test.js, *.spec.js, *_test.rs, tests.rs
+pub(crate) fn is_test_file(path: &str) -> bool {
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    let basename = basename.rsplit('\\').next().unwrap_or(basename);
+
+    // Go: *_test.go
+    if basename.ends_with("_test.go") {
+        return true;
+    }
+    // Python: test_*.py or *_test.py
+    if basename.ends_with(".py") && (basename.starts_with("test_") || basename.ends_with("_test.py")) {
+        return true;
+    }
+    // TypeScript/JavaScript: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx
+    if basename.contains(".test.") || basename.contains(".spec.") {
+        return true;
+    }
+    // Rust: *_test.rs or tests.rs
+    if basename.ends_with("_test.rs") || basename == "tests.rs" {
+        return true;
+    }
+    false
 }
 
 /// Count parameters from a signature string. Returns 0 if unable to parse.
@@ -354,5 +390,30 @@ mod tests {
     #[test]
     fn test_extract_prefix_snake_case_multi() {
         assert_eq!(extract_prefix("get_user_name"), "get");
+    }
+
+    #[test]
+    fn test_is_test_file() {
+        // Go
+        assert!(is_test_file("pkg/handler_test.go"));
+        assert!(!is_test_file("pkg/handler.go"));
+
+        // Python
+        assert!(is_test_file("tests/test_handler.py"));
+        assert!(is_test_file("src/handler_test.py"));
+        assert!(!is_test_file("src/handler.py"));
+        assert!(!is_test_file("src/testing_utils.py")); // not a test file
+
+        // TypeScript/JavaScript
+        assert!(is_test_file("src/handler.test.ts"));
+        assert!(is_test_file("src/handler.spec.ts"));
+        assert!(is_test_file("src/handler.test.js"));
+        assert!(is_test_file("src/handler.spec.tsx"));
+        assert!(!is_test_file("src/handler.ts"));
+
+        // Rust
+        assert!(is_test_file("src/handler_test.rs"));
+        assert!(is_test_file("src/tests.rs"));
+        assert!(!is_test_file("src/handler.rs"));
     }
 }

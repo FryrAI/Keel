@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-/// Tracks consecutive failures per (error_code, hash) pair.
+/// Tracks consecutive failures per (error_code, identifier) pair.
+/// The identifier is normally the node hash, but when hash is empty
+/// (e.g. E003, W001, W002), we fall back to file_path so each file
+/// gets its own counter instead of all sharing one.
+///
 /// After 3 consecutive failures:
 ///   attempt 1 = fix_hint
 ///   attempt 2 = wider discover context
@@ -50,9 +54,21 @@ impl CircuitBreaker {
         }
     }
 
+    /// Build the deduplication key. When hash is empty, fall back to
+    /// file_path so that each file gets its own circuit breaker counter.
+    fn make_key(error_code: &str, hash: &str, file_path: &str) -> (String, String) {
+        let identifier = if hash.is_empty() {
+            file_path.to_string()
+        } else {
+            hash.to_string()
+        };
+        (error_code.to_string(), identifier)
+    }
+
     /// Record a failure and return the recommended action.
-    pub fn record_failure(&mut self, error_code: &str, hash: &str) -> BreakerAction {
-        let key = (error_code.to_string(), hash.to_string());
+    /// `file_path` is used as fallback identifier when `hash` is empty.
+    pub fn record_failure(&mut self, error_code: &str, hash: &str, file_path: &str) -> BreakerAction {
+        let key = Self::make_key(error_code, hash, file_path);
         let entry = self.state.entry(key).or_insert(FailureState {
             consecutive: 0,
             downgraded: false,
@@ -69,23 +85,23 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a success — resets the counter for this (error_code, hash).
-    pub fn record_success(&mut self, error_code: &str, hash: &str) {
-        let key = (error_code.to_string(), hash.to_string());
+    /// Record a success — resets the counter for this (error_code, hash/file).
+    pub fn record_success(&mut self, error_code: &str, hash: &str, file_path: &str) {
+        let key = Self::make_key(error_code, hash, file_path);
         self.state.remove(&key);
     }
 
-    /// Check if a (error_code, hash) pair has been downgraded.
-    pub fn is_downgraded(&self, error_code: &str, hash: &str) -> bool {
-        let key = (error_code.to_string(), hash.to_string());
+    /// Check if a (error_code, hash/file) pair has been downgraded.
+    pub fn is_downgraded(&self, error_code: &str, hash: &str, file_path: &str) -> bool {
+        let key = Self::make_key(error_code, hash, file_path);
         self.state
             .get(&key)
             .is_some_and(|s| s.downgraded)
     }
 
-    /// Get the current failure count for a (error_code, hash) pair.
-    pub fn failure_count(&self, error_code: &str, hash: &str) -> u32 {
-        let key = (error_code.to_string(), hash.to_string());
+    /// Get the current failure count for a (error_code, hash/file) pair.
+    pub fn failure_count(&self, error_code: &str, hash: &str, file_path: &str) -> u32 {
+        let key = Self::make_key(error_code, hash, file_path);
         self.state.get(&key).map_or(0, |s| s.consecutive)
     }
 
@@ -120,39 +136,53 @@ mod tests {
     #[test]
     fn test_escalation_sequence() {
         let mut cb = CircuitBreaker::new();
-        assert_eq!(cb.record_failure("E001", "abc"), BreakerAction::FixHint);
-        assert_eq!(cb.record_failure("E001", "abc"), BreakerAction::WiderContext);
-        assert_eq!(cb.record_failure("E001", "abc"), BreakerAction::Downgrade);
-        assert!(cb.is_downgraded("E001", "abc"));
+        assert_eq!(cb.record_failure("E001", "abc", "file.rs"), BreakerAction::FixHint);
+        assert_eq!(cb.record_failure("E001", "abc", "file.rs"), BreakerAction::WiderContext);
+        assert_eq!(cb.record_failure("E001", "abc", "file.rs"), BreakerAction::Downgrade);
+        assert!(cb.is_downgraded("E001", "abc", "file.rs"));
     }
 
     #[test]
     fn test_success_resets() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "abc");
-        cb.record_failure("E001", "abc");
-        cb.record_success("E001", "abc");
-        assert_eq!(cb.failure_count("E001", "abc"), 0);
-        assert!(!cb.is_downgraded("E001", "abc"));
+        cb.record_failure("E001", "abc", "file.rs");
+        cb.record_failure("E001", "abc", "file.rs");
+        cb.record_success("E001", "abc", "file.rs");
+        assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 0);
+        assert!(!cb.is_downgraded("E001", "abc", "file.rs"));
     }
 
     #[test]
     fn test_independent_keys() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "abc");
-        cb.record_failure("E002", "abc");
-        assert_eq!(cb.failure_count("E001", "abc"), 1);
-        assert_eq!(cb.failure_count("E002", "abc"), 1);
+        cb.record_failure("E001", "abc", "file.rs");
+        cb.record_failure("E002", "abc", "file.rs");
+        assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 1);
+        assert_eq!(cb.failure_count("E002", "abc", "file.rs"), 1);
+    }
+
+    #[test]
+    fn test_empty_hash_uses_file_path() {
+        let mut cb = CircuitBreaker::new();
+        // Empty hash: should key by file_path, so different files get separate counters
+        cb.record_failure("E003", "", "src/foo.py");
+        cb.record_failure("E003", "", "src/foo.py");
+        cb.record_failure("E003", "", "src/bar.py");
+
+        assert_eq!(cb.failure_count("E003", "", "src/foo.py"), 2);
+        assert_eq!(cb.failure_count("E003", "", "src/bar.py"), 1);
+        assert!(!cb.is_downgraded("E003", "", "src/foo.py"));
+        assert!(!cb.is_downgraded("E003", "", "src/bar.py"));
     }
 
     #[test]
     fn test_export_import_roundtrip() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "abc");
-        cb.record_failure("E001", "abc"); // 2 failures
-        cb.record_failure("E002", "def");
-        cb.record_failure("E002", "def");
-        cb.record_failure("E002", "def"); // 3 failures → downgraded
+        cb.record_failure("E001", "abc", "file.rs");
+        cb.record_failure("E001", "abc", "file.rs"); // 2 failures
+        cb.record_failure("E002", "def", "file.rs");
+        cb.record_failure("E002", "def", "file.rs");
+        cb.record_failure("E002", "def", "file.rs"); // 3 failures → downgraded
 
         let state = cb.export_state();
         assert_eq!(state.len(), 2);
@@ -160,10 +190,10 @@ mod tests {
         let mut cb2 = CircuitBreaker::new();
         cb2.import_state(&state);
 
-        assert_eq!(cb2.failure_count("E001", "abc"), 2);
-        assert!(!cb2.is_downgraded("E001", "abc"));
-        assert_eq!(cb2.failure_count("E002", "def"), 3);
-        assert!(cb2.is_downgraded("E002", "def"));
+        assert_eq!(cb2.failure_count("E001", "abc", "file.rs"), 2);
+        assert!(!cb2.is_downgraded("E001", "abc", "file.rs"));
+        assert_eq!(cb2.failure_count("E002", "def", "file.rs"), 3);
+        assert!(cb2.is_downgraded("E002", "def", "file.rs"));
     }
 
     #[test]
@@ -172,11 +202,11 @@ mod tests {
         let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
 
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "hash1");
-        cb.record_failure("E001", "hash1");
-        cb.record_failure("E005", "hash2");
-        cb.record_failure("E005", "hash2");
-        cb.record_failure("E005", "hash2"); // downgraded
+        cb.record_failure("E001", "hash1", "src/a.rs");
+        cb.record_failure("E001", "hash1", "src/a.rs");
+        cb.record_failure("E005", "hash2", "src/b.rs");
+        cb.record_failure("E005", "hash2", "src/b.rs");
+        cb.record_failure("E005", "hash2", "src/b.rs"); // downgraded
 
         // Persist to SQLite
         let state = cb.export_state();
@@ -187,14 +217,14 @@ mod tests {
         let mut cb2 = CircuitBreaker::new();
         cb2.import_state(&loaded);
 
-        assert_eq!(cb2.failure_count("E001", "hash1"), 2);
-        assert!(!cb2.is_downgraded("E001", "hash1"));
-        assert_eq!(cb2.failure_count("E005", "hash2"), 3);
-        assert!(cb2.is_downgraded("E005", "hash2"));
+        assert_eq!(cb2.failure_count("E001", "hash1", "src/a.rs"), 2);
+        assert!(!cb2.is_downgraded("E001", "hash1", "src/a.rs"));
+        assert_eq!(cb2.failure_count("E005", "hash2", "src/b.rs"), 3);
+        assert!(cb2.is_downgraded("E005", "hash2", "src/b.rs"));
 
         // Verify next failure on the restored CB works correctly
-        let action = cb2.record_failure("E001", "hash1");
+        let action = cb2.record_failure("E001", "hash1", "src/a.rs");
         assert_eq!(action, BreakerAction::Downgrade);
-        assert!(cb2.is_downgraded("E001", "hash1"));
+        assert!(cb2.is_downgraded("E001", "hash1", "src/a.rs"));
     }
 }

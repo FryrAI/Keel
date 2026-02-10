@@ -223,7 +223,7 @@ impl EnforcementEngine {
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
-                    let action = self.circuit_breaker.record_failure(&v.code, &v.hash);
+                    let action = self.circuit_breaker.record_failure(&v.code, &v.hash, &v.file);
                     match action {
                         BreakerAction::FixHint => {} // fix_hint already set
                         BreakerAction::WiderContext => {
