@@ -245,8 +245,37 @@ Three parallel agents fixed the critical gaps identified in swarm run #1:
 - Edge counts (calls/imports/contains) added to stats command
 
 ### Gaps Remaining
-- **P1**: Compile performance on large repos (fiber: 237 files, 9min)
-- **P2**: Real-world re-validation needed to confirm cross-file edges > 0
+- **P1**: Compile performance on large repos (ripgrep: 4.6min, fastapi: 4.3min, axum: 3.4min)
+
+## 15-Repo Validation (2026-02-11)
+
+### FK Fix
+- `PRAGMA defer_foreign_keys = ON` inside update_nodes/update_edges transactions
+- Root cause: `PRAGMA foreign_keys = OFF` was silently ignored (can't change inside transaction)
+- Fixed in `sqlite_queries.rs` — now edges insert successfully on all repos
+
+### Round 0 Baseline — ALL GREEN
+
+| Repo | Lang | Nodes | Edges | X-file | Map(ms) | Compile(ms) |
+|------|------|-------|-------|--------|---------|-------------|
+| axum | rust | 3760 | 4028 | 52 | 3201 | 202870 |
+| cobra | go | 637 | 1565 | 553 | 347 | 1880 |
+| fastapi | python | 6617 | 6550 | 465 | 7379 | 259478 |
+| fiber | go | 3954 | 7649 | 3167 | 1919 | 33036 |
+| flask | python | 2116 | 2482 | 173 | 842 | 8993 |
+| fzf | go | 892 | 1887 | 523 | 515 | 5819 |
+| gin | go | 1268 | 2434 | 613 | 601 | 5304 |
+| httpx | python | 1533 | 1965 | 177 | 663 | 5397 |
+| ky | typescript | 150 | 158 | 33 | 865 | 1304 |
+| pydantic | python | 11634 | 15960 | 1028 | 3393 | 118892 |
+| ripgrep | rust | 4668 | 5754 | 581 | 2199 | 276985 |
+| serde | rust | 3328 | 4424 | 256 | 2388 | 135561 |
+| trpc | typescript | 2173 | 4218 | 742 | 12124 | 55411 |
+| zod | typescript | 1039 | 1695 | 396 | 3262 | 9489 |
+| zustand | typescript | 218 | 271 | 11 | 1017 | 1344 |
+| **TOTAL** | | **43987** | **61040** | **8770** | | |
+
+**15/15 repos pass.** Zero orphans. All repos have cross-file edges.
 
 ## Test Summary
 
