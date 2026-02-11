@@ -277,6 +277,31 @@ Three parallel agents fixed the critical gaps identified in swarm run #1:
 
 **15/15 repos pass.** Zero orphans. All repos have cross-file edges.
 
+### Iterative Validation — 3 Consecutive Green Rounds
+
+| Round | Passed | Failed | Regressions | Status |
+|-------|--------|--------|-------------|--------|
+| 0 | 15/15 | 0 | 0 | GREEN |
+| 1 | 15/15 | 0 | 0 | GREEN |
+| 2 | 15/15 | 0 | 0 | GREEN |
+
+**Exit criteria met:** 3 consecutive green rounds with 0 failures, 0 regressions.
+Metrics are deterministic across rounds (node/edge counts stable within +/-10 edges for
+non-deterministic TypeScript cross-file resolution).
+
+### Performance Notes (P1 — not blocking)
+
+Compile time scales with file count. Top 5 slowest repos:
+- ripgrep (Rust, 4668 nodes): ~4.6min compile
+- fastapi (Python, 6617 nodes): ~4.3min compile
+- axum (Rust, 3760 nodes): ~3.4min compile
+- serde (Rust, 3328 nodes): ~2.3min compile
+- pydantic (Python, 11634 nodes): ~2.0min compile
+
+Root cause: O(n^2) violation checking — each node checked against all other nodes for W002
+(duplicate names) and E003 (missing docstrings). Fix: add file-scoped or batch-skipped
+checks for pre-existing code.
+
 ## Test Summary
 
 | Crate | Passing | Ignored | Notes |
