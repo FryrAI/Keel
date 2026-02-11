@@ -1,6 +1,6 @@
 // Tests for progressive adoption (new vs existing code) (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::adoption::ProgressiveAdoption;
+// use keel_enforce::engine::EnforcementEngine;  // progressive adoption not yet extracted
 
 #[test]
 #[ignore = "Not yet implemented"]

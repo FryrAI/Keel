@@ -1,6 +1,6 @@
 // Tests for E003 missing docstring enforcement (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::DocstringRule;
+// use keel_enforce::violations::check_missing_docstring;
 
 #[test]
 #[ignore = "Not yet implemented"]

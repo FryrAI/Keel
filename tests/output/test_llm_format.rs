@@ -1,6 +1,7 @@
 // Tests for LLM-friendly output format (Spec 008 - Output Formats)
 //
-// use keel_output::llm::LlmFormatter;
+// use keel_output::llm::LlmFormatter;  // correct path
+// use keel_output::OutputFormatter;
 
 #[test]
 #[ignore = "Not yet implemented"]

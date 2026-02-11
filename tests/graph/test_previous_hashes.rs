@@ -1,6 +1,6 @@
 // Tests for previous hash tracking on nodes (Spec 000 - Graph Schema)
 //
-// use keel_core::graph::GraphNode;
+// use keel_core::types::GraphNode;
 // use keel_core::hash::compute_hash;
 
 #[test]

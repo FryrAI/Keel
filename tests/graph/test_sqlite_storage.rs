@@ -1,7 +1,7 @@
 // Tests for SqliteGraphStore CRUD operations (Spec 000 - Graph Schema)
 //
-// use keel_core::storage::SqliteGraphStore;
-// use keel_core::graph::{GraphNode, GraphEdge, NodeKind, EdgeKind};
+// use keel_core::sqlite::SqliteGraphStore;
+// use keel_core::types::{GraphNode, GraphEdge, NodeKind, EdgeKind};
 
 #[test]
 #[ignore = "Not yet implemented"]

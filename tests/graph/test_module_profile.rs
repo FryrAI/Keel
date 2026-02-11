@@ -1,6 +1,6 @@
 // Tests for ModuleProfile creation and querying (Spec 000 - Graph Schema)
 //
-// use keel_core::graph::{ModuleProfile, ModuleId};
+// use keel_core::types::ModuleProfile;
 
 #[test]
 #[ignore = "Not yet implemented"]

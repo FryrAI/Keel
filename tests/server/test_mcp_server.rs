@@ -3,8 +3,8 @@
 // Validates that keel exposes all required tools via MCP protocol,
 // handles tool calls correctly, and returns properly formatted responses.
 //
-// use keel_server::mcp::{McpServer, McpToolRegistry, McpRequest, McpResponse};
-// use keel_core::graph::GraphStore;
+// use keel_server::mcp::{McpServer, McpToolRegistry, McpRequest, McpResponse};  // TODO: verify paths
+// use keel_core::store::GraphStore;
 
 #[test]
 #[ignore = "Not yet implemented"]

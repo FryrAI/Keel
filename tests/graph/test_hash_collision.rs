@@ -1,7 +1,7 @@
 // Tests for hash collision detection and disambiguation (Spec 000 - Graph Schema)
 //
-// use keel_core::hash::{compute_hash, detect_collision, disambiguate_hash};
-// use keel_core::graph::GraphStore;
+// use keel_core::hash::compute_hash;
+// use keel_core::store::GraphStore;
 
 #[test]
 #[ignore = "Not yet implemented"]

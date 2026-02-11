@@ -1,7 +1,7 @@
 // Tests for TypeScript tree-sitter parser (Spec 001 - Tree-sitter Foundation)
 //
-// use keel_parsers::typescript::TypeScriptParser;
-// use keel_core::graph::{GraphNode, NodeKind};
+// use keel_parsers::typescript::TsResolver;
+// use keel_core::types::{GraphNode, NodeKind};
 
 #[test]
 #[ignore = "Not yet implemented"]

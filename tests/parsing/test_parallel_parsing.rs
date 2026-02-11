@@ -1,6 +1,6 @@
 // Tests for parallel file parsing with rayon (Spec 001 - Tree-sitter Foundation)
 //
-// use keel_parsers::parallel::ParallelParser;
+// use keel_parsers::resolver::LanguageResolver;  // parallel parsing uses rayon internally
 // use std::time::Instant;
 
 #[test]

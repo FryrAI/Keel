@@ -1,6 +1,6 @@
 // Tests for Rust macro resolution (Spec 005 - Rust Resolution)
 //
-// use keel_parsers::rust::RustAnalyzerResolver;
+// use keel_parsers::rust_lang::RustLangResolver;
 
 #[test]
 /// Declarative macro invocations (macro_rules!) should be tracked as call edges.

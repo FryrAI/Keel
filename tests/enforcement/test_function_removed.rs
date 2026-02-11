@@ -1,6 +1,6 @@
 // Tests for E004 function removed detection (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::FunctionRemovedRule;
+// use keel_enforce::violations_extended::check_removed_functions;
 
 #[test]
 #[ignore = "Not yet implemented"]

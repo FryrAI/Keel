@@ -1,6 +1,6 @@
 // Tests for E005 arity mismatch detection (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::ArityMismatchRule;
+// use keel_enforce::violations_extended::check_arity_mismatch;
 
 #[test]
 #[ignore = "Not yet implemented"]

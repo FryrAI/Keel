@@ -3,8 +3,8 @@
 // Validates that `keel discover <hash>` meets the <50ms target for
 // returning callers, callees, and node metadata from the graph.
 //
-// use keel_core::graph::GraphStore;
-// use keel_core::discover::{discover_node, DiscoverResult};
+// use keel_core::store::GraphStore;
+// use keel_enforce::types::DiscoverResult;
 // use std::time::Instant;
 
 #[test]

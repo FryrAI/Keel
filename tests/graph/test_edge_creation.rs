@@ -1,6 +1,6 @@
 // Tests for GraphEdge creation and EdgeKind variants (Spec 000 - Graph Schema)
 //
-// use keel_core::graph::{GraphEdge, EdgeKind, GraphNode};
+// use keel_core::types::{GraphEdge, EdgeKind, GraphNode};
 
 #[test]
 #[ignore = "Not yet implemented"]

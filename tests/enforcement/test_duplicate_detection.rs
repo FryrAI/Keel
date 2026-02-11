@@ -1,6 +1,6 @@
 // Tests for W002 duplicate function name detection (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::DuplicateDetectionRule;
+// use keel_enforce::violations_extended::check_duplicate_names;
 
 #[test]
 #[ignore = "Not yet implemented"]

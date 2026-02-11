@@ -1,6 +1,6 @@
 // Tests for TypeScript decorator resolution (Spec 002 - TypeScript Resolution)
 //
-// use keel_parsers::typescript::OxcResolver;
+// use keel_parsers::typescript::TsResolver;
 
 #[test]
 /// Class decorators should be resolved to their definition.

@@ -1,6 +1,6 @@
 // Tests for GraphNode creation and NodeKind variants (Spec 000 - Graph Schema)
 //
-// use keel_core::graph::{GraphNode, NodeKind, ModuleId};
+// use keel_core::types::{GraphNode, NodeKind};
 
 #[test]
 #[ignore = "Not yet implemented"]

@@ -3,7 +3,8 @@
 // Measures the accuracy of keel's call edge detection compared to LSP.
 // Precision = correct edges / total keel edges. Recall = correct edges / total LSP edges.
 //
-// use keel_core::graph::{GraphStore, GraphEdge, EdgeKind};
+// use keel_core::store::GraphStore;
+// use keel_core::types::{GraphEdge, EdgeKind};
 // use std::collections::HashSet;
 
 #[test]

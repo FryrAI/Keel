@@ -1,6 +1,6 @@
 // Tests for E002 missing type hints enforcement (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::TypeHintRule;
+// use keel_enforce::violations::check_missing_type_hints;
 
 #[test]
 #[ignore = "Not yet implemented"]

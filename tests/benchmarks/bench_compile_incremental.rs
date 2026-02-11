@@ -3,8 +3,9 @@
 // Validates that `keel compile <file>` meets the <200ms target for single-file
 // compilation against an existing graph. This is the critical hot-path metric.
 //
-// use keel_enforce::compile::{compile_file, CompileResult};
-// use keel_core::graph::GraphStore;
+// use keel_enforce::engine::EnforcementEngine;
+// use keel_enforce::types::CompileResult;
+// use keel_core::store::GraphStore;
 // use std::time::Instant;
 
 #[test]

@@ -1,6 +1,6 @@
 // Tests for .keelignore file handling (Spec 001 - Tree-sitter Foundation)
 //
-// use keel_parsers::ignore::KeelIgnore;
+// use keel_parsers::walker::FileWalker;  // keelignore handled via walker
 
 #[test]
 #[ignore = "Not yet implemented"]

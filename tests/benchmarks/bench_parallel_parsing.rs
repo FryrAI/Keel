@@ -3,7 +3,7 @@
 // Validates that keel effectively utilizes multiple CPU cores for parsing
 // via Rayon, achieving near-linear scaling for the parsing phase.
 //
-// use keel_parsers::parallel::parse_files_parallel;
+// use keel_parsers::resolver::LanguageResolver;  // parallel parsing uses rayon internally
 // use std::time::Instant;
 // use tempfile::TempDir;
 

@@ -1,6 +1,6 @@
 // Tests for TypeScript default export resolution (Spec 002 - TypeScript Resolution)
 //
-// use keel_parsers::typescript::OxcResolver;
+// use keel_parsers::typescript::TsResolver;
 
 #[test]
 /// Default export of a named function should resolve to that function.

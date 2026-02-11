@@ -1,6 +1,7 @@
 // Tests for error code formatting in output (Spec 008 - Output Formats)
 //
-// use keel_output::format::ErrorCodeFormatter;
+// use keel_output::human::HumanFormatter;
+// use keel_output::OutputFormatter;
 
 #[test]
 #[ignore = "Not yet implemented"]

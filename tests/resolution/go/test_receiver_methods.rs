@@ -1,6 +1,6 @@
 // Tests for Go receiver method resolution (Spec 004 - Go Resolution)
 //
-// use keel_parsers::go::GoHeuristicResolver;
+// use keel_parsers::go::GoResolver;
 
 #[test]
 /// Pointer receiver methods should resolve when called on a pointer.

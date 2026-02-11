@@ -3,7 +3,7 @@
 // Measures xxhash64 + base62 encoding throughput for function/class/module
 // hashing at various scales. Hash computation must not be a bottleneck.
 //
-// use keel_core::hash::{compute_hash, base62_encode};
+// use keel_core::hash::compute_hash;
 // use std::time::Instant;
 
 #[test]

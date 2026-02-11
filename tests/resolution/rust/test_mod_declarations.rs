@@ -1,6 +1,6 @@
 // Tests for Rust mod declaration resolution (Spec 005 - Rust Resolution)
 //
-// use keel_parsers::rust::RustAnalyzerResolver;
+// use keel_parsers::rust_lang::RustLangResolver;
 
 #[test]
 /// `mod foo;` declaration should resolve to foo.rs or foo/mod.rs.

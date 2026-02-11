@@ -3,8 +3,8 @@
 // Compares keel's TypeScript graph output against LSP/SCIP baseline data
 // to validate node counts, edge counts, and resolution accuracy.
 //
-// use keel_core::graph::GraphStore;
-// use keel_parsers::typescript::TypeScriptResolver;
+// use keel_core::store::GraphStore;
+// use keel_parsers::typescript::TsResolver;
 // use std::path::Path;
 
 #[test]

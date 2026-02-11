@@ -3,8 +3,8 @@
 // Compares keel's Rust graph output against LSP/SCIP baseline data
 // to validate node counts, edge counts, and resolution accuracy.
 //
-// use keel_core::graph::GraphStore;
-// use keel_parsers::rust::RustResolver;
+// use keel_core::store::GraphStore;
+// use keel_parsers::rust_lang::RustLangResolver;
 // use std::path::Path;
 
 #[test]

@@ -1,6 +1,6 @@
 // Tests for Python package and module resolution (Spec 003 - Python Resolution)
 //
-// use keel_parsers::python::TyResolver;
+// use keel_parsers::python::PyResolver;
 
 #[test]
 /// Absolute import of a local package should resolve to the correct module.

@@ -1,6 +1,6 @@
 // Tests for batch mode (--batch-start/--batch-end) (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::batch::BatchMode;
+// use keel_enforce::batch::BatchState;
 
 #[test]
 #[ignore = "Not yet implemented"]

@@ -1,7 +1,7 @@
 // Tests for the LanguageResolver trait contract (Spec 001 - Tree-sitter Foundation)
 //
-// use keel_parsers::LanguageResolver;
-// use keel_core::graph::{GraphNode, GraphEdge};
+// use keel_parsers::resolver::LanguageResolver;
+// use keel_core::types::{GraphNode, GraphEdge};
 
 #[test]
 #[ignore = "Not yet implemented"]

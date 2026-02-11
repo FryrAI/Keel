@@ -1,7 +1,7 @@
 // Tests for incremental parsing updates (Spec 001 - Tree-sitter Foundation)
 //
-// use keel_parsers::incremental::IncrementalParser;
-// use keel_core::graph::GraphStore;
+// use keel_parsers::resolver::{FileIndex, LanguageResolver};
+// use keel_core::store::GraphStore;
 
 #[test]
 #[ignore = "Not yet implemented"]

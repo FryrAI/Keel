@@ -1,7 +1,7 @@
 // Tests for E001 broken caller detection (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::BrokenCallerRule;
-// use keel_core::graph::{GraphNode, GraphEdge};
+// use keel_enforce::violations::check_broken_callers;
+// use keel_core::types::{GraphNode, GraphEdge};
 
 #[test]
 #[ignore = "Not yet implemented"]

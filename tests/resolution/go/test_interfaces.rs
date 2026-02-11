@@ -1,6 +1,6 @@
 // Tests for Go interface resolution (Spec 004 - Go Resolution)
 //
-// use keel_parsers::go::GoHeuristicResolver;
+// use keel_parsers::go::GoResolver;
 
 #[test]
 /// Interface method calls should resolve to all implementing types.

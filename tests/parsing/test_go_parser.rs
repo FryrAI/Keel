@@ -1,7 +1,7 @@
 // Tests for Go tree-sitter parser (Spec 001 - Tree-sitter Foundation)
 //
-// use keel_parsers::go::GoParser;
-// use keel_core::graph::{GraphNode, NodeKind};
+// use keel_parsers::go::GoResolver;
+// use keel_core::types::{GraphNode, NodeKind};
 
 #[test]
 #[ignore = "Not yet implemented"]

@@ -3,7 +3,7 @@
 // Measures parse throughput at various codebase scales to ensure keel meets
 // performance targets for file parsing across all supported languages.
 //
-// use keel_parsers::TreeSitterParser;
+// use keel_parsers::treesitter::TreeSitterParser;
 // use std::time::Instant;
 // use tempfile::TempDir;
 

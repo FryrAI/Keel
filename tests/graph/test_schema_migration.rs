@@ -1,6 +1,6 @@
 // Tests for schema migration and versioning (Spec 000 - Graph Schema)
 //
-// use keel_core::storage::{SqliteGraphStore, SchemaVersion};
+// use keel_core::sqlite::SqliteGraphStore;
 
 #[test]
 #[ignore = "Not yet implemented"]

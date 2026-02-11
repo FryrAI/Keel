@@ -1,6 +1,6 @@
 // Tests for Rust trait resolution (Spec 005 - Rust Resolution)
 //
-// use keel_parsers::rust::RustAnalyzerResolver;
+// use keel_parsers::rust_lang::RustLangResolver;
 
 #[test]
 /// Trait method calls should resolve to the correct impl for the concrete type.

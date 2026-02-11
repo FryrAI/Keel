@@ -3,7 +3,7 @@
 // Validates that keel produces correct graphs for projects containing
 // multiple languages, ensuring no interference between language resolvers.
 //
-// use keel_core::graph::GraphStore;
+// use keel_core::store::GraphStore;
 // use std::path::Path;
 
 #[test]

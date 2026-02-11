@@ -1,6 +1,6 @@
 // Tests for keel explain command (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::explain::ExplainResult;
+// use keel_enforce::types::ExplainResult;
 
 #[test]
 #[ignore = "Not yet implemented"]

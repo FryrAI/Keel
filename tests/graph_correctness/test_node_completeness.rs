@@ -3,7 +3,8 @@
 // Validates that keel detects all function and class definitions that the
 // LSP reports, ensuring no structural elements are missed during parsing.
 //
-// use keel_core::graph::{GraphStore, GraphNode, NodeKind};
+// use keel_core::store::GraphStore;
+// use keel_core::types::{GraphNode, NodeKind};
 // use std::path::Path;
 
 #[test]

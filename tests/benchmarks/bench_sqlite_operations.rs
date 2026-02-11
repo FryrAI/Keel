@@ -3,8 +3,8 @@
 // Measures CRUD performance for graph persistence in .keel/graph.db.
 // SQLite must handle large graphs without becoming a bottleneck.
 //
-// use keel_core::storage::SqliteGraphStore;
-// use keel_core::graph::{GraphNode, GraphEdge};
+// use keel_core::sqlite::SqliteGraphStore;
+// use keel_core::types::{GraphNode, GraphEdge};
 // use std::time::Instant;
 // use tempfile::TempDir;
 

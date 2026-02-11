@@ -1,7 +1,7 @@
 // Tests for W001 placement scoring and suggestion (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::rules::PlacementRule;
-// use keel_core::graph::ModuleProfile;
+// use keel_enforce::violations_extended::check_placement;
+// use keel_core::types::ModuleProfile;
 
 #[test]
 #[ignore = "Not yet implemented"]

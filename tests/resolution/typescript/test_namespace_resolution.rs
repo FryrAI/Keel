@@ -1,6 +1,6 @@
 // Tests for TypeScript namespace and module resolution (Spec 002 - TypeScript Resolution)
 //
-// use keel_parsers::typescript::OxcResolver;
+// use keel_parsers::typescript::TsResolver;
 
 #[test]
 /// TypeScript namespace declarations should be resolvable.

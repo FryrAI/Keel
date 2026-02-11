@@ -1,6 +1,7 @@
 // Tests for explain command JSON output schema (Spec 008 - Output Formats)
 //
-// use keel_output::json::ExplainJsonOutput;
+// use keel_output::json::JsonFormatter;
+// use keel_output::OutputFormatter;
 // use serde_json::Value;
 
 #[test]

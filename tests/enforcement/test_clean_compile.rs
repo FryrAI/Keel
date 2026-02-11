@@ -1,6 +1,6 @@
 // Tests for clean compile behavior (Spec 006 - Enforcement Engine)
 //
-// use keel_enforce::compile::CompileResult;
+// use keel_enforce::types::CompileResult;
 
 #[test]
 #[ignore = "Not yet implemented"]

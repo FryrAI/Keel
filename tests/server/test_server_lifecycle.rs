@@ -3,8 +3,8 @@
 // Validates server startup, shutdown, graph loading, memory management,
 // and graceful handling of concurrent requests during lifecycle transitions.
 //
-// use keel_server::{ServerConfig, Server};
-// use keel_core::graph::GraphStore;
+// use keel_server::{ServerConfig, Server};  // TODO: verify paths
+// use keel_core::store::GraphStore;
 // use std::time::Duration;
 
 #[test]

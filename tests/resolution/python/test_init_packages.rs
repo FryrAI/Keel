@@ -1,6 +1,6 @@
 // Tests for Python __init__.py package resolution (Spec 003 - Python Resolution)
 //
-// use keel_parsers::python::TyResolver;
+// use keel_parsers::python::PyResolver;
 
 #[test]
 /// Importing a package name should resolve to its __init__.py.

@@ -1,6 +1,6 @@
 // Tests for hash computation: base62(xxhash64(...)) (Spec 000 - Graph Schema)
 //
-// use keel_core::hash::compute_hash;
+// use keel_core::hash::compute_hash;  // correct path
 
 #[test]
 #[ignore = "Not yet implemented"]

@@ -1,6 +1,6 @@
 // Tests for Python ty subprocess integration (Spec 003 - Python Resolution)
 //
-// use keel_parsers::python::TyResolver;
+// use keel_parsers::python::PyResolver;
 
 #[test]
 /// ty subprocess should be invoked with --output-format json flag.
