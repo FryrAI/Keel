@@ -3,6 +3,7 @@ pub mod circuit_breaker;
 pub mod batch;
 pub mod suppress;
 pub mod violations_extended;
+pub mod violations_util;
 pub mod violations;
 pub mod engine;
 pub mod hash_diff;

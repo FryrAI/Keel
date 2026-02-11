@@ -1,5 +1,6 @@
 pub mod init;
 pub mod map;
+pub mod map_helpers;
 pub mod map_resolve;
 pub mod compile;
 pub mod parse_util;
