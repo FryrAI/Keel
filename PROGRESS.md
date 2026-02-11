@@ -1,260 +1,115 @@
 # keel — Implementation Progress
 
-> Last updated: 2026-02-10
+> Last updated: 2026-02-11
 
-## Phase 0: Contracts & Scaffold — COMPLETE
+## Honest Status Summary
 
-- [x] Workspace `Cargo.toml` with all 6 crates
-- [x] `keel-core` — graph types (`NodeKind`, `EdgeKind`, `StructuralNode`, `StructuralEdge`)
-- [x] `keel-core` — hash computation (`base62(xxhash64(...))`, 11-char deterministic hashes)
-- [x] `keel-core` — `GraphStore` trait + SQLite implementation
-- [x] `keel-parsers` — `LanguageResolver` trait (frozen contract)
-- [x] `keel-parsers` — language module stubs (TypeScript, Python, Go, Rust)
-- [x] `keel-enforce` — `CompileResult`, `DiscoverResult`, `ExplainResult` structs
-- [x] `keel-enforce` — error code types (E001-E005, W001-W002, S001)
-- [x] `keel-output` — JSON, LLM, human formatter stubs
-- [x] `keel-cli` — main entry point stub
-- [x] `keel-server` — lib stub
-- [x] `.keel/config.toml` — configuration template
-- [x] `.keelignore` — default ignore patterns
-- [x] `.github/workflows/ci.yml` — CI pipeline (check, test, clippy, fmt)
-- [x] `extensions/vscode/` — VS Code extension manifest + entry stub
-- [x] 13 unit tests passing (hash + SQLite store)
+**Core implementation is functional.** All CLI commands work, 4 language resolvers pass,
+15 real-world repos validate successfully. However, test coverage has significant gaps:
+the 467 passing tests cover crate internals and resolution well, but higher-level behavioral
+tests (enforcement rules, output formats, server endpoints, graph correctness) exist only
+as uncompiled empty stubs.
 
-**Gate:** All frozen contracts defined. All crates compile. All tests pass.
+## Test Status — Actual Numbers
 
-## Phase 1: Tree-sitter Foundation + Language Resolvers — COMPLETE
+### What `cargo test --workspace` Reports
 
-### Spec 001: Tree-sitter Foundation — COMPLETE
+| Category | Count | Notes |
+|----------|-------|-------|
+| **Passing** | 467 | Real assertions (459) + empty-body stubs (8) |
+| **Ignored** | 58 | CLI integration stubs (53) + perf benchmarks (5) |
+| **Failing** | 0 | — |
 
-- [x] `TreeSitterParser` — multi-language parser with query-based extraction
-- [x] Language detection from file extension
-- [x] Query patterns for TypeScript, Python, Go, Rust (`.scm` files)
-- [x] Function, class, import, and call extraction via tree-sitter queries
-- [x] `FileWalker` — parallel file discovery with `.keelignore` support
-- [x] `streaming-iterator` dependency for tree-sitter cursor traversal
-- [x] 11 parser unit tests passing (language detection, parsing, walker)
+### Where the 467 Passing Tests Live
 
-### Spec 002: TypeScript Resolution — COMPLETE
+| Source | Tests | Real | Empty stubs | Notes |
+|--------|-------|------|-------------|-------|
+| crates/keel-core/ | 24 | 24 | 0 | SQLite, hash, config |
+| crates/keel-parsers/ | 42 | 42 | 0 | tree-sitter, 4 resolvers, walker |
+| crates/keel-enforce/ | 47 | 47 | 0 | Engine, violations, circuit breaker, batch |
+| crates/keel-cli/ | 34 | 34 | 0 | CLI arg parsing, --json |
+| crates/keel-server/ | 32 | 32 | 0 | MCP + HTTP + watcher |
+| crates/keel-output/ | 16 | 16 | 0 | JSON, LLM, human formatters |
+| tests/contracts/ | 66 | 66 | 0 | Frozen trait contracts |
+| tests/fixtures/ | 10 | 10 | 0 | Mock graph + compile helpers |
+| tests/integration/ | 31 | 31 | 0 | E2E workflows (real) |
+| tests/resolution/ | 154 | 146 | 8 | 4 languages + barrel files |
+| tests/cli/ | 2 | 2 | 0 | init keelignore + git hook |
+| workspace root | 9 | 9 | 0 | — |
+| **Total** | **467** | **459** | **8** | |
 
-- [x] `TsResolver` wraps `TreeSitterParser` for Tier 1 parsing
-- [x] Import-based module resolution (relative + bare specifier heuristics)
-- [x] Same-file call edge resolution with confidence scoring (0.85)
-- [x] Type hint detection (`:` in params, return type annotations)
-- [x] Thread-safe caching (`Mutex<HashMap>`) for parsed results
-- [x] 4 unit tests (parse function, parse class, caching, call edges)
+### 58 Ignored Tests
 
-### Spec 003: Python Resolution — COMPLETE
+| Source | Count | Type |
+|--------|-------|------|
+| tests/cli/ (53) | 53 | Empty stubs with `#[ignore = "Not yet implemented"]` |
+| tests/integration/test_large_codebase.rs | 5 | Real perf benchmarks (50-100k LOC generation) |
 
-- [x] `PyResolver` wraps `TreeSitterParser` for Tier 1 parsing
-- [x] Relative import resolution (`from .foo import bar`)
-- [x] Type hint detection (`:` params, `->` return type)
-- [x] Public/private detection (`_` prefix convention)
-- [x] Same-file call edge resolution with confidence scoring (0.80)
-- [x] Thread-safe caching for parsed results
-- [x] 6 unit tests (parse, private fn, no type hints, caching, call edges, relative imports)
+### 450 Orphaned Stubs (NEVER COMPILED)
 
-### Spec 004: Go Resolution — COMPLETE
+These directories have `mod.rs` files but **no top-level `tests/*.rs` entry point**, so
+`cargo test` never compiles them. All contain empty-body `#[test] #[ignore]` functions
+with comment-only bodies (GIVEN/WHEN/THEN placeholders).
 
-- [x] `GoResolver` wraps `TreeSitterParser` for Tier 1 parsing
-- [x] Exported/unexported detection (capitalization convention)
-- [x] Package alias tracking from import statements
-- [x] Same-file call edge resolution with confidence scoring (0.90)
-- [x] Thread-safe caching for parsed results
-- [x] 5 unit tests (parse, private fn, caching, call edges, package alias)
+| Directory | Files | #[test] stubs | What they would test |
+|-----------|-------|---------------|----------------------|
+| tests/graph/ | 7 | 70 | Node/edge creation, hash, SQLite, schema migration |
+| tests/enforcement/ | 13 | 112 | E001-E005, W001-W002, circuit breaker, batch, explain |
+| tests/output/ | 8 | 50 | JSON schema compliance, LLM format, error codes |
+| tests/parsing/ | 8 | 59 | Per-language parsing, incremental, parallel, keelignore |
+| tests/server/ | 4 | 29 | HTTP endpoints, MCP server, watch mode, lifecycle |
+| tests/tool_integration/ | 6 | 49 | Claude Code, Cursor, Gemini, git hooks, instruction files |
+| tests/benchmarks/ | 7 | 31 | Parsing, hash, SQLite, compile, discover perf |
+| tests/graph_correctness/ | 7 | 50 | Per-language correctness, cross-language, edge accuracy |
+| **TOTAL** | **60** | **450** | — |
 
-### Spec 005: Rust Resolution — COMPLETE
+**Impact:** The spec-kit originally planned ~500 integration tests across these directories.
+They were scaffolded but never wired up or implemented. This means enforcement rules (E001-E005),
+output format compliance, server endpoints, and tool integration have **zero dedicated tests**
+outside crate-level unit tests.
 
-- [x] `RustLangResolver` wraps `TreeSitterParser` for Tier 1 parsing
-- [x] `pub` / `pub(crate)` / `pub(super)` / `pub(in path)` visibility detection
-- [x] `use` path resolution heuristics
-- [x] Same-file call edge resolution with confidence scoring (0.80)
-- [x] Thread-safe caching for parsed results
-- [x] 5 unit tests (parse, private fn, caching, call edges, pub detection)
+## Implementation Phase Status
 
-## Phase 2: Enforcement Engine — COMPLETE
+### Phase 0: Contracts & Scaffold — DONE
 
-### Spec 006: Enforcement Engine — COMPLETE
+All frozen contracts defined. All crates compile. Core types stable.
 
-- [x] `EnforcementEngine` — core validation pipeline (`engine.rs`)
-- [x] Violation checkers for E001-E005, W001-W002 (`violations.rs`)
-- [x] `fix_hint` generation for every ERROR
-- [x] Confidence scoring (0.0-1.0) on all violations
-- [x] Circuit breaker — 3 consecutive failures → auto-downgrade to WARNING (`circuit_breaker.rs`)
-- [x] Batch mode — `batch_start()`/`batch_end()` with 60s expiry (`batch.rs`)
-- [x] Suppression mechanism (`suppress.rs`)
-- [x] 15 unit tests (engine, violations, circuit breaker, batch, suppress)
+### Phase 1: Parsing & Resolution — DONE (well-tested)
 
-### Spec 007: CLI Commands — COMPLETE
+All 4 language resolvers (TypeScript, Python, Go, Rust) implemented and passing.
+154 resolver tests with real assertions. Tier 2 enhancers integrated.
 
-- [x] `keel init` — language detection, `.keel/` directory creation, config generation
-- [x] `keel map` — full re-parse via FileWalker + resolvers + GraphStore
-- [x] `keel compile [file...]` — incremental validation via EnforcementEngine
-- [x] `keel discover <hash>` — adjacency lookup with depth
-- [x] `keel where <hash>` — hash → file:line resolution
-- [x] `keel explain <code> <hash>` — resolution chain display
-- [x] `keel serve` — delegates to keel-server (MCP/HTTP/watch)
-- [x] `keel deinit` — clean removal of `.keel/` directory
-- [x] `keel stats` — node/edge/file counts from GraphStore
-- [x] `--json`, `--llm`, `--verbose` global flags
-- [x] Exit codes: 0 (success), 1 (violations), 2 (internal error)
+| Language | Tier 2 Enhancer | Resolver Tests |
+|----------|----------------|----------------|
+| TypeScript | Oxc (`oxc_resolver` + `oxc_semantic`) | 42 |
+| Python | ty (subprocess) + heuristics | 41 |
+| Go | tree-sitter heuristics + cross-file | 26 |
+| Rust | Heuristic resolver | 45 |
 
-### Spec 008: Output Formats — COMPLETE
+### Phase 2: Enforcement — DONE (under-tested)
 
-- [x] `JsonFormatter` — structured JSON via serde (schema-compliant)
-- [x] `LlmFormatter` — token-optimized compact output for LLM consumption
-- [x] `HumanFormatter` — terminal-friendly output with error/warning labels
-- [x] All three implement `OutputFormatter` trait
+Engine and violation checkers implemented. Circuit breaker, batch mode, suppression work.
+**Gap:** 112 planned enforcement behavioral tests are uncompiled stubs. The engine_tests.rs
+and violations_extended.rs in-crate tests cover basic paths, but no dedicated tests for:
+- E001 broken callers across files
+- E002/E003 type hint + docstring enforcement per language
+- E005 arity mismatch detection
+- W001 placement validation
+- Progressive adoption (new vs pre-existing code)
 
-## Phase 3: Server & Integrations — COMPLETE
+### Phase 3: Server & Integrations — DONE (under-tested)
 
-### Spec 009: Tool Integration — COMPLETE
+MCP + HTTP server, VS Code extension, tool hooks all implemented.
+**Gap:** 29 server endpoint tests + 49 tool integration tests are uncompiled stubs.
+HTTP endpoint testing relies on crate-level mcp_tests.rs (28 tests) only.
 
-- [x] `.keel/hooks/post-edit.sh` — runs `keel compile` after file edits
-- [x] `.keel/hooks/pre-commit` — git pre-commit hook with `keel compile --strict`
+### Phase 4: Distribution — SCAFFOLD ONLY
 
-### Spec 010: MCP + HTTP Server — COMPLETE
+CI pipeline and install script exist. No release has been published.
 
-- [x] `keel serve --http` — axum REST API on localhost:4815
-- [x] HTTP endpoints: `/health`, `/compile`, `/discover/{hash}`, `/where/{hash}`, `/explain`
-- [x] `keel serve --mcp` — MCP JSON-RPC over stdio (`mcp.rs`)
-- [x] MCP tools: `keel/compile`, `keel/discover`, `keel/where`, `keel/explain`
-- [x] File watcher with debouncing via `notify` crate (`watcher.rs`)
-- [x] Thread-safe store wrapper for async axum handlers
-- [x] CORS enabled for all origins (verified with preflight test)
-- [x] 15 integration tests (all endpoints, CORS, error handling, malformed requests)
+## Real-World Validation (2026-02-11) — STRONG
 
-### Spec 011: VS Code Extension — COMPLETE
-
-- [x] Status bar item showing keel compile status
-- [x] Diagnostics provider (violations → VS Code diagnostics)
-- [x] CodeLens for function hashes
-- [x] Commands: `keel.compile`, `keel.discover`, `keel.where`
-- [x] Activation on workspace containing `.keel/` directory
-- [x] `keel.binaryPath` and `keel.compileOnSave` configuration settings
-- [x] `package.json` with commands, activation events, contribution points
-
-## Phase 4: Distribution — COMPLETE (scaffold)
-
-### Spec 012: Cross-platform Distribution — COMPLETE (scaffold)
-
-- [x] `.github/workflows/release.yml` — GitHub Actions cross-platform build + release
-- [x] Linux (x86_64, aarch64), macOS (x86_64, aarch64), Windows (x86_64) targets
-- [x] `scripts/install.sh` — curl-based installer script
-- [x] `Cargo.toml` — LTO, strip, single binary settings (workspace-level)
-
-## Tier 2 Implementation Status
-
-Tier 1 (tree-sitter) parsing is complete for all 4 languages. Tier 2 per-language enhancers
-are integrated and passing all resolver tests:
-
-| Language | Tier 2 Enhancer | Status |
-|----------|----------------|--------|
-| TypeScript | Oxc (`oxc_resolver` + `oxc_semantic`) | Integrated — 28 resolver tests passing |
-| Python | ty (subprocess) + heuristics | Integrated — 29 resolver tests passing |
-| Go | tree-sitter heuristics + cross-file | Integrated — 18 resolver tests passing |
-| Rust | Heuristic resolver | Integrated — 29 resolver tests passing |
-
-All 104 resolver tests enabled and passing. Tier 3 (LSP/SCIP) not yet needed.
-
-## Agent Swarm Results (2026-02-09 to 2026-02-10)
-
-Three parallel agent teams ran across git worktrees:
-
-- **Enforcement Team:** 6 commits, +1983 -132 lines. CLI arg parsing (28 tests), enforcement edge cases, multi-language integration, circuit breaker/batch/suppression tests.
-- **Surface Team:** 4 commits, +1665 -189 lines. MCP tools (5 tools, batch compile), VS Code extension polish (HTTP client, hover, CodeLens), release CI, 9 tool configs.
-- **Foundation Team:** 1 commit, +2159 -312 lines. Resolver tests for all 4 languages (TS barrel/path aliases/re-exports, Python all-exports/relative/star imports, Go import resolution/package scoping/visibility, Rust impl blocks/use statements/visibility).
-
-## Resolver Test Enablement (2026-02-10)
-
-Discovered that all 104 ignored resolver tests already passed — resolvers were more capable
-than the `#[ignore]` annotations suggested. One code fix was required:
-
-- **Fixed:** `rust_is_public()` didn't handle `pub(crate)`, `pub(super)`, `pub(in path)` visibility — added `pub(` prefix check
-- **Removed:** 104 `#[ignore]` annotations across 23 test files in `tests/resolution/`
-- **Split:** TypeScript resolver module from 651 lines into 4 files (mod.rs 249, semantic.rs 138, helpers.rs 101, tests.rs 193) — enforcing 400-line file limit
-
-Result: 338 → 442 passing tests (+104), 109 → 5 ignored (perf benchmarks only).
-
-## Critical Gap Fixes (2026-02-10)
-
-8 critical and important fixes applied post-swarm:
-
-1. **Cross-file resolution** — `resolve_cross_file_call` now actually queries the graph store for matching definitions in other files, producing real cross-file edges instead of returning `None`
-2. **Compile persistence** — `keel compile` writes updated nodes/edges back to SQLite after validation, so changes survive between invocations
-3. **Watch mode debounce** — file watcher debounces events with 300ms delay and deduplicates paths, preventing rapid-fire recompilation
-4. **Config loading** — `KeelConfig::load()` reads from `.keel/config.toml` with proper TOML deserialization and fallback defaults
-5. **Init improvements** — `keel init` now creates `.keelignore` with sensible defaults and installs a git pre-commit hook that runs `keel compile --strict`
-6. **Map command** — `keel map` writes all discovered nodes/edges to the graph store (not just stdout) for persistent cross-session state
-7. **Compile file filtering** — when `keel compile` is given specific files, it filters violations to only those files instead of reporting everything
-8. **JSON schema compliance** — `JsonFormatter` output includes all required fields (`version`, `command`, `status`, etc.) matching the schema contracts
-
-## Real-World Validation (2026-02-10)
-
-Swarm run #1 tested against 6 real-world repos. Results merged from 3 branches:
-- `fix/decompose-harden`: Decomposed 5 oversized files, hardening tests, architecture fixes
-- `test/ts-python`: FK constraint crash fix, validated ky/zustand/httpx
-- `test/go-rust`: 3 bug fixes, validated cobra/fiber/axum/keel-self
-
-### Per-Repo Results
-
-| Repo | Language | Nodes | Edges | Cross-file | Issues Found |
-|------|----------|-------|-------|------------|--------------|
-| ky | TypeScript | 89 | 36 | 36 calls | Working (partial) |
-| zustand | TypeScript | 45 | 10 | 10 calls | Working (partial) |
-| httpx | Python | 482 | 172 | 172 calls | Working (partial) |
-| cobra | Go | 312 | 0 | 0 | P0: zero cross-file, 83 orphaned, 48 dupes |
-| fiber | Go | 1843 | 0 | 0 | P0: zero cross-file, 843 orphaned, 427 dupes |
-| axum | Rust | 876 | 0 | 0 | P0: zero cross-file, 1912 orphaned, 196 dupes |
-
-### Critical Gaps Identified
-
-- **P0**: Zero cross-file call edges for Go and Rust
-- **P0**: Orphaned edges in DB (FK not enforced on open)
-- **P1**: Duplicate call edges (no UNIQUE constraint)
-- **P1**: W002 noise (8113 warnings on fiber) — test files not excluded
-- **P1**: Compile takes 9min on fiber (237 files)
-- **P2**: Circuit breaker counts globally not per-hash
-- **P2**: `--json` flag produces no output for map/compile/where/stats
-- **P2**: UNIQUE constraint crash on compile persistence path
-
-## Swarm Run #2: Critical Gap Fixes (2026-02-10)
-
-Three parallel agents fixed the critical gaps identified in swarm run #1:
-
-### fix/cross-file (7 files, +571/-70)
-- Go: extract last path segment from import path for module ID matching
-- Rust: implement `crate::` and `self::` path resolution for use statements
-- Create `EdgeKind::Imports` edges for all languages during map
-- Extract cross-file resolution to `map_resolve.rs` (332 lines, under 400)
-- Add edge count breakdown to stats command
-
-### fix/data-integrity (3 files, +87/-19)
-- Enable `PRAGMA foreign_keys = ON` in `open()` and `in_memory()`
-- UPSERT (`ON CONFLICT DO UPDATE`) instead of `INSERT OR REPLACE` for nodes
-- `UNIQUE(source_id, target_id, kind, file_path, line)` constraint on edges
-- Orphaned edge cleanup after map operations
-- Composite index `idx_edges_source_kind` for query performance
-
-### fix/enforcement (8 files, +323/-68)
-- Circuit breaker uses `(error_code, file_path)` key when hash is empty
-- `keel map --json` produces structured output via formatter
-- `keel compile --json` includes downgraded warnings
-- `keel where/stats --json` honor the flag with structured output
-- W002 excludes test files (`*_test.go`, `test_*.py`, `*.test.ts`)
-- Edge counts (calls/imports/contains) added to stats command
-
-### Gaps Remaining
-- **P1**: Compile performance on large repos (ripgrep: 4.6min, fastapi: 4.3min, axum: 3.4min)
-
-## 15-Repo Validation (2026-02-11)
-
-### FK Fix
-- `PRAGMA defer_foreign_keys = ON` inside update_nodes/update_edges transactions
-- Root cause: `PRAGMA foreign_keys = OFF` was silently ignored (can't change inside transaction)
-- Fixed in `sqlite_queries.rs` — now edges insert successfully on all repos
-
-### Round 0 Baseline — ALL GREEN
+### 15-Repo Validation — ALL GREEN
 
 | Repo | Lang | Nodes | Edges | X-file | Map(ms) | Compile(ms) |
 |------|------|-------|-------|--------|---------|-------------|
@@ -275,57 +130,77 @@ Three parallel agents fixed the critical gaps identified in swarm run #1:
 | zustand | typescript | 218 | 271 | 11 | 1017 | 1344 |
 | **TOTAL** | | **43987** | **61040** | **8770** | | |
 
-**15/15 repos pass.** Zero orphans. All repos have cross-file edges.
+3 consecutive green rounds. Zero orphans. Deterministic across rounds.
 
-### Iterative Validation — 3 Consecutive Green Rounds
+## Infrastructure Gaps
 
-| Round | Passed | Failed | Regressions | Status |
-|-------|--------|--------|-------------|--------|
-| 0 | 15/15 | 0 | 0 | GREEN |
-| 1 | 15/15 | 0 | 0 | GREEN |
-| 2 | 15/15 | 0 | 0 | GREEN |
+### Missing Test Entry Points (P0)
+8 directories in `tests/` have no top-level `.rs` file to wire them into `cargo test`.
+Creating these entry points (like `tests/enforcement.rs`, `tests/server.rs`, etc.) is a
+prerequisite before any stub can be implemented.
 
-**Exit criteria met:** 3 consecutive green rounds with 0 failures, 0 regressions.
-Metrics are deterministic across rounds (node/edge counts stable within +/-10 edges for
-non-deterministic TypeScript cross-file resolution).
+### No Shared Test Helpers (P1)
+Each integration test file duplicates `keel_bin()`, `setup_ts_project()`, and similar
+helpers. A `tests/common/` module would reduce duplication and make new tests faster to write.
 
-### Performance Notes (P1 — not blocking)
+### Empty-Body Stubs (P1)
+8 resolution tests pass trivially with `fn test_foo() {}`. These should either be
+implemented or removed to avoid inflating pass counts.
 
-Compile time scales with file count. Top 5 slowest repos:
-- ripgrep (Rust, 4668 nodes): ~4.6min compile
-- fastapi (Python, 6617 nodes): ~4.3min compile
-- axum (Rust, 3760 nodes): ~3.4min compile
-- serde (Rust, 3328 nodes): ~2.3min compile
-- pydantic (Python, 11634 nodes): ~2.0min compile
+### Performance Testing (P2)
+5 real perf benchmarks exist (test_large_codebase.rs) but are `#[ignore]`. No CI job
+runs them. Compile time on large repos is O(n^2) — the biggest gap for production use.
 
-Root cause: O(n^2) violation checking — each node checked against all other nodes for W002
-(duplicate names) and E003 (missing docstrings). Fix: add file-scoped or batch-skipped
-checks for pre-existing code.
+### Tool Integration Testing (P2)
+49 stubs describe how keel should integrate with Claude Code, Cursor, Gemini, git hooks,
+and instruction files. None are implemented. These would catch regressions in the hook/config
+generation paths.
 
-## Test Summary
+## Remaining Work — Prioritized
 
-| Crate | Passing | Ignored | Notes |
-|-------|---------|---------|-------|
-| keel-core | 24 | 0 | Graph schema, SQLite store, FK enforcement |
-| keel-parsers | 47 | 0 | Tree-sitter + resolver + crate:: resolution |
-| keel-enforce | 16 | 0 | Engine, violations, per-hash circuit breaker |
-| keel-cli | 42 | 0 | CLI arg parsing, --json output |
-| keel-server | 41 | 0 | MCP + HTTP endpoints |
-| keel-output | 66 | 0 | JSON, LLM, human formatters |
-| contract tests | 10 | 0 | Frozen trait contracts |
-| keel-cli (bin) | 34 | 0 | Binary integration tests |
-| integration tests | 31 | 5 | Multi-language E2E (perf benchmarks) |
-| resolution tests | 154 | 53 | All 4 languages + barrel file tests |
-| workspace root | 2 | 0 | Workspace-level tests |
-| **Total** | **467** | **58** | **0 failures** |
+### P0: Test Infrastructure
+1. Create top-level `tests/*.rs` entry points for all 8 orphaned directories
+2. Build shared test helpers (`tests/common/mod.rs`) for binary path, temp project setup
+3. Fix import paths so stubs can compile (many reference old API signatures)
 
-**Clippy:** 0 warnings
-**Baseline:** 207 → 338 → 442 → 446 → 455 → 467 (post swarm-2 critical fixes)
+### P0: Implement Critical Behavioral Tests
+4. Enforcement tests (E001-E005) — validate violation detection against real code changes
+5. Output format tests — verify JSON schema compliance, LLM format structure
+6. Server endpoint tests — HTTP and MCP tools return correct payloads
 
-## Milestone Gates
+### P1: Fix Known Issues
+7. Compile performance — O(n^2) violation checking (ripgrep: 4.6min, fastapi: 4.3min)
+8. 8 empty-body resolution stubs — implement or delete
 
-| Gate | Criteria | Status |
-|------|----------|--------|
-| M1 | Resolution >85% precision per language | PASS — 153 resolver tests pass, all 4 languages |
-| M2 | All CLI commands work, enforcement >95% TP | PASS — 38 CLI + 16 enforce + 66 output tests |
-| M3 | E2E with Claude Code + Cursor on real repos | PASS — MCP server, tool configs, VS Code ext |
+### P2: Hardening
+9. Graph correctness tests — validate node/edge accuracy per language
+10. Tool integration tests — hook generation, instruction file output
+11. Benchmark CI — run perf tests on release builds
+
+### P3: Distribution
+12. First release build and publish
+13. VS Code extension marketplace submission
+
+## Historical Context
+
+### Agent Swarm Results (2026-02-09 to 2026-02-10)
+- **Enforcement Team:** 6 commits, +1983 -132 lines
+- **Surface Team:** 4 commits, +1665 -189 lines
+- **Foundation Team:** 1 commit, +2159 -312 lines
+
+### Critical Gap Fixes Applied
+1. Cross-file resolution (Go + Rust now produce edges)
+2. Compile persistence (writes back to SQLite)
+3. Watch mode debounce (300ms)
+4. Config loading (TOML deserialization)
+5. Init improvements (.keelignore + git hook)
+6. Map persistence (writes to graph store)
+7. Compile file filtering (specific files only)
+8. JSON schema compliance (all required fields)
+9. FK constraint fix (deferred foreign keys in transactions)
+10. Data integrity (UPSERT, UNIQUE constraints, orphan cleanup)
+11. Circuit breaker per-hash keying
+12. W002 test file exclusion
+
+### Test Count History
+207 → 338 → 442 → 446 → 455 → 467 (current)
