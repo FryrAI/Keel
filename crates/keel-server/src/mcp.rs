@@ -10,11 +10,11 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::EdgeDirection;
 use keel_enforce::types::{
-    CalleeInfo, CallerInfo, CompileInfo, CompileResult, DiscoverResult, ExplainResult,
+    CalleeInfo, CallerInfo, DiscoverResult, ExplainResult,
     ModuleContext, NodeInfo, ResolutionStep,
 };
 
-type SharedStore = Arc<Mutex<SqliteGraphStore>>;
+pub(crate) type SharedStore = Arc<Mutex<SqliteGraphStore>>;
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
@@ -36,9 +36,9 @@ struct JsonRpcResponse {
 }
 
 #[derive(Serialize)]
-struct JsonRpcError {
-    code: i64,
-    message: String,
+pub(crate) struct JsonRpcError {
+    pub(crate) code: i64,
+    pub(crate) message: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -123,7 +123,7 @@ fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<
             }
         })),
         "tools/list" => serde_json::to_value(tool_list()).map_err(internal_err),
-        "keel/compile" => handle_compile(params),
+        "keel/compile" => crate::mcp_compile::handle_compile(store, params),
         "keel/discover" => handle_discover(store, params),
         "keel/where" => handle_where(store, params),
         "keel/explain" => handle_explain(store, params),
@@ -176,7 +176,7 @@ pub fn process_line(store: &SharedStore, line: &str) -> String {
     serde_json::to_string(&response).unwrap_or_default()
 }
 
-fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
+pub(crate) fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
     JsonRpcError { code: -32603, message: e.to_string() }
 }
 
@@ -188,52 +188,8 @@ fn not_found(hash: &str) -> JsonRpcError {
     JsonRpcError { code: -32602, message: format!("Node not found: {}", hash) }
 }
 
-fn lock_store(store: &SharedStore) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
+pub(crate) fn lock_store(store: &SharedStore) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
     store.lock().map_err(|_| JsonRpcError { code: -32603, message: "Store lock poisoned".into() })
-}
-
-fn handle_compile(params: Option<Value>) -> Result<Value, JsonRpcError> {
-    let files: Vec<String> = params
-        .as_ref()
-        .and_then(|p| p.get("files").cloned())
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-
-    let batch_start = params
-        .as_ref()
-        .and_then(|p| p.get("batch_start"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let batch_end = params
-        .as_ref()
-        .and_then(|p| p.get("batch_end"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let status = if batch_start {
-        "batch_started"
-    } else if batch_end {
-        "batch_ended"
-    } else {
-        "ok"
-    };
-
-    let result = CompileResult {
-        version: env!("CARGO_PKG_VERSION").into(),
-        command: "compile".into(),
-        status: status.into(),
-        files_analyzed: files,
-        errors: vec![],
-        warnings: vec![],
-        info: CompileInfo {
-            nodes_updated: 0,
-            edges_updated: 0,
-            hashes_changed: vec![],
-        },
-    };
-
-    serde_json::to_value(result).map_err(internal_err)
 }
 
 fn handle_discover(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
@@ -340,7 +296,7 @@ fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, J
         error_code,
         hash: node.hash.clone(),
         confidence: 1.0,
-        resolution_tier: "tier1_treesitter".into(),
+        resolution_tier: "tree-sitter".into(),
         resolution_chain: vec![ResolutionStep {
             kind: "lookup".into(),
             file: node.file_path,
