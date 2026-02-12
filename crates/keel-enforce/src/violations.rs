@@ -17,10 +17,10 @@ pub fn check_broken_callers(
     store: &dyn GraphStore,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
+    let existing_nodes = store.get_nodes_in_file(&file.file_path);
 
     for def in &file.definitions {
         // Find existing node by name in same file
-        let existing_nodes = store.get_nodes_in_file(&file.file_path);
         let existing = existing_nodes.iter().find(|n| n.name == def.name);
 
         let Some(existing) = existing else { continue };

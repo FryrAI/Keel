@@ -295,7 +295,7 @@ fn test_explain_existing_node() {
     assert_eq!(result["hash"], "a7Bx3kM9f2Q");
     assert!(!result["resolution_chain"].as_array().unwrap().is_empty());
     assert!(result["summary"].as_str().unwrap().contains("doStuff"));
-    assert_eq!(result["resolution_tier"], "tier1_treesitter");
+    assert_eq!(result["resolution_tier"], "tree-sitter");
 }
 
 #[test]

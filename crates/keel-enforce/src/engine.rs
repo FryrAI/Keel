@@ -75,14 +75,14 @@ impl EnforcementEngine {
                 .collect();
 
             // Track changed hashes and collect node updates for persistence
+            let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
             for def in &file.definitions {
                 let new_hash = keel_core::hash::compute_hash(
                     &def.signature,
                     &def.body_text,
                     def.docstring.as_deref().unwrap_or(""),
                 );
-                let existing = self.store.get_nodes_in_file(&file.file_path);
-                if let Some(node) = existing.iter().find(|n| n.name == def.name) {
+                if let Some(node) = existing_nodes.iter().find(|n| n.name == def.name) {
                     if node.hash != new_hash {
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;

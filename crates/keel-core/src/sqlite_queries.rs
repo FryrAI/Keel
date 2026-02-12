@@ -211,7 +211,7 @@ impl GraphStore for SqliteGraphStore {
                         )
                         .ok();
                     if let Some((existing_id, existing_name)) = existing {
-                        if existing_id != node.id && existing_name != node.name {
+                        if existing_id != node.id {
                             return Err(GraphError::HashCollision {
                                 hash: node.hash.clone(),
                                 existing: existing_name,

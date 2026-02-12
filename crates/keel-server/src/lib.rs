@@ -1,5 +1,6 @@
 pub mod http;
 pub mod mcp;
+mod mcp_compile;
 pub mod watcher;
 
 use std::path::PathBuf;

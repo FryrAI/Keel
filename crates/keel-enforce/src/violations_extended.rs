@@ -96,7 +96,11 @@ pub fn check_arity_mismatch(
         let expected_arity = count_params(&target_node.signature);
         let call_arity = count_call_args(&reference.name);
 
-        if expected_arity > 0 && call_arity > 0 && expected_arity != call_arity {
+        // Only compare when both sides were parseable (count_params/count_call_args
+        // return 0 both for genuinely zero params AND for unparseable signatures).
+        // We flag mismatches when at least one side has params, which means the
+        // zero on the other side is a real zero (not a parse failure).
+        if (expected_arity > 0 || call_arity > 0) && expected_arity != call_arity {
             violations.push(Violation {
                 code: "E005".to_string(),
                 severity: "ERROR".to_string(),
@@ -205,12 +209,13 @@ pub fn check_duplicate_names(
         return violations;
     }
 
+    let all_modules = store.get_all_modules();
+
     for def in &file.definitions {
         if def.kind != NodeKind::Function {
             continue;
         }
 
-        let all_modules = store.get_all_modules();
         for module in &all_modules {
             // Skip test files in comparison targets
             if is_test_file(&module.file_path) {
