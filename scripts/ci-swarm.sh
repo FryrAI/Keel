@@ -136,7 +136,7 @@ create_worktrees() {
 
     for wt_path in "$WT_TEST_INFRA" "$WT_ENFORCEMENT" "$WT_BUGS"; do
         local branch
-        branch=$(basename "$wt_path" | sed 's/keel-//')
+        branch=$(basename "$wt_path" | sed 's/keel-ci-//')
         branch="ci/${branch}"
 
         if [[ -d "$wt_path" ]]; then
