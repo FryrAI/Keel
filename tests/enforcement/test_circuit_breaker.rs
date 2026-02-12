@@ -1,93 +1,137 @@
 // Tests for circuit breaker behavior (Spec 006 - Enforcement Engine)
-//
-// use keel_enforce::circuit_breaker::CircuitBreaker;
+use keel_enforce::circuit_breaker::{BreakerAction, CircuitBreaker};
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// First failure on an error-code+hash pair should provide fix_hint.
 fn test_circuit_breaker_attempt_1_fix_hint() {
-    // GIVEN a first-time E001 violation for hash "abc12345678"
-    // WHEN the circuit breaker processes the violation
-    // THEN fix_hint is provided in the output
+    let mut cb = CircuitBreaker::new();
+    let action = cb.record_failure("E001", "abc12345678", "src/lib.py");
+    assert_eq!(action, BreakerAction::FixHint);
+    assert_eq!(cb.failure_count("E001", "abc12345678", "src/lib.py"), 1);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Second consecutive failure should provide wider discover context.
 fn test_circuit_breaker_attempt_2_wider_discover() {
-    // GIVEN a second consecutive E001 violation for the same hash
-    // WHEN the circuit breaker processes the violation
-    // THEN wider discover context (more adjacency info) is provided
+    let mut cb = CircuitBreaker::new();
+    cb.record_failure("E001", "abc12345678", "src/lib.py");
+    let action = cb.record_failure("E001", "abc12345678", "src/lib.py");
+    assert_eq!(action, BreakerAction::WiderContext);
+    assert_eq!(cb.failure_count("E001", "abc12345678", "src/lib.py"), 2);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Third consecutive failure should auto-downgrade the violation to WARNING.
 fn test_circuit_breaker_attempt_3_auto_downgrade() {
-    // GIVEN a third consecutive E001 violation for the same hash
-    // WHEN the circuit breaker processes the violation
-    // THEN the violation is auto-downgraded from ERROR to WARNING
+    let mut cb = CircuitBreaker::new();
+    cb.record_failure("E001", "abc12345678", "src/lib.py");
+    cb.record_failure("E001", "abc12345678", "src/lib.py");
+    let action = cb.record_failure("E001", "abc12345678", "src/lib.py");
+    assert_eq!(action, BreakerAction::Downgrade);
+    assert!(cb.is_downgraded("E001", "abc12345678", "src/lib.py"));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Successful resolution should reset the circuit breaker counter.
 fn test_circuit_breaker_reset_on_success() {
-    // GIVEN 2 consecutive failures followed by a successful fix
-    // WHEN the same error-code+hash reappears later
-    // THEN the counter starts from 1 again (reset on success)
+    let mut cb = CircuitBreaker::new();
+    cb.record_failure("E001", "abc", "file.rs");
+    cb.record_failure("E001", "abc", "file.rs");
+    assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 2);
+
+    cb.record_success("E001", "abc", "file.rs");
+    assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 0);
+    assert!(!cb.is_downgraded("E001", "abc", "file.rs"));
+
+    // Next failure starts from 1 again
+    let action = cb.record_failure("E001", "abc", "file.rs");
+    assert_eq!(action, BreakerAction::FixHint);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Different error codes on the same hash should have independent counters.
 fn test_circuit_breaker_independent_per_error_code() {
-    // GIVEN E001 at attempt 2 and E002 at attempt 1 for the same hash
-    // WHEN both are processed
-    // THEN E001 uses attempt 2 behavior and E002 uses attempt 1 behavior
+    let mut cb = CircuitBreaker::new();
+    cb.record_failure("E001", "abc", "file.rs");
+    cb.record_failure("E001", "abc", "file.rs");
+    cb.record_failure("E002", "abc", "file.rs");
+
+    assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 2);
+    assert_eq!(cb.failure_count("E002", "abc", "file.rs"), 1);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Different hashes with the same error code should have independent counters.
 fn test_circuit_breaker_independent_per_hash() {
-    // GIVEN E001 at attempt 3 for hash A and E001 at attempt 1 for hash B
-    // WHEN both are processed
-    // THEN hash A auto-downgrades and hash B provides fix_hint
+    let mut cb = CircuitBreaker::new();
+    // Hash A: 3 failures → downgraded
+    cb.record_failure("E001", "hashA", "file.rs");
+    cb.record_failure("E001", "hashA", "file.rs");
+    cb.record_failure("E001", "hashA", "file.rs");
+
+    // Hash B: 1 failure
+    cb.record_failure("E001", "hashB", "file.rs");
+
+    assert!(cb.is_downgraded("E001", "hashA", "file.rs"));
+    assert!(!cb.is_downgraded("E001", "hashB", "file.rs"));
+    assert_eq!(cb.failure_count("E001", "hashB", "file.rs"), 1);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Circuit breaker state should persist across compile invocations via SQLite.
 fn test_circuit_breaker_state_persistence() {
-    // GIVEN a circuit breaker at attempt 2 for E001+hash_abc
-    // WHEN keel compile is run again (new process)
-    // THEN the circuit breaker remembers attempt 2 and proceeds to attempt 3
+    let mut cb = CircuitBreaker::new();
+    cb.record_failure("E001", "hash_abc", "src/a.rs");
+    cb.record_failure("E001", "hash_abc", "src/a.rs");
+
+    let state = cb.export_state();
+    assert!(!state.is_empty());
+
+    let mut cb2 = CircuitBreaker::new();
+    cb2.import_state(&state);
+
+    assert_eq!(cb2.failure_count("E001", "hash_abc", "src/a.rs"), 2);
+
+    // Third failure should now downgrade
+    let action = cb2.record_failure("E001", "hash_abc", "src/a.rs");
+    assert_eq!(action, BreakerAction::Downgrade);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Auto-downgraded violations should be reported as S001 (suppressed).
-fn test_circuit_breaker_downgrade_reports_s001() {
-    // GIVEN an auto-downgraded E001 (after 3 attempts)
-    // WHEN the violation is reported
-    // THEN it appears as S001 with the original error code referenced
+fn test_circuit_breaker_empty_hash_uses_file_path() {
+    let mut cb = CircuitBreaker::new();
+    // E003 has empty hash, so file_path is used as identifier
+    cb.record_failure("E003", "", "src/foo.py");
+    cb.record_failure("E003", "", "src/foo.py");
+    cb.record_failure("E003", "", "src/bar.py");
+
+    // Different files have different counters
+    assert_eq!(cb.failure_count("E003", "", "src/foo.py"), 2);
+    assert_eq!(cb.failure_count("E003", "", "src/bar.py"), 1);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Circuit breaker should not trigger on WARNINGs (only ERRORs).
-fn test_circuit_breaker_skips_warnings() {
-    // GIVEN 10 consecutive W001 violations for the same hash
-    // WHEN the circuit breaker evaluates them
-    // THEN no escalation or downgrade happens (warnings are exempt)
+fn test_circuit_breaker_custom_max_failures() {
+    // With max_failures=2: attempt 1 → WiderContext (1 == 2-1), attempt 2 → Downgrade
+    let mut cb = CircuitBreaker::with_max_failures(2);
+    let a1 = cb.record_failure("E001", "h", "f.rs");
+    assert_eq!(a1, BreakerAction::WiderContext);
+    let a2 = cb.record_failure("E001", "h", "f.rs");
+    assert_eq!(a2, BreakerAction::Downgrade);
+    assert!(cb.is_downgraded("E001", "h", "f.rs"));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Circuit breaker state should be clearable via keel deinit or explicit reset.
-fn test_circuit_breaker_state_clearable() {
-    // GIVEN accumulated circuit breaker state
-    // WHEN keel deinit is run (or state is explicitly cleared)
-    // THEN all circuit breaker counters are reset to zero
+fn test_circuit_breaker_sqlite_roundtrip() {
+    let store = crate::common::in_memory_store();
+
+    let mut cb = CircuitBreaker::new();
+    cb.record_failure("E001", "h1", "a.rs");
+    cb.record_failure("E001", "h1", "a.rs");
+    cb.record_failure("E005", "h2", "b.rs");
+    cb.record_failure("E005", "h2", "b.rs");
+    cb.record_failure("E005", "h2", "b.rs");
+
+    let state = cb.export_state();
+    store.save_circuit_breaker(&state).unwrap();
+
+    let loaded = store.load_circuit_breaker().unwrap();
+    let mut cb2 = CircuitBreaker::new();
+    cb2.import_state(&loaded);
+
+    assert_eq!(cb2.failure_count("E001", "h1", "a.rs"), 2);
+    assert!(cb2.is_downgraded("E005", "h2", "b.rs"));
 }

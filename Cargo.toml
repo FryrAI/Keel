@@ -81,6 +81,7 @@ keel-core = { path = "crates/keel-core" }
 keel-parsers = { path = "crates/keel-parsers" }
 keel-enforce = { path = "crates/keel-enforce" }
 keel-output = { path = "crates/keel-output" }
+keel-server = { path = "crates/keel-server" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
@@ -88,6 +89,9 @@ serde_json = { workspace = true }
 jsonschema = "0.29"
 tempfile = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
 
 [[bench]]
 name = "performance"

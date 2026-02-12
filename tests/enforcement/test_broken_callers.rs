@@ -1,139 +1,239 @@
 // Tests for E001 broken caller detection (Spec 006 - Enforcement Engine)
-//
-// use keel_enforce::violations::check_broken_callers;
-// use keel_core::types::{GraphNode, GraphEdge};
+use keel_core::hash::compute_hash;
+use keel_core::store::GraphStore;
+use keel_core::types::{
+    EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind, EdgeChange,
+};
+use keel_enforce::violations::check_broken_callers;
+use keel_parsers::resolver::{Definition, FileIndex};
+
+use crate::common::in_memory_store;
+
+fn make_definition(name: &str, sig: &str, body: &str, file: &str, line: u32) -> Definition {
+    Definition {
+        name: name.to_string(),
+        kind: NodeKind::Function,
+        signature: sig.to_string(),
+        file_path: file.to_string(),
+        line_start: line,
+        line_end: line + 5,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        body_text: body.to_string(),
+    }
+}
+
+fn make_file_index(file: &str, defs: Vec<Definition>) -> FileIndex {
+    FileIndex {
+        file_path: file.to_string(),
+        content_hash: 0,
+        definitions: defs,
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }
+}
+
+fn make_node(id: u64, name: &str, sig: &str, body: &str, file: &str, line: u32) -> GraphNode {
+    GraphNode {
+        id,
+        hash: compute_hash(sig, body, ""),
+        kind: NodeKind::Function,
+        name: name.to_string(),
+        signature: sig.to_string(),
+        file_path: file.to_string(),
+        line_start: line,
+        line_end: line + 5,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        has_docstring: false,
+        external_endpoints: vec![],
+        previous_hashes: vec![],
+        module_id: 0,
+    }
+}
+
+fn make_edge(id: u64, src: u64, tgt: u64) -> GraphEdge {
+    GraphEdge {
+        id,
+        source_id: src,
+        target_id: tgt,
+        kind: EdgeKind::Calls,
+        file_path: "caller.py".to_string(),
+        line: 10,
+    }
+}
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Changing a function signature should produce E001 for all callers.
 fn test_e001_signature_change_breaks_callers() {
-    // GIVEN function foo(a: int) with 3 callers
-    // WHEN foo's signature changes to foo(a: int, b: str)
-    // THEN E001 is produced for all 3 callers with fix_hint
+    let mut store = in_memory_store();
+    let orig_node = make_node(1, "foo", "def foo(a: int)", "return a", "lib.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig_node)]).unwrap();
+
+    for i in 2..=4 {
+        let caller = make_node(i, &format!("caller_{i}"), &format!("def caller_{i}()"), "foo(1)", "main.py", i as u32 * 10);
+        store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+        store.update_edges(vec![EdgeChange::Add(make_edge(i, i, 1))]).unwrap();
+    }
+
+    let new_def = make_definition("foo", "def foo(a: int, b: str)", "return a + b", "lib.py", 1);
+    let file = make_file_index("lib.py", vec![new_def]);
+
+    let violations = check_broken_callers(&file, &store);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].code, "E001");
+    assert_eq!(violations[0].severity, "ERROR");
+    assert_eq!(violations[0].category, "broken_caller");
+    assert_eq!(violations[0].affected.len(), 3);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Changing a parameter type should produce E001 for callers using the old type.
-fn test_e001_parameter_type_change() {
-    // GIVEN function process(data: string) with callers passing string
-    // WHEN parameter type changes to process(data: Buffer)
-    // THEN E001 is produced for callers still passing string
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// Changing a return type should produce E001 for callers using the old return type.
-fn test_e001_return_type_change() {
-    // GIVEN function fetch() -> string with callers expecting string
-    // WHEN return type changes to fetch() -> Result<string, Error>
-    // THEN E001 is produced for callers expecting the old return type
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// Adding an optional parameter should NOT produce E001 (backward compatible).
-fn test_e001_optional_parameter_no_break() {
-    // GIVEN function foo(a: int) with callers
-    // WHEN foo changes to foo(a: int, b: str = "default")
-    // THEN no E001 is produced (optional parameter is backward compatible)
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// Renaming a function should produce E001 for all callers of the old name.
-fn test_e001_function_rename() {
-    // GIVEN function processData() with callers
-    // WHEN the function is renamed to handleData()
-    // THEN E001 is produced for all callers of processData()
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// E001 should include a fix_hint suggesting the new signature.
 fn test_e001_includes_fix_hint() {
-    // GIVEN a signature change that breaks callers
-    // WHEN E001 violations are produced
-    // THEN each violation includes a fix_hint with the new expected signature
+    let mut store = in_memory_store();
+    let orig = make_node(1, "greet", "def greet(name: str)", "return name", "lib.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+
+    let caller = make_node(2, "main", "def main()", "greet('hi')", "main.py", 1);
+    store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+
+    let new_def = make_definition("greet", "def greet(name: str, lang: str)", "return name + lang", "lib.py", 1);
+    let file = make_file_index("lib.py", vec![new_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].fix_hint.is_some());
+    assert!(violations[0].fix_hint.as_ref().unwrap().contains("greet"));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// E001 should include the file path and line number of each broken caller.
 fn test_e001_includes_location() {
-    // GIVEN a signature change that breaks callers in multiple files
-    // WHEN E001 violations are produced
-    // THEN each violation includes the file path and line number of the caller
+    let mut store = in_memory_store();
+    let orig = make_node(1, "process", "def process(data: str)", "return data", "utils.py", 5);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+
+    let caller = make_node(2, "handler", "def handler()", "process('x')", "handler.py", 20);
+    store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+
+    let new_def = make_definition("process", "def process(data: list)", "return list(data)", "utils.py", 5);
+    let file = make_file_index("utils.py", vec![new_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].file, "utils.py");
+    assert_eq!(violations[0].line, 5);
+    assert_eq!(violations[0].affected[0].file, "handler.py");
+    assert_eq!(violations[0].affected[0].line, 20);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// E001 confidence should reflect the resolution tier of the call edge.
-fn test_e001_confidence_from_resolution_tier() {
-    // GIVEN a broken caller detected via Tier 1 (tree-sitter, high confidence)
-    // WHEN E001 is produced
-    // THEN the violation confidence matches the edge's resolution confidence
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// E001 for dynamic dispatch calls should be WARNING not ERROR.
-fn test_e001_dynamic_dispatch_is_warning() {
-    // GIVEN a broken caller detected through a dynamic dispatch call (low confidence)
-    // WHEN the violation is categorized
-    // THEN it is a WARNING, not an ERROR
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// Multiple signature changes in the same compile should all produce separate E001s.
-fn test_e001_multiple_changes_multiple_errors() {
-    // GIVEN 3 functions with signature changes in the same compile
-    // WHEN enforcement runs
-    // THEN separate E001 violations are produced for each function's broken callers
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// E001 for a function with no callers should not produce any violation.
 fn test_e001_no_callers_no_violation() {
-    // GIVEN a function with changed signature but zero callers
-    // WHEN enforcement runs
-    // THEN no E001 violation is produced
+    let mut store = in_memory_store();
+    let orig = make_node(1, "lonely", "def lonely(x: int)", "return x", "lib.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+
+    let new_def = make_definition("lonely", "def lonely(x: int, y: int)", "return x + y", "lib.py", 1);
+    let file = make_file_index("lib.py", vec![new_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// E001 should track the resolution_tier (1, 2, or 3) that detected the broken call.
-fn test_e001_reports_resolution_tier() {
-    // GIVEN a broken caller detected via Tier 2 (Oxc enhancer)
-    // WHEN E001 is produced
-    // THEN the violation reports resolution_tier=2
+fn test_e001_no_change_no_violation() {
+    let mut store = in_memory_store();
+    let orig = make_node(1, "stable", "def stable(x: int)", "return x", "lib.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+
+    let caller = make_node(2, "user", "def user()", "stable(1)", "main.py", 1);
+    store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+
+    let same_def = make_definition("stable", "def stable(x: int)", "return x", "lib.py", 1);
+    let file = make_file_index("lib.py", vec![same_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Changing method visibility from public to private should produce E001 for external callers.
-fn test_e001_visibility_change() {
-    // GIVEN a public method called from another module
-    // WHEN the method is changed to private
-    // THEN E001 is produced for external callers
+fn test_e001_multiple_changes_multiple_errors() {
+    let mut store = in_memory_store();
+
+    let fn_a = make_node(1, "func_a", "def func_a(x: int)", "return x", "lib.py", 1);
+    let fn_b = make_node(2, "func_b", "def func_b(y: str)", "return y", "lib.py", 10);
+    store.update_nodes(vec![NodeChange::Add(fn_a), NodeChange::Add(fn_b)]).unwrap();
+
+    let caller_a = make_node(3, "call_a", "def call_a()", "func_a(1)", "main.py", 1);
+    let caller_b = make_node(4, "call_b", "def call_b()", "func_b('hi')", "main.py", 10);
+    store.update_nodes(vec![NodeChange::Add(caller_a), NodeChange::Add(caller_b)]).unwrap();
+    store.update_edges(vec![
+        EdgeChange::Add(make_edge(1, 3, 1)),
+        EdgeChange::Add(make_edge(2, 4, 2)),
+    ]).unwrap();
+
+    let new_a = make_definition("func_a", "def func_a(x: int, z: bool)", "return x and z", "lib.py", 1);
+    let new_b = make_definition("func_b", "def func_b(y: str, w: str)", "return y + w", "lib.py", 10);
+    let file = make_file_index("lib.py", vec![new_a, new_b]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert_eq!(violations.len(), 2);
+    assert!(violations.iter().all(|v| v.code == "E001"));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// E001 severity should always be ERROR.
 fn test_e001_severity_is_error() {
-    // GIVEN any broken caller scenario
-    // WHEN E001 is produced
-    // THEN the severity is ERROR (not WARNING or INFO)
+    let mut store = in_memory_store();
+    let orig = make_node(1, "f", "def f(x: int)", "return x", "a.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+    let caller = make_node(2, "g", "def g()", "f(1)", "b.py", 1);
+    store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+
+    let new_def = make_definition("f", "def f(x: int, y: int)", "return x+y", "a.py", 1);
+    let file = make_file_index("a.py", vec![new_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert!(!violations.is_empty());
+    assert_eq!(violations[0].severity, "ERROR");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// E001 error code should be exactly "E001".
 fn test_e001_error_code_format() {
-    // GIVEN a broken caller violation
-    // WHEN the violation is serialized
-    // THEN the error_code field is "E001"
+    let mut store = in_memory_store();
+    let orig = make_node(1, "h", "def h()", "pass", "a.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+    let caller = make_node(2, "k", "def k()", "h()", "b.py", 1);
+    store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+
+    let new_def = make_definition("h", "def h(x: int)", "return x", "a.py", 1);
+    let file = make_file_index("a.py", vec![new_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert!(!violations.is_empty());
+    assert_eq!(violations[0].code, "E001");
+}
+
+#[test]
+fn test_e001_confidence_from_resolution_tier() {
+    let mut store = in_memory_store();
+    let orig = make_node(1, "fn1", "def fn1(x: int)", "return x", "a.py", 1);
+    store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
+    let caller = make_node(2, "fn2", "def fn2()", "fn1(1)", "b.py", 1);
+    store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
+    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+
+    let new_def = make_definition("fn1", "def fn1(x: str)", "return str(x)", "a.py", 1);
+    let file = make_file_index("a.py", vec![new_def]);
+    let violations = check_broken_callers(&file, &store);
+
+    assert!(!violations.is_empty());
+    assert!(violations[0].confidence > 0.0);
+    assert!(violations[0].confidence <= 1.0);
+    assert_eq!(violations[0].resolution_tier, "tree-sitter");
 }

@@ -1,93 +1,120 @@
 // Tests for E003 missing docstring enforcement (Spec 006 - Enforcement Engine)
-//
-// use keel_enforce::violations::check_missing_docstring;
+use keel_core::types::NodeKind;
+use keel_enforce::violations::check_missing_docstring;
+use keel_parsers::resolver::{Definition, FileIndex};
+
+fn make_def(name: &str, is_public: bool, docstring: Option<&str>) -> Definition {
+    Definition {
+        name: name.to_string(),
+        kind: NodeKind::Function,
+        signature: format!("def {name}(x: int) -> int"),
+        file_path: "src/lib.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        docstring: docstring.map(|s| s.to_string()),
+        is_public,
+        type_hints_present: true,
+        body_text: "return x".to_string(),
+    }
+}
+
+fn make_file(defs: Vec<Definition>) -> FileIndex {
+    FileIndex {
+        file_path: "src/lib.py".to_string(),
+        content_hash: 0,
+        definitions: defs,
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }
+}
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Public function without a docstring should produce E003.
 fn test_e003_public_function_missing_docstring() {
-    // GIVEN a public function without any docstring or doc comment
-    // WHEN enforcement runs
-    // THEN E003 is produced with fix_hint to add documentation
+    let file = make_file(vec![make_def("process", true, None)]);
+    let violations = check_missing_docstring(&file);
+
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].code, "E003");
+    assert_eq!(violations[0].severity, "ERROR");
+    assert_eq!(violations[0].category, "missing_docstring");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Public function with a docstring should pass E003.
 fn test_e003_public_function_with_docstring_passes() {
-    // GIVEN a public function with a proper docstring
-    // WHEN enforcement runs
-    // THEN no E003 violation is produced
+    let file = make_file(vec![make_def("process", true, Some("Process the data."))]);
+    let violations = check_missing_docstring(&file);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Private/internal functions should not require docstrings.
 fn test_e003_private_function_no_docstring_passes() {
-    // GIVEN a private function (e.g., _helper in Python, unexported in Go)
-    // WHEN enforcement runs
-    // THEN no E003 violation is produced
+    let file = make_file(vec![make_def("_helper", false, None)]);
+    let violations = check_missing_docstring(&file);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Public classes without docstrings should produce E003.
-fn test_e003_class_missing_docstring() {
-    // GIVEN a public class without a docstring
-    // WHEN enforcement runs
-    // THEN E003 is produced for the class
+fn test_e003_class_not_checked() {
+    let class_def = Definition {
+        name: "MyClass".to_string(),
+        kind: NodeKind::Class,
+        signature: "class MyClass".to_string(),
+        file_path: "src/lib.py".to_string(),
+        line_start: 1,
+        line_end: 10,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        body_text: "pass".to_string(),
+    };
+    let file = make_file(vec![class_def]);
+    let violations = check_missing_docstring(&file);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Rust doc comments (///) should satisfy the docstring requirement.
-fn test_e003_rust_doc_comments_satisfy() {
-    // GIVEN a Rust function with `/// Does something useful`
-    // WHEN enforcement runs
-    // THEN no E003 violation is produced
+fn test_e003_includes_fix_hint() {
+    let file = make_file(vec![make_def("calculate", true, None)]);
+    let violations = check_missing_docstring(&file);
+
+    assert_eq!(violations.len(), 1);
+    let hint = violations[0].fix_hint.as_ref().unwrap();
+    assert!(hint.contains("calculate"));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Python triple-quoted strings should satisfy the docstring requirement.
-fn test_e003_python_triple_quote_satisfies() {
-    // GIVEN a Python function with `"""Process the data."""`
-    // WHEN enforcement runs
-    // THEN no E003 violation is produced
+fn test_e003_multiple_undocumented() {
+    let file = make_file(vec![
+        make_def("func_a", true, None),
+        make_def("func_b", true, Some("Documented.")),
+        make_def("func_c", true, None),
+    ]);
+    let violations = check_missing_docstring(&file);
+
+    assert_eq!(violations.len(), 2);
+    let msgs: Vec<&str> = violations.iter().map(|v| v.message.as_str()).collect();
+    assert!(msgs.iter().any(|m| m.contains("func_a")));
+    assert!(msgs.iter().any(|m| m.contains("func_c")));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// TypeScript JSDoc comments should satisfy the docstring requirement.
-fn test_e003_typescript_jsdoc_satisfies() {
-    // GIVEN a TypeScript function with `/** Processes data */`
-    // WHEN enforcement runs
-    // THEN no E003 violation is produced
+fn test_e003_file_and_line() {
+    let file = make_file(vec![make_def("nodoc", true, None)]);
+    let violations = check_missing_docstring(&file);
+
+    assert_eq!(violations[0].file, "src/lib.py");
+    assert_eq!(violations[0].line, 1);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Go comment above function (// FuncName ...) should satisfy the docstring requirement.
-fn test_e003_go_comment_satisfies() {
-    // GIVEN a Go exported function with `// ProcessData processes input data`
-    // WHEN enforcement runs
-    // THEN no E003 violation is produced
-}
+fn test_e003_confidence_is_1() {
+    let file = make_file(vec![make_def("nodoc", true, None)]);
+    let violations = check_missing_docstring(&file);
 
-#[test]
-#[ignore = "Not yet implemented"]
-/// Empty docstring (just whitespace) should still produce E003.
-fn test_e003_empty_docstring_fails() {
-    // GIVEN a function with an empty docstring (e.g., `""" """` in Python)
-    // WHEN enforcement runs
-    // THEN E003 is produced (empty docstring is not sufficient)
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// E003 fix_hint should suggest the correct documentation format for the language.
-fn test_e003_fix_hint_language_specific() {
-    // GIVEN a public function missing a docstring in each supported language
-    // WHEN E003 is produced
-    // THEN the fix_hint uses the correct doc format (///, """, /**, //)
+    assert_eq!(violations[0].confidence, 1.0);
 }

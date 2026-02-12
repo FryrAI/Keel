@@ -1175,15 +1175,19 @@ dependencies = [
 name = "keel-tests"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "criterion",
  "jsonschema",
  "keel-core",
  "keel-enforce",
  "keel-output",
  "keel-parsers",
+ "keel-server",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
+ "tower",
 ]
 
 [[package]]
