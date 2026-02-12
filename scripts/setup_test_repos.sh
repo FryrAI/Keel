@@ -86,7 +86,7 @@ echo "=== Rust ==="
 clone_and_pin \
     "https://github.com/tokio-rs/axum.git" \
     "axum" \
-    "axum-v0.8.1"
+    "axum-v0.8.0"
 
 # ripgrep — workspace, complex module tree (~30k LOC)
 clone_and_pin \
