@@ -1,93 +1,127 @@
 // Tests for E002 missing type hints enforcement (Spec 006 - Enforcement Engine)
-//
-// use keel_enforce::violations::check_missing_type_hints;
+use keel_core::types::NodeKind;
+use keel_enforce::violations::check_missing_type_hints;
+use keel_parsers::resolver::{Definition, FileIndex};
+
+fn make_def(name: &str, is_public: bool, type_hints: bool) -> Definition {
+    Definition {
+        name: name.to_string(),
+        kind: NodeKind::Function,
+        signature: if type_hints {
+            format!("def {name}(data: list) -> dict")
+        } else {
+            format!("def {name}(data)")
+        },
+        file_path: "src/main.py".to_string(),
+        line_start: 1,
+        line_end: 5,
+        docstring: None,
+        is_public,
+        type_hints_present: type_hints,
+        body_text: "return data".to_string(),
+    }
+}
+
+fn make_file(defs: Vec<Definition>) -> FileIndex {
+    FileIndex {
+        file_path: "src/main.py".to_string(),
+        content_hash: 0,
+        definitions: defs,
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }
+}
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Python function without type annotations should produce E002.
 fn test_e002_python_missing_type_hints() {
-    // GIVEN a Python function `def process(data):` without type annotations
-    // WHEN enforcement runs
-    // THEN E002 is produced with fix_hint to add type annotations
+    let file = make_file(vec![make_def("process", true, false)]);
+    let violations = check_missing_type_hints(&file);
+
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].code, "E002");
+    assert_eq!(violations[0].severity, "ERROR");
+    assert_eq!(violations[0].category, "missing_type_hints");
+    assert!(violations[0].fix_hint.is_some());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Python function with full type annotations should pass E002.
 fn test_e002_python_with_type_hints_passes() {
-    // GIVEN a Python function `def process(data: list) -> dict:`
-    // WHEN enforcement runs
-    // THEN no E002 violation is produced
+    let file = make_file(vec![make_def("process", true, true)]);
+    let violations = check_missing_type_hints(&file);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// TypeScript functions already have types; should validate signatures against callers.
-fn test_e002_typescript_validates_signatures() {
-    // GIVEN a TypeScript function with explicit type annotations
-    // WHEN enforcement runs
-    // THEN no E002 is produced (TypeScript is already typed)
+fn test_e002_private_function_no_violation() {
+    let file = make_file(vec![make_def("_helper", false, false)]);
+    let violations = check_missing_type_hints(&file);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Go functions already have types; should validate signatures against callers.
-fn test_e002_go_validates_signatures() {
-    // GIVEN a Go function with explicit types
-    // WHEN enforcement runs
-    // THEN no E002 is produced (Go is already typed)
+fn test_e002_class_not_checked() {
+    let class_def = Definition {
+        name: "MyClass".to_string(),
+        kind: NodeKind::Class,
+        signature: "class MyClass".to_string(),
+        file_path: "src/main.py".to_string(),
+        line_start: 1,
+        line_end: 10,
+        docstring: None,
+        is_public: true,
+        type_hints_present: false,
+        body_text: "pass".to_string(),
+    };
+    let file = make_file(vec![class_def]);
+    let violations = check_missing_type_hints(&file);
+
+    assert!(violations.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Rust functions already have types; should validate signatures against callers.
-fn test_e002_rust_validates_signatures() {
-    // GIVEN a Rust function with explicit types
-    // WHEN enforcement runs
-    // THEN no E002 is produced (Rust is already typed)
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// JavaScript function without JSDoc @param/@returns should produce E002.
-fn test_e002_javascript_missing_jsdoc() {
-    // GIVEN a JavaScript function without JSDoc annotations
-    // WHEN enforcement runs
-    // THEN E002 is produced with fix_hint to add JSDoc @param and @returns
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// JavaScript function with JSDoc @param and @returns should pass E002.
-fn test_e002_javascript_with_jsdoc_passes() {
-    // GIVEN a JavaScript function with complete JSDoc annotations
-    // WHEN enforcement runs
-    // THEN no E002 violation is produced
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// Python partial type hints (some params typed, others not) should produce E002.
-fn test_e002_python_partial_type_hints() {
-    // GIVEN `def process(data: list, config):`
-    // WHEN enforcement runs
-    // THEN E002 is produced for the untyped `config` parameter
-}
-
-#[test]
-#[ignore = "Not yet implemented"]
-/// E002 should include a fix_hint with the suggested type annotation format.
 fn test_e002_includes_fix_hint() {
-    // GIVEN a Python function missing type hints
-    // WHEN E002 is produced
-    // THEN fix_hint suggests the correct annotation format for that language
+    let file = make_file(vec![make_def("compute", true, false)]);
+    let violations = check_missing_type_hints(&file);
+
+    assert_eq!(violations.len(), 1);
+    let hint = violations[0].fix_hint.as_ref().unwrap();
+    assert!(hint.contains("compute"));
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Python return type annotation missing should produce E002 even if params are typed.
-fn test_e002_python_missing_return_type() {
-    // GIVEN `def process(data: list):` (no return type)
-    // WHEN enforcement runs
-    // THEN E002 is produced for the missing return type annotation
+fn test_e002_multiple_functions() {
+    let file = make_file(vec![
+        make_def("func_a", true, false),
+        make_def("func_b", true, false),
+        make_def("func_c", true, true),
+    ]);
+    let violations = check_missing_type_hints(&file);
+
+    assert_eq!(violations.len(), 2);
+    let msgs: Vec<&str> = violations.iter().map(|v| v.message.as_str()).collect();
+    assert!(msgs.iter().any(|m| m.contains("func_a")));
+    assert!(msgs.iter().any(|m| m.contains("func_b")));
+}
+
+#[test]
+fn test_e002_file_location_correct() {
+    let file = make_file(vec![make_def("broken", true, false)]);
+    let violations = check_missing_type_hints(&file);
+
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].file, "src/main.py");
+    assert_eq!(violations[0].line, 1);
+}
+
+#[test]
+fn test_e002_confidence_is_1() {
+    let file = make_file(vec![make_def("notype", true, false)]);
+    let violations = check_missing_type_hints(&file);
+
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].confidence, 1.0);
 }

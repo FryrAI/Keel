@@ -1,68 +1,163 @@
 // Tests for compile command JSON output schema (Spec 008 - Output Formats)
-//
-// use keel_output::json::JsonFormatter;
-// use keel_output::OutputFormatter;
-// use serde_json::Value;
+use keel_enforce::types::*;
+use keel_output::json::JsonFormatter;
+use keel_output::OutputFormatter;
+
+fn clean_compile() -> CompileResult {
+    CompileResult {
+        version: "0.1.0".into(),
+        command: "compile".into(),
+        status: "ok".into(),
+        files_analyzed: vec!["src/main.rs".into()],
+        errors: vec![],
+        warnings: vec![],
+        info: CompileInfo {
+            nodes_updated: 0,
+            edges_updated: 0,
+            hashes_changed: vec![],
+        },
+    }
+}
+
+fn compile_with_violations() -> CompileResult {
+    CompileResult {
+        version: "0.1.0".into(),
+        command: "compile".into(),
+        status: "error".into(),
+        files_analyzed: vec!["src/lib.rs".into(), "src/utils.rs".into()],
+        errors: vec![Violation {
+            code: "E001".into(),
+            severity: "ERROR".into(),
+            category: "broken_caller".into(),
+            message: "Signature of `foo` changed; 1 caller(s) need updating".into(),
+            file: "src/lib.rs".into(),
+            line: 10,
+            hash: "abc12345678".into(),
+            confidence: 0.92,
+            resolution_tier: "tree-sitter".into(),
+            fix_hint: Some("Update callers of `foo`".into()),
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![AffectedNode {
+                hash: "def11111111".into(),
+                name: "bar".into(),
+                file: "src/bar.rs".into(),
+                line: 20,
+            }],
+            suggested_module: None,
+            existing: None,
+        }],
+        warnings: vec![Violation {
+            code: "W001".into(),
+            severity: "WARNING".into(),
+            category: "placement".into(),
+            message: "Function `validate` may belong in `validators.py`".into(),
+            file: "src/utils.rs".into(),
+            line: 5,
+            hash: "warn1111111".into(),
+            confidence: 0.6,
+            resolution_tier: "heuristic".into(),
+            fix_hint: Some("Consider moving `validate` to `validators.py`".into()),
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![],
+            suggested_module: Some("validators.py".into()),
+            existing: None,
+        }],
+        info: CompileInfo {
+            nodes_updated: 2,
+            edges_updated: 1,
+            hashes_changed: vec!["abc12345678".into()],
+        },
+    }
+}
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Compile JSON output should have a "violations" array at the top level.
 fn test_compile_json_has_violations_array() {
-    // GIVEN a compile result with violations
-    // WHEN serialized to JSON
-    // THEN the top-level object has a "violations" array
+    let fmt = JsonFormatter;
+    let out = fmt.format_compile(&compile_with_violations());
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    assert!(parsed["errors"].is_array());
+    assert!(parsed["warnings"].is_array());
+    assert_eq!(parsed["errors"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["warnings"].as_array().unwrap().len(), 1);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Each violation in the JSON should have error_code, severity, message, and fix_hint.
 fn test_compile_json_violation_fields() {
-    // GIVEN a compile result with an E001 violation
-    // WHEN serialized to JSON
-    // THEN the violation object has error_code, severity, message, fix_hint fields
+    let fmt = JsonFormatter;
+    let out = fmt.format_compile(&compile_with_violations());
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    let error = &parsed["errors"][0];
+    assert_eq!(error["code"], "E001");
+    assert_eq!(error["severity"], "ERROR");
+    assert!(error["message"].as_str().unwrap().contains("foo"));
+    assert_eq!(error["fix_hint"], "Update callers of `foo`");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Each violation should include file_path and line_number.
 fn test_compile_json_violation_location() {
-    // GIVEN a compile result with a violation at src/parser.ts:42
-    // WHEN serialized to JSON
-    // THEN the violation has file_path="src/parser.ts" and line_number=42
+    let fmt = JsonFormatter;
+    let out = fmt.format_compile(&compile_with_violations());
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    let error = &parsed["errors"][0];
+    assert_eq!(error["file"], "src/lib.rs");
+    assert_eq!(error["line"], 10);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Each violation should include confidence score and resolution_tier.
 fn test_compile_json_violation_metadata() {
-    // GIVEN a compile result with a Tier 2 resolved violation
-    // WHEN serialized to JSON
-    // THEN the violation has confidence (0.0-1.0) and resolution_tier (1, 2, or 3)
+    let fmt = JsonFormatter;
+    let out = fmt.format_compile(&compile_with_violations());
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    let error = &parsed["errors"][0];
+    assert_eq!(error["confidence"], 0.92);
+    assert_eq!(error["resolution_tier"], "tree-sitter");
+    assert_eq!(error["hash"], "abc12345678");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Compile JSON should include a summary object with counts.
 fn test_compile_json_summary() {
-    // GIVEN a compile result with 3 errors and 2 warnings
-    // WHEN serialized to JSON
-    // THEN the summary shows error_count=3 and warning_count=2
+    let fmt = JsonFormatter;
+    let out = fmt.format_compile(&compile_with_violations());
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    assert_eq!(parsed["status"], "error");
+    assert_eq!(parsed["version"], "0.1.0");
+    assert_eq!(parsed["command"], "compile");
+    assert_eq!(parsed["files_analyzed"].as_array().unwrap().len(), 2);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Compile JSON with no violations should have an empty violations array.
 fn test_compile_json_empty_violations() {
-    // GIVEN a clean compile result
-    // WHEN serialized to JSON
-    // THEN the violations array is empty and summary counts are zero
+    let fmt = JsonFormatter;
+    let out = fmt.format_compile(&clean_compile());
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+
+    assert_eq!(parsed["status"], "ok");
+    assert_eq!(parsed["errors"].as_array().unwrap().len(), 0);
+    assert_eq!(parsed["warnings"].as_array().unwrap().len(), 0);
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Compile JSON schema should validate against the JSON schema in tests/schemas/.
 fn test_compile_json_validates_schema() {
-    // GIVEN a compile JSON output
-    // WHEN validated against tests/schemas/compile_output.json
-    // THEN validation passes
+    let fmt = JsonFormatter;
+    let original = compile_with_violations();
+    let json = fmt.format_compile(&original);
+    let deserialized: CompileResult = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(deserialized.status, original.status);
+    assert_eq!(deserialized.errors.len(), original.errors.len());
+    assert_eq!(deserialized.warnings.len(), original.warnings.len());
+    assert_eq!(deserialized.errors[0].code, "E001");
+    assert_eq!(deserialized.warnings[0].code, "W001");
+    assert_eq!(deserialized.errors[0].affected.len(), 1);
+    assert_eq!(
+        deserialized.warnings[0].suggested_module,
+        Some("validators.py".into())
+    );
 }

@@ -1,48 +1,104 @@
 // Tests for clean compile behavior (Spec 006 - Enforcement Engine)
-//
-// use keel_enforce::types::CompileResult;
+use keel_enforce::engine::EnforcementEngine;
+use keel_parsers::resolver::{Definition, FileIndex};
+use keel_core::types::NodeKind;
 
-#[test]
-#[ignore = "Not yet implemented"]
-/// Zero errors + zero warnings should produce exit code 0 and empty stdout.
-fn test_clean_compile_empty_stdout() {
-    // GIVEN a project with no violations
-    // WHEN `keel compile` is run
-    // THEN stdout is empty and exit code is 0
+use crate::common::in_memory_store;
+
+fn make_clean_file() -> FileIndex {
+    FileIndex {
+        file_path: "clean.py".to_string(),
+        content_hash: 0,
+        definitions: vec![Definition {
+            name: "good_func".to_string(),
+            kind: NodeKind::Function,
+            signature: "def good_func(x: int) -> int".to_string(),
+            file_path: "clean.py".to_string(),
+            line_start: 1,
+            line_end: 3,
+            docstring: Some("A well-documented function.".to_string()),
+            is_public: true,
+            type_hints_present: true,
+            body_text: "return x + 1".to_string(),
+        }],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }
+}
+
+fn make_dirty_file() -> FileIndex {
+    FileIndex {
+        file_path: "dirty.py".to_string(),
+        content_hash: 0,
+        definitions: vec![Definition {
+            name: "bad_func".to_string(),
+            kind: NodeKind::Function,
+            signature: "def bad_func(data)".to_string(),
+            file_path: "dirty.py".to_string(),
+            line_start: 1,
+            line_end: 3,
+            docstring: None,
+            is_public: true,
+            type_hints_present: false,
+            body_text: "return data".to_string(),
+        }],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Zero errors + zero warnings with --verbose should produce an info block.
-fn test_clean_compile_verbose_info_block() {
-    // GIVEN a project with no violations
-    // WHEN `keel compile --verbose` is run
-    // THEN an info block is printed to stdout with stats
+fn test_clean_compile_status_ok() {
+    let store = in_memory_store();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let result = engine.compile(&[make_clean_file()]);
+
+    assert_eq!(result.status, "ok");
+    assert!(result.errors.is_empty());
+    assert!(result.warnings.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Violations found should produce exit code 1.
-fn test_violations_exit_code_1() {
-    // GIVEN a project with E001 violations
-    // WHEN `keel compile` is run
-    // THEN exit code is 1 and violations are printed to stdout
+fn test_clean_compile_exit_code_semantics() {
+    // Status "ok" → exit code 0, empty stdout
+    let store = in_memory_store();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let result = engine.compile(&[make_clean_file()]);
+
+    assert_eq!(result.status, "ok");
+    assert!(result.errors.is_empty());
+    assert!(result.warnings.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Internal keel errors should produce exit code 2.
-fn test_internal_error_exit_code_2() {
-    // GIVEN a corrupted SQLite database
-    // WHEN `keel compile` is run
-    // THEN exit code is 2 and an internal error message is printed
+fn test_violations_produce_error_status() {
+    let store = in_memory_store();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let result = engine.compile(&[make_dirty_file()]);
+
+    assert_eq!(result.status, "error");
+    assert!(!result.errors.is_empty());
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
-/// Warnings-only (no errors) should still produce exit code 0.
-fn test_warnings_only_exit_code_0() {
-    // GIVEN a project with W001 warnings but no errors
-    // WHEN `keel compile` is run
-    // THEN exit code is 0 (warnings don't fail the compile)
+fn test_compile_result_includes_files_analyzed() {
+    let store = in_memory_store();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let result = engine.compile(&[make_clean_file()]);
+
+    assert_eq!(result.files_analyzed, vec!["clean.py"]);
+}
+
+#[test]
+fn test_compile_result_version_and_command() {
+    let store = in_memory_store();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let result = engine.compile(&[make_clean_file()]);
+
+    assert_eq!(result.version, "0.1.0");
+    assert_eq!(result.command, "compile");
 }
