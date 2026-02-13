@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{GraphNode, NodeKind};
 use keel_server::KeelServer;
-use keel_server::mcp::process_line;
+use keel_server::mcp::{create_shared_engine, process_line};
 
 #[test]
 fn test_server_starts_and_loads_graph() {
@@ -81,6 +81,7 @@ fn test_server_mcp_process_line_integration() {
         })
         .unwrap();
     let shared = Arc::new(Mutex::new(store));
+    let engine = create_shared_engine();
 
     // Initialize
     let init_req = serde_json::json!({
@@ -90,7 +91,7 @@ fn test_server_mcp_process_line_integration() {
     })
     .to_string();
     let resp: serde_json::Value =
-        serde_json::from_str(&process_line(&shared, &init_req)).unwrap();
+        serde_json::from_str(&process_line(&shared, &engine, &init_req)).unwrap();
     assert_eq!(resp["result"]["serverInfo"]["name"], "keel");
 
     // Where lookup
@@ -102,7 +103,7 @@ fn test_server_mcp_process_line_integration() {
     })
     .to_string();
     let resp: serde_json::Value =
-        serde_json::from_str(&process_line(&shared, &where_req)).unwrap();
+        serde_json::from_str(&process_line(&shared, &engine, &where_req)).unwrap();
     assert_eq!(resp["result"]["file"], "src/app.rs");
 }
 
@@ -130,6 +131,7 @@ fn test_server_handles_concurrent_requests() {
         })
         .unwrap();
     let shared: Arc<Mutex<SqliteGraphStore>> = Arc::new(Mutex::new(store));
+    let engine = create_shared_engine();
 
     // Simulate 10 sequential requests without panics
     for i in 0..10 {
@@ -141,7 +143,7 @@ fn test_server_handles_concurrent_requests() {
         })
         .to_string();
         let resp: serde_json::Value =
-            serde_json::from_str(&process_line(&shared, &req)).unwrap();
+            serde_json::from_str(&process_line(&shared, &engine, &req)).unwrap();
         assert_eq!(resp["result"]["file"], "src/h.rs");
     }
 }

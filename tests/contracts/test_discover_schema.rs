@@ -62,6 +62,7 @@ fn discover_output_with_upstream_downstream_matches_schema() {
                 line: 1,
                 docstring: None,
                 call_line: 15,
+                distance: 1,
             },
             CallerInfo {
                 hash: "caller_hash02".to_string(),
@@ -71,6 +72,7 @@ fn discover_output_with_upstream_downstream_matches_schema() {
                 line: 10,
                 docstring: Some("Routes requests.".to_string()),
                 call_line: 20,
+                distance: 1,
             },
         ],
         downstream: vec![CalleeInfo {
@@ -81,6 +83,7 @@ fn discover_output_with_upstream_downstream_matches_schema() {
             line: 5,
             docstring: Some("Authenticates user.".to_string()),
             call_line: 10,
+            distance: 1,
         }],
         module_context: ModuleContext {
             module: "src/api.rs".to_string(),

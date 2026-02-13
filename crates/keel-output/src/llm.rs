@@ -44,8 +44,8 @@ impl OutputFormatter for LlmFormatter {
             out.push_str(&format!("CALLERS count={}\n", result.upstream.len()));
             for c in &result.upstream {
                 out.push_str(&format!(
-                    "  {}@{}:{} sig={}\n",
-                    c.hash, c.file, c.call_line, c.signature
+                    "  d={} {}@{}:{} sig={}\n",
+                    c.distance, c.hash, c.file, c.call_line, c.signature
                 ));
             }
         }
@@ -54,8 +54,8 @@ impl OutputFormatter for LlmFormatter {
             out.push_str(&format!("CALLEES count={}\n", result.downstream.len()));
             for c in &result.downstream {
                 out.push_str(&format!(
-                    "  {}@{}:{} sig={}\n",
-                    c.hash, c.file, c.call_line, c.signature
+                    "  d={} {}@{}:{} sig={}\n",
+                    c.distance, c.hash, c.file, c.call_line, c.signature
                 ));
             }
         }
@@ -242,6 +242,7 @@ mod tests {
                 line: 1,
                 docstring: None,
                 call_line: 8,
+                distance: 1,
             }],
             downstream: vec![],
             module_context: ModuleContext {
@@ -255,7 +256,7 @@ mod tests {
         let out = fmt.format_discover(&result);
         assert!(out.contains("DISCOVER hash=abc12345678 name=handle"));
         assert!(out.contains("CALLERS count=1"));
-        assert!(out.contains("cal11111111@src/main.rs:8"));
+        assert!(out.contains("d=1 cal11111111@src/main.rs:8"));
         assert!(out.contains("MODULE src/h.rs fns=1"));
     }
 

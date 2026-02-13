@@ -8,13 +8,11 @@ use serde_json::Value;
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
-use keel_core::types::EdgeDirection;
-use keel_enforce::types::{
-    CalleeInfo, CallerInfo, DiscoverResult, ExplainResult,
-    ModuleContext, NodeInfo, ResolutionStep,
-};
+use keel_enforce::engine::EnforcementEngine;
+use keel_enforce::types::{ExplainResult, ResolutionStep};
 
 pub(crate) type SharedStore = Arc<Mutex<SqliteGraphStore>>;
+pub type SharedEngine = Arc<Mutex<EnforcementEngine>>;
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
@@ -112,7 +110,12 @@ fn tool_list() -> Vec<ToolInfo> {
     ]
 }
 
-fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<Value, JsonRpcError> {
+fn dispatch(
+    store: &SharedStore,
+    engine: &SharedEngine,
+    method: &str,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     match method {
         "initialize" => Ok(serde_json::json!({
             "protocolVersion": "2024-11-05",
@@ -123,8 +126,8 @@ fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<
             }
         })),
         "tools/list" => serde_json::to_value(tool_list()).map_err(internal_err),
-        "keel/compile" => crate::mcp_compile::handle_compile(store, params),
-        "keel/discover" => handle_discover(store, params),
+        "keel/compile" => crate::mcp_compile::handle_compile(engine, params),
+        "keel/discover" => handle_discover(engine, params),
         "keel/where" => handle_where(store, params),
         "keel/explain" => handle_explain(store, params),
         "keel/map" => handle_map(params),
@@ -136,7 +139,7 @@ fn dispatch(store: &SharedStore, method: &str, params: Option<Value>) -> Result<
 }
 
 /// Process a single JSON-RPC line and return the response JSON string.
-pub fn process_line(store: &SharedStore, line: &str) -> String {
+pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> String {
     if line.trim().is_empty() {
         return String::new();
     }
@@ -158,7 +161,7 @@ pub fn process_line(store: &SharedStore, line: &str) -> String {
     };
 
     let id = request.id.clone().unwrap_or(Value::Null);
-    let response = match dispatch(store, &request.method, request.params) {
+    let response = match dispatch(store, engine, &request.method, request.params) {
         Ok(result) => JsonRpcResponse {
             jsonrpc: "2.0".into(),
             result: Some(result),
@@ -192,7 +195,7 @@ pub(crate) fn lock_store(store: &SharedStore) -> Result<std::sync::MutexGuard<'_
     store.lock().map_err(|_| JsonRpcError { code: -32603, message: "Store lock poisoned".into() })
 }
 
-fn handle_discover(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+fn handle_discover(engine: &SharedEngine, params: Option<Value>) -> Result<Value, JsonRpcError> {
     let hash = params
         .as_ref()
         .and_then(|p| p.get("hash"))
@@ -200,55 +203,18 @@ fn handle_discover(store: &SharedStore, params: Option<Value>) -> Result<Value, 
         .ok_or_else(|| missing_param("hash"))?
         .to_string();
 
-    let store = lock_store(store)?;
-    let node = store.get_node(&hash).ok_or_else(|| not_found(&hash))?;
+    let depth = params
+        .as_ref()
+        .and_then(|p| p.get("depth"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as u32;
 
-    let incoming = store.get_edges(node.id, EdgeDirection::Incoming);
-    let outgoing = store.get_edges(node.id, EdgeDirection::Outgoing);
+    let engine = engine.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Engine lock poisoned".into(),
+    })?;
 
-    let upstream: Vec<CallerInfo> = incoming
-        .iter()
-        .filter_map(|e| {
-            store.get_node_by_id(e.source_id).map(|n| CallerInfo {
-                hash: n.hash, name: n.name, signature: n.signature,
-                file: n.file_path, line: n.line_start,
-                docstring: n.docstring, call_line: e.line,
-            })
-        })
-        .collect();
-
-    let downstream: Vec<CalleeInfo> = outgoing
-        .iter()
-        .filter_map(|e| {
-            store.get_node_by_id(e.target_id).map(|n| CalleeInfo {
-                hash: n.hash, name: n.name, signature: n.signature,
-                file: n.file_path, line: n.line_start,
-                docstring: n.docstring, call_line: e.line,
-            })
-        })
-        .collect();
-
-    let result = DiscoverResult {
-        version: env!("CARGO_PKG_VERSION").into(),
-        command: "discover".into(),
-        target: NodeInfo {
-            hash: node.hash, name: node.name, signature: node.signature,
-            file: node.file_path, line_start: node.line_start,
-            line_end: node.line_end, docstring: node.docstring,
-            type_hints_present: node.type_hints_present,
-            has_docstring: node.has_docstring,
-        },
-        upstream,
-        downstream,
-        module_context: ModuleContext {
-            module: String::new(),
-            sibling_functions: vec![],
-            responsibility_keywords: vec![],
-            function_count: 0,
-            external_endpoints: vec![],
-        },
-    };
-
+    let result = engine.discover(&hash, depth).ok_or_else(|| not_found(&hash))?;
     serde_json::to_value(result).map_err(internal_err)
 }
 
@@ -330,14 +296,23 @@ fn handle_map(params: Option<Value>) -> Result<Value, JsonRpcError> {
     }))
 }
 
+/// Create a shared enforcement engine backed by an in-memory store.
+/// Circuit breaker and batch state persist across MCP calls within a session.
+pub fn create_shared_engine() -> SharedEngine {
+    let engine_store = SqliteGraphStore::in_memory()
+        .expect("Failed to create in-memory store for enforcement engine");
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(engine_store))))
+}
+
 /// Run the MCP server loop, reading JSON-RPC from stdin and writing to stdout.
 pub fn run_stdio(store: SharedStore) -> io::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
+    let engine = create_shared_engine();
 
     for line in stdin.lock().lines() {
         let line = line?;
-        let response = process_line(&store, &line);
+        let response = process_line(&store, &engine, &line);
         if response.is_empty() {
             continue;
         }

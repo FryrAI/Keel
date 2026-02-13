@@ -100,6 +100,11 @@
           "type": "integer",
           "minimum": 1,
           "description": "Line where the call to the target occurs"
+        },
+        "distance": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "BFS distance from target node (1 = direct caller)"
         }
       }
     },
@@ -118,6 +123,11 @@
           "type": "integer",
           "minimum": 1,
           "description": "Line where the target calls this function"
+        },
+        "distance": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "BFS distance from target node (1 = direct callee)"
         }
       }
     },

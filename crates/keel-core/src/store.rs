@@ -33,4 +33,12 @@ pub trait GraphStore {
 
     /// Get previous hashes for rename tracking.
     fn get_previous_hashes(&self, node_id: u64) -> Vec<String>;
+
+    /// Find modules whose function_name_prefixes contain the given prefix,
+    /// excluding modules in the specified file. Used by W001 placement check.
+    fn find_modules_by_prefix(&self, prefix: &str, exclude_file: &str) -> Vec<ModuleProfile>;
+
+    /// Find nodes with the given name and kind, excluding a specific file.
+    /// Used by W002 duplicate_name check.
+    fn find_nodes_by_name(&self, name: &str, kind: &str, exclude_file: &str) -> Vec<GraphNode>;
 }

@@ -145,8 +145,6 @@ impl GraphStore for SqliteGraphStore {
 
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError> {
         let tx = self.conn.transaction()?;
-        // Defer FK checks until commit — module nodes may be inserted after referencing nodes
-        tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         for change in changes {
             match change {
                 NodeChange::Add(node) => {
@@ -249,14 +247,14 @@ impl GraphStore for SqliteGraphStore {
 
     fn update_edges(&mut self, changes: Vec<EdgeChange>) -> Result<(), GraphError> {
         let tx = self.conn.transaction()?;
-        // Defer FK checks until commit — nodes may be inserted in a separate batch
-        tx.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         for change in changes {
             match change {
                 EdgeChange::Add(edge) => {
+                    // INSERT OR IGNORE handles UNIQUE constraint violations
+                    // (duplicate edges). FK violations are prevented by the caller
+                    // filtering edges to valid node IDs and disabling FK pragma.
                     tx.execute(
-                        "INSERT INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                         ON CONFLICT(source_id, target_id, kind, file_path, line) DO NOTHING",
+                        "INSERT OR IGNORE INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                         params![
                             edge.id,
                             edge.source_id,
@@ -278,5 +276,68 @@ impl GraphStore for SqliteGraphStore {
 
     fn get_previous_hashes(&self, node_id: u64) -> Vec<String> {
         self.load_previous_hashes(node_id)
+    }
+
+    fn find_modules_by_prefix(&self, prefix: &str, exclude_file: &str) -> Vec<ModuleProfile> {
+        // Search module_profiles whose function_name_prefixes JSON array contains the prefix.
+        // The LIKE pattern matches the prefix as a quoted JSON string element.
+        let pattern = format!("%\"{}\"%" , prefix);
+        let mut stmt = match self.conn.prepare(
+            "SELECT mp.* FROM module_profiles mp
+             JOIN nodes n ON n.id = mp.module_id
+             WHERE n.file_path != ?1
+             AND mp.function_name_prefixes LIKE ?2",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] find_modules_by_prefix: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map(params![exclude_file, pattern], |row| {
+            let prefixes: String = row.get("function_name_prefixes")?;
+            let types: String = row.get("primary_types")?;
+            let imports: String = row.get("import_sources")?;
+            let exports: String = row.get("export_targets")?;
+            let keywords: String = row.get("responsibility_keywords")?;
+            Ok(ModuleProfile {
+                module_id: row.get("module_id")?,
+                path: row.get("path")?,
+                function_count: row.get("function_count")?,
+                function_name_prefixes: serde_json::from_str(&prefixes).unwrap_or_default(),
+                primary_types: serde_json::from_str(&types).unwrap_or_default(),
+                import_sources: serde_json::from_str(&imports).unwrap_or_default(),
+                export_targets: serde_json::from_str(&exports).unwrap_or_default(),
+                external_endpoint_count: row.get("external_endpoint_count")?,
+                responsibility_keywords: serde_json::from_str(&keywords).unwrap_or_default(),
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] find_modules_by_prefix: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
+    }
+
+    fn find_nodes_by_name(&self, name: &str, kind: &str, exclude_file: &str) -> Vec<GraphNode> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT * FROM nodes WHERE name = ?1 AND kind = ?2 AND file_path != ?3",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] find_nodes_by_name: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map(params![name, kind, exclude_file], Self::row_to_node) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] find_nodes_by_name: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 }

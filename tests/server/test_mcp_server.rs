@@ -4,9 +4,14 @@ use std::sync::{Arc, Mutex};
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeKind};
-use keel_server::mcp::process_line;
+use keel_enforce::engine::EnforcementEngine;
+use keel_server::mcp::{create_shared_engine, process_line, SharedEngine};
 
 type SharedStore = Arc<Mutex<SqliteGraphStore>>;
+
+fn test_engine() -> SharedEngine {
+    create_shared_engine()
+}
 
 fn test_store() -> SharedStore {
     let store = SqliteGraphStore::in_memory().unwrap();
@@ -90,6 +95,59 @@ fn store_with_graph() -> SharedStore {
     Arc::new(Mutex::new(store))
 }
 
+fn engine_with_graph() -> SharedEngine {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&GraphNode {
+            id: 1,
+            hash: "targetFunc01".into(),
+            kind: NodeKind::Function,
+            name: "handleReq".into(),
+            signature: "fn handleReq(r: Req) -> Resp".into(),
+            file_path: "src/handler.rs".into(),
+            line_start: 5,
+            line_end: 20,
+            docstring: Some("Handle request".into()),
+            is_public: true,
+            type_hints_present: true,
+            has_docstring: true,
+            external_endpoints: vec![],
+            previous_hashes: vec![],
+            module_id: 0,
+        })
+        .unwrap();
+    store
+        .insert_node(&GraphNode {
+            id: 2,
+            hash: "callerFunc01".into(),
+            kind: NodeKind::Function,
+            name: "main".into(),
+            signature: "fn main()".into(),
+            file_path: "src/main.rs".into(),
+            line_start: 1,
+            line_end: 5,
+            docstring: None,
+            is_public: true,
+            type_hints_present: true,
+            has_docstring: false,
+            external_endpoints: vec![],
+            previous_hashes: vec![],
+            module_id: 0,
+        })
+        .unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(GraphEdge {
+            id: 1,
+            source_id: 2,
+            target_id: 1,
+            kind: EdgeKind::Calls,
+            file_path: "src/main.rs".into(),
+            line: 3,
+        })])
+        .unwrap();
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store))))
+}
+
 fn rpc(method: &str, params: Option<serde_json::Value>) -> String {
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -107,7 +165,7 @@ fn parse_response(raw: &str) -> serde_json::Value {
 #[test]
 fn test_mcp_server_registers_all_tools() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &rpc("tools/list", None)));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("tools/list", None)));
 
     let tools = resp["result"].as_array().unwrap();
     assert_eq!(tools.len(), 5);
@@ -129,7 +187,7 @@ fn test_mcp_server_registers_all_tools() {
 fn test_mcp_compile_tool_returns_violations() {
     let store = test_store();
     let params = serde_json::json!({"files": ["src/test.py"]});
-    let resp = parse_response(&process_line(&store, &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
 
     let result = &resp["result"];
     assert_eq!(result["command"], "compile");
@@ -142,7 +200,7 @@ fn test_mcp_compile_tool_returns_violations() {
 fn test_mcp_compile_tool_clean_returns_empty() {
     let store = test_store();
     let params = serde_json::json!({"files": []});
-    let resp = parse_response(&process_line(&store, &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
 
     let result = &resp["result"];
     assert_eq!(result["status"], "ok");
@@ -153,8 +211,9 @@ fn test_mcp_compile_tool_clean_returns_empty() {
 #[test]
 fn test_mcp_discover_tool_returns_adjacency() {
     let store = store_with_graph();
+    let engine = engine_with_graph();
     let params = serde_json::json!({"hash": "targetFunc01"});
-    let resp = parse_response(&process_line(&store, &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/discover", Some(params))));
 
     let result = &resp["result"];
     assert_eq!(result["target"]["name"], "handleReq");
@@ -170,7 +229,7 @@ fn test_mcp_discover_tool_returns_adjacency() {
 fn test_mcp_discover_tool_unknown_hash() {
     let store = test_store();
     let params = serde_json::json!({"hash": "doesNotExist"});
-    let resp = parse_response(&process_line(&store, &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/discover", Some(params))));
 
     assert!(resp["error"].is_object());
     assert_eq!(resp["error"]["code"], -32602);
@@ -183,7 +242,7 @@ fn test_mcp_discover_tool_unknown_hash() {
 #[test]
 fn test_mcp_map_tool_triggers_full_remap() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &rpc("keel/map", None)));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/map", None)));
 
     let result = &resp["result"];
     assert_eq!(result["status"], "ok");
@@ -194,7 +253,7 @@ fn test_mcp_map_tool_triggers_full_remap() {
 fn test_mcp_explain_tool_returns_resolution_chain() {
     let store = store_with_node();
     let params = serde_json::json!({"error_code": "E001", "hash": "testHash1234"});
-    let resp = parse_response(&process_line(&store, &rpc("keel/explain", Some(params))));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/explain", Some(params))));
 
     let result = &resp["result"];
     assert_eq!(result["error_code"], "E001");
@@ -214,7 +273,7 @@ fn test_mcp_explain_tool_returns_resolution_chain() {
 fn test_mcp_where_tool_resolves_hash_to_location() {
     let store = store_with_node();
     let params = serde_json::json!({"hash": "testHash1234"});
-    let resp = parse_response(&process_line(&store, &rpc("keel/where", Some(params))));
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/where", Some(params))));
 
     let result = &resp["result"];
     assert_eq!(result["file"], "src/processor.rs");

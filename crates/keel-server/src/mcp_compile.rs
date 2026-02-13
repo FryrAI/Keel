@@ -1,17 +1,18 @@
 //! MCP compile handler — parses files and runs enforcement.
+//!
+//! Uses a shared EnforcementEngine so circuit breaker, batch mode,
+//! and graph state persist across MCP calls within a session.
 
 use std::path::Path;
 
 use serde_json::Value;
 
-use keel_core::sqlite::SqliteGraphStore;
-use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::{CompileInfo, CompileResult};
 use keel_parsers::resolver::{FileIndex, LanguageResolver};
 
-use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedStore};
+use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
 
-pub(crate) fn handle_compile(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+pub(crate) fn handle_compile(engine: &SharedEngine, params: Option<Value>) -> Result<Value, JsonRpcError> {
     let files: Vec<String> = params
         .as_ref()
         .and_then(|p| p.get("files").cloned())
@@ -36,18 +37,14 @@ pub(crate) fn handle_compile(store: &SharedStore, params: Option<Value>) -> Resu
         .filter_map(|path| parse_file_to_index(path))
         .collect();
 
-    let _store = lock_store(store)?;
+    // Use shared engine — state persists across calls
+    let mut engine = engine.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Engine lock poisoned".into(),
+    })?;
 
     // Run actual enforcement if we have parseable files
     if !file_indexes.is_empty() || batch_start || batch_end {
-        // Create a temporary in-memory store for enforcement. The MCP server
-        // currently doesn't persist an EnforcementEngine across calls, so each
-        // compile call starts fresh. A full implementation would maintain engine
-        // state across the session.
-        let temp_store = SqliteGraphStore::in_memory()
-            .map_err(internal_err)?;
-        let mut engine = EnforcementEngine::new(Box::new(temp_store));
-
         if batch_start {
             engine.batch_start();
         }

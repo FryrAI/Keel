@@ -131,41 +131,26 @@ pub fn check_arity_mismatch(
 }
 
 /// Check W001: placement — function may be in wrong module.
-/// Compares function name prefixes against module responsibility keywords.
+/// Uses indexed SQL query instead of scanning all modules. O(F) not O(F*M).
 pub fn check_placement(
     file: &FileIndex,
     store: &dyn GraphStore,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
-    let all_modules = store.get_all_modules();
 
     for def in &file.definitions {
         if def.kind != NodeKind::Function {
             continue;
         }
 
-        // Check if this function's name prefix matches any other module better
         let fn_prefix = extract_prefix(&def.name);
         if fn_prefix.is_empty() {
             continue;
         }
 
-        for module in &all_modules {
-            if module.file_path == file.file_path {
-                continue; // Same module, skip
-            }
-            let Some(profile) = store.get_module_profile(module.id) else {
-                continue;
-            };
-
-            let matches_other = profile
-                .function_name_prefixes
-                .iter()
-                .any(|p| p == &fn_prefix);
-            if !matches_other {
-                continue;
-            }
-
+        // Single SQL query per function — finds modules with matching prefix
+        let matching = store.find_modules_by_prefix(&fn_prefix, &file.file_path);
+        if let Some(profile) = matching.first() {
             violations.push(Violation {
                 code: "W001".to_string(),
                 severity: "WARNING".to_string(),
@@ -189,7 +174,6 @@ pub fn check_placement(
                 suggested_module: Some(profile.path.clone()),
                 existing: None,
             });
-            break; // One suggestion per function
         }
     }
 
@@ -197,7 +181,7 @@ pub fn check_placement(
 }
 
 /// Check W002: duplicate_name — same function name in multiple modules.
-/// Excludes test files from comparison to reduce noise.
+/// Uses indexed SQL query instead of triple-nested loop. O(F) not O(F*M*N).
 pub fn check_duplicate_names(
     file: &FileIndex,
     store: &dyn GraphStore,
@@ -209,54 +193,46 @@ pub fn check_duplicate_names(
         return violations;
     }
 
-    let all_modules = store.get_all_modules();
-
     for def in &file.definitions {
         if def.kind != NodeKind::Function {
             continue;
         }
 
-        for module in &all_modules {
-            // Skip test files in comparison targets
-            if is_test_file(&module.file_path) {
+        // Single SQL query per function — finds same-named functions elsewhere
+        let duplicates = store.find_nodes_by_name(&def.name, "function", &file.file_path);
+        for node in &duplicates {
+            // Skip test files in results
+            if is_test_file(&node.file_path) {
                 continue;
             }
-            let nodes = store.get_nodes_in_file(&module.file_path);
-            for node in &nodes {
-                if node.name == def.name
-                    && node.file_path != file.file_path
-                    && node.kind == NodeKind::Function
-                {
-                    violations.push(Violation {
-                        code: "W002".to_string(),
-                        severity: "WARNING".to_string(),
-                        category: "duplicate_name".to_string(),
-                        message: format!(
-                            "Function `{}` also exists in `{}`",
-                            def.name, node.file_path
-                        ),
-                        file: file.file_path.clone(),
-                        line: def.line_start,
-                        hash: String::new(),
-                        confidence: 0.7,
-                        resolution_tier: "heuristic".to_string(),
-                        fix_hint: Some(format!(
-                            "Rename one of the `{}` functions to avoid ambiguity",
-                            def.name
-                        )),
-                        suppressed: false,
-                        suppress_hint: None,
-                        affected: vec![],
-                        suggested_module: None,
-                        existing: Some(crate::types::ExistingNode {
-                            hash: node.hash.clone(),
-                            file: node.file_path.clone(),
-                            line: node.line_start,
-                        }),
-                    });
-                    break; // One per definition
-                }
-            }
+            violations.push(Violation {
+                code: "W002".to_string(),
+                severity: "WARNING".to_string(),
+                category: "duplicate_name".to_string(),
+                message: format!(
+                    "Function `{}` also exists in `{}`",
+                    def.name, node.file_path
+                ),
+                file: file.file_path.clone(),
+                line: def.line_start,
+                hash: String::new(),
+                confidence: 0.7,
+                resolution_tier: "heuristic".to_string(),
+                fix_hint: Some(format!(
+                    "Rename one of the `{}` functions to avoid ambiguity",
+                    def.name
+                )),
+                suppressed: false,
+                suppress_hint: None,
+                affected: vec![],
+                suggested_module: None,
+                existing: Some(crate::types::ExistingNode {
+                    hash: node.hash.clone(),
+                    file: node.file_path.clone(),
+                    line: node.line_start,
+                }),
+            });
+            break; // One per definition
         }
     }
 

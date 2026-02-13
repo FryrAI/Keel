@@ -69,7 +69,9 @@ pub fn run(
     let rs = RustLangResolver::new();
 
     // Disable FK enforcement for bulk operations (re-enabled after)
-    let _ = store.set_foreign_keys(false);
+    if let Err(e) = store.set_foreign_keys(false) {
+        eprintln!("keel map: WARNING: set_foreign_keys failed: {}", e);
+    }
 
     // Full re-map: clear existing graph data so IDs start fresh
     if let Err(e) = store.clear_all() {
@@ -324,16 +326,7 @@ pub fn run(
         }
     }
 
-    // Collect valid node IDs
-    let valid_node_ids: std::collections::HashSet<u64> = node_changes
-        .iter()
-        .filter_map(|c| match c {
-            NodeChange::Add(n) => Some(n.id),
-            _ => None,
-        })
-        .collect();
-
-    // Filter out edges referencing non-existent nodes
+    // Filter out edges referencing non-existent nodes (valid_node_ids built in first pass)
     let (valid_edges, invalid_edges): (Vec<_>, Vec<_>) = edge_changes
         .into_iter()
         .partition(|e| match e {
@@ -350,6 +343,14 @@ pub fn run(
         );
     }
 
+    // Sort: modules first, then definitions (module_id FK dependency)
+    node_changes.sort_by_key(|c| match c {
+        NodeChange::Add(n) if n.kind == NodeKind::Module => 0,
+        NodeChange::Add(_) => 1,
+        NodeChange::Update(_) => 2,
+        NodeChange::Remove(_) => 3,
+    });
+
     // Gather stats from node_changes and valid_edges BEFORE consuming them
     let total_edges = valid_edges.iter().filter(|e| matches!(e, EdgeChange::Add(_))).count() as u32;
     let map_result = build_map_result(&node_changes, &valid_edges, &entries);
@@ -360,13 +361,13 @@ pub fn run(
         eprintln!("keel map: inserting {} definitions, {} modules", def_count, mod_count);
     }
 
-    // Apply node changes
+    // Apply node changes (modules sorted first to satisfy module_id FK)
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
         return 2;
     }
 
-    // Apply edge changes (using valid_edges filtered above)
+    // Apply edge changes (using valid_edges filtered above; FK still OFF from line 72)
     if let Err(e) = store.update_edges(valid_edges) {
         eprintln!("keel map: failed to update edges: {}", e);
         return 2;

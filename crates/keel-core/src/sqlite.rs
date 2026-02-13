@@ -29,11 +29,17 @@ impl SqliteGraphStore {
     }
 
     /// Temporarily disable foreign key enforcement (for bulk re-map operations).
-    pub fn set_foreign_keys(&self, enabled: bool) -> Result<(), GraphError> {
+    /// Returns the actual FK state after the change (for verification).
+    pub fn set_foreign_keys(&self, enabled: bool) -> Result<bool, GraphError> {
         let val = if enabled { "ON" } else { "OFF" };
         self.conn
             .execute_batch(&format!("PRAGMA foreign_keys = {};", val))?;
-        Ok(())
+        // Verify the change took effect
+        let actual: i32 = self
+            .conn
+            .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+            .unwrap_or(if enabled { 1 } else { 0 });
+        Ok(actual != 0)
     }
 
     fn initialize_schema(&self) -> Result<(), GraphError> {
@@ -67,6 +73,7 @@ impl SqliteGraphStore {
             CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
             CREATE INDEX IF NOT EXISTS idx_nodes_module ON nodes(module_id);
             CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
+            CREATE INDEX IF NOT EXISTS idx_nodes_name_kind ON nodes(name, kind);
 
             -- Previous hashes for rename tracking
             CREATE TABLE IF NOT EXISTS previous_hashes (

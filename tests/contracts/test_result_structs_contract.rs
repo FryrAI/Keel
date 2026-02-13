@@ -189,6 +189,7 @@ fn discover_result_round_trips() {
             line: 1,
             docstring: None,
             call_line: 15,
+            distance: 1,
         }],
         downstream: vec![CalleeInfo {
             hash: "callee_hash01".to_string(),
@@ -198,6 +199,7 @@ fn discover_result_round_trips() {
             line: 5,
             docstring: Some("Authenticates user.".to_string()),
             call_line: 10,
+            distance: 1,
         }],
         module_context: ModuleContext {
             module: "src/api.rs".to_string(),

@@ -48,7 +48,6 @@ fn map_with_threads(dir: &std::path::Path, num_threads: usize) -> std::time::Dur
 }
 
 #[test]
-#[ignore = "Requires FK constraint fix in keel map"]
 /// Parallel parsing should be faster than single-threaded.
 fn bench_parallel_parsing_scales_with_cores() {
     let dir = setup_project(100, 5, 10);
@@ -78,7 +77,6 @@ fn bench_parallel_parsing_scales_with_cores() {
 }
 
 #[test]
-#[ignore = "Requires FK constraint fix in keel map"]
 /// Baseline: single-threaded parse timing for comparison.
 fn bench_parallel_parsing_1_thread_baseline() {
     let dir = setup_project(50, 5, 10);
@@ -94,7 +92,6 @@ fn bench_parallel_parsing_1_thread_baseline() {
 }
 
 #[test]
-#[ignore = "Requires FK constraint fix in keel map"]
 /// 4-thread parse should complete within time budget.
 fn bench_parallel_parsing_4_threads() {
     let dir = setup_project(50, 5, 10);
@@ -110,7 +107,6 @@ fn bench_parallel_parsing_4_threads() {
 }
 
 #[test]
-#[ignore = "Requires FK constraint fix in keel map"]
 /// Parallel parsing with graph store should not show contention.
 fn bench_parallel_parsing_no_contention_on_graph() {
     // Larger project to stress concurrent graph writes
@@ -129,7 +125,6 @@ fn bench_parallel_parsing_no_contention_on_graph() {
 }
 
 #[test]
-#[ignore = "Requires FK constraint fix in keel map"]
 /// Mixed file sizes should not cause long-tail stragglers.
 fn bench_parallel_parsing_handles_mixed_file_sizes() {
     let dir = TempDir::new().unwrap();

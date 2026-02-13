@@ -84,6 +84,9 @@ pub struct CallerInfo {
     pub line: u32,
     pub docstring: Option<String>,
     pub call_line: u32,
+    /// BFS distance from target node (1 = direct caller)
+    #[serde(default = "default_distance")]
+    pub distance: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +98,13 @@ pub struct CalleeInfo {
     pub line: u32,
     pub docstring: Option<String>,
     pub call_line: u32,
+    /// BFS distance from target node (1 = direct callee)
+    #[serde(default = "default_distance")]
+    pub distance: u32,
+}
+
+fn default_distance() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -223,6 +223,7 @@ mod tests {
                 line: 1,
                 docstring: None,
                 call_line: 8,
+                distance: 1,
             }],
             downstream: vec![],
             module_context: ModuleContext {

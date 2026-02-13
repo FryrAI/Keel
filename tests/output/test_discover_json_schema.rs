@@ -26,6 +26,7 @@ fn sample_discover() -> DiscoverResult {
             line: 1,
             docstring: None,
             call_line: 8,
+            distance: 1,
         }],
         downstream: vec![CalleeInfo {
             hash: "dep11111111".into(),
@@ -35,6 +36,7 @@ fn sample_discover() -> DiscoverResult {
             line: 10,
             docstring: None,
             call_line: 15,
+            distance: 1,
         }],
         module_context: ModuleContext {
             module: "src/handler.rs".into(),
