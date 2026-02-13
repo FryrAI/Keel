@@ -92,6 +92,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 axum = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [[bench]]
 name = "performance"
