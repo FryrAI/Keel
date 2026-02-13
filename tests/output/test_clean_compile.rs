@@ -35,7 +35,7 @@ fn test_clean_compile_json() {
 
 #[test]
 fn test_clean_compile_llm() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::new();
     let out = fmt.format_compile(&clean_compile());
 
     // Clean compile = empty string for LLM format
@@ -68,7 +68,7 @@ fn test_clean_compile_verbose() {
 fn test_clean_compile_silent_without_verbose() {
     // LLM and Human formats produce empty output on clean compile
     // This is critical for LLM agents that parse stdout
-    let llm_fmt = LlmFormatter;
+    let llm_fmt = LlmFormatter::new();
     let human_fmt = HumanFormatter;
     let result = clean_compile();
 

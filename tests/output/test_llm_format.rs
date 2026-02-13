@@ -78,7 +78,7 @@ fn compile_with_error() -> CompileResult {
 
 #[test]
 fn test_llm_format_structure() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::new();
     let out = fmt.format_compile(&compile_with_error());
 
     // LLM format uses COMPILE header with counts
@@ -90,25 +90,25 @@ fn test_llm_format_structure() {
 
 #[test]
 fn test_llm_format_fix_hint_prominent() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::new(); // depth 1 shows FIX inline
     let out = fmt.format_compile(&compile_with_error());
 
-    // fix_hint prefixed with FIX: for easy LLM parsing
+    // fix_hint appears with FIX: prefix at all depths
     assert!(out.contains("FIX: Update callers of `foo`"));
 }
 
 #[test]
 fn test_llm_format_includes_location() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::with_depths(1, 2); // depth 2 shows AFFECTED
     let out = fmt.format_compile(&compile_with_error());
 
-    // Affected callers show file:line
+    // Affected callers show file:line at depth 2
     assert!(out.contains("src/bar.rs:20"));
 }
 
 #[test]
 fn test_llm_format_multiple_violations() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::new();
     let result = CompileResult {
         version: "0.1.0".into(),
         command: "compile".into(),
@@ -137,8 +137,8 @@ fn test_llm_format_multiple_violations() {
 
 #[test]
 fn test_llm_format_circuit_breaker_context() {
-    // Circuit breaker context manifests as AFFECTED callers in the output
-    let fmt = LlmFormatter;
+    // Circuit breaker context manifests as AFFECTED callers in the output (depth 2)
+    let fmt = LlmFormatter::with_depths(1, 2);
     let result = CompileResult {
         version: "0.1.0".into(),
         command: "compile".into(),
@@ -191,7 +191,7 @@ fn test_llm_format_circuit_breaker_context() {
 
 #[test]
 fn test_llm_format_clean_compile() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::new();
     let out = fmt.format_compile(&clean_compile());
 
     // Clean compile = empty string for LLM (no noise)
@@ -200,7 +200,7 @@ fn test_llm_format_clean_compile() {
 
 #[test]
 fn test_llm_format_error_code_category() {
-    let fmt = LlmFormatter;
+    let fmt = LlmFormatter::new();
     let result = CompileResult {
         version: "0.1.0".into(),
         command: "compile".into(),

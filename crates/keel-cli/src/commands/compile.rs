@@ -18,6 +18,7 @@ pub fn run(
     batch_end: bool,
     strict: bool,
     suppress: Option<String>,
+    _depth: u32,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,

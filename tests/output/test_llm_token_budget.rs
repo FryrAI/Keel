@@ -1,8 +1,4 @@
 // Tests for LLM output token budget management (Spec 008 - Output Formats)
-//
-// Note: The current LlmFormatter does not implement token budgeting yet.
-// These tests verify the current behavior (all violations output) and
-// document the expected behavior when token budgeting is implemented.
 use keel_enforce::types::*;
 use keel_output::llm::LlmFormatter;
 use keel_output::OutputFormatter;
@@ -66,68 +62,59 @@ fn compile_with_many_violations(error_count: usize, warning_count: usize) -> Com
 }
 
 #[test]
-fn test_llm_token_budget_respected() {
-    // Current behavior: all violations output. Verify output is finite and structured.
-    let fmt = LlmFormatter;
+fn test_llm_depth1_has_backpressure() {
+    let fmt = LlmFormatter::new(); // depth 1
     let result = compile_with_many_violations(20, 30);
     let out = fmt.format_compile(&result);
-
-    // Output should be non-empty with structured content
-    assert!(!out.is_empty());
-    assert!(out.contains("COMPILE"));
-    assert!(out.contains("errors=20"));
-    assert!(out.contains("warnings=30"));
+    assert!(out.contains("PRESSURE=HIGH"));
+    assert!(out.contains("BUDGET=stop_generating"));
 }
 
 #[test]
-fn test_llm_token_budget_prioritizes_errors() {
-    // Errors appear before warnings in the output
-    let fmt = LlmFormatter;
-    let result = compile_with_many_violations(5, 10);
+fn test_llm_depth1_groups_by_file() {
+    let fmt = LlmFormatter::new();
+    let result = compile_with_many_violations(5, 0);
     let out = fmt.format_compile(&result);
-
-    // Find first error and first warning position
-    let first_error = out.find("E001").unwrap();
-    let first_warning = out.find("W001").unwrap();
-    assert!(
-        first_error < first_warning,
-        "Errors must appear before warnings"
-    );
+    // Each file should be grouped
+    assert!(out.contains("FILE src/file_0.py"));
 }
 
 #[test]
-fn test_llm_token_budget_truncation_notice() {
-    // With many violations, output should still contain all of them currently
-    let fmt = LlmFormatter;
+fn test_llm_depth2_shows_all_violations() {
+    let fmt = LlmFormatter::with_depths(1, 2); // compile_depth=2
     let result = compile_with_many_violations(50, 0);
     let out = fmt.format_compile(&result);
-
-    // All 50 errors should produce FIX: lines
+    // Depth 2 = full detail, all violations shown
     let fix_count = out.matches("FIX:").count();
     assert_eq!(fix_count, 50);
 }
 
 #[test]
-fn test_llm_no_token_budget() {
-    // Without budget constraint, all violations included
-    let fmt = LlmFormatter;
-    let result = compile_with_many_violations(10, 10);
+fn test_llm_depth2_errors_before_warnings() {
+    let fmt = LlmFormatter::with_depths(1, 2);
+    let result = compile_with_many_violations(5, 10);
     let out = fmt.format_compile(&result);
-
-    // Count violation lines: each has "E001" or "W001" in the code line
-    let e001_count = out.matches("E001 cat_E001").count();
-    let w001_count = out.matches("W001 cat_W001").count();
-    assert_eq!(e001_count, 10);
-    assert_eq!(w001_count, 10);
+    let first_error = out.find("E001").unwrap();
+    let first_warning = out.find("W001").unwrap();
+    assert!(first_error < first_warning, "Errors must appear before warnings");
 }
 
 #[test]
-fn test_llm_token_budget_accounts_for_fix_hints() {
-    // fix_hints are included in output for every violation
-    let fmt = LlmFormatter;
+fn test_llm_depth0_counts_only() {
+    let fmt = LlmFormatter::with_depths(1, 0); // compile_depth=0
+    let result = compile_with_many_violations(3, 2);
+    let out = fmt.format_compile(&result);
+    assert_eq!(out.lines().count(), 1);
+    assert!(out.contains("errors=3"));
+    assert!(out.contains("warnings=2"));
+    assert!(out.contains("PRESSURE=MED"));
+}
+
+#[test]
+fn test_llm_depth2_includes_fix_hints() {
+    let fmt = LlmFormatter::with_depths(1, 2);
     let result = compile_with_many_violations(5, 0);
     let out = fmt.format_compile(&result);
-
     for i in 0..5 {
         assert!(
             out.contains(&format!("FIX: Fix violation {i}")),
@@ -137,14 +124,20 @@ fn test_llm_token_budget_accounts_for_fix_hints() {
 }
 
 #[test]
-fn test_llm_default_token_budget() {
-    // Default behavior: no truncation, all violations output
-    let fmt = LlmFormatter;
-    let result = compile_with_many_violations(3, 2);
-    let out = fmt.format_compile(&result);
+fn test_llm_pressure_levels() {
+    // LOW: 0-2 errors
+    let fmt = LlmFormatter::with_depths(1, 0);
+    let out = fmt.format_compile(&compile_with_many_violations(1, 0));
+    assert!(out.contains("PRESSURE=LOW"));
+    assert!(out.contains("BUDGET=keep_going"));
 
-    assert!(out.contains("errors=3"));
-    assert!(out.contains("warnings=2"));
-    // All fix hints present
-    assert_eq!(out.matches("FIX:").count(), 5);
+    // MED: 3-5 errors
+    let out = fmt.format_compile(&compile_with_many_violations(4, 0));
+    assert!(out.contains("PRESSURE=MED"));
+    assert!(out.contains("BUDGET=fix_before_adding_more"));
+
+    // HIGH: 6+ errors
+    let out = fmt.format_compile(&compile_with_many_violations(10, 0));
+    assert!(out.contains("PRESSURE=HIGH"));
+    assert!(out.contains("BUDGET=stop_generating"));
 }

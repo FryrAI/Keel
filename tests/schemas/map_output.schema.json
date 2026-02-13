@@ -24,6 +24,22 @@
       "type": "array",
       "items": { "$ref": "#/definitions/module_entry" },
       "description": "Per-module breakdown of the graph"
+    },
+    "hotspots": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/hotspot_entry" },
+      "description": "Most connected nodes in the graph"
+    },
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "Output depth level used"
+    },
+    "functions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/function_entry" },
+      "description": "Function-level details (depth >= 2)"
     }
   },
   "definitions": {
@@ -114,6 +130,37 @@
           "type": "array",
           "items": { "type": "string" }
         }
+      }
+    },
+    "hotspot_entry": {
+      "type": "object",
+      "required": ["path", "name", "hash", "callers", "callees"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "name": { "type": "string" },
+        "hash": { "type": "string" },
+        "callers": { "type": "integer", "minimum": 0 },
+        "callees": { "type": "integer", "minimum": 0 },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "function_entry": {
+      "type": "object",
+      "required": ["hash", "name", "signature", "file", "line", "callers", "callees", "is_public"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": { "type": "string" },
+        "name": { "type": "string" },
+        "signature": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 0 },
+        "callers": { "type": "integer", "minimum": 0 },
+        "callees": { "type": "integer", "minimum": 0 },
+        "is_public": { "type": "boolean" }
       }
     }
   }

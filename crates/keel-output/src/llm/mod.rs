@@ -1,143 +1,76 @@
+pub mod compile;
+pub mod discover;
+pub mod explain;
+pub mod fix;
+pub mod map;
+pub mod name;
+pub mod violation;
+
 use crate::OutputFormatter;
-use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult, MapResult, Violation};
+use keel_enforce::types::{
+    CompileResult, DiscoverResult, ExplainResult, FixResult, MapResult, NameResult,
+};
 
-pub struct LlmFormatter;
+pub struct LlmFormatter {
+    /// Depth for map output (0-3). Default: 1.
+    pub map_depth: u32,
+    /// Depth for compile output (0-2). Default: 1.
+    pub compile_depth: u32,
+    /// Max token budget for output truncation. Default: 500.
+    pub max_tokens: usize,
+}
 
-impl OutputFormatter for LlmFormatter {
-    fn format_compile(&self, result: &CompileResult) -> String {
-        if result.errors.is_empty() && result.warnings.is_empty() {
-            return String::new(); // Clean compile = empty stdout
+impl LlmFormatter {
+    pub fn new() -> Self {
+        Self {
+            map_depth: 1,
+            compile_depth: 1,
+            max_tokens: 500,
         }
-
-        let mut out = String::new();
-
-        out.push_str(&format!(
-            "COMPILE files={} errors={} warnings={}\n",
-            result.files_analyzed.len(),
-            result.errors.len(),
-            result.warnings.len(),
-        ));
-
-        for v in &result.errors {
-            out.push_str(&format_violation_llm(v));
-        }
-        for v in &result.warnings {
-            out.push_str(&format_violation_llm(v));
-        }
-
-        out
     }
 
-    fn format_discover(&self, result: &DiscoverResult) -> String {
-        let mut out = String::new();
-
-        out.push_str(&format!(
-            "DISCOVER hash={} name={} file={}:{}-{}\n",
-            result.target.hash,
-            result.target.name,
-            result.target.file,
-            result.target.line_start,
-            result.target.line_end,
-        ));
-
-        if !result.upstream.is_empty() {
-            out.push_str(&format!("CALLERS count={}\n", result.upstream.len()));
-            for c in &result.upstream {
-                out.push_str(&format!(
-                    "  d={} {}@{}:{} sig={}\n",
-                    c.distance, c.hash, c.file, c.call_line, c.signature
-                ));
-            }
-        }
-
-        if !result.downstream.is_empty() {
-            out.push_str(&format!("CALLEES count={}\n", result.downstream.len()));
-            for c in &result.downstream {
-                out.push_str(&format!(
-                    "  d={} {}@{}:{} sig={}\n",
-                    c.distance, c.hash, c.file, c.call_line, c.signature
-                ));
-            }
-        }
-
-        if !result.module_context.module.is_empty() {
-            out.push_str(&format!(
-                "MODULE {} fns={}\n",
-                result.module_context.module,
-                result.module_context.function_count,
-            ));
-        }
-
-        out
+    pub fn with_depths(map_depth: u32, compile_depth: u32) -> Self {
+        Self { map_depth, compile_depth, max_tokens: 500 }
     }
 
-    fn format_explain(&self, result: &ExplainResult) -> String {
-        let mut out = String::new();
-
-        out.push_str(&format!(
-            "EXPLAIN {} hash={} conf={:.2} tier={}\n",
-            result.error_code, result.hash, result.confidence, result.resolution_tier,
-        ));
-
-        for step in &result.resolution_chain {
-            out.push_str(&format!(
-                "  {} {}:{} {}\n",
-                step.kind, step.file, step.line, step.text,
-            ));
+    pub fn with_max_tokens(mut self, max_tokens: Option<usize>) -> Self {
+        if let Some(t) = max_tokens {
+            self.max_tokens = t;
         }
-
-        out.push_str(&format!("SUMMARY {}\n", result.summary));
-        out
-    }
-
-    fn format_map(&self, result: &MapResult) -> String {
-        let s = &result.summary;
-        let mut out = format!(
-            "MAP nodes={} edges={} modules={} fns={} classes={}\n",
-            s.total_nodes, s.total_edges, s.modules, s.functions, s.classes,
-        );
-        out.push_str(&format!(
-            "LANGS {} HINTS={:.2} DOCS={:.2}\n",
-            s.languages.join(","),
-            s.type_hint_coverage,
-            s.docstring_coverage,
-        ));
-        for m in &result.modules {
-            out.push_str(&format!(
-                "  {} fns={} cls={} edges={}\n",
-                m.path, m.function_count, m.class_count, m.edge_count,
-            ));
-        }
-        out
+        self
     }
 }
 
-fn format_violation_llm(v: &Violation) -> String {
-    let mut out = format!(
-        "{} {} hash={} conf={:.2} tier={}",
-        v.code, v.category, v.hash, v.confidence, v.resolution_tier,
-    );
+impl Default for LlmFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    if !v.affected.is_empty() {
-        out.push_str(&format!(" callers={}", v.affected.len()));
+impl OutputFormatter for LlmFormatter {
+    fn format_compile(&self, result: &CompileResult) -> String {
+        compile::format_compile(result, self.compile_depth, self.max_tokens)
     }
 
-    out.push('\n');
-
-    if let Some(fix) = &v.fix_hint {
-        out.push_str(&format!("  FIX: {}\n", fix));
+    fn format_discover(&self, result: &DiscoverResult) -> String {
+        discover::format_discover(result)
     }
 
-    if !v.affected.is_empty() {
-        let affected_strs: Vec<String> = v
-            .affected
-            .iter()
-            .map(|a| format!("{}@{}:{}", a.hash, a.file, a.line))
-            .collect();
-        out.push_str(&format!("  AFFECTED: {}\n", affected_strs.join(" ")));
+    fn format_explain(&self, result: &ExplainResult) -> String {
+        explain::format_explain(result)
     }
 
-    out
+    fn format_map(&self, result: &MapResult) -> String {
+        map::format_map(result, self.map_depth, self.max_tokens)
+    }
+
+    fn format_fix(&self, result: &FixResult) -> String {
+        fix::format_fix(result)
+    }
+
+    fn format_name(&self, result: &NameResult) -> String {
+        name::format_name(result)
+    }
 }
 
 #[cfg(test)]
@@ -145,8 +78,10 @@ mod tests {
     use super::*;
     use keel_enforce::types::*;
 
-    fn clean_compile() -> CompileResult {
-        CompileResult {
+    #[test]
+    fn test_llm_clean_compile_is_empty() {
+        let fmt = LlmFormatter::new();
+        let result = CompileResult {
             version: "0.1.0".into(),
             command: "compile".into(),
             status: "ok".into(),
@@ -158,11 +93,14 @@ mod tests {
                 edges_updated: 0,
                 hashes_changed: vec![],
             },
-        }
+        };
+        assert!(fmt.format_compile(&result).is_empty());
     }
 
-    fn compile_with_error() -> CompileResult {
-        CompileResult {
+    #[test]
+    fn test_llm_compile_with_violations() {
+        let fmt = LlmFormatter::with_depths(1, 2); // depth 2 for full detail
+        let result = CompileResult {
             version: "0.1.0".into(),
             command: "compile".into(),
             status: "error".into(),
@@ -195,20 +133,8 @@ mod tests {
                 edges_updated: 0,
                 hashes_changed: vec!["abc12345678".into()],
             },
-        }
-    }
-
-    #[test]
-    fn test_llm_clean_compile_is_empty() {
-        let fmt = LlmFormatter;
-        let out = fmt.format_compile(&clean_compile());
-        assert!(out.is_empty(), "Clean compile must produce empty output");
-    }
-
-    #[test]
-    fn test_llm_compile_with_violations() {
-        let fmt = LlmFormatter;
-        let out = fmt.format_compile(&compile_with_error());
+        };
+        let out = fmt.format_compile(&result);
         assert!(out.contains("COMPILE files=1 errors=1 warnings=0"));
         assert!(out.contains("E001 broken_caller hash=abc12345678"));
         assert!(out.contains("conf=0.92"));
@@ -219,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_llm_discover() {
-        let fmt = LlmFormatter;
+        let fmt = LlmFormatter::new();
         let result = DiscoverResult {
             version: "0.1.0".into(),
             command: "discover".into(),
@@ -262,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_llm_explain() {
-        let fmt = LlmFormatter;
+        let fmt = LlmFormatter::new();
         let result = ExplainResult {
             version: "0.1.0".into(),
             command: "explain".into(),

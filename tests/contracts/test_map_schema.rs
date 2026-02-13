@@ -37,6 +37,9 @@ fn map_output_matches_schema() {
                 external_endpoints: None,
             },
         ],
+        hotspots: vec![],
+        depth: 1,
+        functions: vec![],
     };
 
     let json_value = serde_json::to_value(&result).unwrap();
@@ -61,6 +64,9 @@ fn map_output_empty_modules_matches_schema() {
             docstring_coverage: 0.0,
         },
         modules: vec![],
+        hotspots: vec![],
+        depth: 1,
+        functions: vec![],
     };
 
     let json_value = serde_json::to_value(&result).unwrap();

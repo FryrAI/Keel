@@ -7,6 +7,7 @@ pub fn run(
     error_code: String,
     hash: String,
     _tree: bool,
+    depth: u32,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -36,7 +37,11 @@ pub fn run(
     let engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
 
     match engine.explain(&error_code, &hash) {
-        Some(result) => {
+        Some(mut result) => {
+            // Truncate resolution chain by depth: 0=summary only, 1=first hop, 2=two hops, 3=full
+            if depth < 3 {
+                result.resolution_chain.truncate(depth as usize);
+            }
             let output = formatter.format_explain(&result);
             if !output.is_empty() {
                 println!("{}", output);

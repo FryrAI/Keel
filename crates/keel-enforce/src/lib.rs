@@ -7,3 +7,5 @@ pub mod violations_util;
 pub mod violations;
 pub mod engine;
 pub mod hash_diff;
+pub mod fix_generator;
+pub mod naming;

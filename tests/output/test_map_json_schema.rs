@@ -36,6 +36,9 @@ fn sample_map() -> MapResult {
                 external_endpoints: None,
             },
         ],
+        hotspots: vec![],
+        depth: 1,
+        functions: vec![],
     }
 }
 

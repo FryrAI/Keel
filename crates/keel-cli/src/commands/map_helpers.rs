@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use keel_core::types::{EdgeChange, NodeChange, NodeKind};
+use keel_core::types::{EdgeChange, EdgeKind, NodeChange, NodeKind};
 
 /// Build a MapResult from collected node and edge data (before they are consumed).
 pub fn build_map_result(
@@ -98,6 +98,9 @@ pub fn build_map_result(
             docstring_coverage,
         },
         modules: module_entries,
+        hotspots: vec![], // Populated later from store if depth >= 1
+        depth: 1,
+        functions: vec![], // Populated later if depth >= 2
     }
 }
 
@@ -107,4 +110,101 @@ pub fn make_relative(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .to_string()
+}
+
+/// Populate hotspot entries by ranking non-module nodes by total connectivity.
+pub fn populate_hotspots(
+    result: &mut keel_enforce::types::MapResult,
+    node_changes: &[NodeChange],
+    valid_edges: &[EdgeChange],
+) {
+    use keel_enforce::types::HotspotEntry;
+
+    let nodes: Vec<_> = node_changes
+        .iter()
+        .filter_map(|c| match c {
+            NodeChange::Add(n) if n.kind != NodeKind::Module => Some(n),
+            _ => None,
+        })
+        .collect();
+
+    // Count incoming (callers) and outgoing (callees) Calls edges per node
+    let mut callers: HashMap<u64, u32> = HashMap::new();
+    let mut callees: HashMap<u64, u32> = HashMap::new();
+    for e in valid_edges {
+        if let EdgeChange::Add(edge) = e {
+            if edge.kind == EdgeKind::Calls {
+                *callers.entry(edge.target_id).or_default() += 1;
+                *callees.entry(edge.source_id).or_default() += 1;
+            }
+        }
+    }
+
+    // Score and rank by total connectivity
+    let mut scored: Vec<_> = nodes
+        .iter()
+        .map(|n| {
+            let c = callers.get(&n.id).copied().unwrap_or(0);
+            let ce = callees.get(&n.id).copied().unwrap_or(0);
+            (c + ce, n, c, ce)
+        })
+        .filter(|(total, _, _, _)| *total > 0)
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+
+    result.hotspots = scored
+        .into_iter()
+        .take(10)
+        .map(|(_, n, c, ce)| HotspotEntry {
+            path: n.file_path.clone(),
+            name: n.name.clone(),
+            hash: n.hash.clone(),
+            callers: c,
+            callees: ce,
+            keywords: vec![], // Keywords come from module profile, not available here
+        })
+        .collect();
+}
+
+/// Populate function-level entries for depth >= 2 output.
+pub fn populate_functions(
+    result: &mut keel_enforce::types::MapResult,
+    node_changes: &[NodeChange],
+    valid_edges: &[EdgeChange],
+) {
+    use keel_enforce::types::FunctionEntry;
+
+    let functions: Vec<_> = node_changes
+        .iter()
+        .filter_map(|c| match c {
+            NodeChange::Add(n) if n.kind == NodeKind::Function => Some(n),
+            _ => None,
+        })
+        .collect();
+
+    // Count callers/callees per function
+    let mut callers: HashMap<u64, u32> = HashMap::new();
+    let mut callees: HashMap<u64, u32> = HashMap::new();
+    for e in valid_edges {
+        if let EdgeChange::Add(edge) = e {
+            if edge.kind == EdgeKind::Calls {
+                *callers.entry(edge.target_id).or_default() += 1;
+                *callees.entry(edge.source_id).or_default() += 1;
+            }
+        }
+    }
+
+    result.functions = functions
+        .iter()
+        .map(|n| FunctionEntry {
+            hash: n.hash.clone(),
+            name: n.name.clone(),
+            signature: n.signature.clone(),
+            file: n.file_path.clone(),
+            line: n.line_start,
+            callers: callers.get(&n.id).copied().unwrap_or(0),
+            callees: callees.get(&n.id).copied().unwrap_or(0),
+            is_public: n.is_public,
+        })
+        .collect();
 }

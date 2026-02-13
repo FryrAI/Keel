@@ -14,7 +14,7 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::FileWalker;
 
-use super::map_helpers::{build_map_result, make_relative};
+use super::map_helpers::{build_map_result, make_relative, populate_hotspots, populate_functions};
 use super::map_resolve::{
     find_containing_def, resolve_cross_file_call, resolve_import_to_module,
     resolve_same_directory_call,
@@ -27,6 +27,7 @@ pub fn run(
     _llm_verbose: bool,
     _scope: Option<String>,
     _strict: bool,
+    _depth: u32,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -353,13 +354,12 @@ pub fn run(
 
     // Gather stats from node_changes and valid_edges BEFORE consuming them
     let total_edges = valid_edges.iter().filter(|e| matches!(e, EdgeChange::Add(_))).count() as u32;
-    let map_result = build_map_result(&node_changes, &valid_edges, &entries);
+    let mut map_result = build_map_result(&node_changes, &valid_edges, &entries);
+    map_result.depth = _depth;
 
-    if verbose {
-        let def_count = node_changes.iter().filter(|c| matches!(c, NodeChange::Add(n) if n.kind != NodeKind::Module)).count();
-        let mod_count = node_changes.iter().filter(|c| matches!(c, NodeChange::Add(n) if n.kind == NodeKind::Module)).count();
-        eprintln!("keel map: inserting {} definitions, {} modules", def_count, mod_count);
-    }
+    // Populate hotspots (depth >= 1) and function entries (depth >= 2)
+    if _depth >= 1 { populate_hotspots(&mut map_result, &node_changes, &valid_edges); }
+    if _depth >= 2 { populate_functions(&mut map_result, &node_changes, &valid_edges); }
 
     // Apply node changes (modules sorted first to satisfy module_id FK)
     if let Err(e) = store.update_nodes(node_changes) {
@@ -397,4 +397,3 @@ pub fn run(
     }
     0
 }
-

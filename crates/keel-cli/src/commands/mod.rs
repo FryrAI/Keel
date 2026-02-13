@@ -7,6 +7,8 @@ pub mod parse_util;
 pub mod discover;
 pub mod where_cmd;
 pub mod explain;
+pub mod fix;
+pub mod name;
 pub mod serve;
 pub mod deinit;
 pub mod stats;
