@@ -5,8 +5,9 @@
 ## Honest Status Summary
 
 **Core implementation is functional and performant.** All CLI commands work (including `fix` and `name`),
-4 language resolvers pass, 15 real-world repos validate successfully. Round 3 added LLM experience
-features: fix generation, naming suggestions, depth-aware output, and backpressure signals. 926 tests passing.
+4 language resolvers pass, 15 real-world repos validate successfully. Round 4 added agent UX polish:
+`explain --depth 0-3` for resolution chain truncation, `--max-tokens N` for configurable LLM output
+budgets, and `fix --apply` for auto-applying fix plans with re-compile verification. 931 tests passing.
 
 ## Test Status — Actual Numbers
 
@@ -14,7 +15,7 @@ features: fix generation, naming suggestions, depth-aware output, and backpressu
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 926 | After Round 3: fix, name, depth, backpressure |
+| **Passing** | 931 | After Round 4: explain --depth, --max-tokens, fix --apply |
 | **Ignored** | 65 | Remaining stubs needing real assertions |
 | **Failing** | 0 | — |
 
@@ -24,10 +25,10 @@ features: fix generation, naming suggestions, depth-aware output, and backpressu
 |--------|-------|-------|
 | crates/keel-core/ | 24 | SQLite, hash, config |
 | crates/keel-parsers/ | 42 | tree-sitter, 4 resolvers, walker |
-| crates/keel-enforce/ | 57 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
-| crates/keel-cli/ | 38 | CLI arg parsing, --json, map resolve, fix/name commands |
+| crates/keel-enforce/ | 61 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
+| crates/keel-cli/ | 44 | CLI arg parsing, --json, map resolve, fix/name commands, explain --depth |
 | crates/keel-server/ | 41 | MCP + HTTP + watcher |
-| crates/keel-output/ | 32 | JSON, LLM, human formatters, depth/backpressure/fix/name |
+| crates/keel-output/ | 35 | JSON, LLM, human formatters, depth/backpressure/fix/name, token budget |
 | tests/contracts/ | 66 | Frozen trait contracts |
 | tests/fixtures/ | 10 | Mock graph + compile helpers |
 | tests/integration/ | 31 | E2E workflows (real) |
@@ -37,8 +38,8 @@ features: fix generation, naming suggestions, depth-aware output, and backpressu
 | tests/benchmarks/ | 13 | Map, parsing, parallel parsing |
 | tests/output/ | 56 | JSON schema, LLM format, discover schema |
 | tests/enforcement/ | 44 | Violations, batch, circuit breaker |
-| other integration | ~178 | Graph, parsing, correctness, tool integration |
-| **Total** | **926** | |
+| other integration | ~170 | Graph, parsing, correctness, tool integration |
+| **Total** | **931** | |
 
 ## Recent Fixes (2026-02-13)
 
@@ -86,6 +87,24 @@ features: fix generation, naming suggestions, depth-aware output, and backpressu
 ### Results
 - 887 → 926 tests (+39 new tests)
 - Single session (not swarm) — cohesive dependency chain across keel-enforce → keel-output → keel-cli
+
+## Round 4: Agent UX Polish (2026-02-13) — COMPLETED
+
+### Features Shipped
+
+| Feature | What It Does | Why It Matters for LLM Agents |
+|---------|-------------|-------------------------------|
+| `keel explain --depth 0-3` | Resolution chain truncation by depth level | Agents can request shallow (depth 0) or full (depth 3) explain output based on context budget |
+| `--max-tokens N` | Configurable global token budget for LLM output | Replaces hardcoded 500-token limit; agents/users tune output size to their context window |
+| `keel fix --apply` | Auto-apply fix plans with file writes + re-compile verification | Agents get one-command fix-and-verify instead of manual patch application |
+
+### Architecture Decision: Single Session (Continued)
+Round 4 continued the single-session approach from Round 3. All three features touched the same dependency chain (keel-enforce → keel-output → keel-cli), making parallel work impractical.
+
+### Results
+- 926 → 931 tests (+5 new tests)
+- 33 files changed, +2822/-499 lines
+- All P0 items from Round 4 candidates now complete
 
 ## Implementation Phase Status
 
@@ -152,10 +171,10 @@ CI pipeline and install script exist. No release published.
 
 ## Remaining Work — Prioritized
 
-### P0: Fix Apply & Tuning
-- `keel fix --apply` — auto-apply fix plans with re-compile verification loop
-- Backpressure threshold tuning based on real agent behavior
-- Token budget calibration against actual LLM context windows
+### P0: COMPLETED (Round 4)
+- ~~`keel fix --apply`~~ — DONE (auto-apply with re-compile verification)
+- ~~`--max-tokens N`~~ — DONE (configurable token budget, replaces hardcoded 500)
+- ~~`keel explain --depth 0-3`~~ — DONE (resolution chain truncation)
 
 ### P1: Fill Remaining Stubs
 - 65 ignored stubs → real assertions
@@ -169,5 +188,9 @@ CI pipeline and install script exist. No release published.
 - First release build and publish
 - VS Code extension marketplace submission
 
+### P4: Deferred from Round 4
+- Streaming compile (`--watch` mode for continuous agent loops)
+- Map diff (`--since HASH` for structural delta — only show what changed)
+
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 (current)

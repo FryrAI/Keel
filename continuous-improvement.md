@@ -271,22 +271,29 @@ git worktree prune
 
 ---
 
-## 9. Round 4 Candidates
+## 9. Round 4 Results (2026-02-13) — COMPLETED
 
-Potential features for the next development round, ordered by priority:
+Features shipped in Round 4, from the candidates list:
 
+| Priority | Feature | Description | Status |
+|----------|---------|-------------|--------|
+| **P0** | `keel fix --apply` | Auto-apply fix plans with file writes + re-compile verification | **DONE** |
+| **P1** | Streaming compile | `--watch` mode for continuous agent loops | Deferred → Round 5 |
+| **P2** | `--max-tokens N` | Configurable global token budget for LLM output (replaces hardcoded 500) | **DONE** |
+| **P3** | `keel explain --depth 0-3` | Resolution chain truncation by depth level | **DONE** |
+| **P4** | Map diff | `--since HASH` for structural delta (only show what changed) | Deferred → Round 5 |
+
+- Tests: 926 → 931 (+5 new tests)
+- 33 files changed, +2822/-499 lines
+- Single-session approach (same as Round 3)
+
+### Round 5 Candidates
 | Priority | Feature | Description |
 |----------|---------|-------------|
-| **P0** | `keel fix --apply` | Auto-apply fix plans with re-compile verification loop |
 | **P1** | Streaming compile | `--watch` mode for continuous agent loops |
-| **P2** | Context window awareness | `--max-tokens N` CLI flag for output truncation |
-| **P3** | Explain depth | `--depth` flag for `keel explain` command |
-| **P4** | Map diff | `--since HASH` for structural delta (only show what changed) |
-
-### Validation Before Round 4
-- LLM UX validation with live Claude Code / Cursor sessions
-- Backpressure threshold tuning based on real agent behavior
-- Token budget calibration against actual context window sizes
+| **P2** | Map diff | `--since HASH` for structural delta (only show what changed) |
+| **P3** | Backpressure threshold tuning | Calibrate PRESSURE/BUDGET based on real agent behavior |
+| **P4** | Token budget calibration | Validate --max-tokens against actual LLM context windows |
 
 ---
 

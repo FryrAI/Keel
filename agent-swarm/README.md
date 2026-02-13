@@ -6,7 +6,7 @@ status: completed
 agents_planned: 15 (1 orchestrator + 3 leads + 11 teammates)
 agents_actual: 3 worktrees with single agents + 1 orchestrator session (~2 days)
 budget_estimate: "Claude Max plan ($200/month) — expect 2-4 months based on Anthropic's C compiler data"
-actual_runtime: "~5 days total (R1: 2026-02-09 to 2026-02-10, R2: 2026-02-12 to 2026-02-13, R3: 2026-02-13). 926 tests, 0 failures."
+actual_runtime: "~5 days total (R1: 2026-02-09 to 2026-02-10, R2: 2026-02-12 to 2026-02-13, R3-R4: 2026-02-13). 931 tests, 0 failures."
 inspired_by: "Anthropic C Compiler Swarm (16-agent adaptation) + Claude Code Agent Teams"
 ```
 
@@ -41,7 +41,7 @@ This playbook is split into focused documents. **Read them in order for first-ti
 2. **Natural three-way split** along the dependency DAG: Foundation (parsing + graph) -> Enforcement (validation + commands) -> Surface (integration + distribution)
 3. **Typed contracts everywhere** — Rust traits and structs define interfaces between agents
 4. **Resolution engine parallelizes internally** — 4 language resolvers can be developed independently by separate teammates within the Foundation team
-5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (926 passing after Round 3)
+5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (931 passing after Round 4)
 6. **Worktree-based parallelism** with separate Claude sessions proved more effective than the planned 15-agent nested team architecture
 
 ### "One Shot" — What It Actually Means
@@ -129,9 +129,9 @@ Complete ALL items before launching agents.
 
 ---
 
-## 3. Retrospective (2026-02-10)
+## 3. Retrospective (2026-02-10, updated through Round 4)
 
-All phases completed 2026-02-09 to 2026-02-10. Round 2 completed 2026-02-12 to 2026-02-13. Round 3 completed 2026-02-13. Current: **926 tests, 0 failures, 65 ignored.**
+All phases completed 2026-02-09 to 2026-02-10. Round 2 completed 2026-02-12 to 2026-02-13. Rounds 3-4 completed 2026-02-13. Current: **931 tests, 0 failures, 65 ignored.**
 
 ### Plan vs Reality
 
@@ -225,6 +225,29 @@ Round 3 used a single Claude Code session instead of the 3-worktree swarm model.
 
 ### Key Insight
 > "Agents can self-regulate when given the right signals. Depth flags let them choose their own detail level. Backpressure tells them when to expand or contract. Fix plans give them exact diffs instead of vague hints. The agent doesn't need more rules — it needs better information."
+
+---
+
+## 6. Round 4: Agent UX Polish (2026-02-13) — COMPLETED
+
+### Motivation
+Round 4 focused on agent UX polish: giving LLM agents finer control over output verbosity and enabling automated fix application without manual intervention.
+
+### Architecture Decision: Single Session (Continued)
+Same as Round 3 — features followed the keel-enforce → keel-output → keel-cli dependency chain.
+
+### Features Shipped
+
+| Feature | Description |
+|---------|-------------|
+| `keel explain --depth 0-3` | Resolution chain truncation by depth level |
+| `--max-tokens N` | Configurable global token budget for LLM output (replaces hardcoded 500) |
+| `keel fix --apply` | Auto-apply fix plans with file writes + re-compile verification |
+
+### Results
+- 926 → 931 tests (+5 new)
+- 33 files changed, +2822/-499 lines
+- All P0 items from continuous-improvement.md Round 4 candidates complete
 
 ---
 
