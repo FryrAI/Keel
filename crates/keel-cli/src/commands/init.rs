@@ -67,13 +67,27 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
     // Fix 8: Detect and configure tool integrations
     detect_tool_integrations(&cwd, verbose);
 
+    // Count files for the summary
+    let file_count = keel_parsers::walker::FileWalker::new(&cwd).walk().len();
+
+    eprintln!(
+        "keel initialized. {} language(s) detected, {} files indexed.",
+        languages.len(),
+        file_count
+    );
+
     if verbose {
-        eprintln!(
-            "keel init: initialized in {} with languages: {:?}",
-            cwd.display(),
-            languages
-        );
+        eprintln!("  languages: {:?}", languages);
+        eprintln!("  config: .keel/keel.json");
+        eprintln!("  database: .keel/graph.db");
     }
+
+    eprintln!();
+    eprintln!("Next steps:");
+    eprintln!("  keel map       Build the structural graph");
+    eprintln!("  keel compile   Validate contracts");
+    eprintln!();
+    eprintln!("Tip: If keel saves you time \u{2192}  gh star FryrAI/Keel");
 
     let _ = formatter; // Will be used for JSON/LLM output in future
     0
