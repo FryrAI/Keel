@@ -120,7 +120,51 @@ parse("hello");
 
 #[test]
 /// Barrel files using export * should resolve all symbols from the source module.
-fn test_barrel_star_export() {}
+fn test_barrel_star_export() {
+    let resolver = TsResolver::new();
+
+    // source.ts defines two exports
+    let source_code = r#"
+export function alpha(x: string): string {
+    return x;
+}
+
+export function beta(y: number): number {
+    return y + 1;
+}
+"#;
+    resolver.parse_file(Path::new("source.ts"), source_code);
+
+    // barrel.ts uses star export to forward everything from source
+    let barrel_source = "export * from './source';\n";
+    resolver.parse_file(Path::new("barrel.ts"), barrel_source);
+
+    // caller.ts imports alpha from the barrel and calls it
+    let caller_source = r#"
+import { alpha } from './barrel';
+alpha("hello");
+"#;
+    resolver.parse_file(Path::new("caller.ts"), caller_source);
+
+    // The caller should have detected the import
+    let refs = resolver.resolve_references(Path::new("caller.ts"));
+    assert!(
+        refs.iter().any(|r| r.name == "alpha"),
+        "caller.ts should reference alpha via star-export barrel, got: {:?}",
+        refs.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
+
+    // Original definitions should still be available
+    let defs = resolver.resolve_definitions(Path::new("source.ts"));
+    assert!(
+        defs.iter().any(|d| d.name == "alpha"),
+        "source.ts should define alpha"
+    );
+    assert!(
+        defs.iter().any(|d| d.name == "beta"),
+        "source.ts should define beta"
+    );
+}
 
 #[test]
 /// Barrel files with renamed exports should track the alias.
@@ -149,7 +193,49 @@ export function parse(input: string): string {
 
 #[test]
 /// Circular barrel re-exports should be detected and not cause infinite loops.
-fn test_barrel_circular_detection() {}
+fn test_barrel_circular_detection() {
+    let resolver = TsResolver::new();
+
+    // a.ts exports foo and re-exports from b
+    let a_source = r#"
+export function foo(): void {}
+export { bar } from './b';
+"#;
+    resolver.parse_file(Path::new("a.ts"), a_source);
+
+    // b.ts exports bar and re-exports from a (circular)
+    let b_source = r#"
+export function bar(): void {}
+export { foo } from './a';
+"#;
+    resolver.parse_file(Path::new("b.ts"), b_source);
+
+    // If we get here without hanging/panicking, circular detection works.
+    // Verify the resolver is still functional after processing circular re-exports.
+    let a_defs = resolver.resolve_definitions(Path::new("a.ts"));
+    assert!(
+        a_defs.iter().any(|d| d.name == "foo"),
+        "a.ts should still define foo after circular re-export processing"
+    );
+
+    let b_defs = resolver.resolve_definitions(Path::new("b.ts"));
+    assert!(
+        b_defs.iter().any(|d| d.name == "bar"),
+        "b.ts should still define bar after circular re-export processing"
+    );
+
+    // Resolver should still resolve call edges after circular processing
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "a.ts".into(),
+        line: 2,
+        callee_name: "foo".into(),
+        receiver: None,
+    });
+    assert!(
+        edge.is_some(),
+        "resolver should still function after circular re-exports"
+    );
+}
 
 #[test]
 /// Resolution through barrel files should report high confidence from Tier 2.

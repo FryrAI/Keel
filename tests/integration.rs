@@ -3,11 +3,19 @@
 mod test_init_to_compile;
 #[path = "integration/test_full_workflow.rs"]
 mod test_full_workflow;
-#[path = "integration/test_multi_language.rs"]
-mod test_multi_language;
 #[path = "integration/test_large_codebase.rs"]
 mod test_large_codebase;
 #[path = "integration/test_config_roundtrip.rs"]
 mod test_config_roundtrip;
 #[path = "integration/test_error_recovery.rs"]
 mod test_error_recovery;
+
+// Multi-language tests (decomposed from test_multi_language.rs)
+#[path = "integration/test_multi_lang_setup.rs"]
+mod test_multi_lang_setup;
+#[path = "integration/test_multi_lang_init.rs"]
+mod test_multi_lang_init;
+#[path = "integration/test_multi_lang_map.rs"]
+mod test_multi_lang_map;
+#[path = "integration/test_multi_lang_compile.rs"]
+mod test_multi_lang_compile;
