@@ -198,16 +198,21 @@ launch_tmux() {
     # Create session — Pane 0 (orchestrator) in root repo
     tmux new-session -d -s "$SESSION" -n "swarm" -c "$REPO_ROOT"
 
-    # Pane 1 (top-right): Test Infrastructure
-    tmux split-window -h -t "$SESSION" -c "$WT_TEST_INFRA"
-    tmux send-keys -t "$SESSION:0.1" "bash /tmp/claude/launch-test-infra.sh" C-m
-
-    # Pane 2 (bottom-left): Enforcement
+    # Split into 4 panes (all splits first, then send-keys)
+    # Bug fix: interleaving splits + send-keys causes pane index shift
+    tmux split-window -h -t "$SESSION:0" -c "$WT_TEST_INFRA"
     tmux split-window -v -t "$SESSION:0.0" -c "$WT_ENFORCEMENT"
-    tmux send-keys -t "$SESSION:0.2" "bash /tmp/claude/launch-enforcement.sh" C-m
-
-    # Pane 3 (bottom-right): Bugs
     tmux split-window -v -t "$SESSION:0.1" -c "$WT_BUGS"
+
+    # After splits: 0=top-left(orch), 1=top-right(test-infra),
+    #               2=bottom-left(enforce), 3=bottom-right(bugs)
+
+    # Small delay for panes to initialize their shells
+    sleep 2
+
+    # Send launch commands to each agent pane
+    tmux send-keys -t "$SESSION:0.1" "bash /tmp/claude/launch-test-infra.sh" C-m
+    tmux send-keys -t "$SESSION:0.2" "bash /tmp/claude/launch-enforcement.sh" C-m
     tmux send-keys -t "$SESSION:0.3" "bash /tmp/claude/launch-bugs.sh" C-m
 
     # Select pane 0 (orchestrator) for human interaction
@@ -226,8 +231,12 @@ launch_tmux() {
     echo "  Stop: tmux kill-session -t $SESSION"
     echo ""
 
-    # Attach
-    tmux attach -t "$SESSION"
+    # Attach only in interactive mode
+    if [ -t 0 ]; then
+        tmux attach -t "$SESSION"
+    else
+        echo "Non-interactive: run 'tmux attach -t $SESSION' to connect"
+    fi
 }
 
 # ============================================================================
