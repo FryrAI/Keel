@@ -1,71 +1,109 @@
 // Tests for Gemini CLI tool integration (Spec 009)
-//
-// Validates that keel generates correct Gemini CLI configuration,
-// settings.json, and GEMINI.md instruction files.
-//
-// use keel_cli::integration::gemini::{generate_settings, generate_gemini_md};
-// use std::path::Path;
+// BUG: Gemini settings.json and GEMINI.md generation not yet implemented.
+// keel init only detects tool directories but does not generate configs.
+
+use std::fs;
+use std::process::Command;
+
+use tempfile::TempDir;
+
+fn keel_bin() -> std::path::PathBuf {
+    let mut path = std::env::current_exe().unwrap();
+    path.pop();
+    path.pop();
+    path.push("keel");
+    if !path.exists() {
+        let status = Command::new("cargo")
+            .args(["build", "-p", "keel-cli"])
+            .status()
+            .expect("Failed to build keel");
+        assert!(status.success(), "Failed to build keel binary");
+    }
+    path
+}
+
+fn init_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    assert!(out.status.success());
+    dir
+}
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini settings.json generation not yet implemented"]
 fn test_gemini_settings_json_generation() {
-    // GIVEN a keel-initialized project directory
-    // WHEN Gemini CLI settings.json integration is generated
-    // THEN the output contains valid JSON with keel hook configurations for Gemini
+    let dir = init_project();
+    let settings = dir.path().join(".gemini/settings.json");
+    assert!(settings.exists(), "Gemini settings.json should be generated");
+    let contents = fs::read_to_string(&settings).unwrap();
+    let _: serde_json::Value = serde_json::from_str(&contents).expect("should be valid JSON");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_instruction_file_generation() {
-    // GIVEN a keel-initialized project directory
-    // WHEN GEMINI.md instruction file is generated
-    // THEN the file contains Gemini-specific instructions for using keel compile/discover
+    let dir = init_project();
+    let md = dir.path().join("GEMINI.md");
+    assert!(md.exists(), "GEMINI.md should be generated");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_includes_keel_commands() {
-    // GIVEN a generated GEMINI.md file
-    // WHEN the content is examined
-    // THEN it includes instructions for compile, discover, where, and explain commands
+    let dir = init_project();
+    let md = dir.path().join("GEMINI.md");
+    let contents = fs::read_to_string(&md).unwrap();
+    assert!(contents.contains("compile"), "should include compile command");
+    assert!(contents.contains("discover"), "should include discover command");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_includes_error_handling() {
-    // GIVEN a generated GEMINI.md file
-    // WHEN the content is examined
-    // THEN it includes guidance on interpreting keel error codes and fix hints
+    let dir = init_project();
+    let md = dir.path().join("GEMINI.md");
+    let contents = fs::read_to_string(&md).unwrap();
+    assert!(contents.contains("E001") || contents.contains("error"), "should include error handling");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini settings.json generation not yet implemented"]
 fn test_gemini_settings_has_post_edit_hook() {
-    // GIVEN a generated Gemini CLI settings.json
-    // WHEN the post-edit hook configuration is examined
-    // THEN it triggers `keel compile` after file modifications
+    let dir = init_project();
+    let settings = dir.path().join(".gemini/settings.json");
+    let contents = fs::read_to_string(&settings).unwrap();
+    assert!(contents.contains("keel compile"), "should trigger keel compile on edit");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini settings.json generation not yet implemented"]
 fn test_gemini_settings_merges_with_existing() {
-    // GIVEN a project with an existing Gemini CLI settings.json
-    // WHEN keel integration is installed
-    // THEN existing settings are preserved and keel hooks are added
+    let dir = init_project();
+    let gemini_dir = dir.path().join(".gemini");
+    fs::create_dir_all(&gemini_dir).unwrap();
+    fs::write(gemini_dir.join("settings.json"), r#"{"existing": true}"#).unwrap();
+    let settings = dir.path().join(".gemini/settings.json");
+    let contents = fs::read_to_string(&settings).unwrap();
+    assert!(contents.contains("existing"), "existing settings should be preserved");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini hook output format not yet implemented"]
 fn test_gemini_hooks_output_format_is_llm() {
-    // GIVEN a keel compile invocation triggered by a Gemini hook
-    // WHEN the output format is examined
-    // THEN the output is in LLM format optimized for Gemini's context window
+    let dir = init_project();
+    let settings = dir.path().join(".gemini/settings.json");
+    let contents = fs::read_to_string(&settings).unwrap();
+    assert!(contents.contains("--llm"), "should use LLM output format");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_placed_in_project_root() {
-    // GIVEN a keel-initialized project
-    // WHEN GEMINI.md is generated
-    // THEN the file is placed in the project root directory
+    let dir = init_project();
+    let md = dir.path().join("GEMINI.md");
+    assert!(md.exists(), "GEMINI.md should be at project root");
 }

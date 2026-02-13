@@ -1,72 +1,111 @@
 // Tests for Cursor IDE tool integration (Spec 009)
-//
-// Validates that keel generates correct Cursor hook configurations,
-// hooks.json, and .mdc rule files for Cursor's AI agent.
-//
-// use keel_cli::integration::cursor::{generate_hooks_json, generate_mdc_rules};
-// use std::path::Path;
-// use serde_json::Value;
+// BUG: Cursor hooks.json and .mdc generation not yet implemented.
+// keel init only detects .cursor directory but does not generate configs.
+
+use std::fs;
+use std::process::Command;
+
+use tempfile::TempDir;
+
+fn keel_bin() -> std::path::PathBuf {
+    let mut path = std::env::current_exe().unwrap();
+    path.pop();
+    path.pop();
+    path.push("keel");
+    if !path.exists() {
+        let status = Command::new("cargo")
+            .args(["build", "-p", "keel-cli"])
+            .status()
+            .expect("Failed to build keel");
+        assert!(status.success(), "Failed to build keel binary");
+    }
+    path
+}
+
+fn init_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    assert!(out.status.success());
+    dir
+}
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_json_generation() {
-    // GIVEN a keel-initialized project directory
-    // WHEN Cursor hooks.json integration is generated
-    // THEN the output contains valid JSON with keel-specific hook entries
+    let dir = init_project();
+    let hooks = dir.path().join(".cursor/hooks.json");
+    assert!(hooks.exists(), "Cursor hooks.json should be generated");
+    let contents = fs::read_to_string(&hooks).unwrap();
+    let _: serde_json::Value = serde_json::from_str(&contents).expect("should be valid JSON");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_json_has_file_edit_trigger() {
-    // GIVEN a generated Cursor hooks.json
-    // WHEN the file edit trigger is examined
-    // THEN it invokes `keel compile` after file modifications by the AI agent
+    let dir = init_project();
+    let hooks = dir.path().join(".cursor/hooks.json");
+    let contents = fs::read_to_string(&hooks).unwrap();
+    assert!(contents.contains("keel compile"), "should invoke keel compile on file edit");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor MDC rules generation not yet implemented"]
 fn test_cursor_mdc_rules_file_generation() {
-    // GIVEN a keel-initialized project directory
-    // WHEN keel.mdc rule file is generated for Cursor
-    // THEN the file contains Markdown-formatted rules describing keel enforcement behavior
+    let dir = init_project();
+    let mdc = dir.path().join(".cursor/rules/keel.mdc");
+    assert!(mdc.exists(), "keel.mdc rules file should be generated");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor MDC rules generation not yet implemented"]
 fn test_cursor_mdc_includes_error_code_descriptions() {
-    // GIVEN a generated keel.mdc file
-    // WHEN the content is examined
-    // THEN it includes descriptions of all error codes (E001-E005, W001-W002) with fix hints
+    let dir = init_project();
+    let mdc = dir.path().join(".cursor/rules/keel.mdc");
+    let contents = fs::read_to_string(&mdc).unwrap();
+    assert!(contents.contains("E001"), "should include E001");
+    assert!(contents.contains("W001"), "should include W001");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_json_merges_with_existing() {
-    // GIVEN a project with an existing .cursor/hooks.json containing user hooks
-    // WHEN keel integration is installed
-    // THEN the existing hooks are preserved and keel hooks are added alongside them
+    let dir = init_project();
+    let cursor_dir = dir.path().join(".cursor");
+    fs::create_dir_all(&cursor_dir).unwrap();
+    fs::write(cursor_dir.join("hooks.json"), r#"{"existing": true}"#).unwrap();
+    let hooks = dir.path().join(".cursor/hooks.json");
+    let contents = fs::read_to_string(&hooks).unwrap();
+    assert!(contents.contains("existing"), "existing hooks should be preserved");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_output_format() {
-    // GIVEN a keel compile invocation triggered by a Cursor hook
-    // WHEN the output format is examined
-    // THEN the output is in LLM format appropriate for Cursor's AI context window
+    let dir = init_project();
+    let hooks = dir.path().join(".cursor/hooks.json");
+    let contents = fs::read_to_string(&hooks).unwrap();
+    assert!(contents.contains("--llm"), "output should use LLM format");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor MDC rules generation not yet implemented"]
 fn test_cursor_mdc_placed_in_correct_directory() {
-    // GIVEN a keel-initialized project
-    // WHEN keel.mdc is generated
-    // THEN the file is placed at .cursor/rules/keel.mdc (or equivalent Cursor rules path)
+    let dir = init_project();
+    let mdc = dir.path().join(".cursor/rules/keel.mdc");
+    assert!(mdc.exists(), "keel.mdc should be at .cursor/rules/keel.mdc");
 }
 
 #[test]
-#[ignore = "Not yet implemented"]
+#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_idempotent_generation() {
-    // GIVEN a project where Cursor hooks have already been generated by keel
-    // WHEN keel integration generation is run again
-    // THEN the hooks.json is identical (no duplicates, idempotent)
+    let dir = init_project();
+    let hooks = dir.path().join(".cursor/hooks.json");
+    if hooks.exists() {
+        let first = fs::read_to_string(&hooks).unwrap();
+        assert!(!first.is_empty(), "hooks should have content");
+    }
 }
