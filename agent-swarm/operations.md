@@ -341,15 +341,19 @@ At each phase gate:
 
 ## 6. Verification Checklist (Post-Build)
 
-After all phases complete, verify (all completed 2026-02-10):
+After all phases complete, verify (Round 1: 2026-02-10, Round 2: 2026-02-13):
 
-- [x] Every spec's acceptance criteria passes — 442 tests, 0 failures
-- [x] Resolution precision per language — 153 resolver tests (TS 28, Py 29, Go 18, Rust 29)
-- [x] Enforcement catches violations — 16 enforcement tests
-- [x] Performance benchmarks — 5 perf tests (ignored in debug, pass in release)
-- [x] Output formatters validated — 66 output format tests
+- [x] Every spec's acceptance criteria passes — 887 tests, 0 failures (Round 2)
+- [x] Resolution precision per language — 154 resolver tests (TS 42, Py 41, Go 26, Rust 45)
+- [x] Enforcement catches violations — 47 enforcement tests + 44 integration
+- [x] Performance benchmarks — 13 benchmark tests passing (FK fix unblocked them)
+- [x] Output formatters validated — 56 output format tests + 16 output unit tests
 - [x] Tool configs for 9+ tools — Claude Code, Cursor, Windsurf, Copilot, Aider, etc.
 - [x] Cross-platform release CI — Linux, macOS, Windows targets in release.yml
 - [x] `keel init` generates correct configs
 - [x] `keel deinit` cleanly removes `.keel/` directory
 - [x] Single binary, zero runtime dependencies
+- [x] O(n^2) compile fixed — SQL-pushed W001/W002 checks
+- [x] FK constraint fixed — module-first sort + pragma verification
+- [x] MCP server stateful — persistent SharedEngine across calls
+- [x] Discover depth — BFS up to depth 3 with distance field

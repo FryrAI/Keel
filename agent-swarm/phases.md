@@ -40,6 +40,9 @@ pub trait GraphStore {
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError>;
     fn update_edges(&mut self, changes: Vec<EdgeChange>) -> Result<(), GraphError>;
     fn get_previous_hashes(&self, node_id: u64) -> Vec<String>;
+    // Added 2026-02-13 for O(n^2) compile fix:
+    fn find_modules_by_prefix(&self, prefix: &str, exclude_file: &str) -> Vec<ModuleProfile>;
+    fn find_nodes_by_name(&self, name: &str, kind: &str, exclude_file: &str) -> Vec<GraphNode>;
 }
 ```
 

@@ -6,7 +6,7 @@ status: completed
 agents_planned: 15 (1 orchestrator + 3 leads + 11 teammates)
 agents_actual: 3 worktrees with single agents + 1 orchestrator session (~2 days)
 budget_estimate: "Claude Max plan ($200/month) — expect 2-4 months based on Anthropic's C compiler data"
-actual_runtime: "~2 days (2026-02-09 to 2026-02-10). 442 tests, 0 failures."
+actual_runtime: "~4 days total (Round 1: 2026-02-09 to 2026-02-10, Round 2: 2026-02-12 to 2026-02-13). 887 tests, 0 failures."
 inspired_by: "Anthropic C Compiler Swarm (16-agent adaptation) + Claude Code Agent Teams"
 ```
 
@@ -41,7 +41,7 @@ This playbook is split into focused documents. **Read them in order for first-ti
 2. **Natural three-way split** along the dependency DAG: Foundation (parsing + graph) -> Enforcement (validation + commands) -> Surface (integration + distribution)
 3. **Typed contracts everywhere** — Rust traits and structs define interfaces between agents
 4. **Resolution engine parallelizes internally** — 4 language resolvers can be developed independently by separate teammates within the Foundation team
-5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (442 passing at completion)
+5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (887 passing after Round 2)
 6. **Worktree-based parallelism** with separate Claude sessions proved more effective than the planned 15-agent nested team architecture
 
 ### "One Shot" — What It Actually Means
@@ -131,7 +131,7 @@ Complete ALL items before launching agents.
 
 ## 3. Retrospective (2026-02-10)
 
-All phases completed 2026-02-09 to 2026-02-10. Final result: **442 tests, 0 failures, 0 clippy warnings.**
+All phases completed 2026-02-09 to 2026-02-10. Round 2 completed 2026-02-12 to 2026-02-13. Final result: **887 tests, 0 failures, 65 ignored.**
 
 ### Plan vs Reality
 
@@ -167,29 +167,36 @@ All phases completed 2026-02-09 to 2026-02-10. Final result: **442 tests, 0 fail
 
 ---
 
-## 4. CI Swarm — Round 2 (2026-02-12)
+## 4. CI Swarm — Round 2 (2026-02-12 to 2026-02-13) — COMPLETED
 
 ### What Changed Since Retrospective
 - Entry points wired for all 8 orphaned test directories (Round 1: ci/test-infra)
 - Shared test helpers created in `tests/common/mod.rs`
 - 168 integration tests implemented with real assertions (Round 1: ci/enforcement)
 - 7 bugs fixed (Round 1: ci/bugs)
-- Test count: 467 → 478 passing, 0 → 318 wired-but-ignored stubs
+- Test count: 467 → 478 → 874 → 887 passing
 
 ### Round 2 Architecture
 - Same 3-worktree model (ci/test-infra, ci/enforcement, ci/bugs)
-- Prompts rewritten in `scripts/ci-prompts/` for remaining work
-- Each agent runs `/ralph-loop` autonomously
-- 15-repo corpus cloned at `/tmp/claude/test-corpus`
-- Orchestrator monitors via git log + /tmux-observe from pane 0
+- Each agent ran `/ralph-loop` autonomously
+- Orchestrator monitored via git log + /tmux-observe from pane 0
+- **Worktrees cleaned up 2026-02-13** — all branches merged into yolo_1
 
-### Targets
+### Results
 
-| Agent | Stubs | Priority |
-|-------|-------|----------|
-| test-infra | 179 (graph 70 + parsing 59 + graph_correctness 50) + 8 resolution | P0 |
-| enforcement | 102 (cli 53 + tool_integration 49) + 31 benchmarks | P0 |
-| bugs | O(n^2) perf (62s → <200ms) + corpus validation + 6 integration | P0 |
+| Agent | Branch | Merged | Outcome |
+|-------|--------|--------|---------|
+| test-infra | ci/test-infra | Yes | Wired stubs, shared helpers |
+| enforcement | ci/enforcement | Yes | 168 integration tests |
+| bugs | ci/bugs | Yes | 14 bug fixes |
+
+### Post-Merge Fixes (2026-02-13)
+- O(n^2) compile → O(n) via SQL-pushed W001/W002 checks
+- FK constraint fix in `keel map` (module-first sort + pragma verification)
+- MCP server statefulness (persistent SharedEngine)
+- Discover depth BFS (--depth N, max 3)
+- 13 benchmark tests re-enabled
+- Final: **887 passed, 0 failed, 65 ignored**
 
 ---
 

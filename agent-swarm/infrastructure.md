@@ -81,13 +81,20 @@ git worktree add $HOME/keel-worktree-c -b surface
 # PROGRESS.md + git log served as the coordination mechanism instead.
 ```
 
-**Actual folder structure (as used):**
+**Actual folder structure (as used — all worktrees cleaned up 2026-02-13):**
 
 ```
-$HOME/Curosor_Projects/Keel/   # Root worktree (orchestrator)
-$HOME/keel-worktree-a/          # Foundation team
-$HOME/keel-worktree-b/          # Enforcement team
-$HOME/keel-worktree-c/          # Surface team
+$HOME/Curosor_Projects/Keel/   # Root worktree (only remaining)
+
+# Round 1 worktrees (removed 2026-02-10):
+# $HOME/keel-worktree-a/          # Foundation team
+# $HOME/keel-worktree-b/          # Enforcement team
+# $HOME/keel-worktree-c/          # Surface team
+
+# Round 2 worktrees (removed 2026-02-13):
+# $HOME/keel-ci-test-infra/       # ci/test-infra branch
+# $HOME/keel-ci-enforcement/      # ci/enforcement branch
+# $HOME/keel-ci-bugs/             # ci/bugs branch
 ```
 
 > **Not created:** `test-corpus/` (unit tests sufficed), `specs/` symlink (agents used `keel-speckit/` directly), `.keel-swarm/` gate markers, `results/` directory.
