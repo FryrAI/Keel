@@ -15,8 +15,8 @@ real assertions (CI Swarm Round 2 in progress).
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 478 | Real assertions (462) + empty-body stubs (16) |
-| **Ignored** | 318 | Wired stubs with `#[ignore = "Not yet implemented"]` |
+| **Passing** | 874 | After merging Round 2 agent work |
+| **Ignored** | 78 | Remaining stubs + 13 FK-blocked benchmarks |
 | **Failing** | 0 | — |
 
 ### Where the 478 Passing Tests Live
@@ -166,4 +166,4 @@ CI pipeline and install script exist. No release published.
 12. W002 test file exclusion
 
 ### Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 (current)
