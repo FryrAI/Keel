@@ -110,6 +110,17 @@ Each pane runs a 3-role agent team internally:
 - **Architect** — reviews approach, catches design issues
 - **Devil's advocate** — challenges assumptions, finds edge cases
 
+### When to Use Swarm vs Single Session
+
+| Scenario | Approach | Why |
+|----------|----------|-----|
+| Independent crates (e.g., 4 language resolvers) | **Swarm** (3 worktrees) | No shared types, natural file isolation |
+| Cross-crate dependency chain (e.g., types → formatters → CLI) | **Single session** | Shared types cause merge conflicts in parallel |
+| Bug fixing across codebase | **Swarm** (3 worktrees by area) | Bugs are independent, fixes don't conflict |
+| New feature with LLM output implications | **Single session** | Feature touches enforce → output → cli in sequence |
+
+Round 3 used a single session because fix/name/depth/backpressure changes followed a tight dependency chain: `keel-enforce` types → `keel-output` formatters → `keel-cli` commands. Parallelizing would have caused merge conflicts on shared types like `PressureLevel` and `FixPlan`.
+
 ---
 
 ## 4. Launch Prompts
@@ -225,6 +236,8 @@ The playbook is **done** when ALL of these are true:
 | Deterministic | Run validation 3x, same results | 3 consecutive identical |
 | No files > 400 lines | `find . -name '*.rs' \| xargs wc -l \| awk '$1>400'` | 0 matches |
 | Clippy clean | `cargo clippy --workspace -- -D warnings` | 0 warnings |
+| LLM output depth | `keel compile --depth 0/1/2` on test fixtures | Correct output at each level |
+| Backpressure signals | Verify `PRESSURE=` and `BUDGET=` in LLM output | Present when violations exist |
 
 ### Partial Convergence
 
@@ -258,7 +271,26 @@ git worktree prune
 
 ---
 
-## 9. Next Steps (Post-Convergence Only)
+## 9. Round 4 Candidates
+
+Potential features for the next development round, ordered by priority:
+
+| Priority | Feature | Description |
+|----------|---------|-------------|
+| **P0** | `keel fix --apply` | Auto-apply fix plans with re-compile verification loop |
+| **P1** | Streaming compile | `--watch` mode for continuous agent loops |
+| **P2** | Context window awareness | `--max-tokens N` CLI flag for output truncation |
+| **P3** | Explain depth | `--depth` flag for `keel explain` command |
+| **P4** | Map diff | `--since HASH` for structural delta (only show what changed) |
+
+### Validation Before Round 4
+- LLM UX validation with live Claude Code / Cursor sessions
+- Backpressure threshold tuning based on real agent behavior
+- Token budget calibration against actual context window sizes
+
+---
+
+## 10. Next Steps (Post-Convergence Only)
 
 Once all convergence criteria are met:
 

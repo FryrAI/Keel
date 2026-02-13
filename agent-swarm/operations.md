@@ -341,9 +341,9 @@ At each phase gate:
 
 ## 6. Verification Checklist (Post-Build)
 
-After all phases complete, verify (Round 1: 2026-02-10, Round 2: 2026-02-13):
+After all phases complete, verify (Round 1: 2026-02-10, Round 2: 2026-02-13, Round 3: 2026-02-13):
 
-- [x] Every spec's acceptance criteria passes — 887 tests, 0 failures (Round 2)
+- [x] Every spec's acceptance criteria passes — 926 tests, 0 failures (Round 3)
 - [x] Resolution precision per language — 154 resolver tests (TS 42, Py 41, Go 26, Rust 45)
 - [x] Enforcement catches violations — 47 enforcement tests + 44 integration
 - [x] Performance benchmarks — 13 benchmark tests passing (FK fix unblocked them)
@@ -357,3 +357,10 @@ After all phases complete, verify (Round 1: 2026-02-10, Round 2: 2026-02-13):
 - [x] FK constraint fixed — module-first sort + pragma verification
 - [x] MCP server stateful — persistent SharedEngine across calls
 - [x] Discover depth — BFS up to depth 3 with distance field
+- [x] Fix generator — diff-style fix plans for E001-E005 with context lines (Round 3)
+- [x] Name engine — module scoring by keyword overlap + convention detection (Round 3)
+- [x] Map depth 0-3 — depth-aware output at all levels with hotspot detection (Round 3)
+- [x] Compile depth 0-2 — backpressure signals (PRESSURE + BUDGET directives) (Round 3)
+- [x] Token budget — truncation and estimation for LLM context windows (Round 3)
+- [x] LLM module decomposition — `llm.rs` → `llm/` directory (8 focused modules) (Round 3)
+- [x] Clean compile at all depths — empty stdout on zero violations (Round 3)

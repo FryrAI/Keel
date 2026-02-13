@@ -4,9 +4,9 @@
 
 ## Honest Status Summary
 
-**Core implementation is functional and performant.** All CLI commands work, 4 language resolvers pass,
-15 real-world repos validate successfully. O(n^2) compile bottleneck fixed (SQL-pushed checks),
-FK constraint bug fixed, MCP server is now stateful with persistent engine. 887 tests passing.
+**Core implementation is functional and performant.** All CLI commands work (including `fix` and `name`),
+4 language resolvers pass, 15 real-world repos validate successfully. Round 3 added LLM experience
+features: fix generation, naming suggestions, depth-aware output, and backpressure signals. 926 tests passing.
 
 ## Test Status — Actual Numbers
 
@@ -14,7 +14,7 @@ FK constraint bug fixed, MCP server is now stateful with persistent engine. 887 
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 887 | After fixing O(n^2), FK, MCP, discover depth |
+| **Passing** | 926 | After Round 3: fix, name, depth, backpressure |
 | **Ignored** | 65 | Remaining stubs needing real assertions |
 | **Failing** | 0 | — |
 
@@ -24,10 +24,10 @@ FK constraint bug fixed, MCP server is now stateful with persistent engine. 887 
 |--------|-------|-------|
 | crates/keel-core/ | 24 | SQLite, hash, config |
 | crates/keel-parsers/ | 42 | tree-sitter, 4 resolvers, walker |
-| crates/keel-enforce/ | 47 | Engine, violations, circuit breaker, batch, discover BFS |
-| crates/keel-cli/ | 34 | CLI arg parsing, --json, map resolve |
+| crates/keel-enforce/ | 57 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
+| crates/keel-cli/ | 38 | CLI arg parsing, --json, map resolve, fix/name commands |
 | crates/keel-server/ | 41 | MCP + HTTP + watcher |
-| crates/keel-output/ | 16 | JSON, LLM, human formatters |
+| crates/keel-output/ | 32 | JSON, LLM, human formatters, depth/backpressure/fix/name |
 | tests/contracts/ | 66 | Frozen trait contracts |
 | tests/fixtures/ | 10 | Mock graph + compile helpers |
 | tests/integration/ | 31 | E2E workflows (real) |
@@ -38,7 +38,7 @@ FK constraint bug fixed, MCP server is now stateful with persistent engine. 887 
 | tests/output/ | 56 | JSON schema, LLM format, discover schema |
 | tests/enforcement/ | 44 | Violations, batch, circuit breaker |
 | other integration | ~178 | Graph, parsing, correctness, tool integration |
-| **Total** | **887** | |
+| **Total** | **926** | |
 
 ## Recent Fixes (2026-02-13)
 
@@ -64,6 +64,28 @@ FK constraint bug fixed, MCP server is now stateful with persistent engine. 887 
 - CallerInfo/CalleeInfo now include `distance` field
 - LLM output shows `d=N` depth indicator
 - MCP discover handler passes depth param
+
+## Round 3: LLM Experience (2026-02-13) — COMPLETED
+
+### New Commands
+- **`keel fix [hash...]`** — generates diff-style fix plans for E001-E005 violations with context lines, fix hints, and confidence scores
+- **`keel name <desc>`** — scores modules by keyword overlap, detects naming conventions (snake_case/camelCase/kebab-case), suggests insertion points
+
+### Enhanced Commands
+- **`keel map --depth 0-3`** — depth-aware output: depth 0 (summary), depth 1 (modules), depth 2 (modules+children), depth 3 (full graph). Hotspot detection at all levels.
+- **`keel compile --depth 0-2`** — backpressure signals: `PRESSURE=LOW/MED/HIGH` with `BUDGET=expand/hold/contract` directives. Token budgeting for LLM agents.
+
+### New Infrastructure
+- `keel-enforce/src/fix_generator.rs` — fix plan generation from violations
+- `keel-enforce/src/naming.rs` + `naming_tests.rs` — module scoring and convention detection
+- `keel-output/src/llm/` — decomposed from single file into 8 focused modules (compile, discover, explain, fix, map, name, stats, where)
+- `keel-output/src/token_budget.rs` — token estimation and truncation
+- `keel-enforce/src/types.rs` — `PressureLevel` enum, `BackpressureInfo`, `FixPlan`, `NamingSuggestion` types
+- `keel-cli/src/cli_args.rs` — fix/name subcommands, `--depth` flags for map/compile
+
+### Results
+- 887 → 926 tests (+39 new tests)
+- Single session (not swarm) — cohesive dependency chain across keel-enforce → keel-output → keel-cli
 
 ## Implementation Phase Status
 
@@ -130,6 +152,11 @@ CI pipeline and install script exist. No release published.
 
 ## Remaining Work — Prioritized
 
+### P0: Fix Apply & Tuning
+- `keel fix --apply` — auto-apply fix plans with re-compile verification loop
+- Backpressure threshold tuning based on real agent behavior
+- Token budget calibration against actual LLM context windows
+
 ### P1: Fill Remaining Stubs
 - 65 ignored stubs → real assertions
 - 2 files > 400 lines need decomposition
@@ -143,4 +170,4 @@ CI pipeline and install script exist. No release published.
 - VS Code extension marketplace submission
 
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 (current)

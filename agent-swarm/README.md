@@ -6,7 +6,7 @@ status: completed
 agents_planned: 15 (1 orchestrator + 3 leads + 11 teammates)
 agents_actual: 3 worktrees with single agents + 1 orchestrator session (~2 days)
 budget_estimate: "Claude Max plan ($200/month) — expect 2-4 months based on Anthropic's C compiler data"
-actual_runtime: "~4 days total (Round 1: 2026-02-09 to 2026-02-10, Round 2: 2026-02-12 to 2026-02-13). 887 tests, 0 failures."
+actual_runtime: "~5 days total (R1: 2026-02-09 to 2026-02-10, R2: 2026-02-12 to 2026-02-13, R3: 2026-02-13). 926 tests, 0 failures."
 inspired_by: "Anthropic C Compiler Swarm (16-agent adaptation) + Claude Code Agent Teams"
 ```
 
@@ -41,7 +41,7 @@ This playbook is split into focused documents. **Read them in order for first-ti
 2. **Natural three-way split** along the dependency DAG: Foundation (parsing + graph) -> Enforcement (validation + commands) -> Surface (integration + distribution)
 3. **Typed contracts everywhere** — Rust traits and structs define interfaces between agents
 4. **Resolution engine parallelizes internally** — 4 language resolvers can be developed independently by separate teammates within the Foundation team
-5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (887 passing after Round 2)
+5. **Pre-written tests with `#[ignore]`** provide continuous feedback signal (926 passing after Round 3)
 6. **Worktree-based parallelism** with separate Claude sessions proved more effective than the planned 15-agent nested team architecture
 
 ### "One Shot" — What It Actually Means
@@ -131,7 +131,7 @@ Complete ALL items before launching agents.
 
 ## 3. Retrospective (2026-02-10)
 
-All phases completed 2026-02-09 to 2026-02-10. Round 2 completed 2026-02-12 to 2026-02-13. Final result: **887 tests, 0 failures, 65 ignored.**
+All phases completed 2026-02-09 to 2026-02-10. Round 2 completed 2026-02-12 to 2026-02-13. Round 3 completed 2026-02-13. Current: **926 tests, 0 failures, 65 ignored.**
 
 ### Plan vs Reality
 
@@ -197,6 +197,34 @@ All phases completed 2026-02-09 to 2026-02-10. Round 2 completed 2026-02-12 to 2
 - Discover depth BFS (--depth N, max 3)
 - 13 benchmark tests re-enabled
 - Final: **887 passed, 0 failed, 65 ignored**
+
+---
+
+## 5. Round 3: LLM Experience (2026-02-13) — COMPLETED
+
+### Motivation
+Round 3 optimized keel for its primary user: the LLM coding agent. Rather than adding more enforcement rules, this round focused on giving agents actionable output they can consume efficiently within token budgets.
+
+### Architecture Decision: Single Session (Not Swarm)
+Round 3 used a single Claude Code session instead of the 3-worktree swarm model. Reason: the features follow a tight dependency chain (keel-enforce types → keel-output formatters → keel-cli commands). Parallelizing would have caused merge conflicts on shared types.
+
+### Features Shipped
+
+| Feature | What It Does | Why It Matters for LLM Agents |
+|---------|-------------|-------------------------------|
+| `keel fix` | Diff-style fix plans for E001-E005 | Agents get exact code changes instead of just error descriptions |
+| `keel name` | Module-scored naming + insertion guidance | Agents know WHERE to put new code, not just WHAT to write |
+| `keel map --depth 0-3` | Depth-aware output with hotspot detection | Agents can request summary (depth 0) or detail (depth 3) based on context budget |
+| `keel compile --depth 0-2` | Backpressure signals + token budgeting | `PRESSURE=HIGH BUDGET=contract` tells agents to reduce output scope |
+
+### Results
+- 887 → 926 tests (+39 new)
+- `keel-output/src/llm.rs` decomposed into `llm/` directory (8 focused modules)
+- New types: `PressureLevel`, `BackpressureInfo`, `FixPlan`, `NamingSuggestion`
+- New modules: `fix_generator.rs`, `naming.rs`, `token_budget.rs`
+
+### Key Insight
+> "Agents can self-regulate when given the right signals. Depth flags let them choose their own detail level. Backpressure tells them when to expand or contract. Fix plans give them exact diffs instead of vague hints. The agent doesn't need more rules — it needs better information."
 
 ---
 

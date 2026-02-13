@@ -30,6 +30,9 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Error codes with fix hints** — every violation includes actionable remediation
 - **Circuit breaker** — auto-downgrades repeated false positives to warnings
 - **Batch mode** — defers non-critical checks during rapid agent iteration
+- **Backpressure signals** — `PRESSURE=LOW/MED/HIGH` with `BUDGET=` directives for token-aware agents
+- **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
+- **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
 - **Zero runtime dependencies** — single statically-linked binary
 
@@ -84,12 +87,14 @@ keel where a7Bx3kM9f2Q
 | Command | Purpose | Performance Target |
 |---------|---------|-------------------|
 | `keel init` | Initialize keel in a repo | <10s for 50k LOC |
-| `keel map` | Full re-map of the codebase | <5s for 100k LOC |
-| `keel compile [file...]` | Incremental validation | <200ms single file |
+| `keel map [--depth 0-3]` | Depth-aware structural map | <5s for 100k LOC |
+| `keel compile [--depth 0-2] [file...]` | Validation with backpressure | <200ms single file |
 | `keel discover <hash>` | Adjacency lookup (callers, callees) | <50ms |
 | `keel where <hash>` | Hash → file:line resolution | <50ms |
 | `keel explain <code> <hash>` | Resolution chain explanation | <50ms |
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
+| `keel fix [hash...]` | Generate fix plans from violations | <200ms |
+| `keel name <desc>` | Location-aware naming suggestions | <100ms |
 | `keel deinit` | Clean removal of keel data | — |
 | `keel stats` | Telemetry dashboard | — |
 
@@ -149,6 +154,26 @@ keel compile src/auth.ts
 ```
 
 The `--batch-start` / `--batch-end` flags let agents defer non-critical checks during rapid iteration.
+
+### Backpressure & Fix Planning
+
+```bash
+# Depth-0 compile: summary only, minimal tokens
+keel compile --depth 0 src/auth.ts
+# Output: PRESSURE=LOW BUDGET=expand | PRESSURE=HIGH BUDGET=contract
+
+# Generate fix plans for violations
+keel fix a7Bx3kM9f2Q
+# Output: diff-style fix plan with context lines
+
+# Find the best module for a new function
+keel name "validate user authentication"
+# Output: scored modules with keyword overlap and convention hints
+
+# Depth-aware map for context budgeting
+keel map --depth 1
+# Output: modules + direct children, hotspot detection
+```
 
 ### MCP Server
 
@@ -228,7 +253,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **In progress** |
 
-**Current:** 442 tests passing, 0 failures, 5 ignored (perf benchmarks only).
+**Current:** 926 tests passing, 0 failures, 65 ignored.
 
 ## Roadmap
 
