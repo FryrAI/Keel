@@ -17,10 +17,11 @@ export function greet(name: string): string {
 }
 "#;
         let result = resolver.parse_file(Path::new("test.ts"), source);
-        assert_eq!(result.definitions.len(), 1);
-        assert_eq!(result.definitions[0].name, "greet");
-        assert!(result.definitions[0].type_hints_present);
-        assert!(result.definitions[0].is_public);
+        let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].name, "greet");
+        assert!(funcs[0].type_hints_present);
+        assert!(funcs[0].is_public);
     }
 
     #[test]
@@ -50,8 +51,9 @@ class UserService {
         let path = Path::new("cached.ts");
         resolver.parse_file(path, source);
         let defs = resolver.resolve_definitions(path);
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].name, "hello");
+        let funcs: Vec<_> = defs.iter().filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].name, "hello");
     }
 
     #[test]

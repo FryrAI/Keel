@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 
 use crate::types::{ExternalEndpoint, GraphError, GraphNode, NodeKind};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 /// SQLite-backed implementation of the GraphStore trait.
 pub struct SqliteGraphStore {
@@ -81,6 +81,7 @@ impl SqliteGraphStore {
                 type_hints_present INTEGER NOT NULL DEFAULT 0,
                 has_docstring INTEGER NOT NULL DEFAULT 0,
                 module_id INTEGER REFERENCES nodes(id),
+                resolution_tier TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -115,6 +116,7 @@ impl SqliteGraphStore {
                 source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
                 target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
                 kind TEXT NOT NULL CHECK (kind IN ('calls', 'imports', 'inherits', 'contains')),
+                confidence REAL NOT NULL DEFAULT 1.0,
                 file_path TEXT NOT NULL,
                 line INTEGER NOT NULL,
                 UNIQUE(source_id, target_id, kind, file_path, line)
@@ -159,12 +161,45 @@ impl SqliteGraphStore {
             ",
         )?;
 
-        // Set schema version if not present
+        // Set schema version if not present (new databases get current version)
         self.conn.execute(
             "INSERT OR IGNORE INTO keel_meta (key, value) VALUES ('schema_version', ?1)",
             params![SCHEMA_VERSION.to_string()],
         )?;
 
+        // Run migrations for existing databases
+        self.run_migrations()?;
+
+        Ok(())
+    }
+
+    /// Run schema migrations from current version to SCHEMA_VERSION.
+    fn run_migrations(&self) -> Result<(), GraphError> {
+        let current = self.schema_version()?;
+        if current >= SCHEMA_VERSION {
+            return Ok(());
+        }
+        if current < 2 {
+            self.migrate_v1_to_v2()?;
+        }
+        Ok(())
+    }
+
+    /// Migrate from schema v1 to v2: add resolution_tier to nodes, confidence to edges.
+    fn migrate_v1_to_v2(&self) -> Result<(), GraphError> {
+        // Add resolution_tier column to nodes (ignore if already exists)
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN resolution_tier TEXT NOT NULL DEFAULT ''",
+        );
+        // Add confidence column to edges (ignore if already exists)
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0",
+        );
+        // Update schema version to 2
+        self.conn.execute(
+            "UPDATE keel_meta SET value = '2' WHERE key = 'schema_version'",
+            [],
+        )?;
         Ok(())
     }
 

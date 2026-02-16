@@ -100,7 +100,7 @@ fn parse_discover_missing_query() {
 fn parse_compile_no_files() {
     let cli = parse(&["keel", "compile"]);
     match cli.command {
-        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth, changed, since, delta } => {
+        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth, changed, since, delta, .. } => {
             assert!(files.is_empty());
             assert!(!batch_start);
             assert!(!batch_end);

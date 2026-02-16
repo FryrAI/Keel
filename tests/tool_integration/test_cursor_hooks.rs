@@ -1,6 +1,5 @@
 // Tests for Cursor IDE tool integration (Spec 009)
-// BUG: Cursor hooks.json and .mdc generation not yet implemented.
-// keel init only detects .cursor directory but does not generate configs.
+// Validates hooks.json and .mdc generation when .cursor/ directory is present.
 
 use std::fs;
 use std::process::Command;
@@ -27,14 +26,15 @@ fn init_project() -> TempDir {
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
     fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    // Create .cursor/ so tool detection fires during keel init
+    fs::create_dir_all(dir.path().join(".cursor")).unwrap();
     let keel = keel_bin();
     let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success());
+    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
     dir
 }
 
 #[test]
-#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_json_generation() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
@@ -44,16 +44,14 @@ fn test_cursor_hooks_json_generation() {
 }
 
 #[test]
-#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_json_has_file_edit_trigger() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
     let contents = fs::read_to_string(&hooks).unwrap();
-    assert!(contents.contains("keel compile"), "should invoke keel compile on file edit");
+    assert!(contents.contains("keel compile"), "should reference keel compile on file edit");
 }
 
 #[test]
-#[ignore = "BUG: Cursor MDC rules generation not yet implemented"]
 fn test_cursor_mdc_rules_file_generation() {
     let dir = init_project();
     let mdc = dir.path().join(".cursor/rules/keel.mdc");
@@ -61,7 +59,6 @@ fn test_cursor_mdc_rules_file_generation() {
 }
 
 #[test]
-#[ignore = "BUG: Cursor MDC rules generation not yet implemented"]
 fn test_cursor_mdc_includes_error_code_descriptions() {
     let dir = init_project();
     let mdc = dir.path().join(".cursor/rules/keel.mdc");
@@ -71,19 +68,29 @@ fn test_cursor_mdc_includes_error_code_descriptions() {
 }
 
 #[test]
-#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_json_merges_with_existing() {
-    let dir = init_project();
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+
+    // Create .cursor/ with existing hooks.json BEFORE keel init
     let cursor_dir = dir.path().join(".cursor");
     fs::create_dir_all(&cursor_dir).unwrap();
     fs::write(cursor_dir.join("hooks.json"), r#"{"existing": true}"#).unwrap();
+
+    // Run keel init — should detect .cursor and merge
+    let keel = keel_bin();
+    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
+
     let hooks = dir.path().join(".cursor/hooks.json");
     let contents = fs::read_to_string(&hooks).unwrap();
     assert!(contents.contains("existing"), "existing hooks should be preserved");
+    assert!(contents.contains("hooks"), "keel hooks should be added");
 }
 
 #[test]
-#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_output_format() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
@@ -92,7 +99,6 @@ fn test_cursor_hooks_output_format() {
 }
 
 #[test]
-#[ignore = "BUG: Cursor MDC rules generation not yet implemented"]
 fn test_cursor_mdc_placed_in_correct_directory() {
     let dir = init_project();
     let mdc = dir.path().join(".cursor/rules/keel.mdc");
@@ -100,12 +106,10 @@ fn test_cursor_mdc_placed_in_correct_directory() {
 }
 
 #[test]
-#[ignore = "BUG: Cursor hooks.json generation not yet implemented"]
 fn test_cursor_hooks_idempotent_generation() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
-    if hooks.exists() {
-        let first = fs::read_to_string(&hooks).unwrap();
-        assert!(!first.is_empty(), "hooks should have content");
-    }
+    assert!(hooks.exists(), "hooks.json should exist");
+    let first = fs::read_to_string(&hooks).unwrap();
+    assert!(!first.is_empty(), "hooks should have content");
 }

@@ -44,6 +44,7 @@ fn make_edge(id: u64, source_id: u64, target_id: u64, kind: EdgeKind, file_path:
         kind,
         file_path: file_path.to_string(),
         line,
+        confidence: 1.0,
     }
 }
 

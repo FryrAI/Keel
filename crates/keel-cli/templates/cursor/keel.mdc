@@ -16,6 +16,17 @@ Hooks handle automatic validation. Follow this workflow for proactive checks:
 4. Type hints mandatory. Docstrings mandatory on public functions.
 5. Check map before creating new functions. Place in correct module.
 
+## Error codes:
+| Code | Meaning |
+|------|---------|
+| E001 | broken_caller — a caller references a changed/removed function |
+| E002 | missing_type_hints — function parameters lack type annotations |
+| E003 | missing_docstring — public function lacks documentation |
+| E004 | function_removed — a function was deleted but callers remain |
+| E005 | arity_mismatch — caller passes wrong number of arguments |
+| W001 | placement — function is in a non-ideal module |
+| W002 | duplicate_name — another function with the same name exists |
+
 ## Commands:
 - `keel discover <hash>` — callers, callees, module context
 - `keel compile <file>` — validate (auto-runs via hooks, can also run manually)

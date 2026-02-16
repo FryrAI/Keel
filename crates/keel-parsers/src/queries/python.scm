@@ -14,17 +14,20 @@
   body: (block) @def.class.body) @def.class
 
 ; --- Decorated function/class ---
+; Capture the inner function_definition (not the decorated_definition wrapper)
+; so the line_start points at `def ...`, not the `@decorator` line.
+; Dedup in extract_definitions removes the duplicate from the standalone pattern.
 (decorated_definition
   (function_definition
     name: (identifier) @def.func.name
     parameters: (parameters) @def.func.params
     return_type: (type)? @def.func.return_type
-    body: (block) @def.func.body)) @def.func
+    body: (block) @def.func.body) @def.func)
 
 (decorated_definition
   (class_definition
     name: (identifier) @def.class.name
-    body: (block) @def.class.body)) @def.class
+    body: (block) @def.class.body) @def.class)
 
 ; --- Function calls ---
 (call

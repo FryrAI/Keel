@@ -66,6 +66,7 @@ fn bench_sqlite_insert_50k_edges() {
                 kind: EdgeKind::Calls,
                 file_path: String::new(),
                 line: 0,
+                confidence: 1.0,
             }));
             GraphEdge {
                 id: i + 1,
@@ -74,6 +75,7 @@ fn bench_sqlite_insert_50k_edges() {
                 kind: EdgeKind::Calls,
                 file_path: "src/mod.ts".to_string(),
                 line: (i as u32) + 1,
+                confidence: 1.0,
             }
         })
         .collect();
@@ -142,6 +144,7 @@ fn bench_sqlite_adjacency_query() {
                 kind: EdgeKind::Calls,
                 file_path: "src/mod.ts".to_string(),
                 line: 1,
+                confidence: 1.0,
             })
         })
         .collect();

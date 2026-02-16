@@ -39,6 +39,7 @@ fn test_edge(id: u64, source: u64, target: u64, kind: EdgeKind) -> GraphEdge {
         kind,
         file_path: "src/contract_test.rs".to_string(),
         line: 5,
+        confidence: 1.0,
     }
 }
 

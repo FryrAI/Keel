@@ -54,6 +54,7 @@ fn setup_graph(node_count: u64, edges_per_node: u64) -> (SqliteGraphStore, Vec<S
                     kind: EdgeKind::Calls,
                     file_path: format!("src/mod_{}.ts", i / 10),
                     line: 1,
+                    confidence: 1.0,
                 }));
                 edge_id += 1;
             }
@@ -100,6 +101,7 @@ fn bench_discover_highly_connected_node() {
             kind: EdgeKind::Calls,
             file_path: format!("src/caller_{i}.ts"),
             line: 1,
+            confidence: 1.0,
         }));
     }
     store.update_edges(edge_changes).unwrap();

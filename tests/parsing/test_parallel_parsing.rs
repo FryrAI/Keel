@@ -57,14 +57,13 @@ fn test_parallel_correctness() {
 
     let par_counts: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
-    // Both should produce same definition counts (1 per file)
+    // Both should produce same definition counts (2 per file: 1 module + 1 function)
     assert_eq!(seq_counts.len(), par_counts.len());
-    // Each file has exactly 1 function
     for count in &seq_counts {
-        assert_eq!(*count, 1);
+        assert_eq!(*count, 2, "each file should have 2 definitions (module + function)");
     }
     for count in &par_counts {
-        assert_eq!(*count, 1);
+        assert_eq!(*count, 2, "each file should have 2 definitions (module + function)");
     }
 }
 
@@ -203,7 +202,10 @@ fn test_parallel_error_isolation() {
         !valid_result.definitions.is_empty(),
         "Valid file should still produce definitions even when invalid file is parsed concurrently"
     );
-    assert_eq!(valid_result.definitions[0].name, "valid");
+    assert!(
+        valid_result.definitions.iter().any(|d| d.name == "valid"),
+        "valid file should contain definition for 'valid'"
+    );
 }
 
 #[test]

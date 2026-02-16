@@ -5,30 +5,151 @@ use keel_core::sqlite::SqliteGraphStore;
 #[test]
 /// Opening an existing database should report its current schema version.
 fn test_schema_version_tracking() {
-    // GIVEN a fresh in-memory SQLite database (auto-creates schema v1)
+    // GIVEN a fresh in-memory SQLite database (auto-creates schema v2)
     let store = SqliteGraphStore::in_memory().expect("in-memory store");
 
     // WHEN schema_version is queried
     let version = store.schema_version().expect("schema_version should succeed");
 
-    // THEN it reports version 1
-    assert_eq!(version, 1, "initial schema version should be 1");
+    // THEN it reports version 2
+    assert_eq!(version, 2, "initial schema version should be 2");
 }
 
 #[test]
-#[ignore = "BUG: v2 migration not yet implemented"]
 /// Opening a v1 database with v2 code should trigger automatic migration.
 fn test_v1_to_v2_migration() {
-    // There is only v1 currently. This test will be implemented
-    // when v2 migration logic is added to SqliteGraphStore.
+    // GIVEN a database created with v1 schema
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("v1.db");
+    let db_str = db_path.to_str().unwrap();
+
+    // Create a v1 database manually (without the v2 columns)
+    {
+        let conn = rusqlite::Connection::open(db_str).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE keel_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO keel_meta (key, value) VALUES ('schema_version', '1');
+
+            CREATE TABLE nodes (
+                id INTEGER PRIMARY KEY,
+                hash TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL CHECK (kind IN ('module', 'class', 'function')),
+                name TEXT NOT NULL,
+                signature TEXT NOT NULL DEFAULT '',
+                file_path TEXT NOT NULL,
+                line_start INTEGER NOT NULL,
+                line_end INTEGER NOT NULL,
+                docstring TEXT,
+                is_public INTEGER NOT NULL DEFAULT 0,
+                type_hints_present INTEGER NOT NULL DEFAULT 0,
+                has_docstring INTEGER NOT NULL DEFAULT 0,
+                module_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE edges (
+                id INTEGER PRIMARY KEY,
+                source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+                target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL CHECK (kind IN ('calls', 'imports', 'inherits', 'contains')),
+                file_path TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                UNIQUE(source_id, target_id, kind, file_path, line)
+            );
+            ",
+        )
+        .unwrap();
+    }
+
+    // WHEN re-opened with v2 code
+    let store = SqliteGraphStore::open(db_str).unwrap();
+
+    // THEN schema version is now 2
+    let version = store.schema_version().unwrap();
+    assert_eq!(version, 2, "v1 database should be migrated to v2");
 }
 
 #[test]
-#[ignore = "BUG: v2 migration not yet implemented"]
 /// Migrated data should be queryable using v2 APIs.
 fn test_migrated_data_accessible() {
-    // Depends on v2 migration existing. This test will be implemented
-    // when v2 schema and migration path are available.
+    // GIVEN a v1 database with some existing data
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("v1_with_data.db");
+    let db_str = db_path.to_str().unwrap();
+
+    {
+        let conn = rusqlite::Connection::open(db_str).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE keel_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO keel_meta (key, value) VALUES ('schema_version', '1');
+
+            CREATE TABLE nodes (
+                id INTEGER PRIMARY KEY,
+                hash TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                signature TEXT NOT NULL DEFAULT '',
+                file_path TEXT NOT NULL,
+                line_start INTEGER NOT NULL,
+                line_end INTEGER NOT NULL,
+                docstring TEXT,
+                is_public INTEGER NOT NULL DEFAULT 0,
+                type_hints_present INTEGER NOT NULL DEFAULT 0,
+                has_docstring INTEGER NOT NULL DEFAULT 0,
+                module_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE edges (
+                id INTEGER PRIMARY KEY,
+                source_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                UNIQUE(source_id, target_id, kind, file_path, line)
+            );
+
+            INSERT INTO nodes (hash, kind, name, file_path, line_start, line_end) VALUES
+                ('abc123', 'function', 'hello', 'main.rs', 1, 5);
+            ",
+        )
+        .unwrap();
+    }
+
+    // WHEN re-opened with v2 code
+    let store = SqliteGraphStore::open(db_str).unwrap();
+
+    // THEN the migrated data is queryable
+    assert_eq!(store.schema_version().unwrap(), 2);
+
+    // Drop store so we can open raw connection
+    drop(store);
+
+    // AND v2 columns have default values (verify via raw rusqlite)
+    let conn = rusqlite::Connection::open(db_str).unwrap();
+    let tier: String = conn
+        .query_row(
+            "SELECT resolution_tier FROM nodes WHERE hash = 'abc123'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tier, "", "resolution_tier should default to empty string");
+
+    // AND original data is preserved
+    let name: String = conn
+        .query_row(
+            "SELECT name FROM nodes WHERE hash = 'abc123'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(name, "hello", "original data should be preserved after migration");
 }
 
 #[test]
@@ -44,7 +165,7 @@ fn test_future_schema_version_not_rejected() {
     // First create a valid database
     {
         let store = SqliteGraphStore::open(db_str).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 1);
+        assert_eq!(store.schema_version().unwrap(), 2);
     }
 
     // Manually set schema_version to 99 via raw SQL
@@ -64,12 +185,10 @@ fn test_future_schema_version_not_rejected() {
         version, 99,
         "future schema version should be preserved (not rejected or downgraded)"
     );
-    // BUG: When future-version detection is implemented, this should
-    // return an error instead of silently opening the database.
 }
 
 #[test]
-/// Migration should be idempotent (opening store twice at same path keeps v1).
+/// Migration should be idempotent (opening store twice at same path keeps v2).
 fn test_migration_idempotency() {
     // GIVEN a temporary database file
     let dir = tempfile::TempDir::new().expect("create temp dir");
@@ -80,7 +199,7 @@ fn test_migration_idempotency() {
     {
         let store = SqliteGraphStore::open(db_path_str).expect("first open");
         let v = store.schema_version().expect("version check");
-        assert_eq!(v, 1, "first open should be v1");
+        assert_eq!(v, 2, "first open should be v2");
     }
 
     // AND the store is opened again at the same path
@@ -88,7 +207,7 @@ fn test_migration_idempotency() {
         let store = SqliteGraphStore::open(db_path_str).expect("second open");
         let v = store.schema_version().expect("version check");
 
-        // THEN the schema version is still 1 (no corruption or double-migration)
-        assert_eq!(v, 1, "second open should still be v1");
+        // THEN the schema version is still 2 (no corruption or double-migration)
+        assert_eq!(v, 2, "second open should still be v2");
     }
 }

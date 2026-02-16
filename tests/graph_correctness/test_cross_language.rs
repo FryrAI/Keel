@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use keel_core::hash::compute_hash;
+use keel_core::hash::compute_hash_disambiguated;
 use keel_core::types::NodeKind;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
@@ -168,16 +168,18 @@ fn test_same_function_name_different_languages() {
         .find(|d| d.name == "process")
         .expect("Python should have 'process' definition");
 
-    // Different signatures => different hashes
-    let ts_hash = compute_hash(
+    // Different file paths => different hashes (disambiguated by file path)
+    let ts_hash = compute_hash_disambiguated(
         &ts_def.signature,
         &ts_def.body_text,
         ts_def.docstring.as_deref().unwrap_or(""),
+        &ts_def.file_path,
     );
-    let py_hash = compute_hash(
+    let py_hash = compute_hash_disambiguated(
         &py_def.signature,
         &py_def.body_text,
         py_def.docstring.as_deref().unwrap_or(""),
+        &py_def.file_path,
     );
     assert_ne!(
         ts_hash, py_hash,

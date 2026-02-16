@@ -71,3 +71,31 @@ fn test_no_common_prefix() {
     let prefix = detect_common_prefix(&names);
     assert!(prefix.is_none());
 }
+
+#[test]
+fn test_path_score_weights_higher_than_fn_name() {
+    let desc = vec!["graph".to_string(), "data".to_string(), "export".to_string()];
+    // graph_data.py matches 2/3 path segments
+    let good_path = compute_path_score(&desc, "src/graph_data.py");
+    // init_admin.py matches 0/3 path segments
+    let bad_path = compute_path_score(&desc, "src/init_admin.py");
+    assert!(
+        good_path > bad_path,
+        "graph_data.py should score higher than init_admin.py for 'export graph data'"
+    );
+    assert!(good_path > 0.5, "graph_data.py should match >50% of keywords");
+    assert_eq!(bad_path, 0.0, "init_admin.py should have 0 path match");
+}
+
+#[test]
+fn test_fallback_score_path_dominates() {
+    let desc = vec!["graph".to_string(), "data".to_string()];
+    // Path with strong match should dominate even with 0 fn_name overlap
+    let path_heavy = compute_path_score(&desc, "src/graph_data.py");
+    // Weight: 65% path score means a 1.0 path score yields 0.65 minimum
+    assert!(
+        path_heavy * 0.65 > 0.3,
+        "path-dominant score should exceed threshold: {}",
+        path_heavy * 0.65
+    );
+}

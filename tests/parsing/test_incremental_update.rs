@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use keel_core::types::NodeKind;
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::typescript::TsResolver;
 
@@ -26,18 +27,11 @@ function beta(y: string): string {
 }
 "#;
     let result_v1 = resolver.parse_file(path, source_v1);
-    assert_eq!(result_v1.definitions.len(), 2);
+    let funcs_v1: Vec<_> = result_v1.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_v1.len(), 2);
 
-    let alpha_v1 = result_v1
-        .definitions
-        .iter()
-        .find(|d| d.name == "alpha")
-        .unwrap();
-    let beta_v1 = result_v1
-        .definitions
-        .iter()
-        .find(|d| d.name == "beta")
-        .unwrap();
+    let alpha_v1 = funcs_v1.iter().find(|d| d.name == "alpha").unwrap();
+    let beta_v1 = funcs_v1.iter().find(|d| d.name == "beta").unwrap();
 
     // Change alpha's body, leave beta untouched
     let source_v2 = r#"
@@ -50,18 +44,11 @@ function beta(y: string): string {
 }
 "#;
     let result_v2 = resolver.parse_file(path, source_v2);
-    assert_eq!(result_v2.definitions.len(), 2);
+    let funcs_v2: Vec<_> = result_v2.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_v2.len(), 2);
 
-    let alpha_v2 = result_v2
-        .definitions
-        .iter()
-        .find(|d| d.name == "alpha")
-        .unwrap();
-    let beta_v2 = result_v2
-        .definitions
-        .iter()
-        .find(|d| d.name == "beta")
-        .unwrap();
+    let alpha_v2 = funcs_v2.iter().find(|d| d.name == "alpha").unwrap();
+    let beta_v2 = funcs_v2.iter().find(|d| d.name == "beta").unwrap();
 
     // Alpha body changed
     assert_ne!(alpha_v1.body_text, alpha_v2.body_text);
@@ -81,7 +68,8 @@ function alpha(x: number): number {
 }
 "#;
     let result_v1 = resolver.parse_file(path, source_v1);
-    assert_eq!(result_v1.definitions.len(), 1);
+    let funcs_v1: Vec<_> = result_v1.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_v1.len(), 1);
 
     let source_v2 = r#"
 function alpha(x: number): number {
@@ -93,9 +81,10 @@ function beta(y: string): string {
 }
 "#;
     let result_v2 = resolver.parse_file(path, source_v2);
-    assert_eq!(result_v2.definitions.len(), 2);
+    let funcs_v2: Vec<_> = result_v2.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_v2.len(), 2);
 
-    let names: Vec<&str> = result_v2.definitions.iter().map(|d| d.name.as_str()).collect();
+    let names: Vec<&str> = funcs_v2.iter().map(|d| d.name.as_str()).collect();
     assert!(names.contains(&"alpha"));
     assert!(names.contains(&"beta"));
 }
@@ -116,7 +105,8 @@ function beta(y: string): string {
 }
 "#;
     let result_v1 = resolver.parse_file(path, source_v1);
-    assert_eq!(result_v1.definitions.len(), 2);
+    let funcs_v1: Vec<_> = result_v1.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_v1.len(), 2);
 
     // Remove beta
     let source_v2 = r#"
@@ -125,8 +115,9 @@ function alpha(x: number): number {
 }
 "#;
     let result_v2 = resolver.parse_file(path, source_v2);
-    assert_eq!(result_v2.definitions.len(), 1);
-    assert_eq!(result_v2.definitions[0].name, "alpha");
+    let funcs_v2: Vec<_> = result_v2.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_v2.len(), 1);
+    assert_eq!(funcs_v2[0].name, "alpha");
 }
 
 #[test]
@@ -142,19 +133,18 @@ function greet(name: string): string {
 "#;
     let path_a = Path::new("old.ts");
     let result_a = resolver.parse_file(path_a, source);
-    assert_eq!(result_a.definitions.len(), 1);
-    assert!(result_a.definitions[0].file_path.contains("old.ts"));
+    let funcs_a: Vec<_> = result_a.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_a.len(), 1);
+    assert!(funcs_a[0].file_path.contains("old.ts"));
 
     let path_b = Path::new("new.ts");
     let result_b = resolver.parse_file(path_b, source);
-    assert_eq!(result_b.definitions.len(), 1);
-    assert!(result_b.definitions[0].file_path.contains("new.ts"));
+    let funcs_b: Vec<_> = result_b.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_b.len(), 1);
+    assert!(funcs_b[0].file_path.contains("new.ts"));
 
     // Content is the same, path changed
-    assert_ne!(
-        result_a.definitions[0].file_path,
-        result_b.definitions[0].file_path
-    );
+    assert_ne!(funcs_a[0].file_path, funcs_b[0].file_path);
 }
 
 #[test]
@@ -184,7 +174,10 @@ function greet(name: string): string {
 
     // Same definitions by name and count
     assert_eq!(result_v1.definitions.len(), result_v2.definitions.len());
-    assert_eq!(result_v1.definitions[0].name, result_v2.definitions[0].name);
+    // Find greet in both
+    let greet_v1 = result_v1.definitions.iter().find(|d| d.name == "greet").unwrap();
+    let greet_v2 = result_v2.definitions.iter().find(|d| d.name == "greet").unwrap();
+    assert_eq!(greet_v1.name, greet_v2.name);
 }
 
 #[test]
@@ -202,17 +195,19 @@ function beta(y: string): string { return y; }
     let result_a = resolver.parse_file(Path::new("a.ts"), source_a);
     let result_b = resolver.parse_file(Path::new("b.ts"), source_b);
 
-    assert_eq!(result_a.definitions.len(), 1);
-    assert_eq!(result_a.definitions[0].name, "alpha");
+    let funcs_a: Vec<_> = result_a.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_a.len(), 1);
+    assert_eq!(funcs_a[0].name, "alpha");
 
-    assert_eq!(result_b.definitions.len(), 1);
-    assert_eq!(result_b.definitions[0].name, "beta");
+    let funcs_b: Vec<_> = result_b.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs_b.len(), 1);
+    assert_eq!(funcs_b[0].name, "beta");
 
-    // resolve_definitions should return cached results for both
+    // resolve_definitions should return cached results for both (includes module)
     let defs_a = resolver.resolve_definitions(Path::new("a.ts"));
     let defs_b = resolver.resolve_definitions(Path::new("b.ts"));
-    assert_eq!(defs_a.len(), 1);
-    assert_eq!(defs_b.len(), 1);
+    assert!(defs_a.iter().any(|d| d.name == "alpha"));
+    assert!(defs_b.iter().any(|d| d.name == "beta"));
 }
 
 #[test]
@@ -223,7 +218,7 @@ fn test_incremental_file_deleted() {
     // Parse a file first
     let source = "function hello(): void {}";
     resolver.parse_file(Path::new("exists.ts"), source);
-    assert_eq!(resolver.resolve_definitions(Path::new("exists.ts")).len(), 1);
+    assert!(resolver.resolve_definitions(Path::new("exists.ts")).iter().any(|d| d.name == "hello"));
 
     // Ask for definitions of a file that was never parsed (simulates deletion
     // — the resolver has no cached data for this path)

@@ -240,6 +240,7 @@ fn bench_sqlite_get_edges(c: &mut Criterion) {
                 kind: EdgeKind::Calls,
                 file_path: "src/main.rs".to_string(),
                 line: i as u32,
+                confidence: 1.0,
             })
         })
         .collect();

@@ -90,6 +90,15 @@ pub struct GraphEdge {
     pub kind: EdgeKind,
     pub file_path: String,
     pub line: u32,
+    /// Resolution confidence (0.0 = guess, 1.0 = certain).
+    /// Edges with confidence < 0.80 (dynamic dispatch, ambiguous resolution)
+    /// produce WARNINGs instead of ERRORs in enforcement.
+    #[serde(default = "default_edge_confidence")]
+    pub confidence: f64,
+}
+
+fn default_edge_confidence() -> f64 {
+    1.0
 }
 
 /// Module responsibility profile for placement scoring.

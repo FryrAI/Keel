@@ -15,9 +15,9 @@ function greet(name: string): string {
     let result = parser
         .parse_file("typescript", Path::new("test.ts"), source)
         .unwrap();
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "greet");
-    assert_eq!(result.definitions[0].kind, NodeKind::Function);
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
@@ -30,8 +30,9 @@ def greet(name: str) -> str:
     let result = parser
         .parse_file("python", Path::new("test.py"), source)
         .unwrap();
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
@@ -47,8 +48,9 @@ func greet(name string) string {
     let result = parser
         .parse_file("go", Path::new("test.go"), source)
         .unwrap();
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
@@ -62,8 +64,9 @@ fn greet(name: &str) -> String {
     let result = parser
         .parse_file("rust", Path::new("test.rs"), source)
         .unwrap();
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
@@ -137,4 +140,48 @@ fn test_unsupported_language() {
     let mut parser = TreeSitterParser::new();
     let result = parser.parse_file("haskell", Path::new("test.hs"), "main = putStrLn");
     assert!(result.is_err());
+}
+
+#[test]
+fn test_python_decorated_function_no_duplicate() {
+    let mut parser = TreeSitterParser::new();
+    let source = r#"
+@app.route("/data")
+def get_data():
+    return {"ok": True}
+
+def plain_func():
+    pass
+"#;
+    let result = parser
+        .parse_file("python", Path::new("views.py"), source)
+        .unwrap();
+    // Filter out auto-created Module node — only count functions
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(
+        funcs.len(),
+        2,
+        "decorated function should not produce a duplicate: {:?}",
+        funcs.iter().map(|d| &d.name).collect::<Vec<_>>()
+    );
+    let get_data = funcs.iter().find(|d| d.name == "get_data").unwrap();
+    // line_start should be the `def` line (3), not the decorator line (2)
+    assert_eq!(get_data.line_start, 3, "line_start should be the def line, not the decorator");
+}
+
+#[test]
+fn test_python_decorated_class_no_duplicate() {
+    let mut parser = TreeSitterParser::new();
+    let source = r#"
+@dataclass
+class Config:
+    host: str
+    port: int
+"#;
+    let result = parser
+        .parse_file("python", Path::new("models.py"), source)
+        .unwrap();
+    let classes: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Class).collect();
+    assert_eq!(classes.len(), 1, "decorated class should not produce a duplicate");
+    assert_eq!(classes[0].line_start, 3, "line_start should be the class line, not the decorator");
 }

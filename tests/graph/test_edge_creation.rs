@@ -44,6 +44,7 @@ fn make_edge(
         kind,
         file_path: file_path.to_string(),
         line,
+        confidence: 1.0,
     }
 }
 

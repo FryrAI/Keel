@@ -71,10 +71,26 @@ class Circle(Shape):
 }
 
 #[test]
-#[ignore = "BUG: Module nodes not auto-created per file by parser"]
 fn test_py_module_node_count_matches_lsp() {
-    // The parser does not auto-create Module nodes for each file.
-    // Module-level grouping happens at a higher layer.
+    // GIVEN a Python file
+    let resolver = PyResolver::new();
+    let source = r#"
+def greet() -> str:
+    return "hello"
+"#;
+
+    // WHEN keel parses the file
+    let result = resolver.parse_file(Path::new("greet.py"), source);
+
+    // THEN exactly 1 Module node is auto-created for the file
+    let modules: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Module)
+        .collect();
+    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(modules[0].name, "greet", "module name should be file stem");
+    assert_eq!(modules[0].file_path, "greet.py");
 }
 
 #[test]

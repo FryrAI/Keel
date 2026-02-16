@@ -1,6 +1,6 @@
 # keel — Implementation Progress
 
-> Last updated: 2026-02-16
+> Last updated: 2026-02-17
 
 ## Honest Status Summary
 
@@ -12,19 +12,22 @@ Round 6 fixed performance regressions and audited marketing content. Round 7 (CI
 real assertions in test stubs, added ModuleProfile fields, ResolvedEdge.resolution_tier tracking,
 previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warnings. Round 8 addressed
 agent UX pain points: discover accepts file paths + names, `keel search`, `keel watch`, `--changed`
-flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map tool.
+flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map tool. Round 9 added
+`keel check` and `keel analyze` commands, `compile --delta`, `discover --context`, and naming fixes.
+Round 10 (3-agent swarm) implemented schema v2 migration, module node auto-creation, dynamic dispatch
+confidence, Cursor/Gemini hook fixes, and 5 bug fixes.
 
-**919 tests passing, 0 failures, 93 ignored (all feature-blocked), 0 clippy warnings.**
+**957 tests passing, 0 failures, 68 ignored (feature-blocked), 0 clippy warnings.**
 
 ## Test Status — Actual Numbers
 
-### What `cargo test --workspace` Reports
+### What `cargo test --workspace --no-fail-fast` Reports
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 919 | Round 8: agent UX, search, watch, --changed, map enrichment |
-| **Ignored** | 93 | All feature-blocked (cursor/gemini hooks, advanced resolution, schema v2) |
-| **Failing** | 0 | Clean — 0 clippy warnings |
+| **Passing** | 957 | Round 10: schema v2, module nodes, dynamic dispatch, hook fixes, bug fixes |
+| **Ignored** | 68 | Feature-blocked (advanced resolution, large perf) |
+| **Failing** | 0 | Clean |
 
 ### Where the Passing Tests Live
 
@@ -48,6 +51,49 @@ flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map 
 | tests/tool_integration/ | 31 | Claude Code hooks, instruction files, git hooks, hook execution |
 | other integration | ~160 | Graph, parsing, correctness |
 | **Total** | **986** | |
+
+## Round 10: Core Features + Bug Fixes (2026-02-17) — COMPLETED
+
+3-agent swarm (core-agent, hooks-agent, bugs-agent) running in parallel.
+
+### Core Agent — Schema, Module Nodes, Dynamic Dispatch
+- **Schema v2 migration**: `SCHEMA_VERSION` 1→2, added `resolution_tier` to nodes, `confidence` to edges, auto-migration on open with `run_migrations()` / `migrate_v1_to_v2()`
+- **Module node per-file auto-creation**: Every parsed file now gets a Module definition node (kind=Module, name=file_stem) inserted at position 0 in `TreeSitterParser::parse_file()`, all 4 languages
+- **Dynamic dispatch confidence threshold**: `apply_dynamic_dispatch_threshold()` downgrades ERROR→WARNING when confidence < 0.7, applied before circuit breaker in `compile()`
+
+### Hooks Agent — Cursor/Gemini + Hook Improvements
+- Fixed 8 Cursor hook tests + 8 Gemini hook tests (un-ignored)
+- Wired `--delta` flag into hook templates
+- Implemented hook timeout + concurrent handling (2 tests)
+
+### Bugs Agent — 5 Bug Fixes
+- Fixed `discover --name` bug (F1)
+- Fixed `keel name` placement scoring (F2)
+- Fixed duplicate decorator entries (F4)
+- Fixed `check` RISK scoring (F5)
+
+### Results
+- 919 → 957 tests passing (+38)
+- 93 → 68 ignored (-25, un-ignored schema v2, module nodes, dynamic dispatch, hooks)
+- 0 failures (cross-language hash collision fixed)
+- 0 clippy warnings maintained
+
+## Round 9: Check, Analyze, Compile Delta (2026-02-16) — COMPLETED
+
+### New Commands
+- **`keel check`**: Quick structural health check with RISK scoring
+- **`keel analyze`**: Deep analysis with module-level insights
+- **`compile --delta`**: Show only new/changed violations since last run
+- **`discover --context`**: Include surrounding context in output
+
+### Improvements
+- `fix name` improvements for better naming suggestions
+- Snapshot-based delta tracking for compile results
+- LLM/human/JSON formatters for check and analyze output
+
+### Results
+- Tests: maintained, new CLI arg tests added
+- 36 files changed, +2193 lines
 
 ## Round 8: Agent UX + Distribution (2026-02-16) — COMPLETED
 
@@ -110,22 +156,19 @@ Addressed 5 specific pain points from Claude Code's honest feedback on keel usab
 - 5 → 0 clippy warnings
 - 7 commits, 3 agents, ~30 minutes wall time
 
-### 93 Ignored Tests Breakdown
+### 68 Ignored Tests Breakdown
 | Category | Count | Reason |
 |----------|-------|--------|
 | Python __all__/star imports | 11 | Tier 2 resolution not implemented |
 | Rust macros/traits/impl | 18 | Advanced Tier 2 features |
 | Go cross-package/interface | 12 | Advanced Tier 2 features |
 | TypeScript namespaces/project refs | 4 | Advanced Tier 2 features |
-| Cursor/Gemini hook generation | 15 | CLI feature not implemented |
 | Large codebase perf | 5 | Intentionally ignored in debug builds |
 | CLI --merge flag | 4 | Feature not implemented |
-| Hook timeout/concurrency | 2 | Feature not implemented |
-| Schema v2 migration | 2 | Feature not implemented |
-| Module auto-creation | 4 | Parser feature not implemented |
+| Integration workflow | 5 | Advanced E2E scenarios |
 | Graph storage (module_profiles, etc.) | 4 | Missing public API surface |
 | Parsing (trait method, large corpus) | 3 | Missing API / CI infrastructure |
-| Other (dynamic dispatch, etc.) | 9 | Various feature gaps |
+| Other | 2 | Various feature gaps |
 
 ## Round 6: Polish & Content Audit (2026-02-16) — COMPLETED
 
@@ -273,7 +316,7 @@ Zero orphans. Zero regressions. 4 consecutive green rounds.
 All tests pass. Clippy clean. Ready to tag v0.1.0.
 
 ### P1: Polish (post-release)
-- 93 ignored tests → implement underlying features (Cursor/Gemini hooks, advanced resolution, --merge)
+- 68 ignored tests → implement underlying features (advanced resolution, --merge, large perf)
 - Config format: TOML migration (keel.toml alongside keel.json)
 - Performance: measure actual memory usage, verify <200ms compile on release builds
 
@@ -286,7 +329,8 @@ All tests pass. Clippy clean. Ready to tag v0.1.0.
 - `keel serve --mcp` end-to-end with Claude Code and Cursor
 
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 (current)
 
 Note: Count dropped from 953 to 895 between Round 6-7 due to stricter runtime counting
-(`cargo test --workspace` output vs `#[test]` annotation count). 910 is the verified runtime count.
+(`cargo test --workspace` output vs `#[test]` annotation count). Round 10 counts use
+`--no-fail-fast` for accurate totals across all test binaries.

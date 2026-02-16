@@ -68,6 +68,9 @@ impl EnforcementEngine {
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
 
+            // Downgrade low-confidence violations (dynamic dispatch) to WARNING
+            file_violations = Self::apply_dynamic_dispatch_threshold(file_violations);
+
             // Apply circuit breaker
             file_violations = self.apply_circuit_breaker(file_violations);
 
@@ -219,6 +222,27 @@ impl EnforcementEngine {
     }
 
     // -- Private helpers --
+
+    /// Dynamic dispatch threshold: violations with confidence below 0.7
+    /// are downgraded from ERROR to WARNING (trait dispatch, interface methods).
+    const DYNAMIC_DISPATCH_THRESHOLD: f64 = 0.7;
+
+    pub fn apply_dynamic_dispatch_threshold(violations: Vec<Violation>) -> Vec<Violation> {
+        violations
+            .into_iter()
+            .map(|mut v| {
+                if v.severity == "ERROR" && v.confidence < Self::DYNAMIC_DISPATCH_THRESHOLD {
+                    v.severity = "WARNING".to_string();
+                    v.fix_hint = Some(format!(
+                        "{} (low confidence {:.0}% — likely dynamic dispatch)",
+                        v.fix_hint.unwrap_or_default(),
+                        v.confidence * 100.0,
+                    ));
+                }
+                v
+            })
+            .collect()
+    }
 
     pub(crate) fn apply_circuit_breaker(&mut self, violations: Vec<Violation>) -> Vec<Violation> {
         violations

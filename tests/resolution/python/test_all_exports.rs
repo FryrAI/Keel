@@ -1,6 +1,7 @@
 // Tests for Python __all__ export list and public API handling (Spec 003 - Python Resolution)
 
 use std::path::Path;
+use keel_core::types::NodeKind;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
 
@@ -36,12 +37,13 @@ def __internal():
 "#;
     let path = Path::new("/project/module.py");
     let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
-    assert_eq!(result.definitions.len(), 3);
+    assert_eq!(defs.len(), 3);
 
-    let process_def = result.definitions.iter().find(|d| d.name == "process").unwrap();
-    let helper_def = result.definitions.iter().find(|d| d.name == "_helper").unwrap();
-    let internal_def = result.definitions.iter().find(|d| d.name == "__internal").unwrap();
+    let process_def = defs.iter().find(|d| d.name == "process").unwrap();
+    let helper_def = defs.iter().find(|d| d.name == "_helper").unwrap();
+    let internal_def = defs.iter().find(|d| d.name == "__internal").unwrap();
 
     assert!(process_def.is_public, "process() should be public");
     assert!(!helper_def.is_public, "_helper() should be private (underscore prefix)");
@@ -58,10 +60,11 @@ def greet(name: str, age: int) -> str:
 "#;
     let path = Path::new("/project/typed.py");
     let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
-    assert_eq!(result.definitions.len(), 1);
+    assert_eq!(defs.len(), 1);
     assert!(
-        result.definitions[0].type_hints_present,
+        defs[0].type_hints_present,
         "Fully typed function should have type_hints_present = true"
     );
 }
@@ -76,10 +79,11 @@ def greet(name: str):
 "#;
     let path = Path::new("/project/partial.py");
     let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
-    assert_eq!(result.definitions.len(), 1);
+    assert_eq!(defs.len(), 1);
     assert!(
-        !result.definitions[0].type_hints_present,
+        !defs[0].type_hints_present,
         "Function missing return type hint should have type_hints_present = false"
     );
 }
@@ -94,10 +98,11 @@ def greet(name):
 "#;
     let path = Path::new("/project/untyped.py");
     let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
-    assert_eq!(result.definitions.len(), 1);
+    assert_eq!(defs.len(), 1);
     assert!(
-        !result.definitions[0].type_hints_present,
+        !defs[0].type_hints_present,
         "Untyped function should have type_hints_present = false"
     );
 }

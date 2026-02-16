@@ -26,6 +26,18 @@ This line works because:
 
 Used in: subheadlines, longer descriptions, PR copy where the primary is already used.
 
+### Core Value Statement
+
+> **keel prevents the agent from reading the wrong things and breaking the unseen things.**
+
+Used in: problem framing, hero subline, pitch decks, README second paragraph.
+
+This line works because:
+- **Two failure modes in one sentence** — bad context in ("reading the wrong things") + invisible breakage out ("breaking the unseen things")
+- "Prevents" = active, decisive — keel does something, not just flags
+- "The agent" = singular, specific — speaks to the user's daily reality
+- "Unseen things" = the core fear — downstream callers, type consumers, cross-module dependencies that no one checks until production
+
 ### Call to Action
 
 > **Ship code that holds.**

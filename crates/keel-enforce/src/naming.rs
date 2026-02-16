@@ -154,7 +154,10 @@ fn compute_keyword_score(desc_words: &[String], module_keywords: &[String]) -> f
 }
 
 /// Fallback scoring when module_profiles have no keywords.
-/// 40% weight on path segment match, 60% on function name match.
+/// 65% weight on path segment match, 35% on function name match.
+/// Path segments are a stronger signal: a file named `graph_data.py` is
+/// almost certainly the right home for "export graph data" regardless of
+/// which functions already live there.
 fn compute_fallback_score(
     desc_words: &[String],
     file_path: &str,
@@ -166,7 +169,7 @@ fn compute_fallback_score(
     }
     let path_score = compute_path_score(desc_words, file_path);
     let fn_score = compute_function_name_score(desc_words, store, module_id);
-    let combined = path_score * 0.4 + fn_score * 0.6;
+    let combined = path_score * 0.65 + fn_score * 0.35;
     // Only return if there's a meaningful match
     if combined > 0.05 { combined } else { 0.0 }
 }

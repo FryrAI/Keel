@@ -14,7 +14,8 @@ pub struct CheckResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskAssessment {
-    pub level: String,  // "safe" | "caution" | "danger"
+    pub level: String,  // "low" | "medium" | "high" — structural exposure
+    pub health: String, // "clean" | "issues" — code quality (violations present)
     pub caller_count: u32,
     pub cross_file_callers: u32,
     pub cross_module_callers: u32,

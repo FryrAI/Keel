@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 
 use keel_output::OutputFormatter;
 use keel_parsers::go::GoResolver;
@@ -26,7 +27,10 @@ pub fn run(
     changed: bool,
     since: Option<String>,
     delta: bool,
+    timeout: Option<u64>,
 ) -> i32 {
+    let start = Instant::now();
+
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -40,6 +44,15 @@ pub fn run(
         eprintln!("keel compile: not initialized. Run `keel init` first.");
         return 2;
     }
+
+    // Acquire compile lock to prevent concurrent corruption
+    let _lock = match acquire_compile_lock(&keel_dir, verbose) {
+        Some(lock) => lock,
+        None => {
+            eprintln!("keel compile: another compile is running, skipping");
+            return 0;
+        }
+    };
 
     let db_path = keel_dir.join("graph.db");
     let store = match keel_core::sqlite::SqliteGraphStore::open(
@@ -227,7 +240,73 @@ pub fn run(
         }
     }
 
+    // Check timeout before outputting results
+    if let Some(timeout_ms) = timeout {
+        let elapsed = start.elapsed().as_millis() as u64;
+        if elapsed > timeout_ms {
+            if verbose {
+                eprintln!("keel compile: timed out ({}ms > {}ms limit)", elapsed, timeout_ms);
+            }
+            return 0; // Don't block the agent
+        }
+    }
+
     output_result(formatter, &result, strict, verbose)
+}
+
+/// Advisory lock guard for compile serialization.
+/// Dropped automatically when the guard goes out of scope.
+struct CompileLock {
+    path: std::path::PathBuf,
+}
+
+impl Drop for CompileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// Try to acquire a compile lock. Returns None if another compile holds the lock.
+/// Uses a PID-based lockfile with stale lock detection.
+fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
+    let lock_path = keel_dir.join("compile.lock");
+    let pid = std::process::id();
+
+    // Check for existing lock
+    if lock_path.exists() {
+        if let Ok(contents) = fs::read_to_string(&lock_path) {
+            if let Ok(existing_pid) = contents.trim().parse::<u32>() {
+                if is_process_alive(existing_pid) {
+                    // Wait briefly (up to 2s) for the lock to release
+                    for _ in 0..20 {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        if !lock_path.exists() {
+                            break;
+                        }
+                    }
+                    if lock_path.exists() {
+                        return None; // Still locked
+                    }
+                } else if verbose {
+                    eprintln!("keel compile: removing stale lock from PID {}", existing_pid);
+                }
+            }
+        }
+        // Stale lock or unreadable — remove it
+        let _ = fs::remove_file(&lock_path);
+    }
+
+    // Write our PID
+    if fs::write(&lock_path, pid.to_string()).is_err() {
+        return None;
+    }
+
+    Some(CompileLock { path: lock_path })
+}
+
+/// Check if a process is still alive.
+fn is_process_alive(pid: u32) -> bool {
+    Path::new(&format!("/proc/{}", pid)).exists()
 }
 
 /// Get files changed according to git diff.

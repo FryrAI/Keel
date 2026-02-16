@@ -181,16 +181,11 @@ func helper() string {
 }
 "#;
     let result = resolver.parse_file(Path::new("test.go"), source);
-    assert_eq!(result.definitions.len(), 2, "expected 2 function definitions");
-    let exported = result
-        .definitions
-        .iter()
-        .find(|d| d.name == "ProcessData")
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs.len(), 2, "expected 2 function definitions");
+    let exported = funcs.iter().find(|d| d.name == "ProcessData")
         .expect("should find ProcessData");
-    let unexported = result
-        .definitions
-        .iter()
-        .find(|d| d.name == "helper")
+    let unexported = funcs.iter().find(|d| d.name == "helper")
         .expect("should find helper");
     assert!(exported.is_public, "ProcessData should be public (exported)");
     assert!(

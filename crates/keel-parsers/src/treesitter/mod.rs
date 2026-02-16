@@ -51,9 +51,31 @@ impl TreeSitterParser {
         let bytes = source.as_bytes();
         let root = tree.root_node();
 
-        let definitions = extract_definitions(&query, root, bytes, &file_path);
+        let mut definitions = extract_definitions(&query, root, bytes, &file_path);
         let references = extract_references(&query, root, bytes, &file_path);
         let imports = extract_imports(&query, root, bytes, &file_path);
+
+        // Auto-create a Module node for each parsed file
+        let line_count = source.lines().count().max(1) as u32;
+        let module_name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| file_path.clone());
+        definitions.insert(
+            0,
+            Definition {
+                name: module_name,
+                kind: NodeKind::Module,
+                signature: String::new(),
+                file_path: file_path.clone(),
+                line_start: 1,
+                line_end: line_count,
+                docstring: None,
+                is_public: true,
+                type_hints_present: false,
+                body_text: String::new(),
+            },
+        );
 
         Ok(ParseResult {
             definitions,
@@ -184,6 +206,9 @@ fn extract_definitions(
             });
         }
     }
+    // Deduplicate: decorated_definition + standalone patterns can both match
+    // the same inner node, producing identical entries.
+    defs.dedup_by(|a, b| a.name == b.name && a.line_start == b.line_start);
     defs
 }
 

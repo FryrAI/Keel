@@ -3,6 +3,7 @@
 // Tests `pub` vs private detection in the RustLangResolver's Tier 2 heuristic.
 
 use std::path::Path;
+use keel_core::types::NodeKind;
 use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::resolver::LanguageResolver;
 
@@ -16,10 +17,11 @@ pub fn process(input: &str) -> String {
 }
 "#;
     let result = resolver.parse_file(Path::new("lib.rs"), source);
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "process");
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].name, "process");
     assert!(
-        result.definitions[0].is_public,
+        defs[0].is_public,
         "pub fn should be marked as public"
     );
 }
@@ -37,9 +39,10 @@ pub(crate) fn internal() -> i32 {
 }
 "#;
     let result = resolver.parse_file(Path::new("lib.rs"), source);
-    assert_eq!(result.definitions.len(), 1);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
     // The heuristic treats pub(crate) as public since the line starts with "pub "
-    assert!(result.definitions[0].is_public);
+    assert!(defs[0].is_public);
 }
 
 #[test]
@@ -52,9 +55,10 @@ pub(super) fn helper() -> bool {
 }
 "#;
     let result = resolver.parse_file(Path::new("inner/mod.rs"), source);
-    assert_eq!(result.definitions.len(), 1);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
     // Heuristic: pub(super) starts with "pub " so detected as public
-    assert!(result.definitions[0].is_public);
+    assert!(defs[0].is_public);
 }
 
 #[test]
@@ -67,10 +71,11 @@ fn private_helper(x: i32) -> i32 {
 }
 "#;
     let result = resolver.parse_file(Path::new("lib.rs"), source);
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "private_helper");
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].name, "private_helper");
     assert!(
-        !result.definitions[0].is_public,
+        !defs[0].is_public,
         "fn without pub should be marked as private"
     );
 }
@@ -89,7 +94,8 @@ pub fn public_two() -> String { String::new() }
 fn private_two(x: f64) -> f64 { x * 2.0 }
 "#;
     let result = resolver.parse_file(Path::new("mixed.rs"), source);
-    assert_eq!(result.definitions.len(), 4);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 4);
 
     // Check each by name
     let public_one = result.definitions.iter().find(|d| d.name == "public_one").unwrap();
@@ -115,8 +121,9 @@ pub fn typed(x: i32, y: &str) -> bool { true }
 fn also_typed(a: Vec<String>) -> Option<i32> { None }
 "#;
     let result = resolver.parse_file(Path::new("typed.rs"), source);
-    assert_eq!(result.definitions.len(), 2);
-    for def in &result.definitions {
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 2);
+    for def in &defs {
         assert!(
             def.type_hints_present,
             "{} should have type_hints_present = true",
@@ -135,7 +142,8 @@ pub(in crate::graph) fn internal() -> i32 {
 }
 "#;
     let result = resolver.parse_file(Path::new("graph/store.rs"), source);
-    assert_eq!(result.definitions.len(), 1);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
     // Heuristic: pub(in ...) starts with "pub " so detected as public
-    assert!(result.definitions[0].is_public);
+    assert!(defs[0].is_public);
 }

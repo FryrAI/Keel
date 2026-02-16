@@ -7,6 +7,7 @@
 /// - Return valid (possibly empty) results from all methods
 use std::path::Path;
 
+use keel_core::types::NodeKind;
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::python::PyResolver;
@@ -27,7 +28,9 @@ fn ts_resolver_returns_correct_language() {
 fn ts_resolver_parse_file_empty_content() {
     let resolver = TsResolver::new();
     let result = resolver.parse_file(Path::new("test.ts"), "");
-    assert!(result.definitions.is_empty());
+    // Only the auto-created Module node; no other definitions
+    let non_mod: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert!(non_mod.is_empty());
     assert!(result.references.is_empty());
     assert!(result.imports.is_empty());
 }
@@ -37,15 +40,15 @@ fn ts_resolver_parse_file_simple_function() {
     let resolver = TsResolver::new();
     let content = "export function greet(name: string): string { return `Hello ${name}`; }";
     let result = resolver.parse_file(Path::new("test.ts"), content);
-    assert!(!result.definitions.is_empty(), "Should find at least one definition");
-    assert_eq!(result.definitions[0].name, "greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert!(!funcs.is_empty(), "Should find at least one function definition");
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
 fn ts_resolver_resolve_definitions_returns_vec() {
     let resolver = TsResolver::new();
     let defs = resolver.resolve_definitions(Path::new("nonexistent.ts"));
-    // Should not panic; may return empty vec for nonexistent file
     let _ = defs;
 }
 
@@ -66,7 +69,6 @@ fn ts_resolver_resolve_call_edge_returns_option() {
         receiver: None,
     };
     let edge = resolver.resolve_call_edge(&call_site);
-    // Stub returns None, which is valid
     let _ = edge;
 }
 
@@ -84,7 +86,8 @@ fn py_resolver_returns_correct_language() {
 fn py_resolver_parse_file_empty_content() {
     let resolver = PyResolver::new();
     let result = resolver.parse_file(Path::new("test.py"), "");
-    assert!(result.definitions.is_empty());
+    let non_mod: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert!(non_mod.is_empty());
     assert!(result.references.is_empty());
     assert!(result.imports.is_empty());
 }
@@ -94,8 +97,9 @@ fn py_resolver_parse_file_simple_function() {
     let resolver = PyResolver::new();
     let content = "def greet(name: str) -> str:\n    return f'Hello {name}'";
     let result = resolver.parse_file(Path::new("test.py"), content);
-    assert!(!result.definitions.is_empty(), "Should find at least one definition");
-    assert_eq!(result.definitions[0].name, "greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert!(!funcs.is_empty(), "Should find at least one function definition");
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
@@ -139,7 +143,8 @@ fn go_resolver_returns_correct_language() {
 fn go_resolver_parse_file_empty_content() {
     let resolver = GoResolver::new();
     let result = resolver.parse_file(Path::new("test.go"), "");
-    assert!(result.definitions.is_empty());
+    let non_mod: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert!(non_mod.is_empty());
     assert!(result.references.is_empty());
     assert!(result.imports.is_empty());
 }
@@ -149,8 +154,9 @@ fn go_resolver_parse_file_simple_function() {
     let resolver = GoResolver::new();
     let content = "package main\n\nfunc Greet(name string) string {\n\treturn \"Hello \" + name\n}";
     let result = resolver.parse_file(Path::new("test.go"), content);
-    assert!(!result.definitions.is_empty(), "Should find at least one definition");
-    assert_eq!(result.definitions[0].name, "Greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert!(!funcs.is_empty(), "Should find at least one function definition");
+    assert_eq!(funcs[0].name, "Greet");
 }
 
 #[test]
@@ -194,7 +200,8 @@ fn rust_resolver_returns_correct_language() {
 fn rust_resolver_parse_file_empty_content() {
     let resolver = RustLangResolver::new();
     let result = resolver.parse_file(Path::new("test.rs"), "");
-    assert!(result.definitions.is_empty());
+    let non_mod: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert!(non_mod.is_empty());
     assert!(result.references.is_empty());
     assert!(result.imports.is_empty());
 }
@@ -204,8 +211,9 @@ fn rust_resolver_parse_file_simple_function() {
     let resolver = RustLangResolver::new();
     let content = "pub fn greet(name: &str) -> String {\n    format!(\"Hello {}\", name)\n}";
     let result = resolver.parse_file(Path::new("test.rs"), content);
-    assert!(!result.definitions.is_empty(), "Should find at least one definition");
-    assert_eq!(result.definitions[0].name, "greet");
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert!(!funcs.is_empty(), "Should find at least one function definition");
+    assert_eq!(funcs[0].name, "greet");
 }
 
 #[test]
@@ -241,7 +249,6 @@ fn rust_resolver_resolve_call_edge_returns_option() {
 
 #[test]
 fn all_resolvers_are_object_safe() {
-    // Verify that LanguageResolver can be used as a trait object (Send + Sync)
     let resolvers: Vec<Box<dyn LanguageResolver>> = vec![
         Box::new(TsResolver::new()),
         Box::new(PyResolver::new()),

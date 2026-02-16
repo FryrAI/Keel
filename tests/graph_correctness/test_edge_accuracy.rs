@@ -234,11 +234,66 @@ fn test_false_positive_edges_are_low_confidence() {
 }
 
 #[test]
-#[ignore = "BUG: dynamic dispatch confidence thresholds tested at enforcement layer"]
 fn test_dynamic_dispatch_edges_are_warnings_not_errors() {
-    // Dynamic dispatch confidence thresholds are enforced at the enforcement
-    // layer (keel-enforce), not at the parser layer. This test belongs in
-    // the enforcement test suite.
+    // Dynamic dispatch edges have low confidence (< 0.7) and should be
+    // downgraded from ERROR to WARNING by the enforcement engine.
+    use keel_enforce::engine::EnforcementEngine;
+    use keel_enforce::types::Violation;
+
+    // Simulate: a low-confidence violation (e.g., trait method dispatch at 0.5)
+    let violations = vec![Violation {
+        code: "E001".to_string(),
+        severity: "ERROR".to_string(),
+        category: "broken_caller".to_string(),
+        message: "Trait method changed".to_string(),
+        file: "trait_impl.rs".to_string(),
+        line: 10,
+        hash: "abc123".to_string(),
+        confidence: 0.5, // Low confidence = dynamic dispatch
+        resolution_tier: "tier1".to_string(),
+        fix_hint: Some("Update callers".to_string()),
+        suppressed: false,
+        suppress_hint: None,
+        affected: vec![],
+        suggested_module: None,
+        existing: None,
+    }];
+
+    let result = EnforcementEngine::apply_dynamic_dispatch_threshold(violations);
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0].severity, "WARNING",
+        "low-confidence violations should be downgraded to WARNING"
+    );
+    assert!(
+        result[0].fix_hint.as_ref().unwrap().contains("dynamic dispatch"),
+        "fix_hint should mention dynamic dispatch"
+    );
+
+    // High-confidence violations should stay as ERROR
+    let high_conf = vec![Violation {
+        code: "E001".to_string(),
+        severity: "ERROR".to_string(),
+        category: "broken_caller".to_string(),
+        message: "Direct call changed".to_string(),
+        file: "direct.rs".to_string(),
+        line: 5,
+        hash: "def456".to_string(),
+        confidence: 0.92, // High confidence = direct call
+        resolution_tier: "tier1".to_string(),
+        fix_hint: Some("Update callers".to_string()),
+        suppressed: false,
+        suppress_hint: None,
+        affected: vec![],
+        suggested_module: None,
+        existing: None,
+    }];
+
+    let result = EnforcementEngine::apply_dynamic_dispatch_threshold(high_conf);
+    assert_eq!(
+        result[0].severity, "ERROR",
+        "high-confidence violations should remain ERROR"
+    );
 }
 
 #[test]

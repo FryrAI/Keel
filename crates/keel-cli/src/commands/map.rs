@@ -206,6 +206,7 @@ pub fn run(
                 kind: EdgeKind::Contains,
                 file_path: file_path.clone(),
                 line: def.line_start,
+                confidence: 1.0,
             }));
         }
 
@@ -233,6 +234,7 @@ pub fn run(
                                 kind: EdgeKind::Calls,
                                 file_path: file_path.clone(),
                                 line: reference.line,
+                                confidence: 0.95, // same-file call, high confidence
                             }));
                         }
                     }
@@ -268,6 +270,7 @@ pub fn run(
                             kind: EdgeKind::Imports,
                             file_path: file_path.clone(),
                             line: imp.line,
+                            confidence: 1.0,
                         }));
                     }
                 }
@@ -320,6 +323,7 @@ pub fn run(
                             kind: EdgeKind::Calls,
                             file_path: file_path.clone(),
                             line: reference.line,
+                            confidence: 0.80, // cross-file call, moderate confidence
                         }));
                     }
                 }

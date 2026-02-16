@@ -191,8 +191,8 @@ impl OutputFormatter for HumanFormatter {
 
     fn format_check(&self, result: &CheckResult) -> String {
         let mut out = format!(
-            "{} [{}] risk={}\n  --> {}:{}-{}\n",
-            result.target.name, result.target.hash, result.risk.level,
+            "{} [{}] risk={} health={}\n  --> {}:{}-{}\n",
+            result.target.name, result.target.hash, result.risk.level, result.risk.health,
             result.target.file, result.target.line_start, result.target.line_end,
         );
         out.push_str(&format!(

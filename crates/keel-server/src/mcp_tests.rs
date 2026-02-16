@@ -62,8 +62,8 @@ fn make_edge_test_data() -> (Vec<GraphNode>, Vec<EdgeChange>) {
         make_node(3, "calleeHash01", "validate", "fn validate(data: &str) -> bool", "src/validate.rs"),
     ];
     let edges = vec![
-        EdgeChange::Add(GraphEdge { id: 1, source_id: 2, target_id: 1, kind: EdgeKind::Calls, file_path: "src/main.rs".into(), line: 3 }),
-        EdgeChange::Add(GraphEdge { id: 2, source_id: 1, target_id: 3, kind: EdgeKind::Calls, file_path: "src/handler.rs".into(), line: 20 }),
+        EdgeChange::Add(GraphEdge { id: 1, source_id: 2, target_id: 1, kind: EdgeKind::Calls, file_path: "src/main.rs".into(), line: 3, confidence: 1.0 }),
+        EdgeChange::Add(GraphEdge { id: 2, source_id: 1, target_id: 3, kind: EdgeKind::Calls, file_path: "src/handler.rs".into(), line: 20, confidence: 1.0 }),
     ];
     (nodes, edges)
 }

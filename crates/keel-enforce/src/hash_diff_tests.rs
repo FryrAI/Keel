@@ -33,6 +33,7 @@ fn make_call_edge(id: u64, src: u64, tgt: u64, file: &str) -> GraphEdge {
         kind: EdgeKind::Calls,
         file_path: file.to_string(),
         line: 15,
+        confidence: 1.0,
     }
 }
 

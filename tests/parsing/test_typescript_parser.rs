@@ -16,10 +16,10 @@ fn test_ts_parse_named_function() {
     let source = "function greet(name: string): string { return name; }";
     let result = resolver.parse_file(Path::new("test.ts"), source);
 
-    assert_eq!(result.definitions.len(), 1);
-    let def = &result.definitions[0];
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    assert_eq!(funcs.len(), 1);
+    let def = &funcs[0];
     assert_eq!(def.name, "greet");
-    assert_eq!(def.kind, NodeKind::Function);
     assert_eq!(def.file_path, "test.ts");
     assert!(def.type_hints_present, "function with type annotations should have type_hints_present");
     assert!(def.line_start >= 1);
@@ -37,17 +37,17 @@ fn test_ts_parse_arrow_function() {
     // The typescript.scm query captures arrow functions assigned to const.
     // If tree-sitter does not capture this, leave the test ignored with
     // a BUG annotation. Verify at runtime.
-    if result.definitions.is_empty() {
+    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    if funcs.is_empty() {
         panic!(
             "BUG: tree-sitter TS query doesn't capture arrow function const assignments. \
              Expected a definition for 'add' but got none."
         );
     }
 
-    assert_eq!(result.definitions.len(), 1);
-    let def = &result.definitions[0];
+    assert_eq!(funcs.len(), 1);
+    let def = &funcs[0];
     assert_eq!(def.name, "add");
-    assert_eq!(def.kind, NodeKind::Function);
     assert!(def.type_hints_present);
 }
 
@@ -105,25 +105,18 @@ fn test_ts_parse_interface() {
 
     // The tree-sitter extraction code handles @def.type.name -> NodeKind::Class,
     // but the typescript.scm query may not have an interface_declaration pattern.
-    // If no definitions are found, that is a known gap in the query file.
-    if result.definitions.is_empty() {
-        // Interface declarations are not captured by the current TS query file.
-        // This is a known limitation -- the tree-sitter query only covers
-        // function_declaration, class_declaration, method_definition, and
-        // lexical_declaration (arrow functions).
+    let non_module: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    if non_module.is_empty() {
         eprintln!(
             "NOTE: interface_declaration not captured by typescript.scm query. \
              This is a known gap."
         );
-        // Still pass -- the test documents the current behavior.
-        assert_eq!(result.definitions.len(), 0);
         return;
     }
 
     // If the query IS extended to support interfaces:
-    let def = &result.definitions[0];
-    assert_eq!(def.name, "UserService");
-    assert_eq!(def.kind, NodeKind::Class);
+    assert_eq!(non_module[0].name, "UserService");
+    assert_eq!(non_module[0].kind, NodeKind::Class);
 }
 
 #[test]
@@ -209,18 +202,17 @@ fn test_ts_parse_enum() {
 
     // The tree-sitter extraction code handles @def.enum.name -> NodeKind::Class,
     // but the typescript.scm query may not have an enum_declaration pattern.
-    if result.definitions.is_empty() {
+    let non_module: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    if non_module.is_empty() {
         eprintln!(
             "NOTE: enum_declaration not captured by typescript.scm query. \
              This is a known gap."
         );
-        assert_eq!(result.definitions.len(), 0);
         return;
     }
 
-    let def = &result.definitions[0];
-    assert_eq!(def.name, "Color");
-    assert_eq!(def.kind, NodeKind::Class, "enums should map to NodeKind::Class");
+    assert_eq!(non_module[0].name, "Color");
+    assert_eq!(non_module[0].kind, NodeKind::Class, "enums should map to NodeKind::Class");
 }
 
 #[test]
@@ -245,18 +237,16 @@ fn test_ts_parse_type_alias() {
 
     // Type aliases may produce a Class node (via @def.type.name) if the query
     // covers type_alias_declaration, or may produce nothing at all.
-    // Either outcome is acceptable -- document what actually happens.
-    if result.definitions.is_empty() {
+    let non_module: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    if non_module.is_empty() {
         eprintln!(
             "NOTE: type_alias_declaration not captured by typescript.scm query. \
              No nodes produced for type aliases."
         );
     } else {
-        // If captured, it should be a Class node with name "Result"
-        let def = &result.definitions[0];
-        assert_eq!(def.name, "Result");
+        assert_eq!(non_module[0].name, "Result");
         assert_eq!(
-            def.kind,
+            non_module[0].kind,
             NodeKind::Class,
             "type aliases should map to NodeKind::Class if captured"
         );

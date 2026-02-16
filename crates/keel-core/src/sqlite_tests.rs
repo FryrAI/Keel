@@ -82,6 +82,7 @@ fn test_edges() {
         kind: EdgeKind::Calls,
         file_path: "src/test.rs".to_string(),
         line: 5,
+        confidence: 1.0,
     };
     store.update_edges(vec![EdgeChange::Add(edge)]).unwrap();
 
@@ -120,7 +121,7 @@ fn test_readd_same_edge_no_unique_constraint_error() {
     store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
     let edge = GraphEdge {
         id: 1, source_id: 1, target_id: 2, kind: EdgeKind::Calls,
-        file_path: "src/test.rs".to_string(), line: 5,
+        confidence: 1.0, file_path: "src/test.rs".to_string(), line: 5,
     };
     store.update_edges(vec![EdgeChange::Add(edge.clone())]).unwrap();
     store
@@ -256,4 +257,46 @@ fn test_batch_loaded_nodes_match_individual() {
             ind.id
         );
     }
+}
+
+#[test]
+fn test_find_nodes_by_name_empty_kind_wildcard() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+
+    // Insert a function and a class with the same name
+    let mut func_node = test_node(1, "fname_func_01", "get_data");
+    func_node.file_path = "src/api.rs".to_string();
+    let mut class_node = test_node(2, "fname_class_01", "get_data");
+    class_node.kind = NodeKind::Class;
+    class_node.file_path = "src/models.rs".to_string();
+    store
+        .update_nodes(vec![NodeChange::Add(func_node), NodeChange::Add(class_node)])
+        .unwrap();
+
+    // Empty kind + empty exclude_file: should find both
+    let all = store.find_nodes_by_name("get_data", "", "");
+    assert_eq!(all.len(), 2, "empty kind should match all node kinds");
+
+    // Specific kind: should find only the function
+    let funcs = store.find_nodes_by_name("get_data", "function", "");
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].kind, NodeKind::Function);
+
+    // Specific kind: should find only the class
+    let classes = store.find_nodes_by_name("get_data", "class", "");
+    assert_eq!(classes.len(), 1);
+    assert_eq!(classes[0].kind, NodeKind::Class);
+
+    // Empty kind + exclude_file: should exclude one file
+    let excluded = store.find_nodes_by_name("get_data", "", "src/api.rs");
+    assert_eq!(excluded.len(), 1);
+    assert_eq!(excluded[0].file_path, "src/models.rs");
+
+    // Full filter: kind + exclude_file
+    let full = store.find_nodes_by_name("get_data", "function", "src/api.rs");
+    assert_eq!(full.len(), 0, "function in api.rs should be excluded");
+
+    // Non-existent name
+    let none = store.find_nodes_by_name("nonexistent", "", "");
+    assert!(none.is_empty());
 }

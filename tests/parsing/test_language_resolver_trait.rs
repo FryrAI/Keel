@@ -79,22 +79,17 @@ fn test_resolver_parse_empty_file() {
     let go_result = go.parse_file(Path::new("empty.go"), "package main\n");
     let rs_result = rs.parse_file(Path::new("empty.rs"), "");
 
-    assert!(
-        ts_result.definitions.is_empty(),
-        "empty TS file should have no definitions"
-    );
-    assert!(
-        py_result.definitions.is_empty(),
-        "empty Python file should have no definitions"
-    );
-    assert!(
-        go_result.definitions.is_empty(),
-        "empty Go file (only package decl) should have no definitions"
-    );
-    assert!(
-        rs_result.definitions.is_empty(),
-        "empty Rust file should have no definitions"
-    );
+    use keel_core::types::NodeKind;
+    // Each file gets an auto-created Module node; no other definitions expected
+    let ts_non_mod: Vec<_> = ts_result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let py_non_mod: Vec<_> = py_result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let go_non_mod: Vec<_> = go_result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let rs_non_mod: Vec<_> = rs_result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+
+    assert!(ts_non_mod.is_empty(), "empty TS file should have no non-module definitions");
+    assert!(py_non_mod.is_empty(), "empty Python file should have no non-module definitions");
+    assert!(go_non_mod.is_empty(), "empty Go file should have no non-module definitions");
+    assert!(rs_non_mod.is_empty(), "empty Rust file should have no non-module definitions");
 }
 
 #[test]

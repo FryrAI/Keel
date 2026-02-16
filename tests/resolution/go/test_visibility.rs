@@ -1,7 +1,6 @@
 // Tests for Go capitalization-based visibility (Spec 004 - Go Resolution)
 use std::path::Path;
 
-#[allow(unused_imports)]
 use keel_core::types::NodeKind;
 use keel_parsers::go::GoResolver;
 use keel_parsers::resolver::LanguageResolver;
@@ -18,10 +17,11 @@ func ProcessData(input string) string {
 }
 "#;
     let result = resolver.parse_file(Path::new("handlers.go"), source);
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "ProcessData");
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].name, "ProcessData");
     assert!(
-        result.definitions[0].is_public,
+        defs[0].is_public,
         "Capitalized function should be exported (public)"
     );
 }
@@ -38,10 +38,11 @@ func helper(x int) int {
 }
 "#;
     let result = resolver.parse_file(Path::new("handlers.go"), source);
-    assert_eq!(result.definitions.len(), 1);
-    assert_eq!(result.definitions[0].name, "helper");
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].name, "helper");
     assert!(
-        !result.definitions[0].is_public,
+        !defs[0].is_public,
         "Lowercase function should be unexported (package-private)"
     );
 }

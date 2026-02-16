@@ -41,11 +41,11 @@ fn main() {
         }
         Commands::Compile {
             files, batch_start, batch_end, strict, suppress, depth,
-            changed, since, delta,
+            changed, since, delta, timeout,
         } => {
             commands::compile::run(
                 &*formatter, cli.verbose, files, batch_start, batch_end, strict,
-                suppress, depth, changed, since, delta,
+                suppress, depth, changed, since, delta, timeout,
             )
         }
         Commands::Check { query, name } => {

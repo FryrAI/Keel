@@ -175,9 +175,11 @@ func Greet(name string) string {
 }
 "#;
         let result = resolver.parse_file(Path::new("test.go"), source);
-        assert_eq!(result.definitions.len(), 1);
-        assert_eq!(result.definitions[0].name, "Greet");
-        assert!(result.definitions[0].is_public);
+        let funcs: Vec<_> = result.definitions.iter()
+            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].name, "Greet");
+        assert!(funcs[0].is_public);
     }
 
     #[test]
@@ -191,8 +193,10 @@ func greet(name string) string {
 }
 "#;
         let result = resolver.parse_file(Path::new("test.go"), source);
-        assert_eq!(result.definitions.len(), 1);
-        assert!(!result.definitions[0].is_public);
+        let funcs: Vec<_> = result.definitions.iter()
+            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+        assert_eq!(funcs.len(), 1);
+        assert!(!funcs[0].is_public);
     }
 
     #[test]
@@ -202,7 +206,9 @@ func greet(name string) string {
         let path = Path::new("cached.go");
         resolver.parse_file(path, source);
         let defs = resolver.resolve_definitions(path);
-        assert_eq!(defs.len(), 1);
+        let funcs: Vec<_> = defs.iter()
+            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+        assert_eq!(funcs.len(), 1);
     }
 
     #[test]

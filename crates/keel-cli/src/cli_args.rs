@@ -103,6 +103,9 @@ pub(crate) enum Commands {
         /// Show only new/resolved violations compared to last compile
         #[arg(long)]
         delta: bool,
+        /// Timeout in milliseconds (exit 0 if exceeded, don't block the agent)
+        #[arg(long)]
+        timeout: Option<u64>,
     },
 
     /// Pre-edit risk assessment for a function

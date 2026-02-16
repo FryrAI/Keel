@@ -14,7 +14,7 @@ if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
   exit 2
 fi
 
-RESULT=$(keel compile -- "$FILE_PATH" --json 2>&1)
+RESULT=$(keel compile --delta -- "$FILE_PATH" --json 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then

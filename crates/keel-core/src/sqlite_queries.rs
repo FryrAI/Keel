@@ -77,6 +77,7 @@ impl GraphStore for SqliteGraphStore {
                 kind,
                 file_path: row.get("file_path")?,
                 line: row.get("line")?,
+                confidence: row.get("confidence").unwrap_or(1.0),
             })
         }) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
@@ -271,7 +272,7 @@ impl GraphStore for SqliteGraphStore {
                     // (duplicate edges). FK violations are prevented by the caller
                     // filtering edges to valid node IDs and disabling FK pragma.
                     tx.execute(
-                        "INSERT OR IGNORE INTO edges (id, source_id, target_id, kind, file_path, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        "INSERT OR IGNORE INTO edges (id, source_id, target_id, kind, file_path, line, confidence) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                         params![
                             edge.id,
                             edge.source_id,
@@ -279,6 +280,7 @@ impl GraphStore for SqliteGraphStore {
                             edge.kind.as_str(),
                             edge.file_path,
                             edge.line,
+                            edge.confidence,
                         ],
                     )?;
                 }
@@ -341,22 +343,34 @@ impl GraphStore for SqliteGraphStore {
     }
 
     fn find_nodes_by_name(&self, name: &str, kind: &str, exclude_file: &str) -> Vec<GraphNode> {
-        let mut stmt = match self.conn.prepare(
-            "SELECT * FROM nodes WHERE name = ?1 AND kind = ?2 AND file_path != ?3",
-        ) {
+        // Empty kind/exclude_file act as wildcards (match any)
+        let sql = match (kind.is_empty(), exclude_file.is_empty()) {
+            (true, true) => "SELECT * FROM nodes WHERE name = ?1",
+            (true, false) => "SELECT * FROM nodes WHERE name = ?1 AND file_path != ?2",
+            (false, true) => "SELECT * FROM nodes WHERE name = ?1 AND kind = ?2",
+            (false, false) => {
+                "SELECT * FROM nodes WHERE name = ?1 AND kind = ?2 AND file_path != ?3"
+            }
+        };
+        let mut stmt = match self.conn.prepare(sql) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[keel] find_nodes_by_name: prepare failed: {e}");
                 return Vec::new();
             }
         };
-        let result = match stmt.query_map(params![name, kind, exclude_file], Self::row_to_node) {
+        let result = match (kind.is_empty(), exclude_file.is_empty()) {
+            (true, true) => stmt.query_map(params![name], Self::row_to_node),
+            (true, false) => stmt.query_map(params![name, exclude_file], Self::row_to_node),
+            (false, true) => stmt.query_map(params![name, kind], Self::row_to_node),
+            (false, false) => stmt.query_map(params![name, kind, exclude_file], Self::row_to_node),
+        };
+        match result {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(e) => {
                 eprintln!("[keel] find_nodes_by_name: query failed: {e}");
                 Vec::new()
             }
-        };
-        result
+        }
     }
 }

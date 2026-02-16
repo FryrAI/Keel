@@ -32,6 +32,7 @@ fn make_edge(id: u64, src: u64, tgt: u64, kind: EdgeKind) -> GraphEdge {
         source_id: src,
         target_id: tgt,
         kind,
+        confidence: 1.0,
         file_path: "test.rs".into(),
         line: 1,
     }

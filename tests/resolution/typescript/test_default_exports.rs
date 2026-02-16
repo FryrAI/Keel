@@ -57,15 +57,16 @@ fn test_default_export_anonymous() {
     let resolver = TsResolver::new();
     let source = "export default () => { return 42; };";
     let result = resolver.parse_file(Path::new("module.ts"), source);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
     // Anonymous default exports are not guaranteed to produce named definitions.
     // This test documents the actual behavior.
-    if result.definitions.is_empty() {
+    if defs.is_empty() {
         // Known limitation: anonymous default exports may not produce definitions
-        assert_eq!(result.definitions.len(), 0);
+        assert_eq!(defs.len(), 0);
     } else {
         // If captured, verify it's a Function
-        let def = &result.definitions[0];
+        let def = &defs[0];
         assert_eq!(def.kind, NodeKind::Function);
     }
 }
@@ -114,8 +115,9 @@ fn test_reexport_default_export() {
 
     // Parsing should succeed without panics
     // b.ts itself defines no functions/classes
+    let b_defs: Vec<_> = b_result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
     assert_eq!(
-        b_result.definitions.len(),
+        b_defs.len(),
         0,
         "re-export file should not define its own symbols"
     );

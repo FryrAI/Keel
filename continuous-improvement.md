@@ -320,6 +320,102 @@ After release-mode benchmarks, update all marketing: README, PROGRESS, landing p
 
 ---
 
+## 12. Round 8 Results (2026-02-16) — COMPLETED
+
+**Approach:** Single session, agent UX focus based on Claude Code dogfood feedback
+
+### Key Deliverables
+- `keel discover <path>` — list all symbols in a file, `--name` search by name
+- `keel search <term>` — graph-wide name search with substring fallback
+- `keel watch` — 200ms debounce auto-compile on file changes
+- `keel compile --changed` / `--since <commit>` — git-diff-aware compilation
+- Fixed empty hashes in E002/E003/W001/W002 violations
+- Enriched `keel map --llm` with function names under MODULE lines
+- GitHub Action (`.github/actions/keel/`) for CI marketplace
+- Homebrew tap automation in `release.yml`
+- Wired real MCP `keel/map` tool with `file_path` parameter
+- Updated templates with new commands and common mistakes section
+
+### Test Status
+- **919 passed, 0 failed, 93 ignored, 0 clippy warnings**
+- 53 files changed, +3304/-318 lines
+
+---
+
+## 13. Round 9 Results (2026-02-16) — COMPLETED
+
+**Approach:** Single session, ~3.6x agent token cost reduction
+
+### Key Deliverables
+- `keel check` — pre-edit risk assessment (safe/caution/danger) with callers, callees, violations
+- `keel analyze` — architectural observations (smells, refactoring) from graph data
+- `keel compile --delta` — snapshot-based error diffing (only new/resolved violations)
+- `keel discover --context [N]` — inline source code snippets eliminate separate file reads
+- Fixed `keel name` — populate module_profiles during map, fallback scoring
+- Split `types.rs` (335 lines) into `types/` directory (5 files)
+
+### Test Status
+- **927 passed, 0 failed, 93 ignored, 0 clippy warnings**
+- +8 tests from Round 8
+
+---
+
+## 14. Round 10 Plan: Test Convergence Sprint
+
+**Approach:** 3-agent team, target 93 → ~66 ignored (27 tests un-ignored)
+
+### Analysis of 93 Ignored Tests
+
+| Category | Count | Actionable? |
+|----------|-------|-------------|
+| Cursor hooks (hooks.json + MDC) | 8 | **YES** — generators exist, tests just need `.cursor/` dir |
+| Gemini hooks (settings.json + GEMINI.md) | 8 | **YES** — generators exist, tests just need `.gemini/` dir |
+| Hook execution (timeout + concurrent) | 2 | **YES** — add compile timeout + file locking |
+| Schema v2 migration | 2 | **YES** — define v2 schema, implement migration |
+| Module node per-file auto-creation | 4 | **YES** — parsers need Module node per source file |
+| Dynamic dispatch confidence | 1 | **YES** — edge confidence classification |
+| Large codebase perf | 5 | NO — debug mode too slow, needs release CI |
+| Parser traits (method + corpus) | 3 | NO — needs API change + large corpus |
+| Go advanced resolution | 15 | NO — cross-file, type inference |
+| Python advanced resolution | 16 | NO — __all__, star imports, ty subprocess |
+| Rust advanced resolution | 16 | NO — impl blocks, macros, trait resolution |
+| TypeScript advanced resolution | 4 | NO — module augmentation, project refs |
+
+### Feedback Bugs (from claudecode_feedback.md)
+
+| # | Bug | Severity | Root Cause | Fix |
+|---|-----|----------|-----------|-----|
+| F1 | `discover --name` broken | **HIGH** | `find_nodes_by_name(name, "", "")` — SQL requires `kind=""` matches nothing | Make empty kind/exclude_file into wildcards |
+| F2 | `keel name` placement wrong | **MEDIUM** | Scoring doesn't weight by path relevance | Add path-keyword matching to scoring |
+| F3 | Compile not showing deltas | **DONE** | `--delta` implemented in R9 | Wire `--delta` into post-edit hook templates |
+| F4 | Duplicate hash entries (decorator vs fn) | **LOW** | Parser indexes decorator line AND function line | Deduplicate in parser by skipping decorator-only nodes |
+| F5 | `check` RISK=DANGER for safe functions | **LOW** | Risk conflates health (violations) with structural risk (callers) | Separate risk dimensions |
+
+### Swarm Assignment (3 agents)
+
+| Agent | Tasks | Target Tests | Files |
+|-------|-------|-------------|-------|
+| **hooks** | Fix Cursor/Gemini test setup, adjust templates/expectations, wire `--delta` into hook templates, implement hook timeout + concurrent handling | 20 | test_cursor_hooks.rs, test_gemini_hooks.rs, test_hook_execution.rs, templates |
+| **bugs** | F1: fix `find_nodes_by_name` wildcard, F2: fix `name` scoring, F4: deduplicate decorator entries, F5: fix risk scoring in `check` | 0 (bug fixes) | sqlite_queries.rs, name.rs, check.rs, parsers |
+| **core** | Schema v2 migration, module node per-file creation, dynamic dispatch confidence, update PROGRESS.md | 7 | sqlite.rs, parsers, graph correctness tests, PROGRESS.md |
+
+### Success Criteria
+
+| Criterion | How to verify |
+|-----------|--------------|
+| Cursor hook tests pass (8) | `cargo test test_cursor -- --ignored` |
+| Gemini hook tests pass (8) | `cargo test test_gemini -- --ignored` |
+| Hook execution tests pass (2) | `cargo test test_hook -- --ignored` |
+| `discover --name` works | `cargo test discover_name` |
+| `check` risk scoring correct | `cargo test check_risk` |
+| Schema migration tests pass (2) | `cargo test test_schema_migration -- --ignored` |
+| Module node tests pass (4+1) | `cargo test graph_correctness -- --ignored` |
+| **Total:** ≤66 ignored | `cargo test --workspace` |
+| 0 clippy warnings | `cargo clippy --workspace` |
+| PROGRESS.md accurate | Manual review |
+
+---
+
 ## Appendix: Running a Single Pane Manually
 
 If you don't want the full swarm, you can run any pane independently:

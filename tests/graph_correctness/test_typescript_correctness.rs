@@ -69,10 +69,25 @@ class Dog extends Animal {
 }
 
 #[test]
-#[ignore = "BUG: Module nodes not auto-created per file by parser"]
 fn test_ts_module_node_count_matches_lsp() {
-    // The parser does not auto-create Module nodes for each file.
-    // Module-level grouping happens at a higher layer.
+    // GIVEN a TypeScript file
+    let resolver = TsResolver::new();
+    let source = r#"
+function hello(): void { }
+"#;
+
+    // WHEN keel parses the file
+    let result = resolver.parse_file(Path::new("hello.ts"), source);
+
+    // THEN exactly 1 Module node is auto-created for the file
+    let modules: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Module)
+        .collect();
+    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(modules[0].name, "hello", "module name should be file stem");
+    assert_eq!(modules[0].file_path, "hello.ts");
 }
 
 #[test]

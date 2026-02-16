@@ -44,52 +44,107 @@ pub fn check_broken_callers_with_cache(
             continue; // No change
         }
 
-        // Hash changed — find all callers
+        // Hash changed — find all callers with their edge confidence
         let incoming = store.get_edges(existing.id, EdgeDirection::Incoming);
-        let callers: Vec<_> = incoming
+        let caller_edges: Vec<_> = incoming
             .iter()
             .filter(|e| e.kind == EdgeKind::Calls)
+            .collect();
+
+        // Split into high-confidence (direct calls) and low-confidence (dynamic dispatch)
+        let confident_callers: Vec<_> = caller_edges
+            .iter()
+            .filter(|e| e.confidence >= 0.80)
+            .filter_map(|e| store.get_node_by_id(e.source_id))
+            .collect();
+        let uncertain_callers: Vec<_> = caller_edges
+            .iter()
+            .filter(|e| e.confidence < 0.80)
             .filter_map(|e| store.get_node_by_id(e.source_id))
             .collect();
 
-        if callers.is_empty() {
+        if confident_callers.is_empty() && uncertain_callers.is_empty() {
             continue;
         }
 
-        let affected: Vec<AffectedNode> = callers
-            .iter()
-            .map(|c| AffectedNode {
-                hash: c.hash.clone(),
-                name: c.name.clone(),
-                file: c.file_path.clone(),
-                line: c.line_start,
-            })
-            .collect();
+        // High-confidence callers: ERROR (structural breakage is certain)
+        if !confident_callers.is_empty() {
+            let affected: Vec<AffectedNode> = confident_callers
+                .iter()
+                .map(|c| AffectedNode {
+                    hash: c.hash.clone(),
+                    name: c.name.clone(),
+                    file: c.file_path.clone(),
+                    line: c.line_start,
+                })
+                .collect();
+            violations.push(Violation {
+                code: "E001".to_string(),
+                severity: "ERROR".to_string(),
+                category: "broken_caller".to_string(),
+                message: format!(
+                    "Signature of `{}` changed; {} caller(s) need updating",
+                    def.name,
+                    confident_callers.len()
+                ),
+                file: file.file_path.clone(),
+                line: def.line_start,
+                hash: existing.hash.clone(),
+                confidence: 0.92,
+                resolution_tier: "tree-sitter".to_string(),
+                fix_hint: Some(format!(
+                    "Update callers of `{}` to match new signature",
+                    def.name
+                )),
+                suppressed: false,
+                suppress_hint: None,
+                affected,
+                suggested_module: None,
+                existing: None,
+            });
+        }
 
-        violations.push(Violation {
-            code: "E001".to_string(),
-            severity: "ERROR".to_string(),
-            category: "broken_caller".to_string(),
-            message: format!(
-                "Signature of `{}` changed; {} caller(s) need updating",
-                def.name,
-                callers.len()
-            ),
-            file: file.file_path.clone(),
-            line: def.line_start,
-            hash: existing.hash.clone(),
-            confidence: 0.92,
-            resolution_tier: "tree-sitter".to_string(),
-            fix_hint: Some(format!(
-                "Update callers of `{}` to match new signature",
-                def.name
-            )),
-            suppressed: false,
-            suppress_hint: None,
-            affected,
-            suggested_module: None,
-            existing: None,
-        });
+        // Low-confidence callers (dynamic dispatch): WARNING, not ERROR
+        if !uncertain_callers.is_empty() {
+            let affected: Vec<AffectedNode> = uncertain_callers
+                .iter()
+                .map(|c| AffectedNode {
+                    hash: c.hash.clone(),
+                    name: c.name.clone(),
+                    file: c.file_path.clone(),
+                    line: c.line_start,
+                })
+                .collect();
+            let min_confidence = caller_edges
+                .iter()
+                .filter(|e| e.confidence < 0.80)
+                .map(|e| e.confidence)
+                .fold(1.0f64, f64::min);
+            violations.push(Violation {
+                code: "E001".to_string(),
+                severity: "WARNING".to_string(),
+                category: "broken_caller".to_string(),
+                message: format!(
+                    "Signature of `{}` changed; {} dynamic dispatch caller(s) may need updating",
+                    def.name,
+                    uncertain_callers.len()
+                ),
+                file: file.file_path.clone(),
+                line: def.line_start,
+                hash: existing.hash.clone(),
+                confidence: min_confidence,
+                resolution_tier: "tree-sitter".to_string(),
+                fix_hint: Some(format!(
+                    "Check if dynamic dispatch callers of `{}` need updating",
+                    def.name
+                )),
+                suppressed: false,
+                suppress_hint: None,
+                affected,
+                suggested_module: None,
+                existing: None,
+            });
+        }
     }
 
     violations

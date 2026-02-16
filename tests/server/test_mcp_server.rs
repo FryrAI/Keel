@@ -88,6 +88,7 @@ fn store_with_graph() -> SharedStore {
             source_id: 2,
             target_id: 1,
             kind: EdgeKind::Calls,
+            confidence: 1.0,
             file_path: "src/main.rs".into(),
             line: 3,
         })])
@@ -141,6 +142,7 @@ fn engine_with_graph() -> SharedEngine {
             source_id: 2,
             target_id: 1,
             kind: EdgeKind::Calls,
+            confidence: 1.0,
             file_path: "src/main.rs".into(),
             line: 3,
         })])

@@ -78,8 +78,18 @@ impl EnforcementEngine {
             is_public_api,
         );
 
+        // Gather existing violations for this node
+        let violations = self.gather_node_violations(&node);
+
+        let health = if violations.is_empty() {
+            "clean".to_string()
+        } else {
+            "issues".to_string()
+        };
+
         let risk = RiskAssessment {
             level,
+            health,
             caller_count,
             cross_file_callers,
             cross_module_callers,
@@ -89,9 +99,6 @@ impl EnforcementEngine {
             callers,
             callees,
         };
-
-        // Gather existing violations for this node
-        let violations = self.gather_node_violations(&node);
 
         // Generate suggestions
         let suggestions = self.generate_suggestions(
@@ -262,17 +269,21 @@ impl EnforcementEngine {
     }
 }
 
+/// Structural risk: based on how many things break if you change this node.
+/// - low: 0 callers — safe to change, nothing depends on it
+/// - medium: local callers only (same file)
+/// - high: cross-file or cross-module callers, or high fan-in (>=4)
 fn compute_risk_level(
     caller_count: u32,
-    _cross_file: u32,
+    cross_file: u32,
     cross_module: u32,
-    is_public: bool,
+    _is_public: bool,
 ) -> String {
-    if caller_count >= 4 || cross_module > 0 || is_public {
-        "danger".to_string()
+    if cross_file > 0 || cross_module > 0 || caller_count >= 4 {
+        "high".to_string()
     } else if caller_count >= 1 {
-        "caution".to_string()
+        "medium".to_string()
     } else {
-        "safe".to_string()
+        "low".to_string()
     }
 }

@@ -6,6 +6,7 @@
 // tests requiring unavailable features are marked #[ignore].
 
 use std::path::Path;
+use keel_core::types::NodeKind;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
 
@@ -17,12 +18,13 @@ fn test_package_resolves_to_init() {
 import package
 "#;
     let result = resolver.parse_file(Path::new("/project/app.py"), source);
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
     // bare `import package` uses import_statement, which tree-sitter captures.
     // The import may or may not produce an Import entry depending on query coverage
     // for bare imports (vs from-imports). Document actual behavior.
     // Parsing should succeed without error regardless.
-    assert!(result.definitions.is_empty(), "import-only file has no definitions");
+    assert!(defs.is_empty(), "import-only file has no definitions");
 }
 
 #[test]
@@ -68,8 +70,9 @@ fn test_namespace_package_resolution() {
 fn test_empty_init_valid_package() {
     let resolver = PyResolver::new();
     let result = resolver.parse_file(Path::new("/project/package/__init__.py"), "");
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
 
-    assert!(result.definitions.is_empty(), "empty file has no definitions");
+    assert!(defs.is_empty(), "empty file has no definitions");
     assert!(result.imports.is_empty(), "empty file has no imports");
     assert!(result.references.is_empty(), "empty file has no references");
 }

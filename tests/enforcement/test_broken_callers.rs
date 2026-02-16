@@ -64,6 +64,7 @@ fn make_edge(id: u64, src: u64, tgt: u64) -> GraphEdge {
         kind: EdgeKind::Calls,
         file_path: "caller.py".to_string(),
         line: 10,
+        confidence: 1.0,
     }
 }
 

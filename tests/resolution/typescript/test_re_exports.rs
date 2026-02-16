@@ -8,6 +8,7 @@
 
 use std::path::Path;
 
+use keel_core::types::NodeKind;
 use keel_parsers::resolver::{CallSite, LanguageResolver};
 use keel_parsers::typescript::TsResolver;
 
@@ -257,8 +258,9 @@ fn test_reexport_from_external_package() {
     // so tree-sitter does NOT produce import entries for it. The re-export is
     // handled internally by extract_reexports in the semantic cache.
     // Verify that parsing at least succeeds without error.
+    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
     assert_eq!(
-        result.definitions.len(),
+        defs.len(),
         0,
         "wrapper.ts defines no functions/classes itself"
     );

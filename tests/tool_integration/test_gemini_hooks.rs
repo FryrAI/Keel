@@ -1,6 +1,5 @@
 // Tests for Gemini CLI tool integration (Spec 009)
-// BUG: Gemini settings.json and GEMINI.md generation not yet implemented.
-// keel init only detects tool directories but does not generate configs.
+// Validates settings.json and GEMINI.md generation when .gemini/ directory is present.
 
 use std::fs;
 use std::process::Command;
@@ -27,14 +26,15 @@ fn init_project() -> TempDir {
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
     fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    // Create .gemini/ so tool detection fires during keel init
+    fs::create_dir_all(dir.path().join(".gemini")).unwrap();
     let keel = keel_bin();
     let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success());
+    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
     dir
 }
 
 #[test]
-#[ignore = "BUG: Gemini settings.json generation not yet implemented"]
 fn test_gemini_settings_json_generation() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
@@ -44,7 +44,6 @@ fn test_gemini_settings_json_generation() {
 }
 
 #[test]
-#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_instruction_file_generation() {
     let dir = init_project();
     let md = dir.path().join("GEMINI.md");
@@ -52,7 +51,6 @@ fn test_gemini_md_instruction_file_generation() {
 }
 
 #[test]
-#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_includes_keel_commands() {
     let dir = init_project();
     let md = dir.path().join("GEMINI.md");
@@ -62,7 +60,6 @@ fn test_gemini_md_includes_keel_commands() {
 }
 
 #[test]
-#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_includes_error_handling() {
     let dir = init_project();
     let md = dir.path().join("GEMINI.md");
@@ -71,28 +68,37 @@ fn test_gemini_md_includes_error_handling() {
 }
 
 #[test]
-#[ignore = "BUG: Gemini settings.json generation not yet implemented"]
 fn test_gemini_settings_has_post_edit_hook() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
-    assert!(contents.contains("keel compile"), "should trigger keel compile on edit");
+    assert!(contents.contains("keel compile"), "should reference keel compile on edit");
 }
 
 #[test]
-#[ignore = "BUG: Gemini settings.json generation not yet implemented"]
 fn test_gemini_settings_merges_with_existing() {
-    let dir = init_project();
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+
+    // Create .gemini/ with existing settings.json BEFORE keel init
     let gemini_dir = dir.path().join(".gemini");
     fs::create_dir_all(&gemini_dir).unwrap();
     fs::write(gemini_dir.join("settings.json"), r#"{"existing": true}"#).unwrap();
+
+    // Run keel init — should detect .gemini and merge
+    let keel = keel_bin();
+    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
+
     let settings = dir.path().join(".gemini/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(contents.contains("existing"), "existing settings should be preserved");
+    assert!(contents.contains("hooks"), "keel hooks should be added");
 }
 
 #[test]
-#[ignore = "BUG: Gemini hook output format not yet implemented"]
 fn test_gemini_hooks_output_format_is_llm() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
@@ -101,7 +107,6 @@ fn test_gemini_hooks_output_format_is_llm() {
 }
 
 #[test]
-#[ignore = "BUG: Gemini GEMINI.md generation not yet implemented"]
 fn test_gemini_md_placed_in_project_root() {
     let dir = init_project();
     let md = dir.path().join("GEMINI.md");

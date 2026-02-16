@@ -81,10 +81,27 @@ type Session struct {
 }
 
 #[test]
-#[ignore = "BUG: Module nodes not auto-created per file by parser"]
 fn test_go_package_node_count_matches_lsp() {
-    // The parser does not auto-create Module (package) nodes for each file.
-    // Package-level grouping happens at a higher layer.
+    // GIVEN a Go file
+    let resolver = GoResolver::new();
+    let source = r#"
+package main
+
+func noop() {}
+"#;
+
+    // WHEN keel parses the file
+    let result = resolver.parse_file(Path::new("main.go"), source);
+
+    // THEN exactly 1 Module node is auto-created for the file
+    let modules: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Module)
+        .collect();
+    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(modules[0].name, "main", "module name should be file stem");
+    assert_eq!(modules[0].file_path, "main.go");
 }
 
 #[test]

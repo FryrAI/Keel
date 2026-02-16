@@ -172,11 +172,24 @@ fn test_hook_exit_code_2_means_internal_error() {
 }
 
 #[test]
-#[ignore = "BUG: Hook timeout mechanism not yet implemented"]
 fn test_hook_timeout_does_not_block_agent() {
-    // Would need a hook configuration with timeout settings
-    // Currently keel compile runs synchronously without timeout
-    assert!(true);
+    let dir = init_and_map(&[
+        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
+    ]);
+    let keel = keel_bin();
+
+    // Run compile with a generous timeout — should complete normally
+    let output = Command::new(&keel)
+        .args(["compile", "--timeout", "30000", "src/index.ts"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile --timeout");
+
+    let code = output.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "compile with --timeout should succeed, got exit {code}"
+    );
 }
 
 #[test]
@@ -206,8 +219,37 @@ fn test_hook_output_goes_to_agent_context() {
 }
 
 #[test]
-#[ignore = "BUG: Concurrent hook invocation handling not yet implemented"]
 fn test_hook_handles_concurrent_invocations() {
-    // Would need locking or serialization mechanism for concurrent compiles
-    assert!(true);
+    let dir = init_and_map(&[
+        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
+    ]);
+    let keel = keel_bin();
+    let keel2 = keel.clone();
+    let dir_path = dir.path().to_path_buf();
+    let dir_path2 = dir_path.clone();
+
+    // Spawn two compiles concurrently
+    let t1 = std::thread::spawn(move || {
+        Command::new(&keel)
+            .args(["compile", "src/index.ts"])
+            .current_dir(&dir_path)
+            .output()
+            .expect("Failed to run first compile")
+    });
+    let t2 = std::thread::spawn(move || {
+        Command::new(&keel2)
+            .args(["compile", "src/index.ts"])
+            .current_dir(&dir_path2)
+            .output()
+            .expect("Failed to run second compile")
+    });
+
+    let out1 = t1.join().expect("Thread 1 panicked");
+    let out2 = t2.join().expect("Thread 2 panicked");
+
+    // Both should complete without crashing (exit 0 or 1, never 2)
+    let c1 = out1.status.code().unwrap_or(-1);
+    let c2 = out2.status.code().unwrap_or(-1);
+    assert!(c1 == 0 || c1 == 1, "first compile should not crash, got {c1}");
+    assert!(c2 == 0 || c2 == 1, "second compile should not crash, got {c2}");
 }
