@@ -5,27 +5,26 @@ use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{CallSite, LanguageResolver};
 
 #[test]
+#[ignore = "BUG: star import resolution requires __all__ parsing not implemented in parser"]
 /// Star import should import all public names from the target module.
 fn test_star_import_all_public_names() {
-    // GIVEN module.py with functions foo(), bar(), _private()
-    // WHEN `from module import *` is resolved
-    // THEN foo and bar are imported, _private is excluded
+    // Requires multi-file resolution with __all__ introspection
+    // which is a Tier 2 feature via ty subprocess.
 }
 
 #[test]
+#[ignore = "BUG: __all__ parsing for star imports not implemented in parser layer"]
 /// Star import with __all__ defined should only import names listed in __all__.
 fn test_star_import_respects_all() {
-    // GIVEN module.py with __all__ = ['foo'] and functions foo(), bar()
-    // WHEN `from module import *` is resolved
-    // THEN only foo is imported (bar is excluded by __all__)
+    // Requires parsing __all__ from the target module, a Tier 2 feature.
 }
 
 #[test]
+#[ignore = "BUG: star import confidence scoring not implemented"]
 /// Star import should produce lower confidence edges due to ambiguity.
 fn test_star_import_lower_confidence() {
-    // GIVEN a module using `from utils import *` and then calling foo()
-    // WHEN foo() call site is resolved
-    // THEN the Calls edge has lower confidence than explicit imports
+    // Confidence scoring for star imports requires knowledge of what
+    // names are available via the star import, a Tier 2 feature.
 }
 
 #[test]
@@ -125,25 +124,22 @@ def main():
 }
 
 #[test]
+#[ignore = "BUG: multiple star import disambiguation not implemented"]
 /// Multiple star imports should track all potential sources for ambiguous names.
 fn test_multiple_star_imports_ambiguity() {
-    // GIVEN `from a import *` and `from b import *` where both export `process`
-    // WHEN process() is called and resolved
-    // THEN both a.process and b.process are candidate targets with low confidence
+    // Requires multi-file star import resolution with ambiguity tracking.
 }
 
 #[test]
+#[ignore = "BUG: package __init__.py star import not implemented"]
 /// Star import from a package should use the package's __init__.py exports.
 fn test_star_import_from_package() {
-    // GIVEN a package with __init__.py defining __all__
-    // WHEN `from package import *` is resolved
-    // THEN only names from __init__.py's __all__ are imported
+    // Requires __init__.py resolution, a Tier 2 feature.
 }
 
 #[test]
+#[ignore = "BUG: star import chain tracing not implemented"]
 /// Star import chains (a imports * from b, b imports * from c) should be traced.
 fn test_star_import_chain() {
-    // GIVEN a.py: from b import *, b.py: from c import *
-    // WHEN a symbol from c is used in a
-    // THEN resolution traces through the star import chain
+    // Requires multi-file chain resolution, a Tier 2 feature.
 }

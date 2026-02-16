@@ -5,25 +5,24 @@ use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
 
 #[test]
+#[ignore = "BUG: __all__ list parsing not implemented in tree-sitter layer"]
 /// __all__ should define the public API of a module for star imports.
 fn test_all_defines_public_api() {
-    // GIVEN module.py with __all__ = ['foo', 'Bar'] and also defines baz()
-    // WHEN the module's public API is queried
-    // THEN only foo and Bar are listed as public exports
+    // Parsing __all__ = ['foo', 'Bar'] requires AST-level analysis of
+    // assignment expressions, which is not in the tree-sitter query.
 }
 
 #[test]
+#[ignore = "BUG: __all__ validation not implemented in tree-sitter layer"]
 /// __all__ with names not defined in the module should produce a warning.
 fn test_all_with_undefined_names() {
-    // GIVEN module.py with __all__ = ['foo', 'nonexistent']
-    // WHEN the module is analyzed
-    // THEN a warning is produced for 'nonexistent' not being defined
+    // Requires cross-referencing __all__ entries against definitions,
+    // a Tier 2 feature.
 }
 
 #[test]
 /// Module without __all__ should use convention-based public API (no underscore prefix).
 fn test_missing_all_uses_convention() {
-    // GIVEN module.py without __all__ and functions: process(), _helper(), __internal()
     let resolver = PyResolver::new();
     let source = r#"
 def process(data: str) -> str:
@@ -38,7 +37,6 @@ def __internal():
     let path = Path::new("/project/module.py");
     let result = resolver.parse_file(path, source);
 
-    // THEN only process() is considered public
     assert_eq!(result.definitions.len(), 3);
 
     let process_def = result.definitions.iter().find(|d| d.name == "process").unwrap();
@@ -105,25 +103,22 @@ def greet(name):
 }
 
 #[test]
-/// __all__ should be parsed even when defined with concatenation (__all__ = list1 + list2).
+#[ignore = "BUG: __all__ concatenation parsing not implemented"]
+/// __all__ should be parsed even when defined with concatenation.
 fn test_all_with_concatenation() {
-    // GIVEN module.py with __all__ = ['foo'] + ['bar']
-    // WHEN the __all__ list is parsed
-    // THEN both foo and bar are recognized as public exports
+    // Parsing __all__ = ['foo'] + ['bar'] requires expression evaluation.
 }
 
 #[test]
+#[ignore = "BUG: __all__ change tracking not implemented"]
 /// __all__ changes should trigger re-evaluation of dependent imports.
 fn test_all_change_triggers_reevaluation() {
-    // GIVEN module.py with __all__ = ['foo'] imported by consumer.py
-    // WHEN __all__ is updated to ['foo', 'bar']
-    // THEN consumer.py's imports are re-evaluated for new available names
+    // Requires incremental dependency tracking for __all__ changes.
 }
 
 #[test]
-/// Dynamic __all__ (e.g., computed at runtime) should be marked as unresolvable.
+#[ignore = "BUG: dynamic __all__ detection not implemented"]
+/// Dynamic __all__ (computed at runtime) should be marked as unresolvable.
 fn test_dynamic_all_unresolvable() {
-    // GIVEN module.py with __all__ = [x for x in dir() if not x.startswith('_')]
-    // WHEN the __all__ list is analyzed
-    // THEN it is marked as dynamic/unresolvable with a low-confidence resolution
+    // Requires static analysis of __all__ expressions to detect dynamic cases.
 }

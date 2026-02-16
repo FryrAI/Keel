@@ -4,8 +4,9 @@
 // and that the Rust resolver's call_edge resolution uses them.
 
 use std::path::Path;
-use keel_parsers::rust_lang::RustLangResolver;
+
 use keel_parsers::resolver::{CallSite, LanguageResolver};
+use keel_parsers::rust_lang::RustLangResolver;
 
 #[test]
 /// Simple use statement should be extracted as an import with the full path.
@@ -28,7 +29,10 @@ pub fn process(node: &GraphNode) -> bool {
         "import source should reference 'graph' module, got: {}",
         import.source
     );
-    assert!(import.is_relative, "crate:: paths should be marked relative");
+    assert!(
+        import.is_relative,
+        "crate:: paths should be marked relative"
+    );
 }
 
 #[test]
@@ -168,19 +172,26 @@ fn main() {
 }
 
 #[test]
+#[ignore = "BUG: glob use resolution requires enumerating exported names"]
 /// Glob use (`use module::*`) should import all public items.
 fn test_glob_use_resolution() {
-    // The heuristic resolver does not enumerate glob-imported names
+    // The heuristic resolver does not enumerate glob-imported names.
+    // Requires cross-file resolution to determine what names are available.
 }
 
 #[test]
+#[ignore = "BUG: use alias tracking not implemented in heuristic resolver"]
 /// Use statement with alias should track the renamed import.
 fn test_use_with_alias() {
-    // The heuristic resolver does not track `as` aliases
+    // The heuristic resolver does not track `as` aliases.
+    // `use crate::long_name as short;` should resolve calls to `short`.
 }
 
 #[test]
+#[ignore = "BUG: use self resolution not implemented in heuristic resolver"]
 /// Use with `self` keyword should resolve to the module itself.
 fn test_use_self_resolution() {
-    // The heuristic resolver does not handle `use crate::graph::{self, GraphNode}`
+    // The heuristic resolver does not handle `use crate::graph::{self, GraphNode}`.
+    // `self` refers to the module itself, allowing both `graph::func()` and
+    // `GraphNode` to be used.
 }

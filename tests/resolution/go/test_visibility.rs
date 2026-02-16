@@ -1,6 +1,7 @@
 // Tests for Go capitalization-based visibility (Spec 004 - Go Resolution)
 use std::path::Path;
 
+use keel_core::types::NodeKind;
 use keel_parsers::go::GoResolver;
 use keel_parsers::resolver::LanguageResolver;
 
@@ -45,10 +46,13 @@ func helper(x int) int {
 }
 
 #[test]
+#[ignore = "BUG: cross-package unexported call detection requires multi-file resolution"]
 /// Cross-package calls to unexported functions should produce resolution errors.
 fn test_cross_package_unexported_call_error() {
     // Requires multi-file cross-package resolution which the current
-    // GoResolver doesn't support (single-file cache model).
+    // GoResolver doesn't support (single-file cache model). Detecting
+    // calls to unexported names across packages requires knowing the
+    // caller's package and the callee's visibility.
 }
 
 #[test]

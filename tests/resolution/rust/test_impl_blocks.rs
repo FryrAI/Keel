@@ -10,9 +10,10 @@
 // wrong line. Methods inside impl blocks always appear as private.
 
 use std::path::Path;
-use keel_parsers::rust_lang::RustLangResolver;
-use keel_parsers::resolver::{CallSite, LanguageResolver};
+
 use keel_core::types::NodeKind;
+use keel_parsers::resolver::{CallSite, LanguageResolver};
+use keel_parsers::rust_lang::RustLangResolver;
 
 #[test]
 /// Methods in an inherent impl block should be extracted as definitions.
@@ -82,7 +83,10 @@ impl Parser {
 "#;
     let result = resolver.parse_file(Path::new("parser.rs"), source);
 
-    let internal = result.definitions.iter().find(|d| d.name == "internal_parse");
+    let internal = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "internal_parse");
     assert!(internal.is_some(), "should find internal_parse method");
     // Both methods appear as private due to the line_start limitation
     assert!(
@@ -192,31 +196,45 @@ struct InternalState {
     assert_eq!(config.unwrap().kind, NodeKind::Class);
     assert!(config.unwrap().is_public, "pub struct should be public");
 
-    let internal = result.definitions.iter().find(|d| d.name == "InternalState");
+    let internal = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "InternalState");
     assert!(internal.is_some(), "should find InternalState struct");
-    assert!(!internal.unwrap().is_public, "struct without pub should be private");
+    assert!(
+        !internal.unwrap().is_public,
+        "struct without pub should be private"
+    );
 }
 
 #[test]
+#[ignore = "BUG: multi-file impl block merging requires cross-file resolution"]
 /// Multiple impl blocks for the same type should all contribute methods.
 fn test_multiple_impl_blocks() {
-    // Requires multi-file parsing and cross-file resolution
+    // Requires parsing multiple files and merging impl blocks for the
+    // same type, which is beyond single-file parser scope.
 }
 
 #[test]
+#[ignore = "BUG: trait impl linking requires type inference"]
 /// Trait impl blocks should link the type to the trait.
 fn test_trait_impl_resolution() {
-    // Requires understanding which trait is being implemented
+    // Requires understanding `impl Trait for Type` syntax and linking
+    // the type's methods to the trait definition.
 }
 
 #[test]
+#[ignore = "BUG: generic impl resolution requires type parameter analysis"]
 /// Generic impl blocks should resolve for concrete type instantiations.
 fn test_generic_impl_resolution() {
-    // Requires generics tracking
+    // Requires tracking generic type parameters and resolving them
+    // to concrete types at call sites.
 }
 
 #[test]
+#[ignore = "BUG: self receiver resolution requires type tracking"]
 /// Method calls on self should resolve to the current impl block.
 fn test_self_method_call_resolution() {
-    // Requires tracking `self` receiver type
+    // Requires tracking that `self` refers to the current impl block's
+    // type and resolving self.method() calls accordingly.
 }

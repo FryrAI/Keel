@@ -5,6 +5,7 @@ use keel_parsers::go::GoResolver;
 use keel_parsers::resolver::{CallSite, LanguageResolver};
 
 #[test]
+#[ignore = "BUG: cross-file same-package resolution requires multi-file scope merging"]
 /// Functions within the same package should resolve to each other without imports.
 fn test_same_package_function_resolution() {
     // The GoResolver uses a per-file cache model. Cross-file same-package
@@ -46,15 +47,19 @@ func Handle() {
 }
 
 #[test]
+#[ignore = "BUG: package-level variable resolution requires cross-file scope merging"]
 /// Package-level variables should be accessible from any file in the same package.
 fn test_package_level_variable_resolution() {
-    // Requires cross-file package scope merging.
+    // Requires cross-file package scope merging, which the current
+    // GoResolver (single-file cache model) does not support.
 }
 
 #[test]
+#[ignore = "BUG: multi-file package scope requires cross-file resolution"]
 /// Multiple files in the same package should share the same scope.
 fn test_multi_file_package_scope() {
-    // Requires cross-file package scope merging.
+    // Requires cross-file package scope merging. Each file in a Go package
+    // shares the same scope, but the GoResolver processes files individually.
 }
 
 #[test]
@@ -94,6 +99,7 @@ func Process() int {
 }
 
 #[test]
+#[ignore = "BUG: _test.go package scope requires cross-file resolution"]
 /// Test packages (_test.go) should be treated as the same package scope.
 fn test_test_file_package_scope() {
     // _test.go files share package scope with the main package.
