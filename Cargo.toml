@@ -23,7 +23,7 @@ rust-version = "1.75"
 description = "Structural code enforcement for LLM coding agents"
 homepage = "https://keel.engineer"
 repository = "https://github.com/FryrAI/Keel"
-keywords = ["code-graph", "structural-enforcement", "llm", "tree-sitter", "linter"]
+keywords = ["code-graph", "enforcement", "llm", "tree-sitter", "linter"]
 categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
