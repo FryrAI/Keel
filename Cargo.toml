@@ -74,12 +74,12 @@ walkdir = "2"
 globset = "0.4"
 
 # Internal crates
-keel-core = { path = "crates/keel-core" }
-keel-parsers = { path = "crates/keel-parsers" }
-keel-enforce = { path = "crates/keel-enforce" }
-keel-cli = { path = "crates/keel-cli" }
-keel-server = { path = "crates/keel-server" }
-keel-output = { path = "crates/keel-output" }
+keel-core = { version = "0.1.0", path = "crates/keel-core" }
+keel-parsers = { version = "0.1.0", path = "crates/keel-parsers" }
+keel-enforce = { version = "0.1.0", path = "crates/keel-enforce" }
+keel-cli = { version = "0.1.0", path = "crates/keel-cli" }
+keel-server = { version = "0.1.0", path = "crates/keel-server" }
+keel-output = { version = "0.1.0", path = "crates/keel-output" }
 
 [dependencies]
 keel-core = { path = "crates/keel-core" }
