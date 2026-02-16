@@ -10,6 +10,7 @@ use keel_parsers::treesitter::detect_language;
 use keel_parsers::typescript::TsResolver;
 
 /// Run `keel compile` — incremental validation of changed files.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
@@ -70,11 +71,12 @@ pub fn run(
         return output_result(formatter, &result, strict, verbose);
     }
 
-    // Parse target files into FileIndex entries
-    let ts = TsResolver::new();
-    let py = PyResolver::new();
-    let go_resolver = GoResolver::new();
-    let rs = RustLangResolver::new();
+    // Parse target files into FileIndex entries.
+    // Lazily create resolvers — only allocate the ones we actually need.
+    let mut ts: Option<TsResolver> = None;
+    let mut py: Option<PyResolver> = None;
+    let mut go_resolver: Option<GoResolver> = None;
+    let mut rs: Option<RustLangResolver> = None;
 
     let target_files = if files.is_empty() {
         // No specific files: walk all source files
@@ -118,10 +120,10 @@ pub fn run(
         };
 
         let resolver: &dyn LanguageResolver = match lang {
-            "typescript" | "javascript" | "tsx" => &ts,
-            "python" => &py,
-            "go" => &go_resolver,
-            "rust" => &rs,
+            "typescript" | "javascript" | "tsx" => ts.get_or_insert_with(TsResolver::new),
+            "python" => py.get_or_insert_with(PyResolver::new),
+            "go" => go_resolver.get_or_insert_with(GoResolver::new),
+            "rust" => rs.get_or_insert_with(RustLangResolver::new),
             _ => continue,
         };
 

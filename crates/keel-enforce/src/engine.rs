@@ -48,16 +48,19 @@ impl EnforcementEngine {
         let mut node_changes: Vec<keel_core::types::NodeChange> = Vec::new();
 
         for file in files {
+            // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
+            let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
+
             let mut file_violations = Vec::new();
 
-            // E001: broken callers
-            file_violations.extend(violations::check_broken_callers(file, &*self.store));
+            // E001: broken callers (uses cached nodes)
+            file_violations.extend(violations::check_broken_callers_with_cache(file, &*self.store, &existing_nodes));
             // E002: missing type hints
             file_violations.extend(violations::check_missing_type_hints(file));
             // E003: missing docstring
             file_violations.extend(violations::check_missing_docstring(file));
-            // E004: function removed
-            file_violations.extend(violations::check_removed_functions(file, &*self.store));
+            // E004: function removed (uses cached nodes)
+            file_violations.extend(violations::check_removed_functions_with_cache(file, &*self.store, &existing_nodes));
             // E005: arity mismatch
             file_violations.extend(violations::check_arity_mismatch(file, &*self.store));
             // W001: placement
@@ -75,7 +78,6 @@ impl EnforcementEngine {
                 .collect();
 
             // Track changed hashes and collect node updates for persistence
-            let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
             for def in &file.definitions {
                 let new_hash = keel_core::hash::compute_hash(
                     &def.signature,

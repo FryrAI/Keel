@@ -7,17 +7,29 @@ use crate::types::{AffectedNode, Violation};
 // Re-export E004, E005, W001, W002 checkers so engine.rs keeps using violations::*
 pub use crate::violations_extended::{
     check_arity_mismatch, check_duplicate_names, check_placement, check_removed_functions,
+    check_removed_functions_with_cache,
 };
 
 /// Check E001: broken_caller — caller references a function whose hash changed.
 /// Compares current definitions against the graph store to detect hash changes,
 /// then finds callers that reference the old hash.
+///
+/// If `cached_nodes` is provided, uses them instead of querying the store.
 pub fn check_broken_callers(
     file: &FileIndex,
     store: &dyn GraphStore,
 ) -> Vec<Violation> {
+    let nodes = store.get_nodes_in_file(&file.file_path);
+    check_broken_callers_with_cache(file, store, &nodes)
+}
+
+/// E001 implementation using pre-fetched nodes to avoid redundant queries.
+pub fn check_broken_callers_with_cache(
+    file: &FileIndex,
+    store: &dyn GraphStore,
+    existing_nodes: &[keel_core::types::GraphNode],
+) -> Vec<Violation> {
     let mut violations = Vec::new();
-    let existing_nodes = store.get_nodes_in_file(&file.file_path);
 
     for def in &file.definitions {
         // Find existing node by name in same file

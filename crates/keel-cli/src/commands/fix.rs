@@ -54,7 +54,7 @@ pub fn run(
             if hashes.is_empty() {
                 true
             } else {
-                hashes.iter().any(|h| v.hash == *h)
+                hashes.contains(&v.hash)
             }
         })
         .collect();
@@ -201,9 +201,9 @@ fn apply_single_action(
         let start = idx.saturating_sub(2);
         let end = (idx + 3).min(lines.len());
         let mut found = false;
-        for i in start..end {
-            if lines[i].contains(&action.old_text) {
-                lines[i] = lines[i].replace(&action.old_text, &action.new_text);
+        for line in &mut lines[start..end] {
+            if line.contains(&action.old_text) {
+                *line = line.replace(&action.old_text, &action.new_text);
                 found = true;
                 break;
             }

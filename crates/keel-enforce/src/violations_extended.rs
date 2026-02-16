@@ -11,13 +11,21 @@ pub fn check_removed_functions(
     file: &FileIndex,
     store: &dyn GraphStore,
 ) -> Vec<Violation> {
-    let mut violations = Vec::new();
+    let nodes = store.get_nodes_in_file(&file.file_path);
+    check_removed_functions_with_cache(file, store, &nodes)
+}
 
-    let stored_nodes = store.get_nodes_in_file(&file.file_path);
+/// E004 implementation using pre-fetched nodes to avoid redundant queries.
+pub fn check_removed_functions_with_cache(
+    file: &FileIndex,
+    store: &dyn GraphStore,
+    stored_nodes: &[keel_core::types::GraphNode],
+) -> Vec<Violation> {
+    let mut violations = Vec::new();
     let current_names: std::collections::HashSet<&str> =
         file.definitions.iter().map(|d| d.name.as_str()).collect();
 
-    for node in &stored_nodes {
+    for node in stored_nodes {
         if node.kind != NodeKind::Function {
             continue;
         }

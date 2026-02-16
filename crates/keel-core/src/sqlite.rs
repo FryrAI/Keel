@@ -13,7 +13,7 @@ impl SqliteGraphStore {
     /// Open or create a graph database at the given path.
     pub fn open(path: &str) -> Result<Self, GraphError> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        Self::set_performance_pragmas(&conn)?;
         let store = SqliteGraphStore { conn };
         store.initialize_schema()?;
         Ok(store)
@@ -22,10 +22,25 @@ impl SqliteGraphStore {
     /// Create an in-memory graph database (for testing).
     pub fn in_memory() -> Result<Self, GraphError> {
         let conn = Connection::open_in_memory()?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        Self::set_performance_pragmas(&conn)?;
         let store = SqliteGraphStore { conn };
         store.initialize_schema()?;
         Ok(store)
+    }
+
+    /// Apply SQLite performance pragmas for faster reads and writes.
+    fn set_performance_pragmas(conn: &Connection) -> Result<(), GraphError> {
+        conn.execute_batch(
+            "
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA cache_size = -8000;
+            PRAGMA temp_store = MEMORY;
+            PRAGMA mmap_size = 268435456;
+            PRAGMA foreign_keys = ON;
+            ",
+        )?;
+        Ok(())
     }
 
     /// Temporarily disable foreign key enforcement (for bulk re-map operations).

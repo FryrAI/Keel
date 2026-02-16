@@ -2,12 +2,11 @@
 ///
 /// Estimates output size in tokens (approximation: 1 token ≈ 4 chars)
 /// and truncates when exceeding budget.
-
 const CHARS_PER_TOKEN: usize = 4;
 
 /// Estimate token count from a string.
 pub fn estimate_tokens(text: &str) -> usize {
-    (text.len() + CHARS_PER_TOKEN - 1) / CHARS_PER_TOKEN
+    text.len().div_ceil(CHARS_PER_TOKEN)
 }
 
 /// Truncate a list of formatted lines to fit within a token budget.
