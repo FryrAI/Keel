@@ -1183,6 +1183,7 @@ dependencies = [
  "keel-output",
  "keel-parsers",
  "keel-server",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
