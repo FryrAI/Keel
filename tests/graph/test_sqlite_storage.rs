@@ -210,15 +210,70 @@ fn test_sqlite_delete_node_cascades_edges() {
 }
 
 #[test]
-#[ignore = "BUG: ModuleProfile insert not exposed via GraphStore trait"]
-/// Storing and retrieving a ModuleProfile should preserve all profile data.
-/// The module_profiles table exists but there is no public insert method.
-/// get_module_profile reads from the table, but no save_module_profile is
-/// exposed on SqliteGraphStore or GraphStore.
+/// Storing and retrieving a ModuleProfile via raw SQL insertion +
+/// public get_module_profile API should preserve all profile data.
 fn test_sqlite_module_profile_storage() {
-    // Cannot test without a public insert API for module_profiles.
-    // store.conn is pub(crate), inaccessible from integration tests.
-    unreachable!("No public API to insert ModuleProfile");
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("module_profile.db");
+    let db_str = db_path.to_str().unwrap();
+
+    // Create store and insert a module node
+    let mut store = SqliteGraphStore::open(db_str).unwrap();
+    let module_node = GraphNode {
+        id: 42,
+        hash: "mod_hash_42".into(),
+        kind: NodeKind::Module,
+        name: "utils".into(),
+        signature: "utils".into(),
+        file_path: "src/utils.ts".into(),
+        line_start: 1,
+        line_end: 100,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        has_docstring: false,
+        external_endpoints: vec![],
+        previous_hashes: vec![],
+        module_id: 0,
+    };
+    store
+        .update_nodes(vec![NodeChange::Add(module_node)])
+        .unwrap();
+    drop(store);
+
+    // Insert module profile via raw SQL (no public insert API)
+    {
+        let conn = rusqlite::Connection::open(db_str).unwrap();
+        conn.execute(
+            "INSERT INTO module_profiles (module_id, path, function_count, function_name_prefixes, primary_types, import_sources, export_targets, external_endpoint_count, responsibility_keywords) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                42i64,
+                "src/utils.ts",
+                3i32,
+                r#"["parse","format"]"#,
+                r#"["Parser"]"#,
+                r#"["fs"]"#,
+                r#"[]"#,
+                0i32,
+                r#"["parsing"]"#,
+            ],
+        ).unwrap();
+    }
+
+    // Re-open store and verify via public get_module_profile
+    let store = SqliteGraphStore::open(db_str).unwrap();
+    let profile = store.get_module_profile(42);
+    assert!(profile.is_some(), "should read module profile for id 42");
+    let profile = profile.unwrap();
+    assert_eq!(profile.module_id, 42);
+    assert_eq!(profile.path, "src/utils.ts");
+    assert_eq!(profile.function_count, 3);
+    assert!(profile.function_name_prefixes.contains(&"parse".into()));
+    assert!(profile.function_name_prefixes.contains(&"format".into()));
+    assert!(profile.primary_types.contains(&"Parser".into()));
+    assert!(profile.import_sources.contains(&"fs".into()));
+    assert_eq!(profile.external_endpoint_count, 0);
+    assert!(profile.responsibility_keywords.contains(&"parsing".into()));
 }
 
 #[test]

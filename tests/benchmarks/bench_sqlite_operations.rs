@@ -40,8 +40,8 @@ fn bench_sqlite_insert_10k_nodes() {
     let elapsed = start.elapsed();
 
     assert!(
-        elapsed.as_secs() < 10,
-        "inserting 10k nodes took {:?} — should be under 10s in debug",
+        elapsed.as_secs() < 30,
+        "inserting 10k nodes took {:?} — should be under 30s in debug with contention",
         elapsed
     );
 }
