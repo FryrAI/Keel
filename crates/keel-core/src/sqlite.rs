@@ -128,6 +128,8 @@ impl SqliteGraphStore {
                 module_id INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
                 path TEXT NOT NULL,
                 function_count INTEGER NOT NULL DEFAULT 0,
+                class_count INTEGER NOT NULL DEFAULT 0,
+                line_count INTEGER NOT NULL DEFAULT 0,
                 function_name_prefixes TEXT NOT NULL DEFAULT '[]',
                 primary_types TEXT NOT NULL DEFAULT '[]',
                 import_sources TEXT NOT NULL DEFAULT '[]',

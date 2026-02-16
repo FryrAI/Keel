@@ -85,7 +85,10 @@ pub fn detect_tools(root: &Path) -> Vec<DetectedTool> {
 
 /// Run `keel init` — detect languages, create .keel/ directory, write config,
 /// detect tools, and generate configs.
-pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
+///
+/// When `merge` is true and `.keel/` already exists, re-initialize while
+/// preserving existing configuration (deep-merged with new defaults).
+pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -95,8 +98,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
     };
 
     let keel_dir = cwd.join(".keel");
-    if keel_dir.exists() {
-        eprintln!("keel init: .keel/ directory already exists");
+    if keel_dir.exists() && !merge {
+        eprintln!("keel init: .keel/ directory already exists (use --merge to re-initialize)");
         return 2;
     }
 
@@ -109,26 +112,64 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
     // Detect languages present in the repo
     let languages = detect_languages(&cwd);
 
-    // Write config using the typed KeelConfig struct
-    let config = KeelConfig {
-        version: "0.1.0".to_string(),
-        languages: languages.clone(),
-        ..KeelConfig::default()
-    };
-
     let config_path = cwd.join(".keel/keel.json");
-    match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("keel init: failed to write config: {}", e);
-            return 2;
+
+    if merge && config_path.exists() {
+        // Merge mode: read existing config and deep-merge with new defaults
+        let existing_json = fs::read_to_string(&config_path).unwrap_or_default();
+        let existing: serde_json::Value =
+            serde_json::from_str(&existing_json).unwrap_or(serde_json::Value::Object(Default::default()));
+
+        let new_config = KeelConfig {
+            version: "0.1.0".to_string(),
+            languages: languages.clone(),
+            ..KeelConfig::default()
+        };
+        let new_json: serde_json::Value =
+            serde_json::to_value(&new_config).unwrap_or(serde_json::Value::Object(Default::default()));
+
+        // Deep merge: new values fill in missing keys, existing values preserved
+        let merged = merge::json_deep_merge(&new_json, &existing);
+        match fs::write(&config_path, serde_json::to_string_pretty(&merged).unwrap()) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("keel init: failed to write merged config: {}", e);
+                return 2;
+            }
+        }
+        if verbose {
+            eprintln!("keel init --merge: config merged");
+        }
+    } else {
+        // Fresh init: write new config
+        let config = KeelConfig {
+            version: "0.1.0".to_string(),
+            languages: languages.clone(),
+            ..KeelConfig::default()
+        };
+        match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("keel init: failed to write config: {}", e);
+                return 2;
+            }
         }
     }
 
-    // Create empty graph database
+    // Open (or create) the graph database.
+    // On merge: reset circuit breaker state.
     let db_path = cwd.join(".keel/graph.db");
     match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(_) => {}
+        Ok(store) => {
+            if merge {
+                // Reset circuit breaker state on merge
+                if let Err(e) = store.save_circuit_breaker(&[]) {
+                    if verbose {
+                        eprintln!("keel init --merge: warning: failed to reset circuit breaker: {}", e);
+                    }
+                }
+            }
+        }
         Err(e) => {
             eprintln!("keel init: failed to create graph database: {}", e);
             return 2;

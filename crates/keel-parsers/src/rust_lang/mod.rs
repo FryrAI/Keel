@@ -115,6 +115,7 @@ impl LanguageResolver for RustLangResolver {
                 target_file: imp.source.clone(),
                 target_name: callee.clone(),
                 confidence,
+                resolution_tier: "tier1".into(),
             });
         }
 
@@ -140,6 +141,7 @@ impl LanguageResolver for RustLangResolver {
                     target_file: imp.source.clone(),
                     target_name: func_name.to_string(),
                     confidence: 0.80,
+                    resolution_tier: "tier1".into(),
                 });
             }
         }
@@ -151,6 +153,7 @@ impl LanguageResolver for RustLangResolver {
                     target_file: call_site.file_path.clone(),
                     target_name: callee.clone(),
                     confidence: 0.95,
+                    resolution_tier: "tier1".into(),
                 });
             }
         }

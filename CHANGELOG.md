@@ -27,11 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Circuit breaker: auto-downgrade after 3 consecutive failures
 - Batch mode: `--batch-start` / `--batch-end` for rapid agent iteration
 - O(n) compile performance (indexed SQL queries)
-- 931 tests passing across 15 real-world repos
+- SQLite optimizations: WAL mode, 8MB cache, memory temp store, 256MB mmap
+- `ModuleProfile` with `class_count` and `line_count` fields
+- `ResolvedEdge.resolution_tier` tracking across all 4 language resolvers
+- `get_node()` fallback to `previous_hashes` for renamed/updated functions
+- Lazy resolver creation in compile CLI (only allocate resolver for target language)
+- 910 tests passing, 93 ignored (feature-blocked), 0 clippy warnings, 15 real-world repos validated
 
 ### Performance
 - `keel compile` single file: <200ms
 - `keel map` 100k LOC: <5s
 - `keel discover` / `keel where`: <50ms
+- Compile engine pre-fetches nodes once per file (was 3x redundant queries)
 
 [0.1.0]: https://github.com/FryrAI/Keel/releases/tag/v0.1.0

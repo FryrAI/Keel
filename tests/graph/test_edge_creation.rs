@@ -194,6 +194,7 @@ fn test_edge_resolution_tier() {
         target_file: "src/utils.rs".to_string(),
         target_name: "hash_password".to_string(),
         confidence: 0.95,
+        resolution_tier: "tier1".into(),
     };
 
     // THEN the confidence is stored and reflects high-confidence resolution
@@ -210,6 +211,7 @@ fn test_edge_confidence_score() {
         target_file: "src/handler.rs".to_string(),
         target_name: "process".to_string(),
         confidence: 0.6,
+        resolution_tier: "tier1".into(),
     };
 
     // THEN the confidence is stored and within valid range
@@ -227,6 +229,7 @@ fn test_edge_confidence_score() {
         target_file: "src/lib.rs".to_string(),
         target_name: "init".to_string(),
         confidence: 1.0,
+        resolution_tier: "tier1".into(),
     };
     assert!(
         (0.0..=1.0).contains(&certain.confidence),

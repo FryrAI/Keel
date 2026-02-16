@@ -1,6 +1,7 @@
 // Tests for Go capitalization-based visibility (Spec 004 - Go Resolution)
 use std::path::Path;
 
+#[allow(unused_imports)]
 use keel_core::types::NodeKind;
 use keel_parsers::go::GoResolver;
 use keel_parsers::resolver::LanguageResolver;

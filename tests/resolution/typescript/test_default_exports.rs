@@ -3,7 +3,9 @@
 use std::path::Path;
 
 use keel_core::types::NodeKind;
-use keel_parsers::resolver::{CallSite, LanguageResolver, ReferenceKind};
+use keel_parsers::resolver::{LanguageResolver, ReferenceKind};
+#[allow(unused_imports)]
+use keel_parsers::resolver::CallSite;
 use keel_parsers::typescript::TsResolver;
 
 #[test]

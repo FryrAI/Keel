@@ -242,8 +242,31 @@ fn test_dynamic_dispatch_edges_are_warnings_not_errors() {
 }
 
 #[test]
-#[ignore = "BUG: resolution tier not tracked on edges"]
 fn test_edge_resolution_tier_distribution() {
-    // Resolution tier tracking is not yet implemented on edge structures.
-    // The ResolvedEdge struct has confidence but not resolution_tier.
+    // Verify that ResolvedEdge now includes resolution_tier
+    let resolver = TsResolver::new();
+    let source = r#"
+function helper(): number { return 42; }
+function main(): void { helper(); }
+"#;
+    resolver.parse_file(Path::new("tier_test.ts"), source);
+
+    let call_site = CallSite {
+        file_path: "tier_test.ts".to_string(),
+        line: 3,
+        callee_name: "helper".to_string(),
+        receiver: None,
+    };
+    let edge = resolver.resolve_call_edge(&call_site);
+    assert!(edge.is_some(), "should resolve same-file call");
+    let edge = edge.unwrap();
+    assert!(
+        !edge.resolution_tier.is_empty(),
+        "resolution_tier should be set, got empty string"
+    );
+    assert!(
+        edge.resolution_tier.starts_with("tier"),
+        "resolution_tier should start with 'tier', got '{}'",
+        edge.resolution_tier
+    );
 }

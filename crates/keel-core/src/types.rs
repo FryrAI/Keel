@@ -98,6 +98,8 @@ pub struct ModuleProfile {
     pub module_id: u64,
     pub path: String,
     pub function_count: u32,
+    pub class_count: u32,
+    pub line_count: u32,
     pub function_name_prefixes: Vec<String>,
     pub primary_types: Vec<String>,
     pub import_sources: Vec<String>,

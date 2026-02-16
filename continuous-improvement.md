@@ -278,22 +278,52 @@ Features shipped in Round 4, from the candidates list:
 | Priority | Feature | Description | Status |
 |----------|---------|-------------|--------|
 | **P0** | `keel fix --apply` | Auto-apply fix plans with file writes + re-compile verification | **DONE** |
-| **P1** | Streaming compile | `--watch` mode for continuous agent loops | Deferred → Round 5 |
+| **P1** | Streaming compile | `--watch` mode for continuous agent loops | Deferred |
 | **P2** | `--max-tokens N` | Configurable global token budget for LLM output (replaces hardcoded 500) | **DONE** |
 | **P3** | `keel explain --depth 0-3` | Resolution chain truncation by depth level | **DONE** |
-| **P4** | Map diff | `--since HASH` for structural delta (only show what changed) | Deferred → Round 5 |
+| **P4** | Map diff | `--since HASH` for structural delta (only show what changed) | Deferred |
 
 - Tests: 926 → 931 (+5 new tests)
 - 33 files changed, +2822/-499 lines
 - Single-session approach (same as Round 3)
 
-### Round 5 Candidates
+---
+
+## 10. Round 7 Results (2026-02-16) — COMPLETED
+
+**Approach:** Claude Code agent team (3 agents in parallel, ~30 min wall time)
+
+| Agent | Focus | Commits |
+|-------|-------|---------|
+| test-infra | Resolution stubs, graph tests, file splits | 3 commits |
+| enforcement | Benchmark timing fixes, CLI/tool verification | 1 commit |
+| bugs | Feature implementations, perf, clippy, docs | 3 commits |
+
+### Key Deliverables
+- **+15 tests passing** (895 → 910), **-14 ignored** (107 → 93)
+- `ModuleProfile.class_count` + `line_count` fields added to struct + SQLite
+- `ResolvedEdge.resolution_tier` tracking across all 4 resolvers
+- `get_node()` previous_hashes fallback for renamed functions
+- SQLite WAL + performance pragmas (NORMAL sync, 8MB cache, 256MB mmap)
+- Compile engine pre-fetches nodes once per file (was 3x redundant)
+- Lazy resolver creation in CLI
+- All clippy warnings fixed (5 → 0)
+- Split oversized `test_sqlite_storage.rs` (475 → 210 + 297 lines)
+- 18 resolution test files with real assertions across all 4 languages
+
+### Convergence Status
+- **910 passed, 0 failed, 93 ignored, 0 clippy warnings**
+- All 93 ignored tests are feature-blocked (not missing test code)
+- No files over 400 lines
+- Convergence achieved for current feature set
+
+### Next Round Candidates
 | Priority | Feature | Description |
 |----------|---------|-------------|
 | **P1** | Streaming compile | `--watch` mode for continuous agent loops |
-| **P2** | Map diff | `--since HASH` for structural delta (only show what changed) |
-| **P3** | Backpressure threshold tuning | Calibrate PRESSURE/BUDGET based on real agent behavior |
-| **P4** | Token budget calibration | Validate --max-tokens against actual LLM context windows |
+| **P2** | Map diff | `--since HASH` for structural delta |
+| **P3** | Cursor/Gemini hooks | Implement hook generation to un-ignore 15 tests |
+| **P4** | Advanced resolution | Python star imports, Rust macros/traits to un-ignore ~30 tests |
 
 ---
 

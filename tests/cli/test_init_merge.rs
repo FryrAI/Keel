@@ -1,6 +1,4 @@
 // Tests for `keel init --merge` behavior (Spec 007 - CLI Commands)
-// BUG: `keel init --merge` flag is not yet implemented in the CLI.
-// These tests are ignored until the --merge flag is added to keel init.
 
 use std::fs;
 use std::process::Command;
@@ -39,7 +37,6 @@ fn setup_initialized_project() -> TempDir {
 }
 
 #[test]
-#[ignore = "BUG: keel init --merge flag not yet implemented"]
 /// `keel init --merge` should merge with existing configuration without data loss.
 fn test_init_merge_preserves_existing_config() {
     let dir = setup_initialized_project();
@@ -62,7 +59,6 @@ fn test_init_merge_preserves_existing_config() {
 }
 
 #[test]
-#[ignore = "BUG: keel init --merge flag not yet implemented"]
 /// `keel init --merge` should re-map the codebase while keeping existing graph data.
 fn test_init_merge_remaps_with_existing_data() {
     let dir = setup_initialized_project();
@@ -87,7 +83,6 @@ fn test_init_merge_remaps_with_existing_data() {
 }
 
 #[test]
-#[ignore = "BUG: keel init --merge flag not yet implemented"]
 /// `keel init --merge` should handle schema migrations if needed.
 fn test_init_merge_handles_schema_migration() {
     let dir = setup_initialized_project();
@@ -103,7 +98,6 @@ fn test_init_merge_handles_schema_migration() {
 }
 
 #[test]
-#[ignore = "BUG: keel init --merge flag not yet implemented"]
 /// `keel init --merge` should reset circuit breaker state.
 fn test_init_merge_resets_circuit_breaker() {
     let dir = setup_initialized_project();

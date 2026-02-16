@@ -10,6 +10,8 @@ fn test_module_profile_creation() {
         module_id: 42,
         path: "src/utils/parser.ts".into(),
         function_count: 3,
+        class_count: 0,
+        line_count: 50,
         function_name_prefixes: vec!["parse".into()],
         primary_types: vec!["Parser".into()],
         import_sources: vec!["fs".into()],
@@ -32,6 +34,8 @@ fn test_module_profile_responsibility_keywords() {
         module_id: 1,
         path: "src/parsers.ts".into(),
         function_count: 3,
+        class_count: 0,
+        line_count: 100,
         function_name_prefixes: vec!["parse".into()],
         primary_types: vec![],
         import_sources: vec![],
@@ -56,6 +60,8 @@ fn test_module_profile_function_name_prefixes() {
         module_id: 2,
         path: "src/validators.ts".into(),
         function_count: 3,
+        class_count: 0,
+        line_count: 75,
         function_name_prefixes: vec!["validate".into()],
         primary_types: vec![],
         import_sources: vec![],
@@ -79,6 +85,8 @@ fn test_empty_module_profile() {
         module_id: 3,
         path: "src/empty.ts".into(),
         function_count: 0,
+        class_count: 0,
+        line_count: 0,
         function_name_prefixes: vec![],
         primary_types: vec![],
         import_sources: vec![],
@@ -89,6 +97,8 @@ fn test_empty_module_profile() {
 
     // THEN all collection fields are empty and function_count is 0
     assert_eq!(profile.function_count, 0);
+    assert_eq!(profile.class_count, 0);
+    assert_eq!(profile.line_count, 0);
     assert!(profile.function_name_prefixes.is_empty());
     assert!(profile.primary_types.is_empty());
     assert!(profile.import_sources.is_empty());
@@ -105,6 +115,8 @@ fn test_module_profile_function_count() {
         module_id: 4,
         path: "src/handlers.ts".into(),
         function_count: 5,
+        class_count: 0,
+        line_count: 120,
         function_name_prefixes: vec!["handle".into()],
         primary_types: vec![],
         import_sources: vec![],
@@ -118,15 +130,14 @@ fn test_module_profile_function_count() {
 }
 
 #[test]
-#[ignore = "BUG: ModuleProfile lacks class_count field"]
 /// ModuleProfile should track the count of classes contained in the module.
 fn test_module_profile_class_count() {
-    // ModuleProfile struct does not have a class_count field.
-    // function_count is the only count available.
     let profile = ModuleProfile {
         module_id: 5,
         path: "src/models.ts".into(),
         function_count: 3,
+        class_count: 3,
+        line_count: 200,
         function_name_prefixes: vec![],
         primary_types: vec!["User".into(), "Order".into(), "Product".into()],
         import_sources: vec![],
@@ -134,19 +145,18 @@ fn test_module_profile_class_count() {
         external_endpoint_count: 0,
         responsibility_keywords: vec![],
     };
-    // When class_count is added, assert_eq!(profile.class_count, 3);
-    assert_eq!(profile.function_count, 3);
+    assert_eq!(profile.class_count, 3);
 }
 
 #[test]
-#[ignore = "BUG: ModuleProfile lacks line_count field"]
 /// ModuleProfile should track total lines of code for the module.
 fn test_module_profile_line_count() {
-    // ModuleProfile struct does not have a line_count field.
     let profile = ModuleProfile {
         module_id: 6,
         path: "src/large_module.ts".into(),
         function_count: 10,
+        class_count: 2,
+        line_count: 150,
         function_name_prefixes: vec![],
         primary_types: vec![],
         import_sources: vec![],
@@ -154,8 +164,7 @@ fn test_module_profile_line_count() {
         external_endpoint_count: 0,
         responsibility_keywords: vec![],
     };
-    // When line_count is added, assert_eq!(profile.line_count, 150);
-    assert_eq!(profile.function_count, 10);
+    assert_eq!(profile.line_count, 150);
 }
 
 #[test]
@@ -166,6 +175,8 @@ fn test_module_profile_update_on_file_change() {
         module_id: 7,
         path: "src/utils.ts".into(),
         function_count: 3,
+        class_count: 0,
+        line_count: 60,
         function_name_prefixes: vec!["parse".into()],
         primary_types: vec![],
         import_sources: vec![],
@@ -179,6 +190,8 @@ fn test_module_profile_update_on_file_change() {
         module_id: 7,
         path: "src/utils.ts".into(),
         function_count: 4,
+        class_count: 0,
+        line_count: 80,
         function_name_prefixes: vec!["parse".into(), "format".into()],
         primary_types: vec![],
         import_sources: vec![],

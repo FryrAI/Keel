@@ -9,7 +9,9 @@ use std::path::Path;
 
 use keel_core::types::NodeKind;
 use keel_parsers::go::GoResolver;
-use keel_parsers::resolver::{CallSite, LanguageResolver};
+use keel_parsers::resolver::{LanguageResolver};
+#[allow(unused_imports)]
+use keel_parsers::resolver::CallSite;
 
 #[test]
 /// Pointer receiver methods should be extracted as definitions by tree-sitter.

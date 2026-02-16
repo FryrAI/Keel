@@ -26,7 +26,11 @@ pub(crate) struct Cli {
 #[derive(Subcommand, Debug)]
 pub(crate) enum Commands {
     /// Initialize keel in a repository
-    Init,
+    Init {
+        /// Merge with existing .keel/ configuration instead of failing
+        #[arg(long)]
+        merge: bool,
+    },
 
     /// Full re-map of the codebase
     Map {

@@ -1,8 +1,9 @@
 # keel — Last Mile to v0.1.0
 
 > Everything between "working" and "truly awesome product that overdelivers."
-> Status: 931 tests, 15 real-world repos, 4 languages, O(n) compile. The engine is solid.
-> What's missing: packaging, onboarding, docs, and polish.
+> Status: 910 tests passing, 93 ignored (feature-blocked), 0 clippy warnings,
+> 15 real-world repos, 4 languages, O(n) compile. The engine is solid.
+> Round 7 added ModuleProfile fields, resolution_tier tracking, SQLite WAL optimizations.
 
 ---
 
@@ -119,17 +120,19 @@ These must be done before tagging v0.1.0.
 
 **Effort:** 0.5 day
 
-### 7. Fill 65 Ignored Test Stubs
+### 7. Reduce 93 Ignored Tests
 
-**Current state:** 65 tests marked `#[ignore]`. Some are trivial, some represent real gaps.
+**Current state:** 93 tests marked `#[ignore]`. All have real assertions but test unimplemented features.
+Round 7 CI swarm reduced from 107 → 93 by implementing ModuleProfile fields, resolution_tier,
+and previous_hashes fallback.
 
-**Priority order:**
-1. Tool integration tests (16) — unblock after P0.1
-2. Hook timeout tests — edge case but important for production
-3. Instruction file generation tests
-4. Remaining edge cases
+**Remaining breakdown:**
+- Advanced resolution (Python/Rust/Go/TS): ~45 tests — needs Tier 2/3 features
+- Cursor/Gemini hook generation: 15 tests — needs CLI feature work
+- Large codebase perf: 5 tests — intentionally ignored in debug builds
+- CLI --merge, hook timeout, schema v2, etc.: ~28 tests — various feature gaps
 
-**Effort:** 2-3 days
+**Effort:** 3-5 days (mostly feature implementation, not test writing)
 
 ### 8. Telemetry Planning
 

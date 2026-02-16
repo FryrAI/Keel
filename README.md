@@ -35,7 +35,7 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
 - **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
-- **Tool config generation** — `keel init` auto-detects 9+ AI coding tools and generates hook configs
+- **Tool config generation** — `keel init` auto-detects 11 AI coding tools and generates hook configs
 - **Zero runtime dependencies** — single statically-linked 12MB binary
 
 ## Performance
@@ -278,7 +278,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **Ready for release** |
 
-**Current:** 953 tests passing, 0 failures, 47 ignored. 15 real-world repos validated.
+**Current:** 910 tests passing, 0 failures, 93 ignored (all feature-blocked), 0 clippy warnings. 15 real-world repos validated.
 
 ## Roadmap
 

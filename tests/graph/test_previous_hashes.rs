@@ -148,13 +148,33 @@ fn test_new_node_has_no_previous_hashes() {
 }
 
 #[test]
-#[ignore = "BUG: get_node doesn't search previous_hashes"]
 /// Looking up a node by a previous hash should still find the current node.
 fn test_lookup_by_previous_hash() {
-    // The get_node method only searches by current hash (WHERE hash = ?1).
-    // It does not fall back to the previous_hashes table.
-    // When implemented, this test should:
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("prev_lookup.db");
+    let db_str = db_path.to_str().unwrap();
+
     // 1. Insert a node with hash "old_hash_val"
-    // 2. Update the node to hash "new_hash_val", storing "old_hash_val" as previous
-    // 3. Call get_node("old_hash_val") and expect to find the node with "new_hash_val"
+    let mut store = SqliteGraphStore::open(db_str).unwrap();
+    let node = make_node(1, "new_hash_val", "my_func", NodeKind::Function);
+    store.update_nodes(vec![NodeChange::Add(node)]).unwrap();
+    drop(store);
+
+    // 2. Insert "old_hash_val" into previous_hashes for node_id=1
+    {
+        let conn = rusqlite::Connection::open(db_str).unwrap();
+        conn.execute(
+            "INSERT INTO previous_hashes (node_id, hash) VALUES (1, 'old_hash_val')",
+            [],
+        )
+        .unwrap();
+    }
+
+    // 3. Reopen and verify get_node("old_hash_val") finds the current node
+    let store = SqliteGraphStore::open(db_str).unwrap();
+    let found = store.get_node("old_hash_val");
+    assert!(found.is_some(), "get_node should find node via previous_hashes fallback");
+    let found = found.unwrap();
+    assert_eq!(found.hash, "new_hash_val", "should return the current node, not the old hash");
+    assert_eq!(found.name, "my_func");
 }

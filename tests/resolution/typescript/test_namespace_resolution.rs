@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+#[allow(unused_imports)]
 use keel_core::types::NodeKind;
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::typescript::TsResolver;

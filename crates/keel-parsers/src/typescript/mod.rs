@@ -212,6 +212,7 @@ impl LanguageResolver for TsResolver {
                             target_file,
                             target_name: call_site.callee_name.clone(),
                             confidence: 0.95, // Tier 2: oxc-verified
+                            resolution_tier: "tier2_oxc".into(),
                         });
                     }
                 }
@@ -223,6 +224,7 @@ impl LanguageResolver for TsResolver {
                         target_file: real_source.clone(),
                         target_name: original_name.clone(),
                         confidence: 0.95, // Tier 2: barrel re-export traced
+                        resolution_tier: "tier2_oxc".into(),
                     });
                 }
             }
@@ -233,6 +235,7 @@ impl LanguageResolver for TsResolver {
                 target_file,
                 target_name: call_site.callee_name.clone(),
                 confidence: 0.85, // Tier 1 only
+                resolution_tier: "tier1".into(),
             });
         }
 
@@ -243,6 +246,7 @@ impl LanguageResolver for TsResolver {
                     target_file: call_site.file_path.clone(),
                     target_name: call_site.callee_name.clone(),
                     confidence: 0.95,
+                    resolution_tier: "tier1".into(),
                 });
             }
         }

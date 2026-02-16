@@ -115,6 +115,7 @@ impl LanguageResolver for GoResolver {
                     target_file: imp.source.clone(),
                     target_name: func_name.to_string(),
                     confidence: 0.75, // imported package
+                    resolution_tier: "tier1".into(),
                 });
             }
         }
@@ -126,6 +127,7 @@ impl LanguageResolver for GoResolver {
                     target_file: call_site.file_path.clone(),
                     target_name: callee.clone(),
                     confidence: 0.90, // same package
+                    resolution_tier: "tier1".into(),
                 });
             }
         }

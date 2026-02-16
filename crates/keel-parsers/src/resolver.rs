@@ -136,6 +136,8 @@ pub struct ResolvedEdge {
     /// Resolution confidence (0.0 = guess, 1.0 = certain).
     /// Low-confidence edges produce WARNINGs, not ERRORs.
     pub confidence: f64,
+    /// Which resolution tier produced this edge (e.g. "tier1", "tier2_oxc", "tier2_ty").
+    pub resolution_tier: String,
 }
 
 /// Aggregated index for a single file -- used by the incremental pipeline

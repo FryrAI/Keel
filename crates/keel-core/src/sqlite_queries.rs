@@ -9,11 +9,26 @@ use crate::types::{
 
 impl GraphStore for SqliteGraphStore {
     fn get_node(&self, hash: &str) -> Option<GraphNode> {
+        // Try direct hash lookup first
         let mut stmt = self
             .conn
             .prepare("SELECT * FROM nodes WHERE hash = ?1")
             .ok()?;
-        let node = stmt
+        if let Ok(node) = stmt.query_row(params![hash], Self::row_to_node) {
+            return Some(self.node_with_relations(node));
+        }
+
+        // Fall back to previous_hashes table for renamed/updated nodes
+        let mut prev_stmt = self
+            .conn
+            .prepare(
+                "SELECT n.* FROM nodes n
+                 JOIN previous_hashes ph ON ph.node_id = n.id
+                 WHERE ph.hash = ?1
+                 LIMIT 1",
+            )
+            .ok()?;
+        let node = prev_stmt
             .query_row(params![hash], Self::row_to_node)
             .ok()?;
         Some(self.node_with_relations(node))
@@ -88,6 +103,8 @@ impl GraphStore for SqliteGraphStore {
                 module_id: row.get("module_id")?,
                 path: row.get("path")?,
                 function_count: row.get("function_count")?,
+                class_count: row.get("class_count")?,
+                line_count: row.get("line_count")?,
                 function_name_prefixes: serde_json::from_str(&prefixes).unwrap_or_default(),
                 primary_types: serde_json::from_str(&types).unwrap_or_default(),
                 import_sources: serde_json::from_str(&imports).unwrap_or_default(),
@@ -304,6 +321,8 @@ impl GraphStore for SqliteGraphStore {
                 module_id: row.get("module_id")?,
                 path: row.get("path")?,
                 function_count: row.get("function_count")?,
+                class_count: row.get("class_count")?,
+                line_count: row.get("line_count")?,
                 function_name_prefixes: serde_json::from_str(&prefixes).unwrap_or_default(),
                 primary_types: serde_json::from_str(&types).unwrap_or_default(),
                 import_sources: serde_json::from_str(&imports).unwrap_or_default(),

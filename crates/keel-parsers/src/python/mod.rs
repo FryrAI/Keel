@@ -112,6 +112,7 @@ impl LanguageResolver for PyResolver {
                 target_file: imp.source.clone(),
                 target_name: call_site.callee_name.clone(),
                 confidence,
+                resolution_tier: "tier1".into(),
             });
         }
 
@@ -122,6 +123,7 @@ impl LanguageResolver for PyResolver {
                     target_file: call_site.file_path.clone(),
                     target_name: call_site.callee_name.clone(),
                     confidence: 0.95,
+                    resolution_tier: "tier1".into(),
                 });
             }
         }

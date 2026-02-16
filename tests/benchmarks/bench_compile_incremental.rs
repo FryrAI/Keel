@@ -76,7 +76,7 @@ fn bench_compile_single_python_file_under_200ms() {
 #[test]
 /// Compile a file with many callers.
 fn bench_compile_file_with_many_callers() {
-    let mut files: Vec<(&str, &str)> = vec![
+    let files: Vec<(&str, &str)> = vec![
         ("src/util.ts", "export function util(x: number): number { return x; }\n"),
     ];
 

@@ -27,7 +27,7 @@ fn main() {
     };
 
     let exit_code = match cli.command {
-        Commands::Init => commands::init::run(&*formatter, cli.verbose),
+        Commands::Init { merge } => commands::init::run(&*formatter, cli.verbose, merge),
         Commands::Map { llm_verbose, scope, strict, depth } => {
             commands::map::run(&*formatter, cli.verbose, llm_verbose, scope, strict, depth)
         }
