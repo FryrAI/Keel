@@ -2,6 +2,12 @@
 name = "keel-cli"
 version.workspace = true
 edition.workspace = true
+description = "CLI entry point and command routing for keel"
+license-file.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "keel"

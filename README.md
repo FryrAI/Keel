@@ -8,6 +8,7 @@
     <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust 1.75+">
     <img src="https://img.shields.io/badge/license-FSL--1.1--MIT-blue" alt="License: FSL-1.1-MIT">
     <img src="https://img.shields.io/badge/status-Phase%204-green" alt="Status: Phase 4">
+    <a href="https://github.com/FryrAI/Keel"><img src="https://img.shields.io/github/stars/FryrAI/Keel?style=social" alt="GitHub Stars"></a>
   </p>
 </p>
 
@@ -34,7 +35,23 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
 - **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
-- **Zero runtime dependencies** — single statically-linked binary
+- **Tool config generation** — `keel init` auto-detects 9+ AI coding tools and generates hook configs
+- **Zero runtime dependencies** — single statically-linked 12MB binary
+
+## Performance
+
+Validated against 15 real-world repos (43k nodes, 60k edges). Post-O(n) fix numbers:
+
+| Repo | Language | Compile Time | Nodes | Cross-file Edges |
+|------|----------|-------------|-------|-----------------|
+| ripgrep | Rust | 3.0s (was 277s, **91x faster**) | 4670 | 581 |
+| fastapi | Python | 15.1s (was 259s, **17x faster**) | 6617 | 474 |
+| pydantic | Python | 7.0s (was 119s, **17x faster**) | 11633 | 1028 |
+| fiber | Go | 2.4s (was 33s, **14x faster**) | 3657 | 5344 |
+| axum | Rust | 4.1s (was 203s, **49x faster**) | 3621 | 57 |
+| cobra | Go | 0.3s | 614 | 536 |
+
+See [PROGRESS.md](PROGRESS.md) for full 15-repo benchmark table.
 
 ## Architecture
 
@@ -186,6 +203,14 @@ keel serve --mcp
 
 The `extensions/vscode/` directory contains a VS Code extension that displays keel violations inline with diagnostics, code actions, and hash decorations.
 
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — install, init, map, compile in 5 minutes
+- [Command Reference](docs/commands.md) — full command reference with examples
+- [Agent Integration](docs/agent-integration.md) — wiring keel into Claude Code, Cursor, etc.
+- [Configuration](docs/config.md) — keel.json reference, .keelignore
+- [FAQ](docs/faq.md) — troubleshooting and common questions
+
 ## Development
 
 ### Building from Source
@@ -251,9 +276,9 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 1 | Tree-sitter foundation + resolvers | Complete |
 | Phase 2 | Enforcement engine + CLI commands | Complete |
 | Phase 3 | Server, integrations, VS Code | Complete |
-| Phase 4 | Polish, cross-platform, distribution | **In progress** |
+| Phase 4 | Polish, cross-platform, distribution | **Ready for release** |
 
-**Current:** 926 tests passing, 0 failures, 65 ignored.
+**Current:** 953 tests passing, 0 failures, 47 ignored. 15 real-world repos validated.
 
 ## Roadmap
 

@@ -18,8 +18,13 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "FSL-1.1-MIT"
+license-file = "LICENSE"
 rust-version = "1.75"
+description = "Structural code enforcement for LLM coding agents"
+homepage = "https://keel.engineer"
+repository = "https://github.com/FryrAI/Keel"
+keywords = ["code-graph", "structural-enforcement", "llm", "tree-sitter", "linter"]
+categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
 # Core

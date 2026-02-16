@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-REPO="keel-engineer/keel"
+REPO="FryrAI/Keel"
 INSTALL_DIR="${KEEL_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${1:-latest}"
 SKIP_CHECKSUM="${KEEL_SKIP_CHECKSUM:-0}"
@@ -129,3 +129,7 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
     echo "Add it with:"
     echo "  echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $RC_FILE"
 fi
+
+echo ""
+echo "Quick start:  cd your-project && keel init && keel map"
+echo "Star us:      gh star FryrAI/Keel"

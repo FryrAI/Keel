@@ -156,9 +156,9 @@ jobs:
           sleep 30
           cargo publish -p keel-parsers --allow-dirty
           sleep 30
-          cargo publish -p keel-output --allow-dirty
-          sleep 30
           cargo publish -p keel-enforce --allow-dirty
+          sleep 30
+          cargo publish -p keel-output --allow-dirty
           sleep 30
           cargo publish -p keel-server --allow-dirty
           sleep 30

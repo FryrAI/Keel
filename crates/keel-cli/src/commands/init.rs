@@ -1,13 +1,90 @@
+//! `keel init` command — detect languages, create .keel/ directory, write config,
+//! detect AI coding tools, and generate appropriate hook configs and instruction files.
+
+mod generators;
+mod hook_script;
+mod merge;
+mod templates;
+
 use std::fs;
 use std::path::Path;
-
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 
 use keel_core::config::KeelConfig;
 use keel_output::OutputFormatter;
 
-/// Run `keel init` — detect languages, create .keel/ directory, write config.
+/// Detected AI coding tool present in the repository.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DetectedTool {
+    ClaudeCode,
+    Cursor,
+    GeminiCli,
+    Windsurf,
+    LettaCode,
+    Codex,
+    Antigravity,
+    Aider,
+    Copilot,
+    GitHubActions,
+}
+
+impl DetectedTool {
+    /// Human-readable name for display.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "Claude Code",
+            Self::Cursor => "Cursor",
+            Self::GeminiCli => "Gemini CLI",
+            Self::Windsurf => "Windsurf",
+            Self::LettaCode => "Letta Code",
+            Self::Codex => "Codex",
+            Self::Antigravity => "Antigravity",
+            Self::Aider => "Aider",
+            Self::Copilot => "GitHub Copilot",
+            Self::GitHubActions => "GitHub Actions",
+        }
+    }
+}
+
+/// Scan the repository root for AI coding tool directories and config files.
+pub fn detect_tools(root: &Path) -> Vec<DetectedTool> {
+    let mut tools = Vec::new();
+
+    if root.join(".claude").is_dir() {
+        tools.push(DetectedTool::ClaudeCode);
+    }
+    if root.join(".cursor").is_dir() {
+        tools.push(DetectedTool::Cursor);
+    }
+    if root.join(".gemini").is_dir() || root.join("GEMINI.md").exists() {
+        tools.push(DetectedTool::GeminiCli);
+    }
+    if root.join(".windsurf").is_dir() || root.join(".windsurfrules").exists() {
+        tools.push(DetectedTool::Windsurf);
+    }
+    if root.join(".letta").is_dir() {
+        tools.push(DetectedTool::LettaCode);
+    }
+    if root.join(".codex").is_dir() {
+        tools.push(DetectedTool::Codex);
+    }
+    if root.join(".agent").is_dir() {
+        tools.push(DetectedTool::Antigravity);
+    }
+    if root.join(".aider.conf.yml").exists() || root.join(".aider").is_dir() {
+        tools.push(DetectedTool::Aider);
+    }
+    if root.join(".github/copilot-instructions.md").exists() || root.join(".github").is_dir() {
+        tools.push(DetectedTool::Copilot);
+    }
+    if root.join(".github/workflows").is_dir() {
+        tools.push(DetectedTool::GitHubActions);
+    }
+
+    tools
+}
+
+/// Run `keel init` — detect languages, create .keel/ directory, write config,
+/// detect tools, and generate configs.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -58,14 +135,36 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
         }
     }
 
-    // Fix 6: Install git pre-commit hook
-    install_git_hook(&cwd, verbose);
+    // Install hooks
+    hook_script::install_git_hook(&cwd, verbose);
+    hook_script::install_post_edit_hook(&cwd, verbose);
 
-    // Fix 7: Create .keelignore
+    // Create .keelignore
     create_keelignore(&cwd, verbose);
 
-    // Fix 8: Detect and configure tool integrations
-    detect_tool_integrations(&cwd, verbose);
+    // Detect and generate tool configs
+    let tools = detect_tools(&cwd);
+    let mut tool_file_count = 0;
+
+    for tool in &tools {
+        let files = match tool {
+            DetectedTool::ClaudeCode => generators::generate_claude_code(&cwd),
+            DetectedTool::Cursor => generators::generate_cursor(&cwd),
+            DetectedTool::GeminiCli => generators::generate_gemini_cli(&cwd),
+            DetectedTool::Windsurf => generators::generate_windsurf(&cwd),
+            DetectedTool::LettaCode => generators::generate_letta_code(&cwd),
+            DetectedTool::Antigravity => generators::generate_antigravity(&cwd),
+            DetectedTool::Aider => generators::generate_aider(&cwd),
+            DetectedTool::Copilot => generators::generate_copilot(&cwd),
+            DetectedTool::GitHubActions => generators::generate_github_actions(&cwd),
+            DetectedTool::Codex => Vec::new(), // No template yet
+        };
+        tool_file_count += generators::write_files(&files, verbose);
+    }
+
+    // Always generate AGENTS.md (universal fallback)
+    let agents_files = generators::generate_agents_md(&cwd);
+    tool_file_count += generators::write_files(&agents_files, verbose);
 
     // Count files for the summary
     let file_count = keel_parsers::walker::FileWalker::new(&cwd).walk().len();
@@ -75,6 +174,12 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
         languages.len(),
         file_count
     );
+
+    if !tools.is_empty() {
+        let tool_names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        eprintln!("  tools detected: {}", tool_names.join(", "));
+        eprintln!("  {} config file(s) generated", tool_file_count);
+    }
 
     if verbose {
         eprintln!("  languages: {:?}", languages);
@@ -93,38 +198,20 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
     0
 }
 
-/// Install a git pre-commit hook that runs `keel compile`.
-fn install_git_hook(root: &Path, verbose: bool) {
-    let hooks_dir = root.join(".git/hooks");
-    if !hooks_dir.exists() {
-        if verbose {
-            eprintln!("keel init: no .git/hooks directory, skipping hook install");
+/// Detect which languages are present by scanning file extensions.
+fn detect_languages(root: &Path) -> Vec<String> {
+    let mut langs = std::collections::HashSet::new();
+
+    let walker = keel_parsers::walker::FileWalker::new(root);
+    for entry in walker.walk() {
+        if !langs.contains(&entry.language) {
+            langs.insert(entry.language);
         }
-        return;
     }
 
-    let hook_path = hooks_dir.join("pre-commit");
-    if hook_path.exists() {
-        eprintln!("keel init: pre-commit hook already exists, not overwriting");
-        return;
-    }
-
-    let hook_content = "#!/bin/sh\n# Installed by keel init\nkeel compile \"$@\"\n";
-    match fs::write(&hook_path, hook_content) {
-        Ok(_) => {
-            // Make executable on Unix
-            #[cfg(unix)]
-            {
-                let _ = fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755));
-            }
-            if verbose {
-                eprintln!("keel init: installed pre-commit hook");
-            }
-        }
-        Err(e) => {
-            eprintln!("keel init: warning: failed to install pre-commit hook: {}", e);
-        }
-    }
+    let mut result: Vec<String> = langs.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Create a default .keelignore file if one doesn't exist.
@@ -155,36 +242,4 @@ vendor/
             eprintln!("keel init: warning: failed to create .keelignore: {}", e);
         }
     }
-}
-
-/// Detect tool directories and log what was found.
-fn detect_tool_integrations(root: &Path, verbose: bool) {
-    let tools = [
-        (".cursor", "Cursor"),
-        (".windsurf", "Windsurf"),
-        (".aider", "Aider"),
-        (".continue", "Continue"),
-    ];
-
-    for (dir, name) in &tools {
-        if root.join(dir).exists() && verbose {
-            eprintln!("keel init: detected {} integration ({})", name, dir);
-        }
-    }
-}
-
-/// Detect which languages are present by scanning file extensions.
-fn detect_languages(root: &Path) -> Vec<String> {
-    let mut langs = std::collections::HashSet::new();
-
-    let walker = keel_parsers::walker::FileWalker::new(root);
-    for entry in walker.walk() {
-        if !langs.contains(&entry.language) {
-            langs.insert(entry.language);
-        }
-    }
-
-    let mut result: Vec<String> = langs.into_iter().collect();
-    result.sort();
-    result
 }

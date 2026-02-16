@@ -14,3 +14,8 @@
 .vscode/
 *.swp
 *.swo
+
+# VS Code extension
+extensions/vscode/node_modules/
+extensions/vscode/out/
+extensions/vscode/*.vsix

@@ -2,6 +2,12 @@
 name = "keel-core"
 version.workspace = true
 edition.workspace = true
+description = "Core graph schema, hashing, and SQLite storage for keel"
+license-file.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 rusqlite = { workspace = true }

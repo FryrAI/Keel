@@ -2,6 +2,12 @@
 name = "keel-parsers"
 version.workspace = true
 edition.workspace = true
+description = "Tree-sitter parsing and per-language resolution for keel"
+license-file.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 keel-core = { workspace = true }

@@ -2,6 +2,12 @@
 name = "keel-server"
 version.workspace = true
 edition.workspace = true
+description = "MCP and HTTP server with file watching for keel"
+license-file.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 keel-core = { workspace = true }
