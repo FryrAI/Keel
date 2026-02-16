@@ -46,7 +46,7 @@ keel builds a real-time structural graph of your codebase and enforces architect
 
 ### Who It's For
 
-- **AI coding agents** (Cursor, Copilot, Claude Code, Aider, Windsurf) that need structural guardrails
+- **AI coding agents** (Cursor, Copilot, Claude Code, Gemini CLI, Aider, Windsurf) that need structural guardrails
 - **Engineering teams** shipping AI-generated code who need confidence it won't break the architecture
 - **Solo developers** who want a fast, zero-dependency structural linter
 

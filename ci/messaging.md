@@ -58,9 +58,9 @@ Three pillars, each with a headline, description, and proof point.
 
 **Headline:** "Built for the tools you're already using."
 
-**Description:** keel integrates with 9+ AI coding tools via MCP, HTTP, and file-based hooks. Cursor, Copilot, Claude Code, Aider, Windsurf, Cline, Continue, Codex CLI, and VS Code — all supported.
+**Description:** keel integrates with 11 AI coding tools via CLI hooks, instruction files, and workflow configs. Claude Code, Cursor, Gemini CLI, Windsurf, Letta Code, Copilot, Aider, Codex CLI, Antigravity, GitHub Actions, and VS Code — all supported. `keel init` auto-detects your tools and generates configs.
 
-**Proof point:** 9+ integrations, zero runtime dependencies, single binary.
+**Proof point:** 11 tool integrations, zero runtime dependencies, single binary.
 
 ---
 
@@ -73,7 +73,7 @@ Three pillars, each with a headline, description, and proof point.
 | **Direct** | Say what we mean. No hedging, no qualifiers. | "keel catches broken callers." not "keel can help identify potential issues with function references." |
 | **Technical** | Speak to engineers as engineers. Use precise terms. | "Incremental compile in <200ms" not "Lightning-fast checking" |
 | **Confident** | We know what we built. No apologies, no "just a tool." | "Ship code that holds." not "We hope this helps your workflow." |
-| **Concise** | Every word earns its place. Cut the rest. | "4 languages. 9+ integrations. Zero deps." not "We support a wide variety of programming languages and development tools." |
+| **Concise** | Every word earns its place. Cut the rest. | "4 languages. 11 tool integrations. Zero deps." not "We support a wide variety of programming languages and development tools." |
 
 ### We Are Not
 
@@ -89,8 +89,9 @@ Three pillars, each with a headline, description, and proof point.
 **Good:**
 - "keel maps your codebase in under 5 seconds."
 - "When an agent deletes a function, keel tells it who's calling."
+- "`keel fix --apply` — auto-generates and applies fix plans for every violation."
 - "Zero config. Zero runtime deps. One binary."
-- "442 tests. 4 languages. Every edge case we could find."
+- "980+ tests. 4 languages. Every edge case we could find."
 
 **Bad:**
 - "keel is a powerful tool that helps developers..." (vague, passive)
@@ -112,7 +113,7 @@ The nautical metaphor lives in the **brand** (name, logo, colors), not in the **
 > keel — structural enforcement for AI-generated code.
 
 ### One-paragraph (for about pages, PR)
-> keel builds a real-time structural graph of your codebase and enforces architectural contracts at generation time. When AI coding agents add, modify, or remove code, keel validates that the change doesn't break callers, violate type contracts, or damage the dependency graph — before the code is ever committed. It supports TypeScript, Python, Go, and Rust, integrates with 9+ AI coding tools, and runs as a single binary with zero runtime dependencies.
+> keel builds a real-time structural graph of your codebase and enforces architectural contracts at generation time. When AI coding agents add, modify, or remove code, keel validates that the change doesn't break callers, violate type contracts, or damage the dependency graph — before the code is ever committed. It supports TypeScript, Python, Go, and Rust, integrates with 11 AI coding tools, and runs as a single binary with zero runtime dependencies.
 
 ### Three-sentence (for descriptions, meta)
 > keel is a structural enforcement engine for AI-generated code. It builds a real-time graph of your codebase and catches architectural violations at generation time — not at review. One binary, zero dependencies, four languages.

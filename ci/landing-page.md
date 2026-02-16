@@ -1,7 +1,7 @@
 # Keel Landing Page Brief — keel.engineer
 
 ```yaml
-sections: 9
+sections: 10
 style: dark-mode, terminal-forward
 target: AI-augmented developers, engineering leads
 goal: Install keel (curl command) or star the repo
@@ -97,10 +97,10 @@ $ keel compile src/api/handlers.ts
 
 ### Step 3: Fix
 - **Number:** 03
-- **Title:** Fix with guidance
-- **Command:** `keel explain E001 kXt9mRp2v4L`
-- **Description:** Every violation includes a fix hint, confidence score, and resolution chain. Your agent reads it and self-corrects — no human in the loop.
-- **Terminal preview:** `$ keel explain E001 kXt9mRp2v4L` → explanation with fix_hint
+- **Title:** Auto-fix violations
+- **Command:** `keel fix --apply`
+- **Description:** keel generates a fix plan for every violation — then applies it. Broken callers, arity mismatches, missing types. Your agent runs one command and moves on.
+- **Terminal preview:** `$ keel fix --apply` → `fixed 2 violations in 2 files (src/api/handlers.ts, src/models/order.ts)`
 
 **Design notes:**
 - Steps connected by thin `--border-subtle` line
@@ -109,30 +109,73 @@ $ keel compile src/api/handlers.ts
 
 ---
 
+## Section 3.5: Zero-Config Setup
+
+**Layout:** Overline "SETUP", h1, then a terminal block showing `keel init` output, then 3 icon+text blocks below.
+
+**Headline (h1):**
+> One command. Every tool configured.
+
+**Terminal block:**
+
+```
+$ keel init
+
+keel initialized. 3 language(s) detected, 1,247 files indexed.
+  tools detected: Claude Code, Cursor, Gemini CLI
+  7 config file(s) generated
+
+Next steps:
+  keel map       Build the structural graph
+  keel compile   Validate contracts
+```
+
+**Three things `keel init` does (icon + title + one-liner):**
+
+| # | Icon | Title | Description |
+|---|------|-------|-------------|
+| 1 | `database` (teal) | Builds the graph DB | Scans every function, class, and call edge into `.keel/graph.db`. |
+| 2 | `git-branch` (teal) | Installs hooks | Git pre-commit hook and `.keel/hooks/post-edit.sh` — enforcement runs automatically. |
+| 3 | `settings` (teal) | Configures your tools | Auto-detects AI coding tools in your repo and generates their hook/instruction files. |
+
+**Design notes:**
+- Terminal block in `--bg-surface`, same style as hero
+- Below the terminal, the 3 items are horizontal cards on `--bg-abyss`
+- Each card has a teal icon (24px), h4 title, Body S description
+- "Auto-detects" is the key word — emphasize that users don't pick from a list
+
+---
+
 ## Section 4: Integrations
 
 **Layout:** Overline "INTEGRATIONS", h1, then a grid of tool logos.
 
 **Headline (h1):**
-> Works with the tools you already use.
+> Works with 11 tools you already use.
 
-**Integration grid (3 columns x 3 rows):**
+**Subtext (Body L):**
+> `keel init` auto-detects which tools you use and generates the right configs. No manual setup.
+
+**Integration grid (4 columns x 3 rows):**
 
 | Tool | Tier Badge | Integration Method |
 |------|------------|-------------------|
-| Cursor | Enforced | MCP server |
-| GitHub Copilot | Cooperative | VS Code extension |
-| Claude Code | Enforced | MCP server |
-| Aider | Cooperative | CLI hook |
-| Windsurf | Cooperative | MCP server |
-| Cline | Cooperative | MCP server |
-| Continue | Cooperative | MCP server |
-| Codex CLI | Cooperative | File watcher |
-| VS Code | Native | Extension |
+| Claude Code | Enforced | CLI hooks (`.claude/settings.json`) |
+| Cursor | Enforced | CLI hooks (`.cursor/hooks.json`) |
+| Gemini CLI | Enforced | CLI hooks (`.gemini/settings.json`) |
+| Windsurf | Enforced | CLI hooks (`.windsurf/hooks.json`) |
+| Letta Code | Enforced | CLI hooks (`.letta/settings.json`) |
+| GitHub Copilot | Cooperative | Instruction file |
+| Aider | Cooperative | Instruction file + config |
+| Codex CLI | Cooperative | AGENTS.md fallback |
+| Antigravity | Cooperative | Rule file + skill file |
+| GitHub Actions | CI | Workflow YAML |
+| VS Code | Native | Extension (source available) |
 
 **Tier badges:**
-- "Enforced" = `--teal-500` badge (keel can block the action)
-- "Cooperative" = `--text-muted` badge (keel advises, tool decides)
+- "Enforced" = `--teal-500` badge (keel blocks the action via pre-save hooks)
+- "Cooperative" = `--text-muted` badge (keel advises via instruction files, tool decides)
+- "CI" = `--coral-500` badge (keel runs in the pipeline)
 
 **Design notes:**
 - Each integration is a card with the tool's logo (or text name), tier badge, and integration method
@@ -155,7 +198,7 @@ $ keel compile src/api/handlers.ts
 | Compile | `<200ms` | per file, incremental | "Faster than your test suite" |
 | Map | `<5s` | full re-map, 100k LOC | "From cold start to full graph" |
 | Discover | `<50ms` | adjacency lookup | "Instant context for any node" |
-| Memory | `20-35MB` | runtime footprint | "Less than your language server" |
+| Memory | `~50MB` | runtime footprint | "Less than your language server" |
 
 **Design notes:**
 - Numbers in Display size (64px Geist Bold), `--teal-500` color
@@ -173,15 +216,15 @@ $ keel compile src/api/handlers.ts
 > Output designed for agents and humans.
 
 **Side-by-side:**
-- **Left panel:** "JSON Output (for agents)" — shows `keel compile --format json` output
-- **Right panel:** "Human Output (for you)" — shows `keel compile --format human` output
+- **Left panel:** "JSON Output (for agents)" — shows `keel compile --json` output
+- **Right panel:** "Human Output (for you)" — shows `keel compile` output (default, no flag)
 
 Both panels are terminal blocks with the same violation, formatted differently.
 
 **Below comparison:** A row of 3 small feature highlights:
-1. `--format llm` — Optimized for LLM context windows
+1. `--llm` — Optimized for LLM context windows
 2. `--batch-start/end` — Batch mode defers non-critical checks
-3. `--format json | jq` — Machine-parseable for CI pipelines
+3. `--json | jq` — Machine-parseable for CI pipelines
 
 ---
 
@@ -196,9 +239,9 @@ Both panels are terminal blocks with the same violation, formatted differently.
 
 | Number | Label |
 |--------|-------|
-| 442+ | Tests passing |
+| 980+ | Tests passing |
 | 4 | Languages supported |
-| 9+ | Tool integrations |
+| 11 | Tool integrations |
 | 0 | Runtime dependencies |
 
 **Design notes:**
@@ -257,7 +300,7 @@ Both panels are terminal blocks with the same violation, formatted differently.
 curl -fsSL keel.engineer/install.sh | sh
 ```
 
-**Below command:** Secondary CTA — "Or install via Cargo: `cargo install keel`"
+**Below command:** Secondary CTA — "Or install via Cargo: `cargo install keel-cli`"
 
 **Below that:** Footer with links (Docs, GitHub, License, Twitter/X) and copyright.
 
