@@ -1,5 +1,5 @@
 //! Compile-time embedded templates for tool integrations.
-//! All templates are loaded via include_str!() from the workspace `tools/` directory.
+//! All templates are loaded via include_str!() from the crate's `templates/` directory.
 //! Some constants are reserved for future use (e.g., GitLab CI, pre-commit hook template).
 #![allow(dead_code)]
 
@@ -8,47 +8,47 @@
 
 // --- Claude Code ---
 pub const CLAUDE_CODE_SETTINGS: &str =
-    include_str!("../../../../../tools/claude-code/settings.json");
+    include_str!("../../../templates/claude-code/settings.json");
 pub const CLAUDE_CODE_INSTRUCTIONS: &str =
-    include_str!("../../../../../tools/claude-code/keel-instructions.md");
+    include_str!("../../../templates/claude-code/keel-instructions.md");
 
 // --- Cursor ---
-pub const CURSOR_HOOKS: &str = include_str!("../../../../../tools/cursor/hooks.json");
-pub const CURSOR_RULES: &str = include_str!("../../../../../tools/cursor/keel.mdc");
+pub const CURSOR_HOOKS: &str = include_str!("../../../templates/cursor/hooks.json");
+pub const CURSOR_RULES: &str = include_str!("../../../templates/cursor/keel.mdc");
 
 // --- Gemini CLI ---
-pub const GEMINI_SETTINGS: &str = include_str!("../../../../../tools/gemini-cli/settings.json");
-pub const GEMINI_INSTRUCTIONS: &str = include_str!("../../../../../tools/gemini-cli/GEMINI.md");
+pub const GEMINI_SETTINGS: &str = include_str!("../../../templates/gemini-cli/settings.json");
+pub const GEMINI_INSTRUCTIONS: &str = include_str!("../../../templates/gemini-cli/GEMINI.md");
 
 // --- Windsurf ---
-pub const WINDSURF_HOOKS: &str = include_str!("../../../../../tools/windsurf/hooks.json");
-pub const WINDSURF_RULES: &str = include_str!("../../../../../tools/windsurf/keel.windsurfrules");
+pub const WINDSURF_HOOKS: &str = include_str!("../../../templates/windsurf/hooks.json");
+pub const WINDSURF_RULES: &str = include_str!("../../../templates/windsurf/keel.windsurfrules");
 
 // --- Copilot ---
 pub const COPILOT_INSTRUCTIONS: &str =
-    include_str!("../../../../../tools/copilot/copilot-instructions.md");
+    include_str!("../../../templates/copilot/copilot-instructions.md");
 
 // --- Aider ---
-pub const AIDER_CONF: &str = include_str!("../../../../../tools/aider/aider.conf.yml");
+pub const AIDER_CONF: &str = include_str!("../../../templates/aider/aider.conf.yml");
 pub const AIDER_INSTRUCTIONS: &str =
-    include_str!("../../../../../tools/aider/keel-instructions.md");
+    include_str!("../../../templates/aider/keel-instructions.md");
 
 // --- Letta Code ---
-pub const LETTA_SETTINGS: &str = include_str!("../../../../../tools/letta-code/settings.json");
+pub const LETTA_SETTINGS: &str = include_str!("../../../templates/letta-code/settings.json");
 pub const LETTA_INSTRUCTIONS: &str =
-    include_str!("../../../../../tools/letta-code/keel-instructions.md");
+    include_str!("../../../templates/letta-code/keel-instructions.md");
 
 // --- Antigravity ---
-pub const ANTIGRAVITY_RULES: &str = include_str!("../../../../../tools/antigravity/keel.md");
-pub const ANTIGRAVITY_SKILL: &str = include_str!("../../../../../tools/antigravity/SKILL.md");
+pub const ANTIGRAVITY_RULES: &str = include_str!("../../../templates/antigravity/keel.md");
+pub const ANTIGRAVITY_SKILL: &str = include_str!("../../../templates/antigravity/SKILL.md");
 
 // --- Shared hooks ---
-pub const POST_EDIT_HOOK: &str = include_str!("../../../../../tools/hooks/post-edit.sh");
-pub const PRE_COMMIT_HOOK: &str = include_str!("../../../../../tools/hooks/pre-commit.sh");
+pub const POST_EDIT_HOOK: &str = include_str!("../../../templates/hooks/post-edit.sh");
+pub const PRE_COMMIT_HOOK: &str = include_str!("../../../templates/hooks/pre-commit.sh");
 
 // --- CI ---
-pub const GITHUB_ACTIONS: &str = include_str!("../../../../../tools/ci/github-actions.yml");
-pub const GITLAB_CI: &str = include_str!("../../../../../tools/ci/gitlab-ci.yml");
+pub const GITHUB_ACTIONS: &str = include_str!("../../../templates/ci/github-actions.yml");
+pub const GITLAB_CI: &str = include_str!("../../../templates/ci/gitlab-ci.yml");
 
 // --- AGENTS.md (universal fallback) ---
 pub const AGENTS_MD: &str = "\
