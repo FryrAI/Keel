@@ -1,7 +1,8 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    CompileResult, DiscoverResult, ExplainResult, FixResult, MapResult, NameResult,
+    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
+    FixResult, MapResult, NameResult,
 };
 
 pub struct HumanFormatter;
@@ -79,6 +80,15 @@ impl OutputFormatter for HumanFormatter {
                     mc.responsibility_keywords.join(", ")
                 ));
             }
+        }
+
+        if let Some(ref ctx) = result.body_context {
+            let header = if ctx.truncated {
+                format!("\nBody (first {} of {} lines):", ctx.lines.lines().count(), ctx.line_count)
+            } else {
+                format!("\nBody ({} lines):", ctx.line_count)
+            };
+            out.push_str(&format!("{}\n{}\n", header, ctx.lines));
         }
 
         out
@@ -175,6 +185,91 @@ impl OutputFormatter for HumanFormatter {
         }
         if !best.siblings.is_empty() {
             out.push_str(&format!("  Siblings: {}\n", best.siblings.join(", ")));
+        }
+        out
+    }
+
+    fn format_check(&self, result: &CheckResult) -> String {
+        let mut out = format!(
+            "{} [{}] risk={}\n  --> {}:{}-{}\n",
+            result.target.name, result.target.hash, result.risk.level,
+            result.target.file, result.target.line_start, result.target.line_end,
+        );
+        out.push_str(&format!(
+            "  callers={} (cross-file={}, cross-module={}), callees={}\n",
+            result.risk.caller_count, result.risk.cross_file_callers,
+            result.risk.cross_module_callers, result.risk.callee_count,
+        ));
+        if result.risk.is_public_api {
+            out.push_str("  PUBLIC API\n");
+        }
+        for v in &result.violations {
+            out.push_str(&format!("  violation: [{}] {}\n", v.code, v.message));
+        }
+        for s in &result.suggestions {
+            out.push_str(&format!("  suggestion: [{}] {}\n", s.kind, s.message));
+        }
+        out
+    }
+
+    fn format_compile_delta(&self, delta: &CompileDelta) -> String {
+        let mut out = format!(
+            "Compile delta: net {} errors, net {} warnings\n",
+            if delta.net_errors >= 0 {
+                format!("+{}", delta.net_errors)
+            } else {
+                delta.net_errors.to_string()
+            },
+            if delta.net_warnings >= 0 {
+                format!("+{}", delta.net_warnings)
+            } else {
+                delta.net_warnings.to_string()
+            },
+        );
+        for k in &delta.new_errors {
+            out.push_str(&format!("  + ERROR [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+        }
+        for k in &delta.resolved_errors {
+            out.push_str(&format!("  - ERROR [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+        }
+        for k in &delta.new_warnings {
+            out.push_str(&format!("  + WARN  [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+        }
+        for k in &delta.resolved_warnings {
+            out.push_str(&format!("  - WARN  [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+        }
+        out.push_str(&format!(
+            "  Total: {} errors, {} warnings\n",
+            delta.total_errors, delta.total_warnings,
+        ));
+        out
+    }
+
+    fn format_analyze(&self, result: &AnalyzeResult) -> String {
+        let s = &result.structure;
+        let mut out = format!(
+            "Analyze: {} ({} lines, {} functions, {} classes)\n",
+            result.file, s.line_count, s.function_count, s.class_count,
+        );
+        for f in &s.functions {
+            out.push_str(&format!(
+                "  {} [{}] lines {}-{} ({} lines) callers={} callees={}{}\n",
+                f.name, f.hash, f.line_start, f.line_end, f.lines,
+                f.callers, f.callees,
+                if f.is_public { " PUB" } else { "" },
+            ));
+        }
+        if !result.smells.is_empty() {
+            out.push_str(&format!("\nSmells ({}):\n", result.smells.len()));
+            for smell in &result.smells {
+                out.push_str(&format!("  [{}] {}\n", smell.severity, smell.message));
+            }
+        }
+        if !result.refactor_opportunities.is_empty() {
+            out.push_str(&format!("\nRefactoring ({}):\n", result.refactor_opportunities.len()));
+            for r in &result.refactor_opportunities {
+                out.push_str(&format!("  {}\n", r.message));
+            }
         }
         out
     }

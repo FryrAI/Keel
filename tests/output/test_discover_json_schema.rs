@@ -45,6 +45,7 @@ fn sample_discover() -> DiscoverResult {
             function_count: 2,
             external_endpoints: vec!["GET /api/data".into()],
         },
+        body_context: None,
     }
 }
 
@@ -72,6 +73,7 @@ fn isolated_discover() -> DiscoverResult {
             function_count: 1,
             external_endpoints: vec![],
         },
+        body_context: None,
     }
 }
 

@@ -55,11 +55,12 @@ fn parse_map_all_flags() {
 fn parse_discover_required_query() {
     let cli = parse(&["keel", "discover", "abc123"]);
     match cli.command {
-        Commands::Discover { query, depth, suggest_placement, name } => {
+        Commands::Discover { query, depth, suggest_placement, name, context } => {
             assert_eq!(query, "abc123");
             assert_eq!(depth, 1);
             assert!(!suggest_placement);
             assert!(!name);
+            assert!(context.is_none());
         }
         _ => panic!("expected Discover"),
     }
@@ -99,7 +100,7 @@ fn parse_discover_missing_query() {
 fn parse_compile_no_files() {
     let cli = parse(&["keel", "compile"]);
     match cli.command {
-        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth, changed, since } => {
+        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth, changed, since, delta } => {
             assert!(files.is_empty());
             assert!(!batch_start);
             assert!(!batch_end);
@@ -108,6 +109,7 @@ fn parse_compile_no_files() {
             assert_eq!(depth, 1);
             assert!(!changed);
             assert!(since.is_none());
+            assert!(!delta);
         }
         _ => panic!("expected Compile"),
     }
@@ -442,6 +444,92 @@ fn parse_compile_since() {
         Commands::Compile { changed, since, .. } => {
             assert!(!changed);
             assert_eq!(since.as_deref(), Some("abc123"));
+        }
+        _ => panic!("expected Compile"),
+    }
+}
+
+// --- Check command ---
+
+#[test]
+fn parse_check_basic() {
+    let cli = parse(&["keel", "check", "abc123"]);
+    match cli.command {
+        Commands::Check { query, name } => {
+            assert_eq!(query, "abc123");
+            assert!(!name);
+        }
+        _ => panic!("expected Check"),
+    }
+}
+
+#[test]
+fn parse_check_name_mode() {
+    let cli = parse(&["keel", "check", "validate_token", "--name"]);
+    match cli.command {
+        Commands::Check { query, name } => {
+            assert_eq!(query, "validate_token");
+            assert!(name);
+        }
+        _ => panic!("expected Check"),
+    }
+}
+
+#[test]
+fn parse_check_missing_query() {
+    parse_err(&["keel", "check"]);
+}
+
+// --- Analyze command ---
+
+#[test]
+fn parse_analyze_basic() {
+    let cli = parse(&["keel", "analyze", "src/main.rs"]);
+    match cli.command {
+        Commands::Analyze { file } => {
+            assert_eq!(file, "src/main.rs");
+        }
+        _ => panic!("expected Analyze"),
+    }
+}
+
+#[test]
+fn parse_analyze_missing_file() {
+    parse_err(&["keel", "analyze"]);
+}
+
+// --- Discover --context ---
+
+#[test]
+fn parse_discover_context_flag_no_value() {
+    let cli = parse(&["keel", "discover", "abc123", "--context"]);
+    match cli.command {
+        Commands::Discover { context, .. } => {
+            assert_eq!(context, Some(10)); // default_missing_value
+        }
+        _ => panic!("expected Discover"),
+    }
+}
+
+#[test]
+fn parse_discover_context_with_value() {
+    let cli = parse(&["keel", "discover", "abc123", "--context", "20"]);
+    match cli.command {
+        Commands::Discover { context, .. } => {
+            assert_eq!(context, Some(20));
+        }
+        _ => panic!("expected Discover"),
+    }
+}
+
+// --- Compile --delta ---
+
+#[test]
+fn parse_compile_delta() {
+    let cli = parse(&["keel", "compile", "--delta"]);
+    match cli.command {
+        Commands::Compile { delta, .. } => {
+            assert!(delta);
         }
         _ => panic!("expected Compile"),
     }

@@ -14,7 +14,7 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::FileWalker;
 
-use super::map_helpers::{build_map_result, make_relative, populate_hotspots, populate_functions};
+use super::map_helpers::{build_map_result, build_module_profiles, make_relative, populate_hotspots, populate_functions};
 use super::map_resolve::{
     find_containing_def, resolve_cross_file_call, resolve_import_to_module,
     resolve_same_directory_call,
@@ -361,6 +361,9 @@ pub fn run(
     if _depth >= 1 { populate_hotspots(&mut map_result, &node_changes, &valid_edges); }
     if _depth >= 2 { populate_functions(&mut map_result, &node_changes, &valid_edges); }
 
+    // Build module profiles from node data (before consuming node_changes)
+    let module_profiles = build_module_profiles(&node_changes);
+
     // Apply node changes (modules sorted first to satisfy module_id FK)
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
@@ -371,6 +374,13 @@ pub fn run(
     if let Err(e) = store.update_edges(valid_edges) {
         eprintln!("keel map: failed to update edges: {}", e);
         return 2;
+    }
+
+    // Populate module profiles
+    if let Err(e) = store.upsert_module_profiles(module_profiles) {
+        if verbose {
+            eprintln!("keel map: failed to upsert module profiles: {}", e);
+        }
     }
 
     // Re-enable FK enforcement

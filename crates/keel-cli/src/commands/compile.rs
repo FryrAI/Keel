@@ -25,6 +25,7 @@ pub fn run(
     _depth: u32,
     changed: bool,
     since: Option<String>,
+    delta: bool,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -183,6 +184,45 @@ pub fn run(
                 if verbose {
                     eprintln!("keel compile: failed to persist circuit breaker: {}", e);
                 }
+            }
+        }
+    }
+
+    // Delta mode: diff against previous snapshot
+    if delta {
+        use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};
+
+        let previous = ViolationSnapshot::load(&keel_dir);
+
+        // Always save current snapshot
+        let current_snapshot = ViolationSnapshot::from_compile_result(&result);
+        if let Err(e) = current_snapshot.save(&keel_dir) {
+            if verbose {
+                eprintln!("keel compile: failed to save snapshot: {}", e);
+            }
+        }
+
+        if let Some(prev) = previous {
+            let delta_result = compute_delta(&prev, &result);
+            let output = formatter.format_compile_delta(&delta_result);
+            if !output.is_empty() {
+                println!("{}", output);
+            }
+            let has_errors = !result.errors.is_empty();
+            let has_warnings = !result.warnings.is_empty();
+            return if has_errors || (strict && has_warnings) { 1 } else { 0 };
+        }
+        // No previous snapshot: fall through to normal output
+        if verbose {
+            eprintln!("keel compile: no previous snapshot, showing full results");
+        }
+    } else {
+        // Always save snapshot even without --delta for future use
+        use keel_enforce::snapshot::ViolationSnapshot;
+        let snapshot = ViolationSnapshot::from_compile_result(&result);
+        if let Err(e) = snapshot.save(&keel_dir) {
+            if verbose {
+                eprintln!("keel compile: failed to save snapshot: {}", e);
             }
         }
     }

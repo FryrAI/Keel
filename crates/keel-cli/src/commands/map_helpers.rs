@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use keel_core::types::{EdgeChange, EdgeKind, NodeChange, NodeKind};
+use keel_core::types::{EdgeChange, EdgeKind, ModuleProfile, NodeChange, NodeKind};
 use keel_enforce::types::ModuleFunctionRef;
 
 /// Build a MapResult from collected node and edge data (before they are consumed).
@@ -237,4 +237,133 @@ pub fn populate_functions(
             is_public: n.is_public,
         })
         .collect();
+}
+
+/// Build module profiles from node changes for populating the module_profiles table.
+/// Generates responsibility_keywords from file paths and function/class names.
+pub fn build_module_profiles(node_changes: &[NodeChange]) -> Vec<ModuleProfile> {
+    let nodes: Vec<_> = node_changes
+        .iter()
+        .filter_map(|c| match c {
+            NodeChange::Add(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+
+    let modules: Vec<_> = nodes.iter().filter(|n| n.kind == NodeKind::Module).collect();
+
+    modules
+        .iter()
+        .map(|m| {
+            let module_id = m.id;
+            let children: Vec<_> = nodes
+                .iter()
+                .filter(|n| n.module_id == module_id && n.kind != NodeKind::Module)
+                .collect();
+
+            let fn_count = children.iter().filter(|n| n.kind == NodeKind::Function).count() as u32;
+            let cls_count = children.iter().filter(|n| n.kind == NodeKind::Class).count() as u32;
+            let line_count = m.line_end.saturating_sub(m.line_start) + 1;
+
+            // Extract keywords from file path segments
+            let path_keywords = extract_path_keywords(&m.file_path);
+
+            // Extract keywords from function/class names
+            let name_keywords = extract_name_keywords(&children);
+
+            // Combine and deduplicate
+            let mut keywords: Vec<String> = path_keywords;
+            keywords.extend(name_keywords);
+            keywords.sort();
+            keywords.dedup();
+            keywords.truncate(20); // Cap at 20 keywords
+
+            // Extract function name prefixes
+            let prefixes = extract_function_prefixes(&children);
+
+            ModuleProfile {
+                module_id,
+                path: m.file_path.clone(),
+                function_count: fn_count,
+                class_count: cls_count,
+                line_count,
+                function_name_prefixes: prefixes,
+                primary_types: vec![],
+                import_sources: vec![],
+                export_targets: vec![],
+                external_endpoint_count: m.external_endpoints.len() as u32,
+                responsibility_keywords: keywords,
+            }
+        })
+        .collect()
+}
+
+/// Extract keywords from a file path (e.g., "src/auth/middleware.rs" -> ["auth", "middleware"]).
+fn extract_path_keywords(path: &str) -> Vec<String> {
+    let stop_words = ["src", "lib", "app", "pkg", "cmd", "internal", "mod", "index", "main"];
+    path.replace('\\', "/")
+        .split('/')
+        .flat_map(|seg| {
+            // Strip extension from last segment
+            let seg = seg.rsplit_once('.').map(|(name, _)| name).unwrap_or(seg);
+            split_identifier(seg)
+        })
+        .filter(|w| w.len() > 1 && !stop_words.contains(&w.as_str()))
+        .collect()
+}
+
+/// Extract keywords from function/class names in a module.
+fn extract_name_keywords(
+    children: &[&&keel_core::types::GraphNode],
+) -> Vec<String> {
+    children
+        .iter()
+        .flat_map(|n| split_identifier(&n.name))
+        .collect()
+}
+
+/// Split an identifier into words by underscore or camelCase boundaries.
+fn split_identifier(name: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    // First split on underscores
+    for part in name.split('_') {
+        // Then split on camelCase boundaries
+        let mut current = String::new();
+        for ch in part.chars() {
+            if ch.is_uppercase() && !current.is_empty() {
+                words.push(current.to_lowercase());
+                current = String::new();
+            }
+            current.push(ch);
+        }
+        if !current.is_empty() {
+            words.push(current.to_lowercase());
+        }
+    }
+    words.into_iter().filter(|w| w.len() > 1).collect()
+}
+
+/// Extract common function name prefixes (first segment before underscore).
+fn extract_function_prefixes(
+    children: &[&&keel_core::types::GraphNode],
+) -> Vec<String> {
+    let mut prefix_counts: HashMap<String, u32> = HashMap::new();
+    for n in children {
+        if n.kind != NodeKind::Function {
+            continue;
+        }
+        if let Some(prefix) = n.name.split('_').next() {
+            if prefix.len() > 1 {
+                *prefix_counts.entry(prefix.to_lowercase()).or_default() += 1;
+            }
+        }
+    }
+    // Keep prefixes that appear in at least 2 functions
+    let mut prefixes: Vec<String> = prefix_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= 2)
+        .map(|(prefix, _)| prefix)
+        .collect();
+    prefixes.sort();
+    prefixes
 }

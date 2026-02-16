@@ -12,6 +12,7 @@ pub fn run(
     depth: u32,
     _suggest_placement: bool,
     name_mode: bool,
+    context_lines: Option<u32>,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -51,7 +52,17 @@ pub fn run(
     // Hash mode: existing behavior
     let engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
     match engine.discover(&query, depth) {
-        Some(result) => {
+        Some(mut result) => {
+            // Add body context if --context was requested
+            if let Some(max_lines) = context_lines {
+                result.body_context = read_body_context(
+                    &cwd,
+                    &result.target.file,
+                    result.target.line_start,
+                    result.target.line_end,
+                    max_lines,
+                );
+            }
             let output = formatter.format_discover(&result);
             if !output.is_empty() {
                 println!("{}", output);
@@ -67,6 +78,43 @@ pub fn run(
             2
         }
     }
+}
+
+/// Read source code lines for a function body.
+fn read_body_context(
+    cwd: &std::path::Path,
+    file_path: &str,
+    line_start: u32,
+    line_end: u32,
+    max_lines: u32,
+) -> Option<keel_enforce::types::BodyContext> {
+    let full_path = cwd.join(file_path);
+    let content = std::fs::read_to_string(&full_path).ok()?;
+    let all_lines: Vec<&str> = content.lines().collect();
+
+    let start = (line_start as usize).saturating_sub(1);
+    let end = (line_end as usize).min(all_lines.len());
+    if start >= all_lines.len() || start >= end {
+        return None;
+    }
+
+    let body_lines = &all_lines[start..end];
+    let total = body_lines.len() as u32;
+    let truncated = total > max_lines;
+    let take = (max_lines as usize).min(body_lines.len());
+
+    let lines: String = body_lines[..take]
+        .iter()
+        .enumerate()
+        .map(|(i, line)| format!("{:>4} | {}", start + i + 1, line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Some(keel_enforce::types::BodyContext {
+        lines,
+        line_count: total,
+        truncated,
+    })
 }
 
 /// List all symbols in a file with their hashes.

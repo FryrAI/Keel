@@ -63,7 +63,7 @@ pub fn run(verbose: bool) -> i32 {
     let run_compile = |files: &[String], verbose: bool| -> bool {
         eprintln!("[keel watch] Compiling: {}", files.join(" "));
         let mut cmd = std::process::Command::new("keel");
-        cmd.arg("compile");
+        cmd.arg("compile").arg("--delta");
         if verbose {
             cmd.arg("--verbose");
         }

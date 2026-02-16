@@ -40,5 +40,15 @@ pub fn format_discover(result: &DiscoverResult) -> String {
         ));
     }
 
+    // Append body context if present
+    if let Some(ref ctx) = result.body_context {
+        let header = if ctx.truncated {
+            format!("BODY (first {} of {} lines):", ctx.lines.lines().count(), ctx.line_count)
+        } else {
+            format!("BODY ({} lines):", ctx.line_count)
+        };
+        out.push_str(&format!("{}\n{}\n", header, ctx.lines));
+    }
+
     out
 }

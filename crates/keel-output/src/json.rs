@@ -1,6 +1,7 @@
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    CompileResult, DiscoverResult, ExplainResult, FixResult, MapResult, NameResult,
+    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
+    FixResult, MapResult, NameResult,
 };
 
 pub struct JsonFormatter;
@@ -22,6 +23,15 @@ impl OutputFormatter for JsonFormatter {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
     fn format_name(&self, result: &NameResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_check(&self, result: &CheckResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_compile_delta(&self, delta: &CompileDelta) -> String {
+        serde_json::to_string_pretty(delta).unwrap_or_default()
+    }
+    fn format_analyze(&self, result: &AnalyzeResult) -> String {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
 }
@@ -126,6 +136,7 @@ mod tests {
                 function_count: 2,
                 external_endpoints: vec!["GET /api/data".into()],
             },
+            body_context: None,
         }
     }
 

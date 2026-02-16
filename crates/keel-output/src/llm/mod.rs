@@ -1,3 +1,4 @@
+pub mod check;
 pub mod compile;
 pub mod discover;
 pub mod explain;
@@ -5,10 +6,12 @@ pub mod fix;
 pub mod map;
 pub mod name;
 pub mod violation;
+pub mod analyze;
 
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    CompileResult, DiscoverResult, ExplainResult, FixResult, MapResult, NameResult,
+    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
+    FixResult, MapResult, NameResult,
 };
 
 pub struct LlmFormatter {
@@ -70,6 +73,18 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_name(&self, result: &NameResult) -> String {
         name::format_name(result)
+    }
+
+    fn format_check(&self, result: &CheckResult) -> String {
+        check::format_check(result)
+    }
+
+    fn format_compile_delta(&self, delta: &CompileDelta) -> String {
+        compile::format_compile_delta(delta)
+    }
+
+    fn format_analyze(&self, result: &AnalyzeResult) -> String {
+        analyze::format_analyze(result)
     }
 }
 
@@ -178,6 +193,7 @@ mod tests {
                 function_count: 1,
                 external_endpoints: vec![],
             },
+            body_context: None,
         };
         let out = fmt.format_discover(&result);
         assert!(out.contains("DISCOVER hash=abc12345678 name=handle"));

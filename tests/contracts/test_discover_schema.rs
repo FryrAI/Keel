@@ -30,6 +30,7 @@ fn discover_output_matches_schema() {
             function_count: 1,
             external_endpoints: vec![],
         },
+        body_context: None,
     };
 
     let json_value = serde_json::to_value(&result).unwrap();
@@ -95,6 +96,7 @@ fn discover_output_with_upstream_downstream_matches_schema() {
             function_count: 4,
             external_endpoints: vec!["GET /api/users".to_string()],
         },
+        body_context: None,
     };
 
     let json_value = serde_json::to_value(&result).unwrap();

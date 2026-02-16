@@ -15,3 +15,5 @@ pub mod serve;
 pub mod watch;
 pub mod deinit;
 pub mod stats;
+pub mod check;
+pub mod analyze;

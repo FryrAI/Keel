@@ -5,7 +5,8 @@ pub(crate) mod human_helpers;
 pub mod token_budget;
 
 use keel_enforce::types::{
-    CompileResult, DiscoverResult, ExplainResult, FixResult, MapResult, NameResult,
+    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
+    FixResult, MapResult, NameResult,
 };
 
 pub trait OutputFormatter {
@@ -15,4 +16,7 @@ pub trait OutputFormatter {
     fn format_map(&self, result: &MapResult) -> String;
     fn format_fix(&self, result: &FixResult) -> String;
     fn format_name(&self, result: &NameResult) -> String;
+    fn format_check(&self, result: &CheckResult) -> String;
+    fn format_compile_delta(&self, delta: &CompileDelta) -> String;
+    fn format_analyze(&self, result: &AnalyzeResult) -> String;
 }

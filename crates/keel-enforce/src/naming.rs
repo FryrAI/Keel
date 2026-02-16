@@ -27,10 +27,16 @@ pub fn suggest_name(
         })
         .map(|m| {
             let profile = store.get_module_profile(m.id);
-            let score = if let Some(ref p) = profile {
+            let keyword_score = if let Some(ref p) = profile {
                 compute_keyword_score(&desc_words, &p.responsibility_keywords)
             } else {
                 0.0
+            };
+            // Fallback scoring when keyword match produces nothing
+            let score = if keyword_score > 0.0 {
+                keyword_score
+            } else {
+                compute_fallback_score(&desc_words, &m.file_path, store, m.id)
             };
             (score, m)
         })
@@ -145,6 +151,72 @@ fn compute_keyword_score(desc_words: &[String], module_keywords: &[String]) -> f
         })
         .count();
     matches as f64 / desc_words.len() as f64
+}
+
+/// Fallback scoring when module_profiles have no keywords.
+/// 40% weight on path segment match, 60% on function name match.
+fn compute_fallback_score(
+    desc_words: &[String],
+    file_path: &str,
+    store: &dyn GraphStore,
+    module_id: u64,
+) -> f64 {
+    if desc_words.is_empty() {
+        return 0.0;
+    }
+    let path_score = compute_path_score(desc_words, file_path);
+    let fn_score = compute_function_name_score(desc_words, store, module_id);
+    let combined = path_score * 0.4 + fn_score * 0.6;
+    // Only return if there's a meaningful match
+    if combined > 0.05 { combined } else { 0.0 }
+}
+
+/// Match description words against file path segments.
+fn compute_path_score(desc_words: &[String], file_path: &str) -> f64 {
+    let segments: Vec<String> = file_path
+        .replace('\\', "/")
+        .split('/')
+        .flat_map(|seg| {
+            let seg = seg.rsplit_once('.').map(|(name, _)| name).unwrap_or(seg);
+            seg.split(|c: char| c == '_' || c.is_uppercase())
+                .filter(|w| !w.is_empty())
+                .map(|w| w.to_lowercase())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    if segments.is_empty() {
+        return 0.0;
+    }
+    let matches = desc_words
+        .iter()
+        .filter(|w| segments.iter().any(|s| s.contains(w.as_str()) || w.contains(s.as_str())))
+        .count();
+    matches as f64 / desc_words.len() as f64
+}
+
+/// Match description words against function names in the module.
+fn compute_function_name_score(
+    desc_words: &[String],
+    store: &dyn GraphStore,
+    module_id: u64,
+) -> f64 {
+    if let Some(profile) = store.get_module_profile(module_id) {
+        let nodes = store.get_nodes_in_file(&profile.path);
+        let fn_words: Vec<String> = nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Function)
+            .flat_map(|n| {
+                n.name
+                    .split(|c: char| c == '_' || c.is_uppercase())
+                    .filter(|w| !w.is_empty())
+                    .map(|w| w.to_lowercase())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        compute_keyword_score(desc_words, &fn_words)
+    } else {
+        0.0
+    }
 }
 
 /// Detect naming convention from sibling function names.

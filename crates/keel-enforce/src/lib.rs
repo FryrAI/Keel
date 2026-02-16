@@ -9,3 +9,6 @@ pub mod engine;
 pub mod hash_diff;
 pub mod fix_generator;
 pub mod naming;
+pub mod check;
+pub mod snapshot;
+pub mod analyze;

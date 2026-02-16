@@ -61,6 +61,9 @@ pub(crate) enum Commands {
         /// Look up by function name instead of hash
         #[arg(long)]
         name: bool,
+        /// Include N lines of source code (default: 10 when flag present)
+        #[arg(long, default_missing_value = "10", num_args = 0..=1)]
+        context: Option<u32>,
     },
 
     /// Search the graph by function/class name
@@ -97,6 +100,18 @@ pub(crate) enum Commands {
         /// Only compile files changed since a specific commit
         #[arg(long)]
         since: Option<String>,
+        /// Show only new/resolved violations compared to last compile
+        #[arg(long)]
+        delta: bool,
+    },
+
+    /// Pre-edit risk assessment for a function
+    Check {
+        /// Hash, file path, or function name to check
+        query: String,
+        /// Look up by function name instead of hash
+        #[arg(long)]
+        name: bool,
     },
 
     /// Resolve a hash to file:line
@@ -157,6 +172,12 @@ pub(crate) enum Commands {
         /// Kind of entity: fn, class, method
         #[arg(long)]
         kind: Option<String>,
+    },
+
+    /// Analyze a file for structure, smells, and refactoring opportunities
+    Analyze {
+        /// File path to analyze
+        file: String,
     },
 
     /// Remove all keel-generated files

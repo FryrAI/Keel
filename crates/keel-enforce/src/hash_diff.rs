@@ -30,6 +30,7 @@ impl EnforcementEngine {
             upstream,
             downstream,
             module_context: module_ctx,
+            body_context: None,
         })
     }
 

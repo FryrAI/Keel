@@ -159,6 +159,7 @@ fn discover_result_serializes_to_json() {
             function_count: 5,
             external_endpoints: vec![],
         },
+        body_context: None,
     };
 
     let json = serde_json::to_string(&result);
@@ -208,6 +209,7 @@ fn discover_result_round_trips() {
             function_count: 4,
             external_endpoints: vec!["GET /api/users".to_string()],
         },
+        body_context: None,
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -334,6 +336,7 @@ fn discover_result_json_has_required_fields() {
             function_count: 0,
             external_endpoints: vec![],
         },
+        body_context: None,
     };
 
     let json: serde_json::Value = serde_json::to_value(&result).unwrap();

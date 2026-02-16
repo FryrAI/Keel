@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use keel_enforce::types::{CompileResult, PressureLevel, Violation};
+use keel_enforce::types::{CompileDelta, CompileResult, PressureLevel, Violation};
 use crate::token_budget;
 use super::violation::{format_violation_llm, violation_priority};
 
@@ -106,6 +106,48 @@ pub fn format_compile(result: &CompileResult, depth: u32, max_tokens: usize) -> 
         2.. => format_compile_depth2(result),
         _ => format_compile_depth1(result, max_tokens),
     }
+}
+
+/// Format a compile delta (new vs resolved violations).
+pub fn format_compile_delta(delta: &CompileDelta) -> String {
+    let net_e = if delta.net_errors >= 0 {
+        format!("+{}", delta.net_errors)
+    } else {
+        delta.net_errors.to_string()
+    };
+    let net_w = if delta.net_warnings >= 0 {
+        format!("+{}", delta.net_warnings)
+    } else {
+        delta.net_warnings.to_string()
+    };
+
+    let mut out = format!(
+        "COMPILE DELTA errors={} warnings={} NET: {} errors, {} warnings PRESSURE={} BUDGET={}\n",
+        delta.total_errors, delta.total_warnings,
+        net_e, net_w,
+        delta.pressure, delta.pressure.budget_directive(),
+    );
+
+    for k in &delta.new_errors {
+        out.push_str(&format!("  +ERROR [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+    }
+    for k in &delta.resolved_errors {
+        out.push_str(&format!("  -ERROR [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+    }
+    for k in &delta.new_warnings {
+        out.push_str(&format!("  +WARN [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+    }
+    for k in &delta.resolved_warnings {
+        out.push_str(&format!("  -WARN [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+    }
+
+    if delta.new_errors.is_empty() && delta.resolved_errors.is_empty()
+        && delta.new_warnings.is_empty() && delta.resolved_warnings.is_empty()
+    {
+        out.push_str("  (no changes)\n");
+    }
+
+    out
 }
 
 #[cfg(test)]

@@ -233,6 +233,7 @@ mod tests {
                 function_count: 1,
                 external_endpoints: vec![],
             },
+            body_context: None,
         };
         let out = fmt.format_discover(&result);
         assert!(out.contains("handleRequest [abc12345678]"));
