@@ -142,132 +142,19 @@ See each file for the full prompt. Key constraints in every prompt:
 
 ---
 
-## 5. Monitoring (Orchestrator — Pane 0)
+## 5-8. Operations Reference (condensed)
 
-### Passive Monitoring
+**Monitoring:** Use `/tmux-observe` for passive monitoring. Run gate checks with
+`cargo test --workspace` in each worktree. Intervene if agent stuck 15+ min.
 
-```bash
-# Check what agents are doing
-/tmux-observe
+**Merge order:** test-infra → enforcement → bugs (dependency order). Run
+`cargo test --workspace` after each merge.
 
-# Check worktree progress via git
-git -C $HOME/keel-ci-test-infra log --oneline -5
-git -C $HOME/keel-ci-enforcement log --oneline -5
-git -C $HOME/keel-ci-bugs log --oneline -5
-```
+**Convergence criteria:** 0 failures, 0 clippy warnings, all stubs implemented,
+15-repo validation green, no files >400 lines, deterministic results.
 
-### Active Gate Checks
-
-Run periodically (or let `/ralph-loop` do it):
-
-```bash
-# Gate 1: Do all stubs compile?
-git -C $HOME/keel-ci-test-infra fetch origin
-cd $HOME/keel-ci-test-infra && cargo test --workspace --no-run 2>&1 | tail -3
-
-# Gate 2: Do enforcement tests pass?
-cd $HOME/keel-ci-enforcement && cargo test --workspace 2>&1 | tail -5
-
-# Gate 3: Zero failures across everything?
-cd $HOME/keel-ci-bugs && cargo test --workspace 2>&1 | tail -5
-```
-
-### When to Intervene
-
-- Agent stuck on same error for 15+ minutes → read error, give hint
-- Merge conflict between branches → resolve manually
-- Agent requests human judgment → check pane output
-- Context exhaustion (agent stops responding) → restart pane
-
----
-
-## 6. Merge & Verify
-
-### Merge Order (Critical)
-
-Merge in dependency order. Test-infra first (schema/helpers), then enforcement
-(uses helpers), then bugs (uses everything).
-
-```bash
-cd $HOME/Curosor_Projects/Keel
-
-# Step 1: Merge test infrastructure
-git merge ci/test-infra --no-edit
-cargo test --workspace 2>&1 | tail -10
-# If failures: fix before proceeding
-
-# Step 2: Merge enforcement tests
-git merge ci/enforcement --no-edit
-cargo test --workspace 2>&1 | tail -10
-# If failures: fix before proceeding
-
-# Step 3: Merge bug fixes
-git merge ci/bugs --no-edit
-cargo test --workspace 2>&1 | tail -10
-# Must be zero failures
-```
-
-### Post-Merge Validation
-
-```bash
-# Full test suite (all tests, including previously-ignored)
-cargo test --workspace -- --include-ignored 2>&1 | tail -20
-
-# 15-repo corpus validation
-./scripts/validate_corpus.sh 2>&1 | tail -30
-
-# Check for files over 400 lines
-find crates/ tests/ -name '*.rs' | xargs wc -l | sort -rn | head -20
-# Any file > 400 lines must be decomposed
-```
-
----
-
-## 7. Convergence Criteria
-
-The playbook is **done** when ALL of these are true:
-
-| Criterion | How to verify | Target |
-|-----------|--------------|--------|
-| Zero test failures | `cargo test --workspace` | 0 failures |
-| Zero ignored tests | `grep -r '#\[ignore' tests/ crates/ \| wc -l` | 0 (or only perf benchmarks) |
-| All stubs implemented | No empty `fn test_foo() {}` bodies | 0 empty stubs |
-| 15-repo validation | `./scripts/validate_corpus.sh` | All 15 green |
-| Deterministic | Run validation 3x, same results | 3 consecutive identical |
-| No files > 400 lines | `find . -name '*.rs' \| xargs wc -l \| awk '$1>400'` | 0 matches |
-| Clippy clean | `cargo clippy --workspace -- -D warnings` | 0 warnings |
-| LLM output depth | `keel compile --depth 0/1/2` on test fixtures | Correct output at each level |
-| Backpressure signals | Verify `PRESSURE=` and `BUDGET=` in LLM output | Present when violations exist |
-
-### Partial Convergence
-
-If you can't reach full convergence in one session:
-1. Merge what's passing
-2. Update `PROGRESS.md` with new counts
-3. Commit to main
-4. Re-run this playbook — it's idempotent
-
----
-
-## 8. Cleanup
-
-After convergence (or when stopping for the day):
-
-```bash
-# Remove worktrees
-git worktree remove $HOME/keel-ci-test-infra --force 2>/dev/null
-git worktree remove $HOME/keel-ci-enforcement --force 2>/dev/null
-git worktree remove $HOME/keel-ci-bugs --force 2>/dev/null
-
-# Delete branches (only after merge to main)
-git branch -d ci/test-infra ci/enforcement ci/bugs 2>/dev/null
-
-# Kill tmux session
-tmux kill-session -t keel-ci 2>/dev/null
-
-# Prune worktree metadata
-git worktree prune
-```
+**Cleanup:** `git worktree remove`, `git branch -d`, `tmux kill-session -t keel-ci`,
+`git worktree prune`.
 
 ---
 
@@ -318,28 +205,118 @@ Features shipped in Round 4, from the candidates list:
 - Convergence achieved for current feature set
 
 ### Next Round Candidates
-| Priority | Feature | Description |
-|----------|---------|-------------|
-| **P1** | Streaming compile | `--watch` mode for continuous agent loops |
-| **P2** | Map diff | `--since HASH` for structural delta |
-| **P3** | Cursor/Gemini hooks | Implement hook generation to un-ignore 15 tests |
-| **P4** | Advanced resolution | Python star imports, Rust macros/traits to un-ignore ~30 tests |
+See Round 8 plan below.
 
 ---
 
-## 10. Next Steps (Post-Convergence Only)
+## 11. Round 8 Plan: Distribution & Real-World Features
 
-Once all convergence criteria are met:
+**Approach:** 3-agent swarm (same as Round 7) + manual infrastructure steps
 
-1. **Tag release:** `git tag v0.1.0 && git push --tags`
-2. **Build binaries:** `cargo build --release --target x86_64-unknown-linux-gnu` (+ macOS, Windows)
-3. **Publish:** GitHub release with binaries + install script
-4. **VS Code extension:** Package and publish to marketplace
-5. **Documentation:** Update README with installation and usage
-6. **Announce:** Post to relevant communities
+### Blockers (must be done first, in order)
 
-**Do not start these until convergence = true.** Shipping with known test gaps
-creates support burden that exceeds the cost of fixing them first.
+#### B1: End-to-end dogfood on a real project
+Run `keel init && keel map && keel compile` on FryrAI's own repos (Fryr, SpexAI).
+Find every rough edge in the actual workflow — not test fixtures. This is the single
+highest-leverage thing before shipping.
+
+#### B2: Release-mode benchmarks
+Build `cargo build --release`, run the 15-repo benchmark, update PROGRESS.md and
+README.md with real release-mode numbers. Debug-mode claims (200ms compile, 5s map)
+are likely 3-10x better in release.
+
+#### B3: Wire up `keel serve --mcp` map tool
+MCP server is functional (compile, discover, where, explain all work) but `keel/map`
+is stubbed. Wire up the real map implementation from `commands/map.rs`.
+**File:** `crates/keel-server/src/mcp.rs:295`
+
+### Tier 1: High-Value Features (this session)
+
+#### T1.1: Diff-aware compile (`--changed`)
+**Complexity: LOW.** Compile already accepts file paths. Just need:
+1. Add `--changed` flag to `crates/keel-cli/src/cli_args.rs`
+2. Add git diff helper (shell out to `git diff --name-only HEAD`, ~20 lines)
+3. Modify `compile.rs` to populate files from git when `--changed` is set
+4. Also add `--since <commit>` for `git diff --name-only <commit>..HEAD`
+**Tests:** Add 2-3 tests in `tests/cli/test_compile.rs`
+
+#### T1.2: GitHub Action on marketplace
+**Complexity: MEDIUM.** No action.yml exists yet. Create:
+1. `action.yml` — composite action (shell-based, no JS dependency)
+2. Downloads keel binary from GitHub Releases (version input, default latest)
+3. Runs `keel compile` on changed files (uses `--changed` from T1.1)
+4. Outputs: violation count, exit code, summary for PR annotations
+5. Caches keel binary by version
+**Structure:**
+```
+.github/actions/keel/
+  action.yml
+  entrypoint.sh
+```
+Or separate repo `FryrAI/keel-action` for marketplace publishing.
+
+#### T1.3: Homebrew tap
+**Complexity: LOW.** Formula template already exists at `dist/homebrew/keel.rb`.
+1. Create `FryrAI/homebrew-tap` GitHub repo (manual — needs org access)
+2. Add `homebrew` job to `.github/workflows/release.yml`:
+   - Download checksums from release artifacts
+   - Replace `VERSION_PLACEHOLDER` and `SHA256_*` in `keel.rb`
+   - Push updated formula to `FryrAI/homebrew-tap`
+3. Needs: GitHub PAT with repo write scope stored as `HOMEBREW_TAP_TOKEN` secret
+
+### Tier 2: Enterprise Features (next session)
+
+#### T2.1: Monorepo support
+**Complexity: MEDIUM-HIGH.** Biggest architectural change.
+**Design decision needed:** centralized `.keel/` at workspace root with package scopes
+in the DB, vs. per-package `.keel/` directories + aggregation.
+
+**Recommended: centralized with package field.**
+1. Add `package_id: Option<String>` to `GraphNode` in `types.rs`
+2. Add `packages` table to SQLite schema
+3. Workspace detection: walk up from CWD, detect `package.json` workspaces,
+   `Cargo.toml` workspace members, `go.work`, `pyproject.toml` with `[tool.hatch]`
+4. `keel init --workspace` scans and registers all packages
+5. `keel compile --package <name>` or auto-detect from CWD
+6. Cross-package edge resolution (imports between packages)
+**Files affected:** config.rs, types.rs, sqlite.rs, init.rs, compile.rs, map.rs
+**Tests:** ~10 new tests in `tests/integration/`
+
+#### T2.2: `keel watch` (CLI file watcher)
+Reuse watcher from keel-server. Pure CLI mode: watch for changes, auto-compile,
+print violations as they appear. Debounce 200ms. Exit on Ctrl+C with summary.
+**Complexity: LOW.** `crates/keel-server/src/watcher.rs` already exists.
+
+### Tier 3: Polish
+
+#### T3.1: Un-ignore Cursor/Gemini hook tests (15 tests)
+Implement hook generation for Cursor (`hooks.json` + `.mdc`) and Gemini
+(`settings.json` + `GEMINI.md`) in `crates/keel-cli/src/init/generators.rs`.
+Templates already exist in `init/templates.rs`.
+
+#### T3.2: Release benchmarks update
+After release-mode benchmarks, update all marketing: README, PROGRESS, landing page.
+
+### Swarm Assignment (3 agents)
+
+| Agent | Tasks | Files |
+|-------|-------|-------|
+| **features** | T1.1 (--changed), T2.2 (watch) | cli_args.rs, compile.rs, new watch.rs |
+| **distribution** | T1.2 (GitHub Action), T1.3 (Homebrew CI job) | action.yml, release.yml |
+| **integration** | B3 (MCP map), T3.1 (Cursor/Gemini hooks), tests | mcp.rs, generators.rs |
+
+**Blockers B1 and B2** should be run manually before the swarm launches.
+
+### Success Criteria
+
+| Criterion | How to verify |
+|-----------|--------------|
+| `keel compile --changed` works | `git diff` + compile on real repo |
+| GitHub Action runs in CI | Test workflow with `uses: FryrAI/keel-action@v1` |
+| `brew install FryrAI/tap/keel` works | Test on macOS (or CI) |
+| `keel serve --mcp` map tool works | JSON-RPC call returns real map data |
+| 15 Cursor/Gemini tests pass | `cargo test --workspace` shows ≤78 ignored |
+| Release benchmarks documented | PROGRESS.md has release-mode numbers |
 
 ---
 
