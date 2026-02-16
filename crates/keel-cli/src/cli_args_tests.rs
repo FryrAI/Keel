@@ -52,13 +52,14 @@ fn parse_map_all_flags() {
 }
 
 #[test]
-fn parse_discover_required_hash() {
+fn parse_discover_required_query() {
     let cli = parse(&["keel", "discover", "abc123"]);
     match cli.command {
-        Commands::Discover { hash, depth, suggest_placement } => {
-            assert_eq!(hash, "abc123");
+        Commands::Discover { query, depth, suggest_placement, name } => {
+            assert_eq!(query, "abc123");
             assert_eq!(depth, 1);
             assert!(!suggest_placement);
+            assert!(!name);
         }
         _ => panic!("expected Discover"),
     }
@@ -68,8 +69,8 @@ fn parse_discover_required_hash() {
 fn parse_discover_with_depth() {
     let cli = parse(&["keel", "discover", "h1", "--depth", "3", "--suggest-placement"]);
     match cli.command {
-        Commands::Discover { hash, depth, suggest_placement } => {
-            assert_eq!(hash, "h1");
+        Commands::Discover { query, depth, suggest_placement, .. } => {
+            assert_eq!(query, "h1");
             assert_eq!(depth, 3);
             assert!(suggest_placement);
         }
@@ -78,7 +79,19 @@ fn parse_discover_with_depth() {
 }
 
 #[test]
-fn parse_discover_missing_hash() {
+fn parse_discover_name_mode() {
+    let cli = parse(&["keel", "discover", "validate_token", "--name"]);
+    match cli.command {
+        Commands::Discover { query, name, .. } => {
+            assert_eq!(query, "validate_token");
+            assert!(name);
+        }
+        _ => panic!("expected Discover"),
+    }
+}
+
+#[test]
+fn parse_discover_missing_query() {
     parse_err(&["keel", "discover"]);
 }
 
@@ -86,13 +99,15 @@ fn parse_discover_missing_hash() {
 fn parse_compile_no_files() {
     let cli = parse(&["keel", "compile"]);
     match cli.command {
-        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth } => {
+        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth, changed, since } => {
             assert!(files.is_empty());
             assert!(!batch_start);
             assert!(!batch_end);
             assert!(!strict);
             assert!(suppress.is_none());
             assert_eq!(depth, 1);
+            assert!(!changed);
+            assert!(since.is_none());
         }
         _ => panic!("expected Compile"),
     }
@@ -368,6 +383,66 @@ fn parse_compile_depth_flag() {
     let cli = parse(&["keel", "compile", "--depth", "2"]);
     match cli.command {
         Commands::Compile { depth, .. } => assert_eq!(depth, 2),
+        _ => panic!("expected Compile"),
+    }
+}
+
+// --- Search command ---
+
+#[test]
+fn parse_search_basic() {
+    let cli = parse(&["keel", "search", "validate"]);
+    match cli.command {
+        Commands::Search { term, kind } => {
+            assert_eq!(term, "validate");
+            assert!(kind.is_none());
+        }
+        _ => panic!("expected Search"),
+    }
+}
+
+#[test]
+fn parse_search_with_kind() {
+    let cli = parse(&["keel", "search", "auth", "--kind", "function"]);
+    match cli.command {
+        Commands::Search { term, kind } => {
+            assert_eq!(term, "auth");
+            assert_eq!(kind.as_deref(), Some("function"));
+        }
+        _ => panic!("expected Search"),
+    }
+}
+
+// --- Watch command ---
+
+#[test]
+fn parse_watch() {
+    let cli = parse(&["keel", "watch"]);
+    assert!(matches!(cli.command, Commands::Watch));
+}
+
+// --- Compile --changed ---
+
+#[test]
+fn parse_compile_changed() {
+    let cli = parse(&["keel", "compile", "--changed"]);
+    match cli.command {
+        Commands::Compile { changed, since, .. } => {
+            assert!(changed);
+            assert!(since.is_none());
+        }
+        _ => panic!("expected Compile"),
+    }
+}
+
+#[test]
+fn parse_compile_since() {
+    let cli = parse(&["keel", "compile", "--since", "abc123"]);
+    match cli.command {
+        Commands::Compile { changed, since, .. } => {
+            assert!(!changed);
+            assert_eq!(since.as_deref(), Some("abc123"));
+        }
         _ => panic!("expected Compile"),
     }
 }

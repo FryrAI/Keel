@@ -121,7 +121,11 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
             ),
             file: file.file_path.clone(),
             line: def.line_start,
-            hash: String::new(), // Computed after graph update
+            hash: keel_core::hash::compute_hash(
+                &def.signature,
+                &def.body_text,
+                def.docstring.as_deref().unwrap_or(""),
+            ),
             confidence: 1.0,
             resolution_tier: "tree-sitter".to_string(),
             fix_hint: Some(format!(
@@ -161,7 +165,11 @@ pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
             message: format!("Public function `{}` has no docstring", def.name),
             file: file.file_path.clone(),
             line: def.line_start,
-            hash: String::new(),
+            hash: keel_core::hash::compute_hash(
+                &def.signature,
+                &def.body_text,
+                def.docstring.as_deref().unwrap_or(""),
+            ),
             confidence: 1.0,
             resolution_tier: "tree-sitter".to_string(),
             fix_hint: Some(format!(

@@ -169,7 +169,11 @@ pub fn check_placement(
                 ),
                 file: file.file_path.clone(),
                 line: def.line_start,
-                hash: String::new(),
+                hash: keel_core::hash::compute_hash(
+                    &def.signature,
+                    &def.body_text,
+                    def.docstring.as_deref().unwrap_or(""),
+                ),
                 confidence: 0.6,
                 resolution_tier: "heuristic".to_string(),
                 fix_hint: Some(format!(
@@ -223,7 +227,11 @@ pub fn check_duplicate_names(
                 ),
                 file: file.file_path.clone(),
                 line: def.line_start,
-                hash: String::new(),
+                hash: keel_core::hash::compute_hash(
+                    &def.signature,
+                    &def.body_text,
+                    def.docstring.as_deref().unwrap_or(""),
+                ),
                 confidence: 0.7,
                 resolution_tier: "heuristic".to_string(),
                 fix_hint: Some(format!(

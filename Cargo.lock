@@ -1088,6 +1088,7 @@ dependencies = [
  "keel-output",
  "keel-parsers",
  "keel-server",
+ "notify",
  "serde",
  "serde_json",
  "tokio",

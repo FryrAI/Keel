@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use keel_core::types::{EdgeChange, EdgeKind, NodeChange, NodeKind};
+use keel_enforce::types::ModuleFunctionRef;
 
 /// Build a MapResult from collected node and edge data (before they are consumed).
 pub fn build_map_result(
@@ -48,6 +49,18 @@ pub fn build_map_result(
 
     let external_endpoint_count = nodes.iter().map(|n| n.external_endpoints.len()).sum::<usize>() as u32;
 
+    // Build caller/callee count maps for function refs
+    let mut callers_map: HashMap<u64, u32> = HashMap::new();
+    let mut callees_map: HashMap<u64, u32> = HashMap::new();
+    for e in valid_edges {
+        if let EdgeChange::Add(edge) = e {
+            if edge.kind == EdgeKind::Calls {
+                *callers_map.entry(edge.target_id).or_default() += 1;
+                *callees_map.entry(edge.source_id).or_default() += 1;
+            }
+        }
+    }
+
     // Per-module entries: count functions, classes, edges per module
     let mut module_entries = Vec::new();
     for node in &nodes {
@@ -73,6 +86,22 @@ pub fn build_map_result(
             })
             .count() as u32;
 
+        // Collect function names + hashes for this module
+        let fn_refs: Vec<ModuleFunctionRef> = nodes
+            .iter()
+            .filter(|n| n.module_id == module_id && n.kind == NodeKind::Function)
+            .map(|n| {
+                let c = callers_map.get(&n.id).copied().unwrap_or(0);
+                let ce = callees_map.get(&n.id).copied().unwrap_or(0);
+                ModuleFunctionRef {
+                    name: n.name.clone(),
+                    hash: n.hash.clone(),
+                    callers: c,
+                    callees: ce,
+                }
+            })
+            .collect();
+
         module_entries.push(ModuleEntry {
             path: file_path.clone(),
             function_count: fn_count,
@@ -80,6 +109,7 @@ pub fn build_map_result(
             edge_count,
             responsibility_keywords: None,
             external_endpoints: None,
+            function_names: fn_refs,
         });
     }
 

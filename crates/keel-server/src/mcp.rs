@@ -103,7 +103,8 @@ fn tool_list() -> Vec<ToolInfo> {
                 "type": "object",
                 "properties": {
                     "format": { "type": "string", "enum": ["json", "llm"] },
-                    "scope": { "type": "array", "items": { "type": "string" } }
+                    "scope": { "type": "array", "items": { "type": "string" } },
+                    "file_path": { "type": "string", "description": "Scope map to a single file" }
                 }
             }),
         },
@@ -130,7 +131,7 @@ fn dispatch(
         "keel/discover" => handle_discover(engine, params),
         "keel/where" => handle_where(store, params),
         "keel/explain" => handle_explain(store, params),
-        "keel/map" => handle_map(params),
+        "keel/map" => handle_map(store, params),
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Method not found: {}", method),
@@ -275,7 +276,7 @@ fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, J
     serde_json::to_value(result).map_err(internal_err)
 }
 
-fn handle_map(params: Option<Value>) -> Result<Value, JsonRpcError> {
+fn handle_map(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
     let format = params
         .as_ref()
         .and_then(|p| p.get("format"))
@@ -288,12 +289,66 @@ fn handle_map(params: Option<Value>) -> Result<Value, JsonRpcError> {
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
-    Ok(serde_json::json!({
-        "status": "ok",
-        "format": format,
-        "scope": scope,
-        "message": "Map not yet implemented — requires keel-parsers integration"
-    }))
+    let file_path = params
+        .as_ref()
+        .and_then(|p| p.get("file_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let store = lock_store(store)?;
+
+    if let Some(ref path) = file_path {
+        // File-scoped map: return nodes for a single file
+        let nodes = store.get_nodes_in_file(path);
+        let node_entries: Vec<Value> = nodes
+            .iter()
+            .map(|n| {
+                serde_json::json!({
+                    "name": n.name,
+                    "hash": n.hash,
+                    "kind": n.kind.as_str(),
+                    "file": n.file_path,
+                    "line_start": n.line_start,
+                    "line_end": n.line_end,
+                    "signature": n.signature,
+                    "is_public": n.is_public,
+                })
+            })
+            .collect();
+
+        Ok(serde_json::json!({
+            "status": "ok",
+            "format": format,
+            "scope": scope,
+            "file_path": path,
+            "nodes": node_entries,
+        }))
+    } else {
+        // Full-graph summary: enumerate all modules and their nodes
+        let modules = store.get_all_modules();
+        let mut total_nodes: usize = 0;
+        let module_entries: Vec<Value> = modules
+            .iter()
+            .map(|m| {
+                let nodes = store.get_nodes_in_file(&m.file_path);
+                total_nodes += nodes.len();
+                serde_json::json!({
+                    "name": m.name,
+                    "file": m.file_path,
+                    "node_count": nodes.len(),
+                })
+            })
+            .collect();
+
+        Ok(serde_json::json!({
+            "status": "ok",
+            "format": format,
+            "scope": scope,
+            "module_count": modules.len(),
+            "total_nodes": total_nodes,
+            "modules": module_entries,
+        }))
+    }
 }
 
 /// Create a shared enforcement engine backed by an in-memory store.

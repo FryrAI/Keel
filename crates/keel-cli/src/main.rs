@@ -31,12 +31,21 @@ fn main() {
         Commands::Map { llm_verbose, scope, strict, depth } => {
             commands::map::run(&*formatter, cli.verbose, llm_verbose, scope, strict, depth)
         }
-        Commands::Discover { hash, depth, suggest_placement } => {
-            commands::discover::run(&*formatter, cli.verbose, hash, depth, suggest_placement)
+        Commands::Discover { query, depth, suggest_placement, name } => {
+            commands::discover::run(
+                &*formatter, cli.verbose, query, depth, suggest_placement, name,
+            )
         }
-        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth } => {
+        Commands::Search { term, kind } => {
+            commands::search::run(&*formatter, cli.verbose, cli.json, cli.llm, term, kind)
+        }
+        Commands::Compile {
+            files, batch_start, batch_end, strict, suppress, depth,
+            changed, since,
+        } => {
             commands::compile::run(
-                &*formatter, cli.verbose, files, batch_start, batch_end, strict, suppress, depth,
+                &*formatter, cli.verbose, files, batch_start, batch_end, strict,
+                suppress, depth, changed, since,
             )
         }
         Commands::Where { hash } => {
@@ -54,6 +63,7 @@ fn main() {
         Commands::Serve { mcp, http, watch } => {
             commands::serve::run(&*formatter, cli.verbose, mcp, http, watch)
         }
+        Commands::Watch => commands::watch::run(cli.verbose),
         Commands::Deinit => commands::deinit::run(&*formatter, cli.verbose),
         Commands::Stats => commands::stats::run(&*formatter, cli.verbose, cli.json),
     };

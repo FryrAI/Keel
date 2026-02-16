@@ -48,16 +48,28 @@ pub(crate) enum Commands {
         depth: u32,
     },
 
-    /// Look up a function's callers, callees, and context
+    /// Look up a function's callers, callees, and context (accepts hash, file path, or --name)
     Discover {
-        /// Function hash to discover
-        hash: String,
+        /// Hash, file path, or function name to discover
+        query: String,
         /// Number of hops to traverse (default: 1)
         #[arg(long, default_value = "1")]
         depth: u32,
         /// Return top 3 placement suggestions
         #[arg(long)]
         suggest_placement: bool,
+        /// Look up by function name instead of hash
+        #[arg(long)]
+        name: bool,
+    },
+
+    /// Search the graph by function/class name
+    Search {
+        /// Name or substring to search for
+        term: String,
+        /// Filter by kind: function, class, module
+        #[arg(long)]
+        kind: Option<String>,
     },
 
     /// Incrementally validate after file changes
@@ -79,6 +91,12 @@ pub(crate) enum Commands {
         /// Output depth: 0=counts, 1=grouped by file (default), 2=full detail
         #[arg(long, default_value = "1")]
         depth: u32,
+        /// Only compile files changed since last commit (git diff HEAD)
+        #[arg(long)]
+        changed: bool,
+        /// Only compile files changed since a specific commit
+        #[arg(long)]
+        since: Option<String>,
     },
 
     /// Resolve a hash to file:line
@@ -113,6 +131,9 @@ pub(crate) enum Commands {
         #[arg(long)]
         watch: bool,
     },
+
+    /// Watch files and auto-compile on changes
+    Watch,
 
     /// Generate fix plans for violations
     Fix {

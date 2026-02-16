@@ -9,6 +9,9 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::treesitter::detect_language;
 use keel_parsers::typescript::TsResolver;
 
+/// Supported file extensions for --changed filtering.
+const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "py", "ts", "tsx", "js", "jsx", "go"];
+
 /// Run `keel compile` — incremental validation of changed files.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -20,6 +23,8 @@ pub fn run(
     strict: bool,
     suppress: Option<String>,
     _depth: u32,
+    changed: bool,
+    since: Option<String>,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -71,15 +76,30 @@ pub fn run(
         return output_result(formatter, &result, strict, verbose);
     }
 
+    // Resolve target files: --changed, --since, explicit list, or all
+    let mut effective_files = files;
+    if changed || since.is_some() {
+        match git_changed_files(&since) {
+            Ok(git_files) => {
+                if verbose {
+                    eprintln!("keel compile: {} file(s) changed in git", git_files.len());
+                }
+                effective_files = git_files;
+            }
+            Err(e) => {
+                eprintln!("keel compile: git diff failed: {}", e);
+                return 2;
+            }
+        }
+    }
+
     // Parse target files into FileIndex entries.
-    // Lazily create resolvers — only allocate the ones we actually need.
     let mut ts: Option<TsResolver> = None;
     let mut py: Option<PyResolver> = None;
     let mut go_resolver: Option<GoResolver> = None;
     let mut rs: Option<RustLangResolver> = None;
 
-    let target_files = if files.is_empty() {
-        // No specific files: walk all source files
+    let target_files = if effective_files.is_empty() {
         let walker = keel_parsers::walker::FileWalker::new(&cwd);
         walker
             .walk()
@@ -87,8 +107,7 @@ pub fn run(
             .map(|e| e.path.to_string_lossy().to_string())
             .collect::<Vec<_>>()
     } else {
-        // Resolve relative paths to absolute
-        files
+        effective_files
             .iter()
             .map(|f| {
                 let p = Path::new(f);
@@ -129,7 +148,6 @@ pub fn run(
 
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
-        // Use a simple hash of the content for change detection
         let content_hash = {
             let mut h: u64 = 0;
             for byte in content.as_bytes() {
@@ -172,13 +190,54 @@ pub fn run(
     output_result(formatter, &result, strict, verbose)
 }
 
+/// Get files changed according to git diff.
+fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
+    let range = since.as_ref().map(|c| format!("{}..HEAD", c));
+    let args: Vec<&str> = match &range {
+        Some(r) => vec!["diff", "--name-only", r.as_str()],
+        None => vec!["diff", "--name-only", "HEAD"],
+    };
+
+    let output = std::process::Command::new("git")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("failed to run git: {}", e))?;
+
+    if !output.status.success() {
+        // Fallback for initial commits (no HEAD yet)
+        let fallback = std::process::Command::new("git")
+            .args(["diff", "--name-only", "--cached"])
+            .output()
+            .map_err(|e| format!("git fallback failed: {}", e))?;
+        let text = String::from_utf8_lossy(&fallback.stdout);
+        return Ok(filter_supported_files(&text));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(filter_supported_files(&text))
+}
+
+/// Filter file paths to only supported extensions.
+fn filter_supported_files(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| !line.is_empty())
+        .filter(|line| {
+            Path::new(line)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| SUPPORTED_EXTENSIONS.contains(&e))
+                .unwrap_or(false)
+        })
+        .map(|s| s.to_string())
+        .collect()
+}
+
 fn output_result(
     formatter: &dyn OutputFormatter,
     result: &keel_enforce::types::CompileResult,
     strict: bool,
     verbose: bool,
 ) -> i32 {
-    // Clean compile = empty stdout, exit 0
     let has_errors = !result.errors.is_empty();
     let has_warnings = !result.warnings.is_empty();
 
@@ -189,7 +248,6 @@ fn output_result(
         return 0;
     }
 
-    // Output violations
     let output = formatter.format_compile(result);
     if !output.is_empty() {
         println!("{}", output);

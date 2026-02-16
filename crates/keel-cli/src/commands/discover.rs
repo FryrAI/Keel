@@ -1,12 +1,17 @@
+use keel_core::store::GraphStore;
+use keel_core::types::{EdgeDirection, EdgeKind};
 use keel_output::OutputFormatter;
 
-/// Run `keel discover <hash>` — look up callers, callees, and context.
+use super::input_detect;
+
+/// Run `keel discover <query>` — accepts hash, file path, or --name.
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
-    hash: String,
+    query: String,
     depth: u32,
     _suggest_placement: bool,
+    name_mode: bool,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -33,9 +38,19 @@ pub fn run(
         }
     };
 
-    let engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
+    // Name lookup mode: --name flag
+    if name_mode {
+        return discover_by_name(&store, &query, verbose);
+    }
 
-    match engine.discover(&hash, depth) {
+    // File path mode: auto-detected
+    if input_detect::looks_like_file_path(&query) {
+        return discover_file(&store, &query, &cwd, verbose);
+    }
+
+    // Hash mode: existing behavior
+    let engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
+    match engine.discover(&query, depth) {
         Some(result) => {
             let output = formatter.format_discover(&result);
             if !output.is_empty() {
@@ -44,11 +59,90 @@ pub fn run(
             0
         }
         None => {
-            if verbose {
-                eprintln!("keel discover: hash {} not found", hash);
+            if let Some(hint) = input_detect::suggest_command(&query) {
+                eprintln!("error: hash not found: {}\nhint: {}", query, hint);
+            } else {
+                eprintln!("error: hash not found: {}", query);
             }
-            eprintln!("error: hash not found: {}", hash);
             2
         }
     }
+}
+
+/// List all symbols in a file with their hashes.
+fn discover_file(
+    store: &dyn GraphStore,
+    query: &str,
+    cwd: &std::path::Path,
+    verbose: bool,
+) -> i32 {
+    // Normalize the file path to be relative (matching how nodes are stored)
+    let path = std::path::Path::new(query);
+    let rel_path = if path.is_absolute() {
+        path.strip_prefix(cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string()
+    } else {
+        query.to_string()
+    };
+
+    let nodes = store.get_nodes_in_file(&rel_path);
+    if nodes.is_empty() {
+        eprintln!("keel discover: no nodes found in file: {}", rel_path);
+        return 2;
+    }
+
+    if verbose {
+        eprintln!("keel discover: {} symbols in {}", nodes.len(), rel_path);
+    }
+
+    println!("FILE {} symbols={}", rel_path, nodes.len());
+    for node in &nodes {
+        if node.kind == keel_core::types::NodeKind::Module {
+            continue;
+        }
+        let callers = store
+            .get_edges(node.id, EdgeDirection::Incoming)
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Calls)
+            .count();
+        let callees = store
+            .get_edges(node.id, EdgeDirection::Outgoing)
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Calls)
+            .count();
+        println!(
+            "  {} {} hash={} line={} callers={} callees={}",
+            node.kind, node.name, node.hash, node.line_start, callers, callees,
+        );
+    }
+    0
+}
+
+/// Look up a function by name and show its hash and location.
+fn discover_by_name(store: &dyn GraphStore, name: &str, _verbose: bool) -> i32 {
+    let nodes = store.find_nodes_by_name(name, "", "");
+    if nodes.is_empty() {
+        eprintln!("keel discover: no function named '{}' found", name);
+        return 2;
+    }
+
+    for node in &nodes {
+        let callers = store
+            .get_edges(node.id, EdgeDirection::Incoming)
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Calls)
+            .count();
+        let callees = store
+            .get_edges(node.id, EdgeDirection::Outgoing)
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Calls)
+            .count();
+        println!(
+            "{} hash={} {}:{} callers={} callees={}",
+            node.name, node.hash, node.file_path, node.line_start, callers, callees,
+        );
+    }
+    0
 }

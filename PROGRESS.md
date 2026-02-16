@@ -10,9 +10,11 @@ total). Round 5 delivered the last-mile: `keel init` generates hook configs and 
 Cargo metadata and release pipeline are ready, VS Code extension is packageable, docs are written.
 Round 6 fixed performance regressions and audited marketing content. Round 7 (CI swarm) implemented
 real assertions in test stubs, added ModuleProfile fields, ResolvedEdge.resolution_tier tracking,
-previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warnings.
+previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warnings. Round 8 addressed
+agent UX pain points: discover accepts file paths + names, `keel search`, `keel watch`, `--changed`
+flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map tool.
 
-**910 tests passing, 0 failures, 93 ignored (all feature-blocked), 0 clippy warnings.**
+**919 tests passing, 0 failures, 93 ignored (all feature-blocked), 0 clippy warnings.**
 
 ## Test Status — Actual Numbers
 
@@ -20,7 +22,7 @@ previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warning
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 910 | Round 7: resolution stubs, graph tests, perf fixes, feature implementations |
+| **Passing** | 919 | Round 8: agent UX, search, watch, --changed, map enrichment |
 | **Ignored** | 93 | All feature-blocked (cursor/gemini hooks, advanced resolution, schema v2) |
 | **Failing** | 0 | Clean — 0 clippy warnings |
 
@@ -31,7 +33,7 @@ previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warning
 | crates/keel-core/ | 24 | SQLite, hash, config |
 | crates/keel-parsers/ | 42 | tree-sitter, 4 resolvers, walker |
 | crates/keel-enforce/ | 61 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
-| crates/keel-cli/ | 54 | CLI args, init merge logic, map resolve, fix/name, explain --depth |
+| crates/keel-cli/ | 63 | CLI args, init merge logic, map resolve, fix/name, explain --depth, search, input_detect |
 | crates/keel-server/ | 41 | MCP + HTTP + watcher |
 | crates/keel-output/ | 35 | JSON, LLM, human formatters, depth/backpressure/fix/name, token budget |
 | tests/contracts/ | 66 | Frozen trait contracts |
@@ -46,6 +48,35 @@ previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warning
 | tests/tool_integration/ | 31 | Claude Code hooks, instruction files, git hooks, hook execution |
 | other integration | ~160 | Graph, parsing, correctness |
 | **Total** | **986** | |
+
+## Round 8: Agent UX + Distribution (2026-02-16) — COMPLETED
+
+Addressed 5 specific pain points from Claude Code's honest feedback on keel usability.
+
+### Agent UX — CLI Commands for Agent Workflows
+- **`keel discover` accepts file paths**: Auto-detects file paths (via `/`, `\`, `.py`, `.ts`, etc.) and lists all symbols with hashes, callers, callees — eliminates the biggest pain point
+- **`keel discover --name <fn>`**: Search by function name using `find_nodes_by_name()` from GraphStore
+- **`keel search <term>`**: New graph-wide name search with exact match + substring fallback, callers/callees counts, JSON/LLM/human output
+- **`keel map --llm` enriched**: MODULE lines now list function names with hashes under each module (`  get_user hash=abc12 callers=3 callees=2`)
+- **Input detection module**: `input_detect.rs` with `looks_like_file_path()`, `looks_like_hash()`, `suggest_command()` for helpful hints on wrong input
+
+### Distribution + Compile Fixes
+- **Empty hash fix (E002/E003/W001/W002)**: Replaced `hash: String::new()` with real `compute_hash()` calls in violations.rs and violations_extended.rs — compile errors now have usable 11-char hashes
+- **`keel compile --changed`**: Git integration via `git diff --name-only HEAD`, filters to supported extensions
+- **`keel compile --since <commit>`**: Diff against specific commit via `git diff --name-only <commit>..HEAD`
+- **GitHub Action**: Composite action at `.github/actions/keel/` — download binary, cache by version, run compile, PR annotations
+- **Homebrew tap automation**: Added `homebrew` job to release.yml — auto-updates formula on release
+
+### Infrastructure
+- **`keel watch`**: File watcher using `notify` crate with 200ms debounce, auto-compiles on .rs/.py/.ts/.go changes
+- **MCP `keel/map` wired**: Real implementation with `file_path` parameter for file-scoped or full-graph map
+- **Updated templates**: keel-instructions.md and AGENTS_MD with new commands, common mistakes section, recommended workflows
+
+### Results
+- 910 → 919 tests passing (+9 new CLI tests)
+- 93 ignored (unchanged)
+- 0 clippy warnings maintained
+- 24 files changed (19 modified + 5 new)
 
 ## Round 7: CI Swarm — Test Stubs & Code Quality (2026-02-16) — COMPLETED
 
@@ -248,13 +279,14 @@ All tests pass. Clippy clean. Ready to tag v0.1.0.
 
 ### P2: Overdelivery
 - Website (keel.engineer) — CI brand kit is ready, build the actual site
-- Diff-aware compile (`--changed`, `--since HASH`)
-- Streaming compile (`--watch` for CLI)
+- ~~Diff-aware compile (`--changed`, `--since HASH`)~~ — DONE (Round 8)
+- ~~Streaming compile (`--watch` for CLI)~~ — DONE (Round 8)
 - Monorepo support
+- ~~`keel serve --mcp` map tool~~ — DONE (Round 8)
 - `keel serve --mcp` end-to-end with Claude Code and Cursor
 
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 (current)
 
 Note: Count dropped from 953 to 895 between Round 6-7 due to stricter runtime counting
 (`cargo test --workspace` output vs `#[test]` annotation count). 910 is the verified runtime count.

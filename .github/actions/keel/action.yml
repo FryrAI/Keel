@@ -1,0 +1,87 @@
+name: "keel - Structural Code Enforcement"
+description: "Run keel compile to enforce structural integrity in CI"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  version:
+    description: "keel version to use (default: latest)"
+    required: false
+    default: "latest"
+  args:
+    description: "Arguments to pass to keel (default: compile --changed)"
+    required: false
+    default: "compile --changed"
+  github-token:
+    description: "GitHub token for downloading releases"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  violation-count:
+    description: "Number of violations found"
+    value: ${{ steps.run.outputs.violation-count }}
+  exit-code:
+    description: "keel exit code"
+    value: ${{ steps.run.outputs.exit-code }}
+  summary:
+    description: "Human-readable summary of results"
+    value: ${{ steps.run.outputs.summary }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install keel
+      shell: bash
+      env:
+        KEEL_VERSION: ${{ inputs.version }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: ${{ github.action_path }}/entrypoint.sh install
+
+    - name: Run keel
+      id: run
+      shell: bash
+      run: |
+        set +e
+        output=$(keel ${{ inputs.args }} --json 2>&1)
+        exit_code=$?
+        set -e
+        echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
+
+        # Count violations from JSON output
+        violations=$(echo "$output" | grep -c '"code":' || echo "0")
+        echo "violation-count=$violations" >> "$GITHUB_OUTPUT"
+
+        # Generate PR annotations from JSON output
+        echo "$output" | python3 -c "
+        import sys, json
+        try:
+            data = json.load(sys.stdin)
+            for v in data.get('errors', []) + data.get('warnings', []):
+                level = 'error' if v['severity'] == 'ERROR' else 'warning'
+                print(f'::{level} file={v[\"file\"]},line={v[\"line\"]}::[{v[\"code\"]}] {v[\"message\"]}')
+        except: pass
+        " 2>/dev/null || true
+
+        # Build summary line
+        if [ "$exit_code" -eq 0 ]; then
+          summary="Clean compile — no violations"
+        else
+          summary="Found $violations violation(s)"
+        fi
+        echo "summary=$summary" >> "$GITHUB_OUTPUT"
+
+        # Step summary
+        echo "### keel Compile Results" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$exit_code" -eq 0 ]; then
+          echo "Clean compile — no violations" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "Found $violations violation(s)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        exit $exit_code

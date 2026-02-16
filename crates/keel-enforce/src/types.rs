@@ -200,6 +200,18 @@ pub struct ModuleEntry {
     pub responsibility_keywords: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_endpoints: Option<Vec<String>>,
+    /// Function names with hashes for agent-friendly module listings.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub function_names: Vec<ModuleFunctionRef>,
+}
+
+/// Lightweight function reference within a module entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModuleFunctionRef {
+    pub name: String,
+    pub hash: String,
+    pub callers: u32,
+    pub callees: u32,
 }
 
 // --- Fix command types ---

@@ -32,9 +32,22 @@ This project uses keel (keel.engineer) for code graph enforcement.
 
 ### Commands:
 - `keel discover <hash>` — show callers, callees, and module context
+- `keel discover <file-path>` — list all symbols in a file with hashes
+- `keel discover --name <function-name>` — find a function by name
+- `keel search <term>` — search the graph by name (substring match)
 - `keel compile <file>` — validate changes
+- `keel compile --changed` — validate only git-changed files
+- `keel compile --since <commit>` — validate files changed since a commit
 - `keel compile --batch-start` / `--batch-end` — batch mode for scaffolding
 - `keel explain <error-code> <hash>` — inspect resolution reasoning
 - `keel where <hash>` — resolve hash to file:line
-- `keel map --llm` — regenerate the LLM-optimized map
+- `keel map --llm` — regenerate the LLM-optimized map (includes function names)
+- `keel watch` — auto-compile on file changes
+
+### Common Mistakes:
+- **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.
+- **Don't pass file paths as hashes.** If discover says "hash not found", check if you passed a file path — use path mode instead.
+- **Recommended workflow:** `keel discover path/to/file.py` → see all symbols → `keel discover <hash> --depth 2` for deep exploration.
+- **Use `keel search`** to find functions by name across the entire graph.
+- **Use `--changed` in CI** to only check modified files: `keel compile --changed`.
 <!-- keel:end -->

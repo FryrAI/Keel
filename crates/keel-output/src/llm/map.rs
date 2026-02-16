@@ -39,7 +39,7 @@ pub fn format_map_depth1(result: &MapResult) -> String {
         }
     }
 
-    // Module entries with keywords
+    // Module entries with keywords and function names
     for m in &result.modules {
         out.push_str(&format!(
             "MODULE {} fns={} cls={} edges={}",
@@ -51,6 +51,13 @@ pub fn format_map_depth1(result: &MapResult) -> String {
             }
         }
         out.push('\n');
+        // List function names with hashes (agent-friendly)
+        for f in &m.function_names {
+            out.push_str(&format!(
+                "  {} hash={} callers={} callees={}\n",
+                f.name, f.hash, f.callers, f.callees,
+            ));
+        }
     }
     out
 }
@@ -132,6 +139,7 @@ mod tests {
                     edge_count: 31,
                     responsibility_keywords: Some(vec!["auth".into(), "jwt".into()]),
                     external_endpoints: None,
+                    function_names: vec![],
                 },
                 ModuleEntry {
                     path: "src/handlers/".into(),
@@ -140,6 +148,7 @@ mod tests {
                     edge_count: 20,
                     responsibility_keywords: Some(vec!["http".into(), "api".into()]),
                     external_endpoints: None,
+                    function_names: vec![],
                 },
             ],
             hotspots: vec![
