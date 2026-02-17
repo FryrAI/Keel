@@ -21,7 +21,7 @@ goal: Install keel (curl command) or star the repo
   > The backbone your agents are missing.
 - Below tagline: Secondary line in Body L (18px Inter):
   > Structural enforcement for AI-generated code. One binary. Zero dependencies.
-- Below secondary: Two buttons — "Get Started" (teal, primary) and "View on GitHub" (outlined, secondary)
+- Below secondary: Three buttons — "Get Started" (teal, primary), "View on GitHub" (outlined, secondary), "Pro Features" (coral outline, tertiary)
 - Below buttons: Terminal block showing a live `keel compile` interaction:
 
 ```
@@ -125,18 +125,22 @@ keel initialized. 3 language(s) detected, 1,247 files indexed.
   tools detected: Claude Code, Cursor, Gemini CLI
   7 config file(s) generated
 
+Telemetry is enabled by default (privacy-safe, no code/paths collected).
+  Opt out: keel config telemetry.remote false
+
 Next steps:
   keel map       Build the structural graph
   keel compile   Validate contracts
 ```
 
-**Three things `keel init` does (icon + title + one-liner):**
+**Four things `keel init` does (icon + title + one-liner):**
 
 | # | Icon | Title | Description |
 |---|------|-------|-------------|
 | 1 | `database` (teal) | Builds the graph DB | Scans every function, class, and call edge into `.keel/graph.db`. |
 | 2 | `git-branch` (teal) | Installs hooks | Git pre-commit hook and `.keel/hooks/post-edit.sh` — enforcement runs automatically. |
 | 3 | `settings` (teal) | Configures your tools | Auto-detects AI coding tools in your repo and generates their hook/instruction files. |
+| 4 | `shield-check` (teal) | Updates .gitignore | Adds `.keel/graph.db`, `telemetry.db`, `session.json`, and `cache/` to `.gitignore`. |
 
 **Design notes:**
 - Terminal block in `--bg-surface`, same style as hero
@@ -239,7 +243,7 @@ Both panels are terminal blocks with the same violation, formatted differently.
 
 | Number | Label |
 |--------|-------|
-| 980+ | Tests passing |
+| 1,071 | Tests passing |
 | 4 | Languages supported |
 | 11 | Tool integrations |
 | 0 | Runtime dependencies |
@@ -252,38 +256,113 @@ Both panels are terminal blocks with the same violation, formatted differently.
 
 ---
 
+## Section 7.5: Telemetry & Config
+
+**Layout:** Overline "INSIGHTS", h1, then side-by-side terminal blocks.
+
+**Headline (h1):**
+> Know what your agents are doing.
+
+**Left panel: `keel stats`**
+
+```
+$ keel stats
+  modules:   47
+  functions: 1,247
+  files:     89
+  edges:     3,891
+
+  telemetry (last 30 days):
+    invocations: 1,247
+    avg compile:  182ms
+    avg map:      3.4s
+    errors:       23
+    warnings:     89
+    top commands: compile (890), map (42), discover (187)
+    languages:    typescript 45%, python 30%, go 15%, rust 10%
+```
+
+**Right panel: `keel config`**
+
+```
+$ keel config telemetry.enabled
+true
+
+$ keel config tier team
+keel config: tier = team
+
+$ keel config naming_conventions.style snake_case
+keel config: naming_conventions.style = snake_case
+```
+
+**Below: 3 small callouts:**
+1. **Privacy-safe** — No file paths, function names, or source code. Just aggregate metrics.
+2. **Opt-out** — `keel config telemetry.remote false` — one command, done.
+3. **Dot-notation** — Get or set any config value. `keel config` dumps the full JSON.
+
+**Design notes:**
+- Same terminal style as hero
+- Left panel wider (60%), right panel narrower (40%)
+- Callouts below as icon + one-liner, horizontal row
+
+---
+
 ## Section 8: Pricing
 
 **Layout:** Overline "PRICING", h1, then 3 pricing cards.
 
 **Headline (h1):**
-> Free to start. Free to stay.
+> Free is complete. Pro is multiplied.
+
+**Subtext (Body L):**
+> Every CLI command, every language, every integration — free forever. Paid tiers add team visibility, naming governance, and detailed analytics.
 
 **Three tiers:**
 
-### Free (Open Source)
+### Free
 - **Price:** $0 / forever
-- **For:** Individual developers, open-source projects
-- **Includes:** All commands, all languages, single-repo, CLI only
+- **For:** Solo developers, open-source projects, evaluation
+- **Includes:**
+  - All 16 CLI commands
+  - All 4 languages (TS, Python, Go, Rust)
+  - 11 tool integrations
+  - Local telemetry + `keel stats`
+  - `keel config` get/set
+  - MCP + HTTP server
+  - Circuit breaker + batch mode
 - **CTA:** "Install Now"
 
-### Team (Free)
-- **Price:** $0 / during beta
-- **For:** Teams shipping AI-generated code
-- **Includes:** Everything in Free + multi-repo, `keel serve`, team dashboards
-- **CTA:** "Join Beta"
-- **Badge:** "Beta" in coral
+### Team
+- **Price:** $29 / user / month
+- **For:** Teams of 3-50 shipping AI-generated code
+- **Includes:** Everything in Free, plus:
+  - **Naming conventions UI** — define per-directory naming rules in a web dashboard, export to keel.json, enforce via `keel compile` (W003)
+  - **Team dashboard** — module heat maps, error trends, agent comparison, naming compliance
+  - **Detailed telemetry** — module-level metrics, error code trends, session tracking
+  - **Prompt performance** — first-compile success rate, fix latency, backpressure compliance
+  - **Remote telemetry** — aggregate + detailed metrics sent to dashboard
+- **CTA:** "Start Free Trial"
+- **Badge:** "Popular" in teal
 
 ### Enterprise
 - **Price:** Contact us
-- **For:** Organizations with compliance requirements
-- **Includes:** Everything in Team + SSO, audit log, SLA, custom rules
+- **For:** Organizations with compliance or privacy requirements
+- **Includes:** Everything in Team, plus:
+  - **Private hosting** — Docker image, Helm chart, Terraform module for your infra
+  - **Encrypted export** — AES-256-GCM, customer-managed keys (BYOK)
+  - **Custom rules** — YAML rule DSL for architectural constraints beyond E001-E005
+  - **SSO** — SAML / OIDC
+  - **Audit log** — every config change, every enforcement decision
+  - **SLA** — 99.9% uptime on hosted dashboard
 - **CTA:** "Contact Sales"
 
 **Design notes:**
 - Middle card (Team) slightly elevated with `--teal-500` border to draw attention
-- Enterprise card more subdued
-- All cards on `--bg-surface` with `--border-subtle`
+- Free card has `--border-subtle` — solid, not diminished
+- Enterprise card more subdued, `--border-subtle`
+- All cards on `--bg-surface`
+- Feature lists use checkmark icons in `--teal-500`
+- "Popular" badge is a small pill in `--teal-500` bg with white text
 
 ---
 
@@ -297,12 +376,15 @@ Both panels are terminal blocks with the same violation, formatted differently.
 **Install command (large terminal block):**
 
 ```bash
-curl -fsSL keel.engineer/install.sh | sh
+curl -fsSL keel.engineer/install.sh | bash
 ```
 
-**Below command:** Secondary CTA — "Or install via Cargo: `cargo install keel-cli`"
+**Below command:** Three alternative install methods as inline code:
+- macOS: `brew tap FryrAI/tap && brew install keel`
+- Source: `cargo install --path crates/keel-cli`
+- CI: `uses: FryrAI/Keel/.github/actions/keel@v0.1.0`
 
-**Below that:** Footer with links (Docs, GitHub, License, Twitter/X) and copyright.
+**Below that:** Footer with links (Docs, GitHub, Pro, License, Twitter/X) and copyright.
 
 **Design notes:**
 - The install command is the focal point — large, centered, with a "copy" button

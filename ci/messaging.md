@@ -103,7 +103,7 @@ Three pillars, each with a headline, description, and proof point.
 - "When an agent deletes a function, keel tells it who's calling."
 - "`keel fix --apply` — auto-generates and applies fix plans for every violation."
 - "Zero config. Zero runtime deps. One binary."
-- "980+ tests. 4 languages. Every edge case we could find."
+- "1,071 tests. 4 languages. Every edge case we could find."
 
 **Bad:**
 - "keel is a powerful tool that helps developers..." (vague, passive)
@@ -128,7 +128,37 @@ The nautical metaphor lives in the **brand** (name, logo, colors), not in the **
 > keel builds a real-time structural graph of your codebase and enforces architectural contracts at generation time. When AI coding agents add, modify, or remove code, keel validates that the change doesn't break callers, violate type contracts, or damage the dependency graph — before the code is ever committed. It supports TypeScript, Python, Go, and Rust, integrates with 11 AI coding tools, and runs as a single binary with zero runtime dependencies.
 
 ### Three-sentence (for descriptions, meta)
-> keel is a structural enforcement engine for AI-generated code. It builds a real-time graph of your codebase and catches architectural violations at generation time — not at review. One binary, zero dependencies, four languages.
+> keel is a structural enforcement engine for AI-generated code. It builds a real-time graph of your codebase and catches architectural violations at generation time — not at review. One binary, zero dependencies, four languages, 1,071 tests.
+
+---
+
+## Pro Messaging
+
+### Free vs Pro Positioning
+
+> **Free is complete. Pro is multiplied.**
+
+This is the anchor line. The free tier is not a trial, not a demo, not crippled. It's the full structural enforcement tool. Pro adds **team-scale visibility** — dashboards, naming governance, analytics, private hosting.
+
+### Pro Value Props
+
+| Feature | One-liner |
+|---------|-----------|
+| Naming conventions | "Define once, enforce everywhere. Your agents follow the same rules." |
+| Team dashboard | "See what your agents build — module health, error trends, naming drift." |
+| Detailed telemetry | "Know which modules break most and which agents fix fastest." |
+| Prompt performance | "Measure first-compile success rate, fix latency, backpressure compliance." |
+| Private hosting | "Your infrastructure, your data. Same dashboard, your network." |
+
+### Pricing Copy
+
+> **$29/user/month.** Every CLI command is free forever. Team adds the dashboard your engineering lead has been asking for.
+
+### Upgrade CTAs
+
+- "See what your team is building" → Team tier
+- "Your infrastructure, your rules" → Enterprise tier
+- Free → Team: "You've been enforcing locally. Now see the big picture."
 
 ---
 
@@ -142,3 +172,4 @@ We don't attack competitors by name. We position against categories:
 | Type checkers (tsc, mypy) | "Type checkers validate signatures. keel validates relationships." |
 | Architecture tools (ArchUnit) | "Architecture tests run in CI. keel runs at generation time." |
 | Code review | "Review catches what got past. keel prevents it from getting past." |
+| Observability (Datadog, etc.) | "They monitor runtime. keel monitors generation time." |

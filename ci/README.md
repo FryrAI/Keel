@@ -18,6 +18,7 @@ tagline: "The backbone your agents are missing."
 | Visual Language | [visual-language.md](visual-language.md) | Icons, illustration, motion, code blocks |
 | Messaging | [messaging.md](messaging.md) | Taglines, value props, tone of voice |
 | Landing Page | [landing-page.md](landing-page.md) | Section-by-section brief for keel.engineer |
+| Pro Features | [pro.md](pro.md) | Paid tier features — naming, dashboard, telemetry, enterprise |
 
 ---
 
