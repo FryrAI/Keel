@@ -8,6 +8,8 @@ usage: "Run anytime. Idempotent. Safe to re-execute."
 
 > **Goal:** Zero ignored tests, zero failures, all 15 repos green, no known bugs.
 > Only after convergence do we proceed to distribution and release.
+>
+> **STATUS: CONVERGED (Round 13).** 1052 tests passing, 0 ignored, 0 failed, 0 clippy warnings.
 
 ---
 
@@ -209,250 +211,77 @@ See Round 8 plan below.
 
 ---
 
-## 11. Round 8 Plan: Distribution & Real-World Features
+## 11-13. Round 8-9 Results — COMPLETED
 
-**Approach:** 3-agent swarm (same as Round 7) + manual infrastructure steps
-
-### Blockers (must be done first, in order)
-
-#### B1: End-to-end dogfood on a real project
-Run `keel init && keel map && keel compile` on FryrAI's own repos (Fryr, SpexAI).
-Find every rough edge in the actual workflow — not test fixtures. This is the single
-highest-leverage thing before shipping.
-
-#### B2: Release-mode benchmarks
-Build `cargo build --release`, run the 15-repo benchmark, update PROGRESS.md and
-README.md with real release-mode numbers. Debug-mode claims (200ms compile, 5s map)
-are likely 3-10x better in release.
-
-#### B3: Wire up `keel serve --mcp` map tool
-MCP server is functional (compile, discover, where, explain all work) but `keel/map`
-is stubbed. Wire up the real map implementation from `commands/map.rs`.
-**File:** `crates/keel-server/src/mcp.rs:295`
-
-### Tier 1: High-Value Features (this session)
-
-#### T1.1: Diff-aware compile (`--changed`)
-**Complexity: LOW.** Compile already accepts file paths. Just need:
-1. Add `--changed` flag to `crates/keel-cli/src/cli_args.rs`
-2. Add git diff helper (shell out to `git diff --name-only HEAD`, ~20 lines)
-3. Modify `compile.rs` to populate files from git when `--changed` is set
-4. Also add `--since <commit>` for `git diff --name-only <commit>..HEAD`
-**Tests:** Add 2-3 tests in `tests/cli/test_compile.rs`
-
-#### T1.2: GitHub Action on marketplace
-**Complexity: MEDIUM.** No action.yml exists yet. Create:
-1. `action.yml` — composite action (shell-based, no JS dependency)
-2. Downloads keel binary from GitHub Releases (version input, default latest)
-3. Runs `keel compile` on changed files (uses `--changed` from T1.1)
-4. Outputs: violation count, exit code, summary for PR annotations
-5. Caches keel binary by version
-**Structure:**
-```
-.github/actions/keel/
-  action.yml
-  entrypoint.sh
-```
-Or separate repo `FryrAI/keel-action` for marketplace publishing.
-
-#### T1.3: Homebrew tap
-**Complexity: LOW.** Formula template already exists at `dist/homebrew/keel.rb`.
-1. Create `FryrAI/homebrew-tap` GitHub repo (manual — needs org access)
-2. Add `homebrew` job to `.github/workflows/release.yml`:
-   - Download checksums from release artifacts
-   - Replace `VERSION_PLACEHOLDER` and `SHA256_*` in `keel.rb`
-   - Push updated formula to `FryrAI/homebrew-tap`
-3. Needs: GitHub PAT with repo write scope stored as `HOMEBREW_TAP_TOKEN` secret
-
-### Tier 2: Enterprise Features (next session)
-
-#### T2.1: Monorepo support
-**Complexity: MEDIUM-HIGH.** Biggest architectural change.
-**Design decision needed:** centralized `.keel/` at workspace root with package scopes
-in the DB, vs. per-package `.keel/` directories + aggregation.
-
-**Recommended: centralized with package field.**
-1. Add `package_id: Option<String>` to `GraphNode` in `types.rs`
-2. Add `packages` table to SQLite schema
-3. Workspace detection: walk up from CWD, detect `package.json` workspaces,
-   `Cargo.toml` workspace members, `go.work`, `pyproject.toml` with `[tool.hatch]`
-4. `keel init --workspace` scans and registers all packages
-5. `keel compile --package <name>` or auto-detect from CWD
-6. Cross-package edge resolution (imports between packages)
-**Files affected:** config.rs, types.rs, sqlite.rs, init.rs, compile.rs, map.rs
-**Tests:** ~10 new tests in `tests/integration/`
-
-#### T2.2: `keel watch` (CLI file watcher)
-Reuse watcher from keel-server. Pure CLI mode: watch for changes, auto-compile,
-print violations as they appear. Debounce 200ms. Exit on Ctrl+C with summary.
-**Complexity: LOW.** `crates/keel-server/src/watcher.rs` already exists.
-
-### Tier 3: Polish
-
-#### T3.1: Un-ignore Cursor/Gemini hook tests (15 tests)
-Implement hook generation for Cursor (`hooks.json` + `.mdc`) and Gemini
-(`settings.json` + `GEMINI.md`) in `crates/keel-cli/src/init/generators.rs`.
-Templates already exist in `init/templates.rs`.
-
-#### T3.2: Release benchmarks update
-After release-mode benchmarks, update all marketing: README, PROGRESS, landing page.
-
-### Swarm Assignment (3 agents)
-
-| Agent | Tasks | Files |
-|-------|-------|-------|
-| **features** | T1.1 (--changed), T2.2 (watch) | cli_args.rs, compile.rs, new watch.rs |
-| **distribution** | T1.2 (GitHub Action), T1.3 (Homebrew CI job) | action.yml, release.yml |
-| **integration** | B3 (MCP map), T3.1 (Cursor/Gemini hooks), tests | mcp.rs, generators.rs |
-
-**Blockers B1 and B2** should be run manually before the swarm launches.
-
-### Success Criteria
-
-| Criterion | How to verify |
-|-----------|--------------|
-| `keel compile --changed` works | `git diff` + compile on real repo |
-| GitHub Action runs in CI | Test workflow with `uses: FryrAI/keel-action@v1` |
-| `brew install FryrAI/tap/keel` works | Test on macOS (or CI) |
-| `keel serve --mcp` map tool works | JSON-RPC call returns real map data |
-| 15 Cursor/Gemini tests pass | `cargo test --workspace` shows ≤78 ignored |
-| Release benchmarks documented | PROGRESS.md has release-mode numbers |
+- **Round 8** (2026-02-16): Agent UX — discover paths, search, watch, --changed, GitHub Action, MCP map. 919 passed, 93 ignored.
+- **Round 9** (2026-02-16): check, analyze, compile --delta, discover --context. 927 passed, 93 ignored.
 
 ---
 
-## 12. Round 8 Results (2026-02-16) — COMPLETED
+## 14. Round 10 Results (2026-02-17) — COMPLETED
 
-**Approach:** Single session, agent UX focus based on Claude Code dogfood feedback
+**Approach:** 3-agent team (hooks, bugs, core). 93 → 68 ignored (-25).
+Schema v2 migration, module node auto-creation, dynamic dispatch confidence,
+Cursor/Gemini hook fixes, 5 feedback bugs fixed. 957 passed, 0 failed, 68 ignored.
+
+---
+
+## 15. Round 11 Results (2026-02-17) — COMPLETED
+
+**Approach:** 3-agent swarm (polish, resolution-a, resolution-b). 68 → 55 ignored (-13).
+UX polish (name reliability, check caller summary, --context N, deprecate where),
+Go imports, Python __all__, Rust use statements, TS package.json exports.
+972 passed, 0 failed, 55 ignored.
+
+---
+
+## 16. Round 12 Results (2026-02-17) — COMPLETED
+
+**Approach:** 2-agent swarm (resolution-a: Go+Python, resolution-b: Rust+TS)
 
 ### Key Deliverables
-- `keel discover <path>` — list all symbols in a file, `--name` search by name
-- `keel search <term>` — graph-wide name search with substring fallback
-- `keel watch` — 200ms debounce auto-compile on file changes
-- `keel compile --changed` / `--since <commit>` — git-diff-aware compilation
-- Fixed empty hashes in E002/E003/W001/W002 violations
-- Enriched `keel map --llm` with function names under MODULE lines
-- GitHub Action (`.github/actions/keel/`) for CI marketplace
-- Homebrew tap automation in `release.yml`
-- Wired real MCP `keel/map` tool with `file_path` parameter
-- Updated templates with new commands and common mistakes section
+- **47 tests un-ignored** across all 4 languages via enhanced Tier 2 heuristics
+- Go: interface methods, receiver methods, visibility, package scoping (12 tests)
+- Python: star imports, subprocess, package resolution (11 tests)
+- Rust: impl blocks, mod declarations (6 tests)
+- TypeScript: namespace resolution (4 tests)
+- Parallel parsing, large codebase, integration tests (14 tests)
 
 ### Test Status
-- **919 passed, 0 failed, 93 ignored, 0 clippy warnings**
-- 53 files changed, +3304/-318 lines
+- **1038 passed, 0 failed, 8 ignored, 0 clippy warnings**
+- 55 → 8 ignored (-47)
 
 ---
 
-## 13. Round 9 Results (2026-02-16) — COMPLETED
+## 17. Round 13 Results (2026-02-17) — COMPLETED (CONVERGENCE)
 
-**Approach:** Single session, ~3.6x agent token cost reduction
+**Approach:** 2-agent swarm (Rust tier3: 6 tests, TS tier3: 2 tests)
 
 ### Key Deliverables
-- `keel check` — pre-edit risk assessment (safe/caution/danger) with callers, callees, violations
-- `keel analyze` — architectural observations (smells, refactoring) from graph data
-- `keel compile --delta` — snapshot-based error diffing (only new/resolved violations)
-- `keel discover --context [N]` — inline source code snippets eliminate separate file reads
-- Fixed `keel name` — populate module_profiles during map, fallback scoring
-- Split `types.rs` (335 lines) into `types/` directory (5 files)
+- **All 8 remaining TIER3 tests implemented** — zero ignored tests achieved
+- Rust trait bound resolution (`<T: Trait>` → method resolution at 0.65 confidence)
+- Rust where clause resolution (`where T: Trait` with multi-line support)
+- Rust supertrait method resolution (`trait A: B + C` hierarchy expansion)
+- Rust associated type resolution (`type Output = String;` extraction)
+- Rust derive macro resolution (`#[derive(Debug)]` → TypeRef references)
+- Rust attribute macro resolution (`#[tokio::main]` → Call references)
+- TS module augmentation (`declare module 'X' { ... }`)
+- TS project reference resolution (tsconfig `"references"` array)
+- New file: `trait_resolution.rs` (383 lines) with 6 unit tests
+- Fixed 8 clippy warnings across Go and Rust modules
 
 ### Test Status
-- **927 passed, 0 failed, 93 ignored, 0 clippy warnings**
-- +8 tests from Round 8
+- **1052 passed, 0 failed, 0 ignored, 0 clippy warnings**
+- Convergence criteria fully met
 
----
-
-## 14. Round 10 Plan: Test Convergence Sprint
-
-**Approach:** 3-agent team, target 93 → ~66 ignored (27 tests un-ignored)
-
-### Analysis of 93 Ignored Tests
-
-| Category | Count | Actionable? |
-|----------|-------|-------------|
-| Cursor hooks (hooks.json + MDC) | 8 | **YES** — generators exist, tests just need `.cursor/` dir |
-| Gemini hooks (settings.json + GEMINI.md) | 8 | **YES** — generators exist, tests just need `.gemini/` dir |
-| Hook execution (timeout + concurrent) | 2 | **YES** — add compile timeout + file locking |
-| Schema v2 migration | 2 | **YES** — define v2 schema, implement migration |
-| Module node per-file auto-creation | 4 | **YES** — parsers need Module node per source file |
-| Dynamic dispatch confidence | 1 | **YES** — edge confidence classification |
-| Large codebase perf | 5 | NO — debug mode too slow, needs release CI |
-| Parser traits (method + corpus) | 3 | NO — needs API change + large corpus |
-| Go advanced resolution | 15 | NO — cross-file, type inference |
-| Python advanced resolution | 16 | NO — __all__, star imports, ty subprocess |
-| Rust advanced resolution | 16 | NO — impl blocks, macros, trait resolution |
-| TypeScript advanced resolution | 4 | NO — module augmentation, project refs |
-
-### Feedback Bugs (from claudecode_feedback.md)
-
-| # | Bug | Severity | Root Cause | Fix |
-|---|-----|----------|-----------|-----|
-| F1 | `discover --name` broken | **HIGH** | `find_nodes_by_name(name, "", "")` — SQL requires `kind=""` matches nothing | Make empty kind/exclude_file into wildcards |
-| F2 | `keel name` placement wrong | **MEDIUM** | Scoring doesn't weight by path relevance | Add path-keyword matching to scoring |
-| F3 | Compile not showing deltas | **DONE** | `--delta` implemented in R9 | Wire `--delta` into post-edit hook templates |
-| F4 | Duplicate hash entries (decorator vs fn) | **LOW** | Parser indexes decorator line AND function line | Deduplicate in parser by skipping decorator-only nodes |
-| F5 | `check` RISK=DANGER for safe functions | **LOW** | Risk conflates health (violations) with structural risk (callers) | Separate risk dimensions |
-
-### Swarm Assignment (3 agents)
-
-| Agent | Tasks | Target Tests | Files |
-|-------|-------|-------------|-------|
-| **hooks** | Fix Cursor/Gemini test setup, adjust templates/expectations, wire `--delta` into hook templates, implement hook timeout + concurrent handling | 20 | test_cursor_hooks.rs, test_gemini_hooks.rs, test_hook_execution.rs, templates |
-| **bugs** | F1: fix `find_nodes_by_name` wildcard, F2: fix `name` scoring, F4: deduplicate decorator entries, F5: fix risk scoring in `check` | 0 (bug fixes) | sqlite_queries.rs, name.rs, check.rs, parsers |
-| **core** | Schema v2 migration, module node per-file creation, dynamic dispatch confidence, update PROGRESS.md | 7 | sqlite.rs, parsers, graph correctness tests, PROGRESS.md |
-
-### Success Criteria
-
-| Criterion | How to verify |
-|-----------|--------------|
-| Cursor hook tests pass (8) | `cargo test test_cursor -- --ignored` |
-| Gemini hook tests pass (8) | `cargo test test_gemini -- --ignored` |
-| Hook execution tests pass (2) | `cargo test test_hook -- --ignored` |
-| `discover --name` works | `cargo test discover_name` |
-| `check` risk scoring correct | `cargo test check_risk` |
-| Schema migration tests pass (2) | `cargo test test_schema_migration -- --ignored` |
-| Module node tests pass (4+1) | `cargo test graph_correctness -- --ignored` |
-| **Total:** ≤66 ignored | `cargo test --workspace` |
-| 0 clippy warnings | `cargo clippy --workspace` |
-| PROGRESS.md accurate | Manual review |
-
----
-
-## 15. Round 11 Plan: UX Polish + Resolution Depth
-
-**Approach:** 3-agent swarm. Focus on feedback polish and achievable resolution tests.
-
-### From Feedback (claudecode_feedback.md v2)
-
-| # | Item | Severity | Fix |
-|---|------|----------|-----|
-| P1 | `name` unreliable placement | MEDIUM | Better path-keyword extraction, module convention detection, low-confidence abort |
-| P2 | `check` high-caller summary | LOW | Summarize 20+ callers as "N callers across M files", --verbose for full list |
-| P3 | `discover --context N` | LOW | Parameterize context lines (currently fixed) |
-| P4 | Deprecate `where` | LOW | Print hint to use `discover --name` instead |
-
-### Achievable Resolution Tests (~15 from 68 ignored)
-
-| Language | Tests | Feature | Complexity |
-|----------|-------|---------|-----------|
-| Parser | 1 | `supports_extension()` method on LanguageResolver | Trivial |
-| Go | 3 | blank/dot/module-relative imports | LOW-MED |
-| Python | 5 | `__all__` basic list parsing | MEDIUM |
-| Rust | 3 | use alias, use self, glob use | MEDIUM |
-| TypeScript | 1 | package.json exports field | LOW-MED |
-
-### Swarm Assignment
-
-| Agent | Tasks | Files |
-|-------|-------|-------|
-| **polish** | P1-P4 feedback items, check caller summary, discover --context N, deprecate where | name.rs, naming.rs, check.rs, discover.rs, output formatters |
-| **resolution-a** | Go imports (3), Python __all__ (5), parser supports_extension (1) | go/mod.rs, python/mod.rs, python.scm, resolver trait |
-| **resolution-b** | Rust use statements (3), TS package.json exports (1), plus any quick wins | rust_lang/mod.rs, typescript/mod.rs |
-
-### Success Criteria
-- `keel name` returns "no confident match" when score < 0.3
-- `check` summarizes 20+ callers
-- `discover --context 5` works
-- 68 → ~53 ignored tests
-- 0 failures, 0 clippy warnings
+### Convergence Verification
+| Criterion | Target | Actual |
+|-----------|--------|--------|
+| Tests passing | 1046+ | **1052** |
+| Tests ignored | 0 | **0** |
+| Tests failed | 0 | **0** |
+| Clippy warnings | 0 | **0** |
+| Files over 400 lines | 0 | **0** |
 
 ---
 

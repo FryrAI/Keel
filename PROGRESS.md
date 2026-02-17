@@ -17,9 +17,14 @@ flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map 
 Round 10 (3-agent swarm) implemented schema v2 migration, module node auto-creation, dynamic dispatch
 confidence, Cursor/Gemini hook fixes, and 5 bug fixes. Round 11 polished UX (name reliability, check
 caller summary, --context N, deprecate where) and added resolution features (Go imports, Python __all__,
-Rust use statements, TS package.json exports, supports_extension trait method).
+Rust use statements, TS package.json exports, supports_extension trait method). Round 12 (2-agent swarm)
+un-ignored 47 tests across all 4 languages via enhanced Tier 2 heuristics: Go interfaces/receivers/
+visibility/package scoping, Python star imports/subprocess/package resolution, Rust impl blocks/mod
+declarations, TS namespace resolution. Round 13 finished the job: all 8 remaining TIER3 tests implemented
+(Rust trait bounds, where clauses, supertraits, associated types, derive/attr macros; TS module
+augmentation, project references).
 
-**972 tests passing, 0 failures, 55 ignored (feature-blocked), 0 clippy warnings.**
+**1052 tests passing, 0 failures, 0 ignored, 0 clippy warnings.**
 
 ## Test Status — Actual Numbers
 
@@ -27,8 +32,8 @@ Rust use statements, TS package.json exports, supports_extension trait method).
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 972 | Round 11: UX polish, Go imports, Python __all__, Rust use, TS exports |
-| **Ignored** | 55 | Feature-blocked (advanced resolution, large perf) |
+| **Passing** | 1052 | Round 13: zero ignored — all TIER3 tests implemented |
+| **Ignored** | 0 | All tests un-ignored across Rounds 12-13 |
 | **Failing** | 0 | Clean |
 
 ### Where the Passing Tests Live
@@ -36,7 +41,7 @@ Rust use statements, TS package.json exports, supports_extension trait method).
 | Source | Tests | Notes |
 |--------|-------|-------|
 | crates/keel-core/ | 24 | SQLite, hash, config |
-| crates/keel-parsers/ | 42 | tree-sitter, 4 resolvers, walker |
+| crates/keel-parsers/ | 74 | tree-sitter, 4 resolvers, walker, trait resolution |
 | crates/keel-enforce/ | 61 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
 | crates/keel-cli/ | 63 | CLI args, init merge logic, map resolve, fix/name, explain --depth, search, input_detect |
 | crates/keel-server/ | 41 | MCP + HTTP + watcher |
@@ -44,7 +49,7 @@ Rust use statements, TS package.json exports, supports_extension trait method).
 | tests/contracts/ | 66 | Frozen trait contracts |
 | tests/fixtures/ | 10 | Mock graph + compile helpers |
 | tests/integration/ | 31 | E2E workflows (real) |
-| tests/resolution/ | 154 | 4 languages + barrel files |
+| tests/resolution/ | 174 | 4 languages + barrel files |
 | tests/cli/ | 2 | init keelignore + git hook |
 | tests/server/ | 29 | MCP + HTTP + watch + lifecycle |
 | tests/benchmarks/ | 13 | Map, parsing, parallel parsing |
@@ -52,7 +57,57 @@ Rust use statements, TS package.json exports, supports_extension trait method).
 | tests/enforcement/ | 44 | Violations, batch, circuit breaker |
 | tests/tool_integration/ | 31 | Claude Code hooks, instruction files, git hooks, hook execution |
 | other integration | ~160 | Graph, parsing, correctness |
-| **Total** | **986** | |
+| **Total** | **1052** | |
+
+## Round 13: Zero Ignored Tests (2026-02-17) — COMPLETED
+
+2-agent parallel swarm (Rust tier3 + TS tier3). Final push to zero ignored tests.
+
+### Rust Agent — 6 Tests
+- **Trait bound resolution**: Parse `<T: Trait>` from fn signatures, resolve method calls on generic types (0.65 confidence)
+- **Where clause resolution**: Parse `where T: Trait` with multi-line support
+- **Supertrait method resolution**: Parse `trait A: B + C`, expand supertrait hierarchy, include inherited methods
+- **Associated type resolution**: Extract `type Output = String;` from impl blocks
+- **Derive macro resolution**: Extract `#[derive(Debug, Clone)]` as TypeRef references
+- **Attribute macro resolution**: Extract `#[tokio::main]` as Call references, skip built-in attrs
+
+New file: `crates/keel-parsers/src/rust_lang/trait_resolution.rs` (383 lines)
+
+### TypeScript Agent — 2 Tests
+- **Module augmentation**: Parse `declare module 'X' { ... }` to extract augmented definitions
+- **Project reference resolution**: Extend `load_tsconfig_paths()` to read `"references"` array from tsconfig.json
+
+### Clippy Fixes
+- Fixed 8 clippy warnings across `go/mod.rs`, `go/type_resolution.rs`, `trait_resolution.rs`, `helpers.rs`
+
+### Results
+- 1038 → 1052 tests passing (+14)
+- 8 → **0 ignored** (-8, all TIER3 tests implemented)
+- 0 failures, 0 clippy warnings
+- 9 files changed, +786/-71 lines
+
+## Round 12: Tier 2 Resolution Depth (2026-02-17) — COMPLETED
+
+2-agent swarm (resolution-a, resolution-b) un-ignoring 47 tests via enhanced Tier 2 heuristics.
+
+### Resolution-A — Go + Python
+- **Go interfaces**: method set extraction, interface satisfaction checking
+- **Go receiver methods**: method-to-type binding via receiver parsing
+- **Go visibility**: exported/unexported name detection
+- **Go package scoping**: cross-package resolution via import paths
+- **Python star imports**: `from module import *` with `__all__` filtering
+- **Python subprocess**: ty subprocess integration for type resolution
+- **Python package resolution**: `__init__.py` and package directory handling
+
+### Resolution-B — Rust + TypeScript
+- **Rust impl blocks**: inherent impl method extraction and resolution
+- **Rust mod declarations**: `mod foo;` to file path resolution
+- **TS namespace resolution**: namespace merging and qualified name lookup
+
+### Results
+- 972 → 1038 tests passing (+66)
+- 55 → 8 ignored (-47 un-ignored)
+- 0 failures, 0 clippy warnings
 
 ## Round 11: UX Polish + Resolution Depth (2026-02-17) — COMPLETED
 
@@ -182,20 +237,6 @@ Addressed 5 specific pain points from Claude Code's honest feedback on keel usab
 - 5 → 0 clippy warnings
 - 7 commits, 3 agents, ~30 minutes wall time
 
-### 68 Ignored Tests Breakdown
-| Category | Count | Reason |
-|----------|-------|--------|
-| Python __all__/star imports | 11 | Tier 2 resolution not implemented |
-| Rust macros/traits/impl | 18 | Advanced Tier 2 features |
-| Go cross-package/interface | 12 | Advanced Tier 2 features |
-| TypeScript namespaces/project refs | 4 | Advanced Tier 2 features |
-| Large codebase perf | 5 | Intentionally ignored in debug builds |
-| CLI --merge flag | 4 | Feature not implemented |
-| Integration workflow | 5 | Advanced E2E scenarios |
-| Graph storage (module_profiles, etc.) | 4 | Missing public API surface |
-| Parsing (trait method, large corpus) | 3 | Missing API / CI infrastructure |
-| Other | 2 | Various feature gaps |
-
 ## Round 6: Polish & Content Audit (2026-02-16) — COMPLETED
 
 ### Performance & Test Fixes
@@ -277,26 +318,10 @@ Created 5 docs (all under 400 lines):
 - 18 previously-ignored tool integration tests now pass
 - All 15 real-world repos green with O(n) compile times
 
-## Previous Rounds
+## Previous Rounds (3-4)
 
-### Round 4: Agent UX Polish (2026-02-13)
-
-| Feature | What It Does |
-|---------|-------------|
-| `keel explain --depth 0-3` | Resolution chain truncation by depth level |
-| `--max-tokens N` | Configurable global token budget for LLM output |
-| `keel fix --apply` | Auto-apply fix plans with file writes + re-compile verification |
-
-926 → 931 tests. 33 files changed, +2822/-499 lines.
-
-### Round 3: LLM Experience (2026-02-13)
-
-- `keel fix` — diff-style fix plans for E001-E005 violations
-- `keel name` — module scoring by keyword overlap, convention detection
-- `keel map --depth 0-3` — depth-aware output with hotspot detection
-- `keel compile --depth 0-2` — backpressure signals (PRESSURE/BUDGET)
-
-887 → 926 tests.
+- **Round 4** (2026-02-13): `explain --depth`, `--max-tokens N`, `fix --apply`. 926 → 931 tests.
+- **Round 3** (2026-02-13): `fix`, `name`, `map --depth`, `compile --depth`. 887 → 926 tests.
 
 ## Implementation Phase Status
 
@@ -339,10 +364,10 @@ Zero orphans. Zero regressions. 4 consecutive green rounds.
 ## Remaining Work
 
 ### P0: Ship Blockers — NONE
-All tests pass. Clippy clean. Ready to tag v0.1.0.
+All 1052 tests pass. Zero ignored. Clippy clean. Ready to tag v0.1.0.
 
 ### P1: Polish (post-release)
-- 55 ignored tests → implement underlying features (advanced resolution, large perf)
+- ~~55 ignored tests~~ — **DONE** (Rounds 12-13: all tests un-ignored)
 - Config format: TOML migration (keel.toml alongside keel.json)
 - Performance: measure actual memory usage, verify <200ms compile on release builds
 
@@ -355,8 +380,8 @@ All tests pass. Clippy clean. Ready to tag v0.1.0.
 - `keel serve --mcp` end-to-end with Claude Code and Cursor
 
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 → 972 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 → 972 → 1038 → **1052** (current, 0 ignored)
 
 Note: Count dropped from 953 to 895 between Round 6-7 due to stricter runtime counting
-(`cargo test --workspace` output vs `#[test]` annotation count). Round 10 counts use
+(`cargo test --workspace` output vs `#[test]` annotation count). Round 10+ counts use
 `--no-fail-fast` for accurate totals across all test binaries.
