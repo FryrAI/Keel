@@ -1,7 +1,7 @@
-/// Multi-language integration tests: init and map detection.
-///
-/// Verifies that `keel init` + `keel map` correctly detects and indexes
-/// functions across all four supported languages (TypeScript, Python, Go, Rust).
+//! Multi-language integration tests: init and map detection.
+//!
+//! Verifies that `keel init` + `keel map` correctly detects and indexes
+//! functions across all four supported languages (TypeScript, Python, Go, Rust).
 
 use super::test_multi_lang_setup::{init_and_map, setup_mixed_project};
 

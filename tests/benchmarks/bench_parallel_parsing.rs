@@ -4,8 +4,7 @@
 // via Rayon, achieving near-linear scaling for the parsing phase.
 // Uses RAYON_NUM_THREADS env var to control thread count through CLI.
 
-#[path = "../common/mod.rs"]
-mod common;
+use super::common;
 
 use common::generators::generate_project;
 use std::fs;

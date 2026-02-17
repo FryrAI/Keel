@@ -1,7 +1,7 @@
-/// Multi-language integration tests: discover across languages.
-///
-/// Verifies that `keel discover` returns valid JSON output for functions
-/// discovered from each of the four supported languages.
+//! Multi-language integration tests: discover across languages.
+//!
+//! Verifies that `keel discover` returns valid JSON output for functions
+//! discovered from each of the four supported languages.
 
 use std::process::Command;
 

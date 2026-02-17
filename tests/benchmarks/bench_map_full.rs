@@ -6,8 +6,7 @@
 // 2. Multiple benchmark tests run in parallel via `cargo test`, contending for CPU
 // Release targets should be validated in CI with `cargo test --release`.
 
-#[path = "../common/mod.rs"]
-mod common;
+use super::common;
 
 use common::generators::generate_project;
 use std::fs;

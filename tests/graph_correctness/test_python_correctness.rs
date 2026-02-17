@@ -224,7 +224,7 @@ def main() -> None:
         .collect();
     // At minimum, Encoder() and e.encode() should appear
     assert!(
-        calls.len() >= 1,
+        !calls.is_empty(),
         "expected >= 1 call references, got {}",
         calls.len()
     );

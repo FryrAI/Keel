@@ -1,8 +1,7 @@
 // Benchmark tests for tree-sitter parsing performance
 // Uses CLI binary (keel map) to measure parsing throughput.
 
-#[path = "../common/mod.rs"]
-mod common;
+use super::common;
 
 use common::generators::generate_project;
 use std::fs;

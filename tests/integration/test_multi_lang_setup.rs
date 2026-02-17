@@ -1,7 +1,7 @@
-/// Shared setup helpers for multi-language integration tests.
-///
-/// Provides the keel binary path, a mixed-language project fixture,
-/// init+map orchestration, and hash lookup by function name.
+//! Shared setup helpers for multi-language integration tests.
+//!
+//! Provides the keel binary path, a mixed-language project fixture,
+//! init+map orchestration, and hash lookup by function name.
 
 use std::fs;
 use std::process::Command;

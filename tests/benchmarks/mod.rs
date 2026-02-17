@@ -1,3 +1,6 @@
+#[path = "../common/mod.rs"]
+mod common;
+
 mod bench_parsing;
 mod bench_hash_computation;
 mod bench_sqlite_operations;

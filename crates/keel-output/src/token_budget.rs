@@ -60,6 +60,6 @@ mod tests {
     fn test_truncate_keeps_at_least_one() {
         let lines = vec!["a very long line that exceeds budget alone".into(), "second".into()];
         let (kept, _overflow) = truncate_to_budget(&lines, 1);
-        assert!(kept.len() >= 1); // Always keeps at least one
+        assert!(!kept.is_empty()); // Always keeps at least one
     }
 }

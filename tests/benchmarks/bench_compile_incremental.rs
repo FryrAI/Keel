@@ -1,8 +1,7 @@
 // Benchmark tests for incremental compile performance
 // Uses CLI binary to measure single-file compile speed.
 
-#[path = "../common/mod.rs"]
-mod common;
+use super::common;
 
 use std::fs;
 use std::process::Command;

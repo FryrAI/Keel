@@ -29,18 +29,13 @@ pub struct KeelConfig {
 }
 
 /// Product tier — gates feature access.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
+    #[default]
     Free,
     Team,
     Enterprise,
-}
-
-impl Default for Tier {
-    fn default() -> Self {
-        Self::Free
-    }
 }
 
 /// Telemetry configuration — privacy-safe event tracking.
@@ -76,21 +71,12 @@ impl TelemetryConfig {
 }
 
 /// Naming convention configuration — stub for future online UI.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NamingConventionsConfig {
     #[serde(default)]
     pub style: Option<String>,
     #[serde(default)]
     pub prefixes: Vec<String>,
-}
-
-impl Default for NamingConventionsConfig {
-    fn default() -> Self {
-        Self {
-            style: None,
-            prefixes: vec![],
-        }
-    }
 }
 
 /// Enforcement severity toggles.

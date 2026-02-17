@@ -217,10 +217,10 @@ fn test_circuit_breaker_downgrade() {
         parse_duration_us: 0,
     };
 
-    let r1 = engine.compile(&[file.clone()]);
+    let r1 = engine.compile(std::slice::from_ref(&file));
     assert!(r1.errors.iter().any(|v| v.code == "E001" && v.severity == "ERROR"));
 
-    let r2 = engine.compile(&[file.clone()]);
+    let r2 = engine.compile(std::slice::from_ref(&file));
     let e001_count = r2.errors.iter().filter(|v| v.code == "E001").count();
     assert_eq!(e001_count, 0, "E001 should not fire after graph is persisted");
 }

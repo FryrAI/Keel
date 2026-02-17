@@ -1,7 +1,7 @@
-/// Multi-language integration tests: compile across languages.
-///
-/// Verifies that `keel compile` correctly detects violations when
-/// source files are modified in each of the four supported languages.
+//! Multi-language integration tests: compile across languages.
+//!
+//! Verifies that `keel compile` correctly detects violations when
+//! source files are modified in each of the four supported languages.
 
 use std::fs;
 use std::process::Command;

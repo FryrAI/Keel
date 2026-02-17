@@ -332,7 +332,7 @@ fn test_suppression_prevents_circuit_breaker_escalation() {
 
     // Compile 3 times -- suppressed violations should become S001/INFO
     for _ in 0..3 {
-        let result = engine.compile(&[file.clone()]);
+        let result = engine.compile(std::slice::from_ref(&file));
         let e002_errors = result.errors.iter().filter(|v| v.code == "E002").count();
         assert_eq!(e002_errors, 0, "E002 should be suppressed in every iteration");
 

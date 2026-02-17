@@ -198,9 +198,7 @@ class RateLimitedService {
         .filter(|r| r.kind == ReferenceKind::Call)
         .collect();
     // Throttle(100) is a call, so it should appear as a reference
-    let has_throttle_call = calls.iter().any(|r| r.name.contains("Throttle"));
-    if has_throttle_call {
-        assert!(true, "Throttle call reference detected");
-    }
+    let _has_throttle_call = calls.iter().any(|r| r.name.contains("Throttle"));
+    // Throttle call detection is optional; the function definition is verified above
     // Either way, the function definition is verified above
 }

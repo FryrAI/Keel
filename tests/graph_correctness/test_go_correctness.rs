@@ -258,7 +258,7 @@ func main() {
 
     // THEN the import is captured
     assert!(
-        result.imports.len() >= 1,
+        !result.imports.is_empty(),
         "expected >= 1 import, got {}",
         result.imports.len()
     );

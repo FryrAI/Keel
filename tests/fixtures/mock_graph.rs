@@ -5,6 +5,7 @@ use keel_core::types::{
 };
 
 /// Helper to build a GraphNode with sensible defaults.
+#[allow(clippy::too_many_arguments)]
 fn make_node(
     id: u64,
     hash: &str,
