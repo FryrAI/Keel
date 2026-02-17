@@ -20,6 +20,77 @@ pub struct KeelConfig {
     pub batch: BatchConfig,
     #[serde(default)]
     pub ignore_patterns: Vec<String>,
+    #[serde(default)]
+    pub tier: Tier,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
+    #[serde(default)]
+    pub naming_conventions: NamingConventionsConfig,
+}
+
+/// Product tier — gates feature access.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    Free,
+    Team,
+    Enterprise,
+}
+
+impl Default for Tier {
+    fn default() -> Self {
+        Self::Free
+    }
+}
+
+/// Telemetry configuration — privacy-safe event tracking.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub detailed: bool,
+    #[serde(default = "default_true")]
+    pub remote: bool,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            detailed: false,
+            remote: true,
+            endpoint: None,
+        }
+    }
+}
+
+impl TelemetryConfig {
+    pub fn effective_endpoint(&self) -> &str {
+        self.endpoint
+            .as_deref()
+            .unwrap_or("https://api.keel.engineer/telemetry")
+    }
+}
+
+/// Naming convention configuration — stub for future online UI.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamingConventionsConfig {
+    #[serde(default)]
+    pub style: Option<String>,
+    #[serde(default)]
+    pub prefixes: Vec<String>,
+}
+
+impl Default for NamingConventionsConfig {
+    fn default() -> Self {
+        Self {
+            style: None,
+            prefixes: vec![],
+        }
+    }
 }
 
 /// Enforcement severity toggles.
@@ -92,6 +163,9 @@ impl Default for KeelConfig {
             circuit_breaker: CircuitBreakerConfig::default(),
             batch: BatchConfig::default(),
             ignore_patterns: vec![],
+            tier: Tier::default(),
+            telemetry: TelemetryConfig::default(),
+            naming_conventions: NamingConventionsConfig::default(),
         }
     }
 }
@@ -162,6 +236,17 @@ mod tests {
                 "node_modules/**".to_string(),
                 "*.generated.ts".to_string(),
             ],
+            tier: Tier::Enterprise,
+            telemetry: TelemetryConfig {
+                enabled: false,
+                detailed: true,
+                remote: false,
+                endpoint: Some("https://custom.example.com/telemetry".to_string()),
+            },
+            naming_conventions: NamingConventionsConfig {
+                style: Some("snake_case".to_string()),
+                prefixes: vec!["keel_".to_string(), "test_".to_string()],
+            },
         };
 
         // Serialize to JSON
@@ -188,6 +273,16 @@ mod tests {
             roundtripped.ignore_patterns,
             vec!["vendor/**", "node_modules/**", "*.generated.ts"]
         );
+        assert_eq!(roundtripped.tier, Tier::Enterprise);
+        assert!(!roundtripped.telemetry.enabled);
+        assert!(roundtripped.telemetry.detailed);
+        assert!(!roundtripped.telemetry.remote);
+        assert_eq!(
+            roundtripped.telemetry.endpoint,
+            Some("https://custom.example.com/telemetry".to_string())
+        );
+        assert_eq!(roundtripped.naming_conventions.style, Some("snake_case".to_string()));
+        assert_eq!(roundtripped.naming_conventions.prefixes, vec!["keel_", "test_"]);
     }
 
     #[test]
@@ -225,5 +320,59 @@ mod tests {
         assert_eq!(cfg.circuit_breaker.max_failures, 3); // default
         assert_eq!(cfg.batch.timeout_seconds, 60); // default
         assert!(cfg.enforce.type_hints); // default
+    }
+
+    #[test]
+    fn test_tier_roundtrip() {
+        for (tier, expected_json) in [
+            (Tier::Free, "\"free\""),
+            (Tier::Team, "\"team\""),
+            (Tier::Enterprise, "\"enterprise\""),
+        ] {
+            let json = serde_json::to_string(&tier).unwrap();
+            assert_eq!(json, expected_json);
+            let parsed: Tier = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, tier);
+        }
+    }
+
+    #[test]
+    fn test_telemetry_defaults() {
+        let cfg = TelemetryConfig::default();
+        assert!(cfg.enabled);
+        assert!(!cfg.detailed);
+        assert!(cfg.remote);
+        assert!(cfg.endpoint.is_none());
+        assert_eq!(cfg.effective_endpoint(), "https://api.keel.engineer/telemetry");
+    }
+
+    #[test]
+    fn test_backward_compat_old_json_without_new_fields() {
+        // Old-style JSON without tier, telemetry, or naming_conventions
+        let old_json = r#"{
+            "version": "0.1.0",
+            "languages": ["typescript"],
+            "enforce": { "type_hints": true, "docstrings": true, "placement": true },
+            "circuit_breaker": { "max_failures": 3 },
+            "batch": { "timeout_seconds": 60 },
+            "ignore_patterns": []
+        }"#;
+        let cfg: KeelConfig = serde_json::from_str(old_json).unwrap();
+        assert_eq!(cfg.tier, Tier::Free);
+        assert!(cfg.telemetry.enabled);
+        assert!(cfg.telemetry.remote);
+        assert!(cfg.naming_conventions.style.is_none());
+        assert!(cfg.naming_conventions.prefixes.is_empty());
+    }
+
+    #[test]
+    fn test_naming_conventions_roundtrip() {
+        let nc = NamingConventionsConfig {
+            style: Some("camelCase".to_string()),
+            prefixes: vec!["app_".to_string(), "lib_".to_string()],
+        };
+        let json = serde_json::to_string(&nc).unwrap();
+        let parsed: NamingConventionsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, nc);
     }
 }

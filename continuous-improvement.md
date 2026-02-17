@@ -9,7 +9,7 @@ usage: "Run anytime. Idempotent. Safe to re-execute."
 > **Goal:** Zero ignored tests, zero failures, all 15 repos green, no known bugs.
 > Only after convergence do we proceed to distribution and release.
 >
-> **STATUS: CONVERGED (Round 13).** 1052 tests passing, 0 ignored, 0 failed, 0 clippy warnings.
+> **STATUS: CONVERGED (Round 14).** 1071 tests passing, 0 ignored, 0 failed, 0 clippy warnings.
 
 ---
 
@@ -282,6 +282,26 @@ Go imports, Python __all__, Rust use statements, TS package.json exports.
 | Tests failed | 0 | **0** |
 | Clippy warnings | 0 | **0** |
 | Files over 400 lines | 0 | **0** |
+
+---
+
+## 18. Round 14 Results (2026-02-17) — COMPLETED
+
+**Approach:** Single session — telemetry engine, config command, install polish.
+
+### Key Deliverables
+- **Privacy-safe telemetry** (`telemetry.rs`): Separate `telemetry.db`, records command metrics only (no paths/code/git), aggregate/prune/recent queries
+- **Config extension**: `Tier` (Free/Team/Enterprise), `TelemetryConfig` (opt-OUT remote), `NamingConventionsConfig` — all backward-compatible
+- **`keel config` command**: Get/set with dot-notation (`keel config telemetry.enabled false`)
+- **Telemetry recorder**: Wraps every command with timing, silently fails
+- **`keel init` .gitignore**: Auto-adds `.keel/graph.db`, `telemetry.db`, `session.json`, `cache/`
+- **`keel stats` upgrade**: Shows telemetry aggregate (invocations, avg times, top commands, languages)
+- **README fix**: `config.toml` → `keel.json`, added Install section
+- **install.sh**: `--version` flag, shell completion hints
+
+### Test Status
+- **1071 passed, 0 failed, 0 ignored, 0 clippy warnings**
+- 14 files (5 new + 9 modified), all under 400 lines
 
 ---
 

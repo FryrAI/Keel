@@ -76,12 +76,25 @@ extensions/
 | 2 | Per-language enhancer (Oxc, ty, heuristics, rust-analyzer) | 92-98% | <200ms / file |
 | 3 | LSP/SCIP (on-demand) | >95% | seconds |
 
+## Install
+
+```bash
+# macOS (Homebrew)
+brew tap FryrAI/tap && brew install keel
+
+# Linux / macOS (script)
+curl -fsSL https://keel.engineer/install.sh | bash
+
+# From source
+cargo install --path crates/keel-cli
+
+# CI (GitHub Actions)
+# uses: FryrAI/Keel/.github/actions/keel@v0.1.0
+```
+
 ## Quick Start
 
 ```bash
-# Install (from source)
-cargo install --path crates/keel-cli
-
 # Initialize in your repo
 cd your-project
 keel init
@@ -126,32 +139,39 @@ keel where a7Bx3kM9f2Q
 
 ## Configuration
 
-keel stores its configuration in `.keel/config.toml`:
+keel stores its configuration in `.keel/keel.json`:
 
-```toml
-[keel]
-version = "0.1.0"
+```json
+{
+  "version": "0.1.0",
+  "languages": ["typescript", "python", "go", "rust"],
+  "enforce": {
+    "type_hints": true,
+    "docstrings": true,
+    "placement": true
+  },
+  "circuit_breaker": { "max_failures": 3 },
+  "batch": { "timeout_seconds": 60 },
+  "tier": "free",
+  "telemetry": {
+    "enabled": true,
+    "detailed": false,
+    "remote": true
+  },
+  "naming_conventions": {
+    "style": null,
+    "prefixes": []
+  }
+}
+```
 
-[languages]
-typescript = true
-python = true
-go = true
-rust = true
+Use `keel config` to read/write values:
 
-[enforcement]
-preexisting_severity = "warning"  # "error", "warning", "off"
-type_hints = true
-docstrings = true
-placement = true
-
-[batch]
-auto_expire_seconds = 60
-
-[circuit_breaker]
-max_failures = 3
-
-[output]
-format = "json"  # "json", "llm", "human"
+```bash
+keel config                          # dump full config
+keel config tier                     # get current tier
+keel config tier team                # set tier
+keel config telemetry.enabled false  # disable telemetry
 ```
 
 Additional ignore patterns go in `.keelignore` (gitignore syntax).
@@ -278,7 +298,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **Ready for release** |
 
-**Current:** 972 tests passing, 0 failures, 55 ignored (all feature-blocked), 0 clippy warnings. 15 real-world repos validated.
+**Current:** 1052+ tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
 
 ## Roadmap
 

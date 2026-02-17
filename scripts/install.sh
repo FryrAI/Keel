@@ -14,8 +14,17 @@ set -euo pipefail
 
 REPO="FryrAI/Keel"
 INSTALL_DIR="${KEEL_INSTALL_DIR:-$HOME/.local/bin}"
-VERSION="${1:-latest}"
 SKIP_CHECKSUM="${KEEL_SKIP_CHECKSUM:-0}"
+
+# Parse arguments
+VERSION="latest"
+for arg in "$@"; do
+    case "$arg" in
+        --version) echo "keel installer v0.1.0"; exit 0 ;;
+        v*) VERSION="$arg" ;;
+        *) VERSION="$arg" ;;
+    esac
+done
 
 # Detect platform
 OS="$(uname -s)"
@@ -131,5 +140,15 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
 fi
 
 echo ""
-echo "Quick start:  cd your-project && keel init && keel map"
-echo "Star us:      gh star FryrAI/Keel"
+echo "Get started:"
+echo "  cd your-project && keel init && keel map"
+echo ""
+echo "Shell completions:"
+SHELL_NAME="$(basename "${SHELL:-/bin/bash}")"
+case "$SHELL_NAME" in
+    zsh)  echo "  keel --generate-completion zsh > ~/.zfunc/_keel" ;;
+    fish) echo "  keel --generate-completion fish > ~/.config/fish/completions/keel.fish" ;;
+    *)    echo "  keel --generate-completion bash > /etc/bash_completion.d/keel" ;;
+esac
+echo ""
+echo "Star us: gh star FryrAI/Keel"

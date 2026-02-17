@@ -188,6 +188,14 @@ pub(crate) enum Commands {
 
     /// Display telemetry dashboard
     Stats,
+
+    /// Get or set configuration values (dot-notation supported)
+    Config {
+        /// Configuration key (e.g., "tier", "telemetry.enabled")
+        key: Option<String>,
+        /// Value to set (omit to read current value)
+        value: Option<String>,
+    },
 }
 
 #[cfg(test)]

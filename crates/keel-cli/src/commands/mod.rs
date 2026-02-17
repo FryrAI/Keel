@@ -17,3 +17,4 @@ pub mod deinit;
 pub mod stats;
 pub mod check;
 pub mod analyze;
+pub mod config;

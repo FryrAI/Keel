@@ -1,7 +1,10 @@
+use std::time::Instant;
+
 use clap::Parser;
 
 mod cli_args;
 mod commands;
+mod telemetry_recorder;
 
 use cli_args::{Cli, Commands};
 
@@ -25,6 +28,9 @@ fn main() {
     } else {
         Box::new(keel_output::human::HumanFormatter)
     };
+
+    let cmd_name = telemetry_recorder::command_name(&cli.command);
+    let start = Instant::now();
 
     let exit_code = match cli.command {
         Commands::Init { merge } => commands::init::run(&*formatter, cli.verbose, merge),
@@ -72,7 +78,26 @@ fn main() {
         Commands::Watch => commands::watch::run(cli.verbose),
         Commands::Deinit => commands::deinit::run(&*formatter, cli.verbose),
         Commands::Stats => commands::stats::run(&*formatter, cli.verbose, cli.json),
+        Commands::Config { key, value } => {
+            commands::config::run(&*formatter, cli.verbose, key, value)
+        }
     };
+
+    // Record telemetry (silently fails — never blocks CLI)
+    if let Ok(cwd) = std::env::current_dir() {
+        let keel_dir = cwd.join(".keel");
+        if keel_dir.exists() {
+            let config = keel_core::config::KeelConfig::load(&keel_dir);
+            telemetry_recorder::record_event(
+                &keel_dir,
+                &config,
+                cmd_name,
+                start.elapsed(),
+                exit_code,
+                telemetry_recorder::EventMetrics::default(),
+            );
+        }
+    }
 
     std::process::exit(exit_code);
 }

@@ -44,7 +44,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
         all_node_ids.push(module.id);
     }
 
-    // Count edges by kind — query all nodes, not just modules
+    // Count edges by kind
     let mut calls_count = 0u32;
     let mut imports_count = 0u32;
     let mut contains_count = 0u32;
@@ -74,6 +74,9 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
     }
     let edge_count = calls_count + imports_count + contains_count;
 
+    // Load telemetry aggregate
+    let telemetry_agg = load_telemetry_aggregate(&keel_dir);
+
     if json {
         let mut stats = serde_json::json!({
             "version": "0.1.0",
@@ -83,6 +86,9 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
             "files": file_set.len(),
             "edges": edge_count,
         });
+        if let Some(ref agg) = telemetry_agg {
+            stats["telemetry"] = serde_json::to_value(agg).unwrap_or_default();
+        }
         if verbose {
             stats["db_path"] = serde_json::Value::String(db_path.display().to_string());
             if let Ok(v) = store.schema_version() {
@@ -106,7 +112,56 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
                 println!("  schema:    v{}", v);
             }
         }
+
+        // Telemetry section
+        if let Some(agg) = telemetry_agg {
+            println!();
+            println!("  telemetry (last 30 days):");
+            println!("    invocations: {}", agg.total_invocations);
+            if let Some(avg) = agg.avg_compile_ms {
+                println!("    avg compile:  {}ms", avg as u64);
+            }
+            if let Some(avg) = agg.avg_map_ms {
+                let formatted = if avg >= 1000.0 {
+                    format!("{:.1}s", avg / 1000.0)
+                } else {
+                    format!("{}ms", avg as u64)
+                };
+                println!("    avg map:      {}", formatted);
+            }
+            println!("    errors:       {}", agg.total_errors);
+            println!("    warnings:     {}", agg.total_warnings);
+
+            if !agg.command_counts.is_empty() {
+                let mut cmds: Vec<_> = agg.command_counts.iter().collect();
+                cmds.sort_by(|a, b| b.1.cmp(a.1));
+                let top: Vec<String> = cmds.iter().take(5).map(|(k, v)| format!("{} ({})", k, v)).collect();
+                println!("    top commands: {}", top.join(", "));
+            }
+
+            if !agg.language_percentages.is_empty() {
+                let mut langs: Vec<_> = agg.language_percentages.iter().collect();
+                langs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let lang_str: Vec<String> = langs.iter().map(|(k, v)| format!("{} {:.0}%", k, v)).collect();
+                println!("    languages:    {}", lang_str.join(", "));
+            }
+        }
     }
 
     0
+}
+
+fn load_telemetry_aggregate(
+    keel_dir: &std::path::Path,
+) -> Option<keel_core::telemetry::TelemetryAggregate> {
+    let telemetry_path = keel_dir.join("telemetry.db");
+    if !telemetry_path.exists() {
+        return None;
+    }
+    let store = keel_core::telemetry::TelemetryStore::open(&telemetry_path).ok()?;
+    let agg = store.aggregate(30).ok()?;
+    if agg.total_invocations == 0 {
+        return None;
+    }
+    Some(agg)
 }

@@ -24,7 +24,7 @@ declarations, TS namespace resolution. Round 13 finished the job: all 8 remainin
 (Rust trait bounds, where clauses, supertraits, associated types, derive/attr macros; TS module
 augmentation, project references).
 
-**1052 tests passing, 0 failures, 0 ignored, 0 clippy warnings.**
+**1071 tests passing, 0 failures, 0 ignored, 0 clippy warnings.**
 
 ## Test Status — Actual Numbers
 
@@ -32,7 +32,7 @@ augmentation, project references).
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 1052 | Round 13: zero ignored — all TIER3 tests implemented |
+| **Passing** | 1071 | Round 14: telemetry, config command, install polish |
 | **Ignored** | 0 | All tests un-ignored across Rounds 12-13 |
 | **Failing** | 0 | Clean |
 
@@ -40,10 +40,10 @@ augmentation, project references).
 
 | Source | Tests | Notes |
 |--------|-------|-------|
-| crates/keel-core/ | 24 | SQLite, hash, config |
+| crates/keel-core/ | 40 | SQLite, hash, config, telemetry |
 | crates/keel-parsers/ | 74 | tree-sitter, 4 resolvers, walker, trait resolution |
 | crates/keel-enforce/ | 61 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
-| crates/keel-cli/ | 63 | CLI args, init merge logic, map resolve, fix/name, explain --depth, search, input_detect |
+| crates/keel-cli/ | 71 | CLI args, init merge logic, map resolve, fix/name, explain --depth, search, input_detect, config command |
 | crates/keel-server/ | 41 | MCP + HTTP + watcher |
 | crates/keel-output/ | 35 | JSON, LLM, human formatters, depth/backpressure/fix/name, token budget |
 | tests/contracts/ | 66 | Frozen trait contracts |
@@ -57,7 +57,39 @@ augmentation, project references).
 | tests/enforcement/ | 44 | Violations, batch, circuit breaker |
 | tests/tool_integration/ | 31 | Claude Code hooks, instruction files, git hooks, hook execution |
 | other integration | ~160 | Graph, parsing, correctness |
-| **Total** | **1052** | |
+| **Total** | **1071** | |
+
+## Round 14: Telemetry, Config Command, Install Polish (2026-02-17) — COMPLETED
+
+Privacy-safe telemetry engine + `keel config` command + installation polish.
+
+### Telemetry Engine
+- **TelemetryStore** (`keel-core/src/telemetry.rs`): Separate `telemetry.db` SQLite database
+- **Privacy by design**: No file paths, function names, source code, git history, or IP addresses — only aggregate command metrics (duration, counts, language percentages)
+- **TelemetryEvent**: command, duration_ms, exit_code, error/warning/node/edge counts, language_mix, resolution_tiers
+- **TelemetryAggregate**: total invocations, avg compile/map times, command counts, language percentages
+- Record, aggregate (last N days), prune (delete old events), recent events retrieval
+
+### Config Extension
+- **Tier** enum: `Free` (default), `Team`, `Enterprise` — gates future feature access
+- **TelemetryConfig**: `enabled: true`, `detailed: false`, `remote: true` (opt-OUT), configurable endpoint
+- **NamingConventionsConfig**: `style`, `prefixes` — stub for future online UI
+- All backward-compatible via `#[serde(default)]`
+
+### CLI Integration
+- **`keel config`** command: get/set with dot-notation (`keel config telemetry.enabled false`)
+- **Telemetry recorder** wraps every command with timing — silently fails, never blocks CLI
+- **`keel init`** now updates `.gitignore` with keel entries + prints telemetry opt-out notice
+- **`keel stats`** shows telemetry aggregate (invocations, avg times, top commands, languages)
+
+### Installation Polish
+- **README.md**: Fixed `config.toml` → `keel.json` bug, added Install section (brew/curl/cargo/CI)
+- **install.sh**: Added `--version` flag, shell completion hints
+
+### Results
+- 1052 → **1071 tests passing** (+19 new tests)
+- 0 ignored, 0 failed, 0 clippy warnings
+- 14 files changed (5 new + 9 modified), all under 400 lines
 
 ## Round 13: Zero Ignored Tests (2026-02-17) — COMPLETED
 
@@ -364,11 +396,15 @@ Zero orphans. Zero regressions. 4 consecutive green rounds.
 ## Remaining Work
 
 ### P0: Ship Blockers — NONE
-All 1052 tests pass. Zero ignored. Clippy clean. Ready to tag v0.1.0.
+All 1071 tests pass. Zero ignored. Clippy clean. Ready to tag v0.1.0.
 
 ### P1: Polish (post-release)
 - ~~55 ignored tests~~ — **DONE** (Rounds 12-13: all tests un-ignored)
-- Config format: TOML migration (keel.toml alongside keel.json)
+- ~~Telemetry engine~~ — **DONE** (Round 14: privacy-safe local telemetry)
+- ~~`keel config` command~~ — **DONE** (Round 14: get/set with dot-notation)
+- ~~README config.toml bug~~ — **DONE** (Round 14: fixed to keel.json)
+- Remote telemetry server (api.keel.engineer/telemetry endpoint)
+- Team dashboard + encrypted sensitive data (Tier: Team)
 - Performance: measure actual memory usage, verify <200ms compile on release builds
 
 ### P2: Overdelivery
@@ -380,7 +416,7 @@ All 1052 tests pass. Zero ignored. Clippy clean. Ready to tag v0.1.0.
 - `keel serve --mcp` end-to-end with Claude Code and Cursor
 
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 → 972 → 1038 → **1052** (current, 0 ignored)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 → 972 → 1038 → 1052 → **1071** (current, 0 ignored)
 
 Note: Count dropped from 953 to 895 between Round 6-7 due to stricter runtime counting
 (`cargo test --workspace` output vs `#[test]` annotation count). Round 10+ counts use
