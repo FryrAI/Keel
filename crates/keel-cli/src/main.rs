@@ -81,6 +81,8 @@ fn main() {
         Commands::Config { key, value } => {
             commands::config::run(&*formatter, cli.verbose, key, value)
         }
+        Commands::Upgrade { version, yes } => commands::upgrade::run(version, yes),
+        Commands::Completion { shell } => commands::completion::run(&shell),
     };
 
     // Record telemetry (silently fails — never blocks CLI)

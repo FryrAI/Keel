@@ -32,7 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ResolvedEdge.resolution_tier` tracking across all 4 language resolvers
 - `get_node()` fallback to `previous_hashes` for renamed/updated functions
 - Lazy resolver creation in compile CLI (only allocate resolver for target language)
-- 910 tests passing, 93 ignored (feature-blocked), 0 clippy warnings, 15 real-world repos validated
+- `keel upgrade` — self-update from GitHub releases (auto-detects Homebrew/cargo installs)
+- `keel completion <shell>` — generate shell completions for bash, zsh, fish, elvish, powershell
+- 1071 tests passing, 0 ignored, 0 clippy warnings, 15 real-world repos validated
 
 ### Performance
 - `keel compile` single file: <200ms

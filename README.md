@@ -92,6 +92,32 @@ cargo install --path crates/keel-cli
 # uses: FryrAI/Keel/.github/actions/keel@v0.1.0
 ```
 
+### Updating
+
+```bash
+# Self-update (direct installs)
+keel upgrade
+
+# Homebrew
+brew upgrade keel
+
+# Cargo
+cargo install keel-cli
+```
+
+### Shell Completions
+
+```bash
+# Bash
+keel completion bash > /etc/bash_completion.d/keel
+
+# Zsh
+keel completion zsh > ~/.zfunc/_keel
+
+# Fish
+keel completion fish > ~/.config/fish/completions/keel.fish
+```
+
 ## Quick Start
 
 ```bash
@@ -125,6 +151,8 @@ keel where a7Bx3kM9f2Q
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
+| `keel upgrade` | Self-update to latest version | — |
+| `keel completion <shell>` | Generate shell completions | — |
 | `keel deinit` | Clean removal of keel data | — |
 | `keel stats` | Telemetry dashboard | — |
 
@@ -298,7 +326,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **Ready for release** |
 
-**Current:** 1052+ tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
+**Current:** 1071+ tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
 
 ## Roadmap
 

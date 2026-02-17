@@ -72,5 +72,7 @@ pub fn command_name(command: &crate::cli_args::Commands) -> &'static str {
         Commands::Deinit => "deinit",
         Commands::Stats => "stats",
         Commands::Config { .. } => "config",
+        Commands::Upgrade { .. } => "upgrade",
+        Commands::Completion { .. } => "completion",
     }
 }

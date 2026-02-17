@@ -60,6 +60,10 @@ rayon = "1.10"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+
+# Self-update
+ureq = "3"
 
 # Server
 axum = "0.8"

@@ -146,9 +146,9 @@ echo ""
 echo "Shell completions:"
 SHELL_NAME="$(basename "${SHELL:-/bin/bash}")"
 case "$SHELL_NAME" in
-    zsh)  echo "  keel --generate-completion zsh > ~/.zfunc/_keel" ;;
-    fish) echo "  keel --generate-completion fish > ~/.config/fish/completions/keel.fish" ;;
-    *)    echo "  keel --generate-completion bash > /etc/bash_completion.d/keel" ;;
+    zsh)  echo "  keel completion zsh > ~/.zfunc/_keel" ;;
+    fish) echo "  keel completion fish > ~/.config/fish/completions/keel.fish" ;;
+    *)    echo "  keel completion bash > /etc/bash_completion.d/keel" ;;
 esac
 echo ""
 echo "Star us: gh star FryrAI/Keel"

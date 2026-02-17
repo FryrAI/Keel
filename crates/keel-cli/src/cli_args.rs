@@ -196,6 +196,21 @@ pub(crate) enum Commands {
         /// Value to set (omit to read current value)
         value: Option<String>,
     },
+
+    /// Update keel to the latest version
+    Upgrade {
+        /// Target version (default: latest)
+        version: Option<String>,
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        yes: bool,
+    },
+
+    /// Generate shell completions
+    Completion {
+        /// Shell to generate completions for (bash, zsh, fish, elvish, powershell)
+        shell: String,
+    },
 }
 
 #[cfg(test)]

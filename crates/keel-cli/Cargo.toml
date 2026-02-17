@@ -20,7 +20,9 @@ keel-enforce = { workspace = true }
 keel-output = { workspace = true }
 keel-server = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
 notify = { workspace = true }
+ureq = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

@@ -18,3 +18,5 @@ pub mod stats;
 pub mod check;
 pub mod analyze;
 pub mod config;
+pub mod upgrade;
+pub mod completion;
