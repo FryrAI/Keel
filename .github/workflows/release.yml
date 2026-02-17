@@ -101,7 +101,12 @@ jobs:
 
       - name: Generate SHA-256 checksum
         shell: bash
-        run: shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+        run: |
+          if command -v sha256sum &>/dev/null; then
+            sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+          else
+            shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
