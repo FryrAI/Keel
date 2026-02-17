@@ -2,9 +2,11 @@
 # keel installer — downloads the latest release binary for your platform.
 #
 # Usage:
-#   curl -fsSL https://keel.engineer/install.sh | bash
-#   # or with a specific version:
-#   curl -fsSL https://keel.engineer/install.sh | bash -s -- v0.1.0
+#   curl -fsSL https://raw.githubusercontent.com/FryrAI/Keel/main/scripts/install.sh | bash
+#   # or via public gist (available while repo is private):
+#   curl -fsSL https://gist.githubusercontent.com/FryrAI/fe93164768d13aaa8dcdf68ad1ce6439/raw/install.sh | bash
+#   # with a specific version:
+#   curl -fsSL https://raw.githubusercontent.com/FryrAI/Keel/main/scripts/install.sh | bash -s -- v0.1.0
 #
 # Environment variables:
 #   KEEL_INSTALL_DIR — override install directory (default: ~/.local/bin)
