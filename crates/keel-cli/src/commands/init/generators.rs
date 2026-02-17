@@ -142,6 +142,23 @@ pub fn generate_aider(root: &Path) -> Vec<(PathBuf, String)> {
     files
 }
 
+/// Generate Codex config files: `.codex/config.toml` and `.codex/keel-notify.py`.
+pub fn generate_codex(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+
+    // config.toml — only write if not present (don't clobber user config)
+    let conf_path = root.join(".codex/config.toml");
+    if !conf_path.exists() {
+        files.push((conf_path, templates::CODEX_CONFIG.to_string()));
+    }
+
+    // Notify script
+    let notify_path = root.join(".codex/keel-notify.py");
+    files.push((notify_path, templates::CODEX_NOTIFY.to_string()));
+
+    files
+}
+
 /// Generate Antigravity config files: `.agent/keel.md` and `.agent/skills/keel/SKILL.md`.
 pub fn generate_antigravity(root: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();

@@ -1,0 +1,3 @@
+# keel integration for OpenAI Codex CLI
+# Runs keel compile on changed files after each agent turn.
+notify = ".codex/keel-notify.py"

@@ -201,7 +201,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
             DetectedTool::Aider => generators::generate_aider(&cwd),
             DetectedTool::Copilot => generators::generate_copilot(&cwd),
             DetectedTool::GitHubActions => generators::generate_github_actions(&cwd),
-            DetectedTool::Codex => Vec::new(), // No template yet
+            DetectedTool::Codex => generators::generate_codex(&cwd),
         };
         tool_file_count += generators::write_files(&files, verbose);
     }

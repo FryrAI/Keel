@@ -38,6 +38,10 @@ pub const LETTA_SETTINGS: &str = include_str!("../../../templates/letta-code/set
 pub const LETTA_INSTRUCTIONS: &str =
     include_str!("../../../templates/letta-code/keel-instructions.md");
 
+// --- Codex ---
+pub const CODEX_CONFIG: &str = include_str!("../../../templates/codex/config.toml");
+pub const CODEX_NOTIFY: &str = include_str!("../../../templates/codex/keel-notify.py");
+
 // --- Antigravity ---
 pub const ANTIGRAVITY_RULES: &str = include_str!("../../../templates/antigravity/keel.md");
 pub const ANTIGRAVITY_SKILL: &str = include_str!("../../../templates/antigravity/SKILL.md");
