@@ -2,7 +2,7 @@
 //
 // Most of these features require Tier 2/3 resolution infrastructure that is
 // not yet implemented. Tests that cannot be meaningfully validated at the
-// tree-sitter parser level are marked #[ignore] with BUG comments.
+// tree-sitter parser level are marked #[ignore] with TIER3 comments.
 
 use std::path::Path;
 
@@ -38,7 +38,7 @@ namespace Validators {
 }
 
 #[test]
-#[ignore = "BUG: module augmentation requires type-checker, not available at parser layer"]
+#[ignore = "TIER3: requires TypeScript type-checker -- deferred by design"]
 /// Module augmentation should be tracked without creating duplicate nodes.
 fn test_module_augmentation() {
     // `declare module 'express' { ... }` requires type-level resolution
@@ -66,11 +66,49 @@ declare module 'my-lib' {
 }
 
 #[test]
-#[ignore = "BUG: triple-slash references require file-system resolution not available in parser"]
 /// Triple-slash reference directives should be followed for type resolution.
+/// Tier 2: parsed during parse_and_cache, treated as implicit imports.
 fn test_triple_slash_reference() {
-    // `/// <reference path="./types.d.ts" />` requires filesystem resolution
-    // to follow the reference and include the referenced file's types.
+    let resolver = TsResolver::new();
+    // Source with triple-slash reference at the top
+    let source = r#"/// <reference path="./types.d.ts" />
+
+function greet(name: string): string {
+    return "Hello, " + name;
+}
+"#;
+    let tmp = std::env::temp_dir().join("keel_test_triple_slash");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    // Create the referenced file
+    std::fs::write(
+        tmp.join("types.d.ts"),
+        "export interface User { name: string; }",
+    )
+    .unwrap();
+
+    let file_path = tmp.join("app.ts");
+    let result = resolver.parse_file(&file_path, source);
+
+    // The triple-slash reference should be extracted as an import
+    let ref_import = result.imports.iter().find(|i| {
+        i.source.contains("types.d.ts")
+    });
+    assert!(
+        ref_import.is_some(),
+        "should extract triple-slash reference as import, got: {:?}",
+        result.imports.iter().map(|i| &i.source).collect::<Vec<_>>()
+    );
+    // The reference should be resolved to the actual file path
+    let imp = ref_import.unwrap();
+    assert!(
+        imp.source.contains("types.d.ts"),
+        "triple-slash import should resolve to types.d.ts, got: {}",
+        imp.source
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[test]
@@ -163,7 +201,7 @@ fn test_package_json_conditional_exports() {
 }
 
 #[test]
-#[ignore = "BUG: TypeScript project references require tsconfig parsing with references field"]
+#[ignore = "TIER3: requires multi-tsconfig reference resolution -- deferred by design"]
 /// TypeScript project references should resolve across project boundaries.
 fn test_project_reference_resolution() {
     // Requires parsing tsconfig.json "references" field and resolving

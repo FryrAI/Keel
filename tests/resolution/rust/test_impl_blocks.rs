@@ -1,7 +1,8 @@
 // Tests for Rust impl block resolution (Spec 005 - Rust Resolution)
 //
 // Tests that tree-sitter extracts methods from impl blocks as definitions
-// and that same-file call edge resolution works for impl methods.
+// and that type-aware resolution works for impl methods, trait impls,
+// generic impls, and self.method() calls.
 //
 // Known limitation: method visibility detection inside impl blocks is
 // incorrect because tree-sitter's @def.method.parent captures the impl_item
@@ -37,7 +38,6 @@ impl GraphStore {
 "#;
     let result = resolver.parse_file(Path::new("store.rs"), source);
 
-    // Should find the struct + methods
     let struct_def = result.definitions.iter().find(|d| d.name == "GraphStore");
     assert!(struct_def.is_some(), "should find GraphStore struct");
     assert_eq!(struct_def.unwrap().kind, NodeKind::Class);
@@ -49,7 +49,6 @@ impl GraphStore {
     let insert_def = result.definitions.iter().find(|d| d.name == "insert");
     assert!(insert_def.is_some(), "should find insert() method");
 
-    // Verify all methods are extracted
     let method_names: Vec<&str> = result
         .definitions
         .iter()
@@ -62,8 +61,6 @@ impl GraphStore {
 
 #[test]
 /// Impl block methods have a known visibility detection limitation.
-/// Since line_start points to the impl block, not the method,
-/// all impl methods currently appear as not-public.
 fn test_impl_method_visibility_known_limitation() {
     let resolver = RustLangResolver::new();
     let source = r#"
@@ -88,7 +85,6 @@ impl Parser {
         .iter()
         .find(|d| d.name == "internal_parse");
     assert!(internal.is_some(), "should find internal_parse method");
-    // Both methods appear as private due to the line_start limitation
     assert!(
         !internal.unwrap().is_public,
         "impl methods appear private (line_start points to impl block)"
@@ -96,7 +92,6 @@ impl Parser {
 
     let public = result.definitions.iter().find(|d| d.name == "parse");
     assert!(public.is_some(), "should find parse method");
-    // Known limitation: pub fn inside impl is also detected as private
     assert!(
         !public.unwrap().is_public,
         "known limitation: impl methods line_start points to impl block"
@@ -125,7 +120,6 @@ fn main() {
     let path = Path::new("store.rs");
     resolver.parse_file(path, source);
 
-    // Resolve the plain function name call (same-file)
     let edge = resolver.resolve_call_edge(&CallSite {
         file_path: "store.rs".into(),
         line: 13,
@@ -208,33 +202,167 @@ struct InternalState {
 }
 
 #[test]
-#[ignore = "BUG: multi-file impl block merging requires cross-file resolution"]
-/// Multiple impl blocks for the same type should all contribute methods.
+/// Multiple impl blocks for the same type across files contribute methods.
 fn test_multiple_impl_blocks() {
-    // Requires parsing multiple files and merging impl blocks for the
-    // same type, which is beyond single-file parser scope.
+    let resolver = RustLangResolver::new();
+    // File 1: struct + first impl block
+    let source1 = r#"
+pub struct Store {
+    data: Vec<String>,
+}
+
+impl Store {
+    pub fn new() -> Self {
+        Store { data: vec![] }
+    }
+}
+"#;
+    // File 2: second impl block for same type
+    let source2 = r#"
+impl Store {
+    pub fn insert(&mut self, item: String) {
+        self.data.push(item);
+    }
+}
+"#;
+    let path1 = Path::new("store.rs");
+    let path2 = Path::new("store_ext.rs");
+    resolver.parse_file(path1, source1);
+    resolver.parse_file(path2, source2);
+
+    // self.insert() should resolve via the impl_map (both files contribute)
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "store.rs".into(),
+        line: 8,
+        callee_name: "insert".into(),
+        receiver: Some("self".into()),
+    });
+    assert!(edge.is_some(), "self.insert() should resolve from merged impl blocks");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "insert");
+    assert!(
+        edge.confidence >= 0.80,
+        "inherent impl self-call confidence should be >= 0.80, got {}",
+        edge.confidence
+    );
 }
 
 #[test]
-#[ignore = "BUG: trait impl linking requires type inference"]
-/// Trait impl blocks should link the type to the trait.
+/// `impl Trait for Type` should be tracked and enable trait method resolution.
 fn test_trait_impl_resolution() {
-    // Requires understanding `impl Trait for Type` syntax and linking
-    // the type's methods to the trait definition.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub trait Display {
+    fn fmt(&self) -> String;
+}
+
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Display for Point {
+    fn fmt(&self) -> String {
+        format!("({}, {})", self.x, self.y)
+    }
+}
+"#;
+    let path = Path::new("point.rs");
+    resolver.parse_file(path, source);
+
+    // Resolve fmt() on a Point receiver via trait impl linkage
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "point.rs".into(),
+        line: 15,
+        callee_name: "fmt".into(),
+        receiver: Some("Point".into()),
+    });
+    assert!(edge.is_some(), "Point.fmt() should resolve via impl Display for Point");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "fmt");
+    assert!(
+        edge.confidence >= 0.65,
+        "trait impl confidence should be >= 0.65, got {}",
+        edge.confidence
+    );
 }
 
 #[test]
-#[ignore = "BUG: generic impl resolution requires type parameter analysis"]
-/// Generic impl blocks should resolve for concrete type instantiations.
+/// Generic impl blocks should resolve with lower confidence.
 fn test_generic_impl_resolution() {
-    // Requires tracking generic type parameters and resolving them
-    // to concrete types at call sites.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub struct Wrapper<T> {
+    inner: T,
+}
+
+impl<T> Wrapper<T> {
+    pub fn new(value: T) -> Self {
+        Wrapper { inner: value }
+    }
+
+    pub fn get(&self) -> &T {
+        &self.inner
+    }
+}
+"#;
+    let path = Path::new("wrapper.rs");
+    resolver.parse_file(path, source);
+
+    // self.get() inside generic impl should resolve with lower confidence
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "wrapper.rs".into(),
+        line: 12,
+        callee_name: "get".into(),
+        receiver: Some("self".into()),
+    });
+    assert!(edge.is_some(), "self.get() in generic impl should resolve");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "get");
+    assert!(
+        edge.confidence <= 0.65,
+        "generic impl confidence should be <= 0.65 (lower than concrete), got {}",
+        edge.confidence
+    );
 }
 
 #[test]
-#[ignore = "BUG: self receiver resolution requires type tracking"]
-/// Method calls on self should resolve to the current impl block.
+/// self.method() calls should resolve to the current impl block.
 fn test_self_method_call_resolution() {
-    // Requires tracking that `self` refers to the current impl block's
-    // type and resolving self.method() calls accordingly.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+struct Parser {
+    input: String,
+}
+
+impl Parser {
+    fn tokenize(&self) -> Vec<String> {
+        self.input.split(' ').map(|s| s.to_string()).collect()
+    }
+
+    fn parse(&self) -> bool {
+        let tokens = self.tokenize();
+        !tokens.is_empty()
+    }
+}
+"#;
+    let path = Path::new("parser.rs");
+    resolver.parse_file(path, source);
+
+    // self.tokenize() inside parse() should resolve to Parser's impl block
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "parser.rs".into(),
+        line: 12,
+        callee_name: "tokenize".into(),
+        receiver: Some("self".into()),
+    });
+    assert!(edge.is_some(), "self.tokenize() should resolve to Parser impl block");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "tokenize");
+    assert_eq!(edge.target_file, "parser.rs");
+    assert!(
+        edge.confidence >= 0.80,
+        "self-call resolution confidence should be >= 0.80, got {}",
+        edge.confidence
+    );
 }

@@ -1,3 +1,5 @@
+mod imports;
+
 use std::path::Path;
 
 use streaming_iterator::StreamingIterator;
@@ -5,7 +7,7 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 use crate::queries;
 use crate::resolver::{
-    Definition, Import, ParseResult, Reference, ReferenceKind,
+    Definition, ParseResult, Reference, ReferenceKind,
 };
 use keel_core::types::NodeKind;
 
@@ -53,7 +55,7 @@ impl TreeSitterParser {
 
         let mut definitions = extract_definitions(&query, root, bytes, &file_path);
         let references = extract_references(&query, root, bytes, &file_path);
-        let imports = extract_imports(&query, root, bytes, &file_path);
+        let imports = imports::extract_imports(&query, root, bytes, &file_path);
 
         // Auto-create a Module node for each parsed file
         let line_count = source.lines().count().max(1) as u32;
@@ -154,6 +156,10 @@ fn extract_definitions(
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Class);
                 }
+                "def.macro.name" => {
+                    name = Some(node_text(cap.node, source).to_string());
+                    kind = Some(NodeKind::Function); // macro_rules treated as Function kind
+                }
                 "def.mod.name" => {
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Module);
@@ -173,8 +179,11 @@ fn extract_definitions(
                 "def.func" | "def.method" | "def.class"
                 | "def.type" | "def.struct" | "def.enum"
                 | "def.trait" | "def.impl" | "def.mod"
+                | "def.macro" | "def.trait_impl"
                 | "def.method.parent" | "def.export"
-                | "def.method.receiver" | "def.impl.type" => {
+                | "def.method.receiver" | "def.impl.type"
+                | "def.trait_impl.trait_name" | "def.trait_impl.type_name"
+                | "def.trait_impl.body" => {
                     line_start = cap.node.start_position().row as u32 + 1;
                     line_end = cap.node.end_position().row as u32 + 1;
                 }
@@ -242,6 +251,14 @@ fn extract_references(
                 "ref.call" => {
                     line = cap.node.start_position().row as u32 + 1;
                 }
+                "ref.macro_invocation.name" => {
+                    // Capture macro invocations as calls with ! suffix
+                    call_name = Some(format!("{}!", node_text(cap.node, source)));
+                    is_call = true;
+                }
+                "ref.macro_invocation" => {
+                    line = cap.node.start_position().row as u32 + 1;
+                }
                 _ => {}
             }
         }
@@ -271,145 +288,6 @@ fn extract_references(
         }
     }
     refs
-}
-
-fn extract_imports(
-    query: &Query,
-    root: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &str,
-) -> Vec<Import> {
-    let mut cursor = QueryCursor::new();
-    let mut imports = Vec::new();
-    let capture_names = query.capture_names();
-    let mut matches = cursor.matches(query, root, source);
-
-    while let Some(m) = matches.next() {
-        let mut source_path = None;
-        let mut imported_names = Vec::new();
-        let mut line = 0u32;
-
-        for cap in m.captures {
-            let cap_name = capture_names[cap.index as usize];
-            match cap_name {
-                "ref.import.source" => {
-                    let raw = node_text(cap.node, source);
-                    source_path = Some(raw.trim_matches('"').trim_matches('\'').to_string());
-                }
-                "ref.import.name" => {
-                    imported_names.push(node_text(cap.node, source).to_string());
-                }
-                "ref.import.blank" => {
-                    imported_names.push("_".to_string());
-                }
-                "ref.import.dot" => {
-                    imported_names.push(".".to_string());
-                }
-                "ref.import" => {
-                    line = cap.node.start_position().row as u32 + 1;
-                }
-                "ref.use.path" => {
-                    source_path = Some(node_text(cap.node, source).to_string());
-                }
-                "ref.use" => {
-                    line = cap.node.start_position().row as u32 + 1;
-                }
-                _ => {}
-            }
-        }
-
-        if let Some(raw_src) = source_path {
-            let mut src = raw_src;
-            let is_relative = src.starts_with('.')
-                || src.starts_with("./")
-                || src.starts_with("../")
-                || src.starts_with("crate::")
-                || src.starts_with("super::");
-
-            // Handle Rust use statement special syntax before default extraction
-            let mut is_wildcard = false;
-            // 1. Alias: "crate::module::Name as Alias"
-            if src.contains(" as ") && !src.contains('{') {
-                if let Some(as_pos) = src.rfind(" as ") {
-                    let alias = src[as_pos + 4..].trim().to_string();
-                    src = src[..as_pos].trim().to_string();
-                    imported_names.push(alias);
-                }
-            }
-            // 2. Use list: "crate::module::{A, B, self}"
-            else if let (Some(brace_start), Some(brace_end)) =
-                (src.find('{'), src.rfind('}'))
-            {
-                let base = src[..brace_start].trim_end_matches("::").to_string();
-                let items_str = &src[brace_start + 1..brace_end];
-                for item in items_str.split(',') {
-                    let item = item.trim();
-                    if item == "self" {
-                        // self refers to the module itself
-                        if let Some(module_name) = base.rsplit("::").next() {
-                            imported_names.push(module_name.to_string());
-                        }
-                    } else if item.contains(" as ") {
-                        if let Some(as_pos) = item.rfind(" as ") {
-                            imported_names
-                                .push(item[as_pos + 4..].trim().to_string());
-                        }
-                    } else if !item.is_empty() {
-                        imported_names.push(item.to_string());
-                    }
-                }
-                src = base;
-            }
-            // 3. Wildcard: "crate::module::*"
-            else if src.ends_with("::*") {
-                src = src[..src.len() - 3].to_string();
-                is_wildcard = true;
-                // imported_names stays empty for wildcard
-            }
-
-            // Fallback: For simple Rust use paths, extract the last segment
-            // e.g. "crate::store::GraphStore" → imported_names = ["GraphStore"]
-            if imported_names.is_empty() && !is_wildcard && src.contains("::") {
-                if let Some(last) = src.rsplit("::").next() {
-                    if !last.is_empty() {
-                        imported_names.push(last.to_string());
-                    }
-                }
-            }
-            // For Go imports without explicit names, extract the package alias
-            // e.g. "github.com/spf13/cobra" → imported_names = ["cobra"]
-            if imported_names.is_empty() && src.contains('/') && !src.starts_with('.') {
-                if let Some(last) = src.rsplit('/').next() {
-                    if !last.is_empty() {
-                        imported_names.push(last.to_string());
-                    }
-                }
-            }
-            imports.push(Import {
-                source: src,
-                imported_names,
-                file_path: file_path.to_string(),
-                line,
-                is_relative,
-            });
-        }
-    }
-    // Deduplicate: blank/dot import queries may match the same import_spec as the
-    // basic pattern. Keep the more specific entry (the one with "_" or "." markers)
-    // over the plain one for the same (source, line).
-    let mut deduped: Vec<Import> = Vec::with_capacity(imports.len());
-    for imp in imports {
-        let special = imp.imported_names.iter().any(|n| n == "_" || n == ".");
-        if let Some(existing) = deduped.iter_mut().find(|e| e.source == imp.source && e.line == imp.line) {
-            // Replace plain entry with the more specific blank/dot entry
-            if special {
-                *existing = imp;
-            }
-        } else {
-            deduped.push(imp);
-        }
-    }
-    deduped
 }
 
 pub fn detect_language(path: &Path) -> Option<&'static str> {

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use keel_core::types::NodeKind;
 use keel_parsers::go::GoResolver;
-use keel_parsers::resolver::LanguageResolver;
+use keel_parsers::resolver::{CallSite, LanguageResolver};
 
 #[test]
 /// Capitalized functions should be marked as exported (public) visibility.
@@ -48,13 +48,41 @@ func helper(x int) int {
 }
 
 #[test]
-#[ignore = "BUG: cross-package unexported call detection requires multi-file resolution"]
-/// Cross-package calls to unexported functions should produce resolution errors.
+/// Cross-package calls to unexported functions should resolve with low confidence.
 fn test_cross_package_unexported_call_error() {
-    // Requires multi-file cross-package resolution which the current
-    // GoResolver doesn't support (single-file cache model). Detecting
-    // calls to unexported names across packages requires knowing the
-    // caller's package and the callee's visibility.
+    let resolver = GoResolver::new();
+
+    // Parse caller that imports a package and calls an unexported name
+    let source = r#"
+package main
+
+import "github.com/user/project/internal"
+
+func main() {
+    internal.helper()
+}
+"#;
+    resolver.parse_file(Path::new("/project/main.go"), source);
+
+    // Resolve the qualified call to a lowercase (unexported) function
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "/project/main.go".into(),
+        line: 7,
+        callee_name: "internal.helper".into(),
+        receiver: None,
+    });
+    assert!(
+        edge.is_some(),
+        "Should resolve cross-package unexported call (with low confidence)"
+    );
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "helper");
+    assert!(
+        edge.confidence <= 0.50,
+        "Unexported cross-package call should have low confidence, got: {}",
+        edge.confidence
+    );
+    assert_eq!(edge.resolution_tier, "tier2_heuristic");
 }
 
 #[test]

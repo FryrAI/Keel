@@ -5,9 +5,11 @@
 // Tests that exercise available parser functionality have real assertions;
 // tests requiring unavailable features are marked #[ignore].
 
+use std::fs;
 use std::path::Path;
 use keel_core::types::NodeKind;
 use keel_parsers::python::PyResolver;
+use keel_parsers::python::package_resolution;
 use keel_parsers::resolver::LanguageResolver;
 
 #[test]
@@ -58,11 +60,41 @@ from .parser import parse
 }
 
 #[test]
-#[ignore = "BUG: namespace package resolution requires filesystem walking not in parser"]
 /// Namespace packages (no __init__.py) should still resolve submodules.
 fn test_namespace_package_resolution() {
-    // PEP 420 namespace packages require filesystem walking to detect
-    // directories without __init__.py, which is beyond parser scope.
+    let dir = std::env::temp_dir().join("keel_test_ns_pkg");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("project/ns_pkg")).unwrap();
+
+    // Create a module inside the namespace package (no __init__.py)
+    fs::write(
+        dir.join("project/ns_pkg/module.py"),
+        "def helper(): pass",
+    )
+    .unwrap();
+
+    // Resolve ns_pkg.module from the project directory
+    let result = package_resolution::resolve_python_package_chain(
+        &dir.join("project"),
+        "ns_pkg.module",
+    );
+
+    assert!(result.is_some(), "should resolve namespace package submodule");
+    let resolved = result.unwrap();
+    assert!(
+        resolved.ends_with("ns_pkg/module.py") || resolved.ends_with("ns_pkg\\module.py"),
+        "should resolve to ns_pkg/module.py, got: {}",
+        resolved.display()
+    );
+
+    // Verify that a non-existent intermediate directory returns None
+    let missing = package_resolution::resolve_python_package_chain(
+        &dir.join("project"),
+        "nonexistent.module",
+    );
+    assert!(missing.is_none(), "missing directory should return None");
+
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -78,9 +110,56 @@ fn test_empty_init_valid_package() {
 }
 
 #[test]
-#[ignore = "BUG: deep nested package chain resolution requires filesystem access"]
 /// Deeply nested packages should resolve through each __init__.py in the chain.
 fn test_deep_nested_package_resolution() {
-    // Requires filesystem access to traverse a/b/c/d/__init__.py chain,
-    // which is a Tier 2 feature.
+    let dir = std::env::temp_dir().join("keel_test_deep_pkg");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("project/a/b/c/d")).unwrap();
+
+    // Create __init__.py at each level
+    fs::write(dir.join("project/a/__init__.py"), "").unwrap();
+    fs::write(dir.join("project/a/b/__init__.py"), "").unwrap();
+    fs::write(dir.join("project/a/b/c/__init__.py"), "").unwrap();
+    fs::write(dir.join("project/a/b/c/d/__init__.py"), "def deep(): pass").unwrap();
+
+    // Resolve a.b.c.d from project directory
+    let result = package_resolution::resolve_python_package_chain(
+        &dir.join("project"),
+        "a.b.c.d",
+    );
+
+    assert!(result.is_some(), "should resolve deep nested package chain");
+    let resolved = result.unwrap();
+    assert!(
+        resolved.ends_with("a/b/c/d/__init__.py")
+            || resolved.ends_with("a\\b\\c\\d\\__init__.py"),
+        "should resolve to a/b/c/d/__init__.py, got: {}",
+        resolved.display()
+    );
+
+    // Also test partial chain: a.b should resolve
+    let partial = package_resolution::resolve_python_package_chain(
+        &dir.join("project"),
+        "a.b",
+    );
+    assert!(partial.is_some(), "should resolve partial chain a.b");
+    let partial_resolved = partial.unwrap();
+    assert!(
+        partial_resolved.ends_with("a/b/__init__.py")
+            || partial_resolved.ends_with("a\\b\\__init__.py"),
+        "a.b should resolve to a/b/__init__.py, got: {}",
+        partial_resolved.display()
+    );
+
+    // Test that missing deep path returns None
+    let missing = package_resolution::resolve_python_package_chain(
+        &dir.join("project"),
+        "a.b.c.d.e",
+    );
+    assert!(
+        missing.is_none(),
+        "non-existent deep path should return None"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
 }

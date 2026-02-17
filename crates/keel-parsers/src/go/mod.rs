@@ -1,3 +1,5 @@
+pub mod type_resolution;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -6,14 +8,21 @@ use crate::resolver::{
     CallSite, Definition, LanguageResolver, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
+use type_resolution::InterfaceInfo;
 
 /// Tier 1 + Tier 2 resolver for Go.
 ///
 /// - Tier 1: tree-sitter-go for structural extraction.
-/// - Tier 2: package-path heuristics (Go's explicit package system is sufficient).
+/// - Tier 2: package-path heuristics, receiver methods, embeddings, interfaces.
 pub struct GoResolver {
     parser: Mutex<TreeSitterParser>,
     cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    /// Maps type name -> vec of (method_name, is_pointer_receiver).
+    type_methods: Mutex<HashMap<String, Vec<(String, bool)>>>,
+    /// Maps outer struct -> vec of embedded type names.
+    embeddings: Mutex<HashMap<String, Vec<String>>>,
+    /// Parsed interface definitions with their method signatures.
+    interfaces: Mutex<Vec<InterfaceInfo>>,
 }
 
 impl GoResolver {
@@ -21,6 +30,9 @@ impl GoResolver {
         GoResolver {
             parser: Mutex::new(TreeSitterParser::new()),
             cache: Mutex::new(HashMap::new()),
+            type_methods: Mutex::new(HashMap::new()),
+            embeddings: Mutex::new(HashMap::new()),
+            interfaces: Mutex::new(Vec::new()),
         }
     }
 
@@ -41,14 +53,38 @@ impl GoResolver {
 
         // Tier 2: enhance definitions with Go-specific analysis
         for def in &mut result.definitions {
-            // In Go, exported symbols start with uppercase
             def.is_public = def
                 .name
                 .chars()
                 .next()
                 .is_some_and(|c| c.is_uppercase());
-            // Go is statically typed — type hints always present for typed funcs
             def.type_hints_present = go_has_type_hints(&def.signature);
+        }
+
+        // Tier 2: extract type methods from receiver patterns
+        let file_str = path.to_string_lossy().to_string();
+        let tm = type_resolution::build_type_methods(&result, content);
+        {
+            let mut type_methods = self.type_methods.lock().unwrap();
+            for (type_name, methods) in tm {
+                type_methods.entry(type_name).or_default().extend(methods);
+            }
+        }
+
+        // Tier 2: extract struct embeddings
+        let emb = type_resolution::extract_embeddings(content);
+        {
+            let mut embeddings = self.embeddings.lock().unwrap();
+            for (outer, inner_list) in emb {
+                embeddings.entry(outer).or_default().extend(inner_list);
+            }
+        }
+
+        // Tier 2: extract interface definitions
+        let ifaces = type_resolution::extract_interfaces(&result, content, &file_str);
+        {
+            let mut interfaces = self.interfaces.lock().unwrap();
+            interfaces.extend(ifaces);
         }
 
         self.cache
@@ -60,6 +96,21 @@ impl GoResolver {
 
     fn get_cached(&self, path: &Path) -> Option<ParseResult> {
         self.cache.lock().unwrap().get(path).cloned()
+    }
+
+    /// Resolve a receiver.method() call using type-aware heuristics.
+    fn resolve_receiver_call(
+        &self,
+        receiver: &str,
+        method_name: &str,
+        file_path: &str,
+    ) -> Option<ResolvedEdge> {
+        let tm = self.type_methods.lock().unwrap();
+        let emb = self.embeddings.lock().unwrap();
+        let ifaces = self.interfaces.lock().unwrap();
+        type_resolution::resolve_receiver_method(
+            receiver, method_name, file_path, &tm, &emb, &ifaces,
+        )
     }
 }
 
@@ -97,55 +148,110 @@ impl LanguageResolver for GoResolver {
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
         let cache = self.cache.lock().unwrap();
         let caller_file = PathBuf::from(&call_site.file_path);
-        let caller_result = cache.get(&caller_file)?;
+        // Verify the caller file is in cache (early return if not)
+        let _ = cache.get(&caller_file)?;
 
-        // Go call patterns: `pkg.Func()` or `Func()` (same package)
         let callee = &call_site.callee_name;
 
-        // Check if this is a qualified call (pkg.Func)
+        // Check if this is a qualified call (pkg.Func or receiver.Method)
         if let Some(dot_pos) = callee.find('.') {
-            let pkg_alias = &callee[..dot_pos];
+            let receiver_or_pkg = &callee[..dot_pos];
             let func_name = &callee[dot_pos + 1..];
 
-            // Find matching import, skipping blank imports (side-effect only)
+            // First: try receiver method resolution (type-aware)
+            drop(cache);
+            if let Some(edge) =
+                self.resolve_receiver_call(receiver_or_pkg, func_name, &call_site.file_path)
+            {
+                return Some(edge);
+            }
+            let cache = self.cache.lock().unwrap();
+            let caller_result = cache.get(&caller_file)?;
+
+            // Second: try import-based package resolution
             let import = caller_result.imports.iter().find(|imp| {
-                // Skip blank imports — they don't produce call edges
                 if imp.imported_names.contains(&"_".to_string()) {
                     return false;
                 }
                 let alias = go_package_alias(&imp.source);
-                alias == pkg_alias
+                alias == receiver_or_pkg
             });
 
             if let Some(imp) = import {
+                let confidence = if func_name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_lowercase())
+                {
+                    0.40
+                } else {
+                    0.75
+                };
                 return Some(ResolvedEdge {
                     target_file: imp.source.clone(),
                     target_name: func_name.to_string(),
-                    confidence: 0.75, // imported package
-                    resolution_tier: "tier1".into(),
+                    confidence,
+                    resolution_tier: if confidence < 0.75 {
+                        "tier2_heuristic".into()
+                    } else {
+                        "tier1".into()
+                    },
                 });
             }
+            // Re-release cache before unqualified checks below
+            drop(cache);
+        } else {
+            // Release initial lock for unqualified path
+            drop(cache);
         }
 
-        // Unqualified call — check same file definitions first
+        // Re-acquire for unqualified calls
+        let cache = self.cache.lock().unwrap();
+        let caller_result = match cache.get(&caller_file) {
+            Some(r) => r,
+            None => return None,
+        };
+
+        // Unqualified call -- check same file definitions first
         for def in &caller_result.definitions {
             if def.name == *callee {
                 return Some(ResolvedEdge {
                     target_file: call_site.file_path.clone(),
                     target_name: callee.clone(),
-                    confidence: 0.90, // same package
+                    confidence: 0.90,
                     resolution_tier: "tier1".into(),
                 });
             }
         }
 
-        // Unqualified call — check dot imports (`. "pkg"` brings names into scope)
+        // Unqualified call -- cross-file same-package resolution
+        if let Some(caller_dir) = caller_file.parent() {
+            for (path, result) in cache.iter() {
+                if path == &caller_file {
+                    continue;
+                }
+                if path.parent() == Some(caller_dir) {
+                    for def in &result.definitions {
+                        if def.name == *callee {
+                            return Some(ResolvedEdge {
+                                target_file: path.to_string_lossy().to_string(),
+                                target_name: callee.clone(),
+                                confidence: 0.80,
+                                resolution_tier: "tier2_heuristic".into(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Unqualified call -- check dot imports
         for imp in &caller_result.imports {
             if imp.imported_names.contains(&".".to_string()) {
                 return Some(ResolvedEdge {
                     target_file: imp.source.clone(),
                     target_name: callee.clone(),
-                    confidence: 0.60, // dot import — lower confidence
+                    confidence: 0.60,
                     resolution_tier: "tier2_heuristic".into(),
                 });
             }
@@ -156,20 +262,16 @@ impl LanguageResolver for GoResolver {
 }
 
 /// Extract Go package alias from an import path.
-/// e.g., `"fmt"` -> `"fmt"`, `"net/http"` -> `"http"`.
 fn go_package_alias(import_path: &str) -> &str {
     let cleaned = import_path.trim_matches('"');
     cleaned.rsplit('/').next().unwrap_or(cleaned)
 }
 
 /// Check if a Go function signature has type information.
-/// Go functions always have types if they have parameters.
 fn go_has_type_hints(signature: &str) -> bool {
-    // Go is statically typed — if there are params, they have types
     if let Some(paren_start) = signature.find('(') {
         if let Some(paren_end) = signature[paren_start..].find(')') {
             let params = &signature[paren_start + 1..paren_start + paren_end];
-            // Empty params or params with type annotations
             return params.is_empty()
                 || params.contains(' ')
                 || params.contains("int")
@@ -180,135 +282,4 @@ fn go_has_type_hints(signature: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_go_resolver_parse_function() {
-        let resolver = GoResolver::new();
-        let source = r#"
-package main
-
-func Greet(name string) string {
-    return "Hello, " + name
-}
-"#;
-        let result = resolver.parse_file(Path::new("test.go"), source);
-        let funcs: Vec<_> = result.definitions.iter()
-            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
-        assert_eq!(funcs.len(), 1);
-        assert_eq!(funcs[0].name, "Greet");
-        assert!(funcs[0].is_public);
-    }
-
-    #[test]
-    fn test_go_resolver_private_function() {
-        let resolver = GoResolver::new();
-        let source = r#"
-package main
-
-func greet(name string) string {
-    return "Hello, " + name
-}
-"#;
-        let result = resolver.parse_file(Path::new("test.go"), source);
-        let funcs: Vec<_> = result.definitions.iter()
-            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
-        assert_eq!(funcs.len(), 1);
-        assert!(!funcs[0].is_public);
-    }
-
-    #[test]
-    fn test_go_resolver_caches_results() {
-        let resolver = GoResolver::new();
-        let source = "package main\nfunc Hello() {}";
-        let path = Path::new("cached.go");
-        resolver.parse_file(path, source);
-        let defs = resolver.resolve_definitions(path);
-        let funcs: Vec<_> = defs.iter()
-            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
-        assert_eq!(funcs.len(), 1);
-    }
-
-    #[test]
-    fn test_go_resolver_same_file_call_edge() {
-        let resolver = GoResolver::new();
-        let source = r#"
-package main
-
-func helper() int { return 1 }
-func main() { helper() }
-"#;
-        let path = Path::new("edge.go");
-        resolver.parse_file(path, source);
-        let edge = resolver.resolve_call_edge(&CallSite {
-            file_path: "edge.go".into(),
-            line: 5,
-            callee_name: "helper".into(),
-            receiver: None,
-        });
-        assert!(edge.is_some());
-        let edge = edge.unwrap();
-        assert_eq!(edge.target_name, "helper");
-        assert!(edge.confidence >= 0.90);
-    }
-
-    #[test]
-    fn test_go_package_alias() {
-        assert_eq!(go_package_alias("\"fmt\""), "fmt");
-        assert_eq!(go_package_alias("\"net/http\""), "http");
-        assert_eq!(go_package_alias("\"github.com/user/repo/pkg\""), "pkg");
-    }
-
-    #[test]
-    fn test_go_import_extracts_package_name() {
-        let resolver = GoResolver::new();
-        let source = r#"
-package main
-
-import (
-    "fmt"
-    "github.com/spf13/cobra"
-)
-
-func main() {
-    fmt.Println("hello")
-    cobra.Execute()
-}
-"#;
-        let path = Path::new("test_imports.go");
-        let result = resolver.parse_file(path, source);
-        // Go imports should have the package alias as imported_names
-        let cobra_imp = result.imports.iter().find(|i| i.source.contains("cobra"));
-        assert!(cobra_imp.is_some(), "should have cobra import");
-        let imp = cobra_imp.unwrap();
-        assert!(
-            imp.imported_names.contains(&"cobra".to_string()),
-            "imported_names should contain 'cobra', got: {:?}",
-            imp.imported_names
-        );
-    }
-
-    #[test]
-    fn test_go_cross_file_call_with_import() {
-        let resolver = GoResolver::new();
-        let source = r#"
-package main
-
-import "github.com/spf13/cobra"
-
-func main() {
-    cobra.Execute()
-}
-"#;
-        let path = Path::new("test_cross.go");
-        let result = resolver.parse_file(path, source);
-        // Verify the import has the right structure
-        assert!(!result.imports.is_empty(), "should have imports");
-        let imp = &result.imports[0];
-        assert!(
-            imp.source.contains("cobra"),
-            "import source should contain cobra"
-        );
-    }
-}
+mod tests;

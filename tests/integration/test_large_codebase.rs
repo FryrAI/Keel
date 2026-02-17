@@ -3,16 +3,22 @@
 // Validates that keel handles large generated codebases within documented
 // performance targets. Uses code generators to create realistic test repos.
 //
-// These are marked #[ignore] because they generate 50-100k LOC and are
-// slow in debug builds. Run with `cargo test -- --ignored` for perf validation.
+// These are gated behind the `perf-tests` feature because they generate
+// 50-100k LOC and are slow in debug builds. Run with:
+//   cargo test --features perf-tests --release
 
+#[cfg(feature = "perf-tests")]
 use std::fs;
+#[cfg(feature = "perf-tests")]
 use std::process::Command;
+#[cfg(feature = "perf-tests")]
 use std::time::Instant;
 
+#[cfg(feature = "perf-tests")]
 use tempfile::TempDir;
 
 /// Path to the keel binary built by cargo.
+#[cfg(feature = "perf-tests")]
 fn keel_bin() -> std::path::PathBuf {
     let mut path = std::env::current_exe().unwrap();
     path.pop();
@@ -30,6 +36,7 @@ fn keel_bin() -> std::path::PathBuf {
 
 /// Generate a project with approximately `target_loc` lines of TypeScript.
 /// Creates files with ~100 LOC each containing typed functions.
+#[cfg(feature = "perf-tests")]
 fn generate_ts_project(target_loc: usize) -> TempDir {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
@@ -69,7 +76,7 @@ fn generate_ts_project(target_loc: usize) -> TempDir {
 }
 
 #[test]
-#[ignore = "perf: generates 50k LOC, slow in debug builds"]
+#[cfg(feature = "perf-tests")]
 fn test_init_50k_loc_under_10s() {
     let dir = generate_ts_project(50_000);
     let keel = keel_bin();
@@ -97,7 +104,7 @@ fn test_init_50k_loc_under_10s() {
 }
 
 #[test]
-#[ignore = "perf: generates 100k LOC, slow in debug builds"]
+#[cfg(feature = "perf-tests")]
 fn test_map_100k_loc_under_5s() {
     let dir = generate_ts_project(100_000);
     let keel = keel_bin();
@@ -137,7 +144,7 @@ fn test_map_100k_loc_under_5s() {
 }
 
 #[test]
-#[ignore = "perf: generates 100k LOC, slow in debug builds"]
+#[cfg(feature = "perf-tests")]
 fn test_compile_single_file_in_large_project_under_200ms() {
     let dir = generate_ts_project(100_000);
     let keel = keel_bin();
@@ -187,7 +194,7 @@ fn test_compile_single_file_in_large_project_under_200ms() {
 }
 
 #[test]
-#[ignore = "perf: generates 100k LOC, slow in debug builds"]
+#[cfg(feature = "perf-tests")]
 fn test_discover_in_large_graph_under_50ms() {
     let dir = generate_ts_project(100_000);
     let keel = keel_bin();
@@ -256,7 +263,7 @@ fn test_discover_in_large_graph_under_50ms() {
 }
 
 #[test]
-#[ignore = "perf: generates 100k LOC, slow in debug builds"]
+#[cfg(feature = "perf-tests")]
 fn test_graph_db_size_reasonable_for_100k_loc() {
     let dir = generate_ts_project(100_000);
     let keel = keel_bin();

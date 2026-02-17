@@ -51,3 +51,12 @@
 (import_from_statement
   module_name: (relative_import) @ref.import.source
   name: (dotted_name) @ref.import.name) @ref.import
+
+; Star/wildcard imports: from X import *
+(import_from_statement
+  module_name: (dotted_name) @ref.import.source
+  (wildcard_import) @ref.import.star) @ref.import
+
+(import_from_statement
+  module_name: (relative_import) @ref.import.source
+  (wildcard_import) @ref.import.star) @ref.import

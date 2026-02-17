@@ -104,6 +104,9 @@ xxhash-rust = { workspace = true }
 name = "performance"
 harness = false
 
+[features]
+perf-tests = []
+
 [profile.release]
 lto = true
 codegen-units = 1

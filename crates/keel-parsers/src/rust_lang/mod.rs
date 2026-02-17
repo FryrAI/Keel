@@ -1,3 +1,6 @@
+mod helpers;
+pub mod mod_resolution;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -6,6 +9,16 @@ use crate::resolver::{
     CallSite, Definition, Import, LanguageResolver, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
+use helpers::{find_import_for_name, resolve_rust_use_path, rust_is_public};
+
+/// A recorded `impl Trait for Type` block, with the methods defined inside.
+#[derive(Debug, Clone)]
+pub struct TraitImpl {
+    pub trait_name: String,
+    pub type_name: String,
+    pub methods: Vec<String>,
+    pub file_path: String,
+}
 
 /// Tier 1 + Tier 2 resolver for Rust.
 ///
@@ -14,6 +27,14 @@ use crate::treesitter::TreeSitterParser;
 pub struct RustLangResolver {
     parser: Mutex<TreeSitterParser>,
     cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    /// Maps module names from `mod foo;` declarations to resolved file paths.
+    mod_paths: Mutex<HashMap<String, PathBuf>>,
+    /// Recorded `impl Trait for Type` blocks for trait method resolution.
+    trait_impls: Mutex<Vec<TraitImpl>>,
+    /// Maps type name -> vec of method names from inherent `impl Type { }` blocks.
+    impl_map: Mutex<HashMap<String, Vec<String>>>,
+    /// Raw content cache for cross-file analysis (generic impl detection, etc.).
+    content_cache: Mutex<HashMap<PathBuf, String>>,
 }
 
 impl RustLangResolver {
@@ -21,7 +42,16 @@ impl RustLangResolver {
         RustLangResolver {
             parser: Mutex::new(TreeSitterParser::new()),
             cache: Mutex::new(HashMap::new()),
+            mod_paths: Mutex::new(HashMap::new()),
+            trait_impls: Mutex::new(Vec::new()),
+            impl_map: Mutex::new(HashMap::new()),
+            content_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Returns the resolved mod paths from `mod foo;` declarations.
+    pub fn get_mod_paths(&self) -> HashMap<String, PathBuf> {
+        self.mod_paths.lock().unwrap().clone()
     }
 
     fn parse_and_cache(&self, path: &Path, content: &str) -> ParseResult {
@@ -55,6 +85,50 @@ impl RustLangResolver {
                 }
             }
         }
+
+        // Tier 2: extract `mod foo;` declarations and resolve to file paths
+        let mod_decls = mod_resolution::build_mod_path_map(content, dir);
+        {
+            let mut mod_paths = self.mod_paths.lock().unwrap();
+            for (name, path_buf) in &mod_decls {
+                mod_paths.insert(name.clone(), path_buf.clone());
+            }
+        }
+
+        // Create import entries for mod declarations so resolve_call_edge
+        // can find them when resolving `module::func` calls
+        for (name, mod_path) in &mod_decls {
+            result.imports.push(Import {
+                source: mod_path.to_string_lossy().to_string(),
+                imported_names: vec![name.clone()],
+                file_path: path.to_string_lossy().to_string(),
+                line: 0,
+                is_relative: true,
+            });
+        }
+
+        // Tier 2: extract `impl Trait for Type` blocks via text heuristics
+        let file_str = path.to_string_lossy().to_string();
+        let extracted_impls = helpers::extract_trait_impls(content, &file_str);
+        {
+            let mut impls = self.trait_impls.lock().unwrap();
+            impls.extend(extracted_impls);
+        }
+
+        // Tier 2: extract inherent `impl Type { }` blocks
+        let inherent_impls = helpers::extract_impl_methods(content);
+        {
+            let mut impl_map = self.impl_map.lock().unwrap();
+            for (type_name, methods) in inherent_impls {
+                impl_map.entry(type_name).or_default().extend(methods);
+            }
+        }
+
+        // Cache raw content for cross-file analysis
+        self.content_cache
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), content.to_string());
 
         self.cache
             .lock()
@@ -106,6 +180,39 @@ impl LanguageResolver for RustLangResolver {
 
         let callee = &call_site.callee_name;
 
+        // Tier 2: macro invocation resolution (callee ends with `!`)
+        if callee.ends_with('!') {
+            let macro_name = &callee[..callee.len() - 1];
+            // Same-file macro_rules definition
+            let same_file = caller_result
+                .definitions
+                .iter()
+                .any(|d| d.name == macro_name);
+            if same_file {
+                return Some(ResolvedEdge {
+                    target_file: call_site.file_path.clone(),
+                    target_name: macro_name.to_string(),
+                    confidence: 0.60,
+                    resolution_tier: "tier2".into(),
+                });
+            }
+            // Cross-file: search all cached parse results
+            for (path, pr) in cache.iter() {
+                if path == &caller_file {
+                    continue;
+                }
+                if pr.definitions.iter().any(|d| d.name == macro_name) {
+                    return Some(ResolvedEdge {
+                        target_file: path.to_string_lossy().to_string(),
+                        target_name: macro_name.to_string(),
+                        confidence: 0.50,
+                        resolution_tier: "tier2".into(),
+                    });
+                }
+            }
+            return None;
+        }
+
         // Check if callee is brought in via `use` import
         let import = find_import_for_name(&caller_result.imports, callee);
 
@@ -128,17 +235,24 @@ impl LanguageResolver for RustLangResolver {
             let func_name = &callee[sep_pos + 2..];
             let module_path = &callee[..sep_pos];
 
-            // Look for matching import of the module
-            // After resolution, import source may be a file path (e.g., src/utils.rs)
-            // or an original path (e.g., crate::utils), so check both forms
-            let module_import = caller_result
-                .imports
-                .iter()
-                .find(|imp| {
-                    imp.source.ends_with(module_path)
-                        || imp.source.ends_with(&format!("{module_path}.rs"))
-                        || imp.source.ends_with(&format!("{module_path}/mod.rs"))
+            // Check mod_paths first for `mod foo;` declared modules
+            let mod_paths = self.mod_paths.lock().unwrap();
+            if let Some(mod_file) = mod_paths.get(module_path) {
+                return Some(ResolvedEdge {
+                    target_file: mod_file.to_string_lossy().to_string(),
+                    target_name: func_name.to_string(),
+                    confidence: 0.85,
+                    resolution_tier: "tier2".into(),
                 });
+            }
+            drop(mod_paths);
+
+            // Look for matching import of the module
+            let module_import = caller_result.imports.iter().find(|imp| {
+                imp.source.ends_with(module_path)
+                    || imp.source.ends_with(&format!("{module_path}.rs"))
+                    || imp.source.ends_with(&format!("{module_path}/mod.rs"))
+            });
 
             if let Some(imp) = module_import {
                 return Some(ResolvedEdge {
@@ -150,7 +264,81 @@ impl LanguageResolver for RustLangResolver {
             }
         }
 
-        // Same file definition
+        // Tier 2: receiver-based resolution (method calls) -- checked before
+        // generic same-file definition match to get precise confidence.
+        if let Some(receiver) = &call_site.receiver {
+            if receiver == "self" {
+                // Resolve self.method() by checking all impl blocks
+                let impl_map = self.impl_map.lock().unwrap();
+                for (type_name, methods) in impl_map.iter() {
+                    if methods.iter().any(|m| m == callee) {
+                        let cc = self.content_cache.lock().unwrap();
+                        let is_generic = cc.values().any(|c| {
+                            helpers::is_generic_impl(c, type_name)
+                        });
+                        let confidence = if is_generic { 0.60 } else { 0.85 };
+                        return Some(ResolvedEdge {
+                            target_file: call_site.file_path.clone(),
+                            target_name: callee.clone(),
+                            confidence,
+                            resolution_tier: "tier2".into(),
+                        });
+                    }
+                }
+            }
+
+            // Tier 2: trait method resolution via receiver type
+            let trait_impls = self.trait_impls.lock().unwrap();
+            // Concrete type: receiver matches a known impl type
+            if let Some(ti) = trait_impls.iter().find(|ti| {
+                ti.type_name == *receiver
+                    && ti.methods.iter().any(|m| m == callee)
+            }) {
+                return Some(ResolvedEdge {
+                    target_file: ti.file_path.clone(),
+                    target_name: callee.clone(),
+                    confidence: 0.70,
+                    resolution_tier: "tier2".into(),
+                });
+            }
+            // dyn Trait: receiver looks like "dyn TraitName"
+            if let Some(trait_name) = receiver.strip_prefix("dyn ") {
+                let candidates: Vec<_> = trait_impls
+                    .iter()
+                    .filter(|ti| {
+                        ti.trait_name == trait_name
+                            && ti.methods.iter().any(|m| m == callee)
+                    })
+                    .collect();
+                if let Some(first) = candidates.first() {
+                    return Some(ResolvedEdge {
+                        target_file: first.file_path.clone(),
+                        target_name: callee.clone(),
+                        confidence: 0.40,
+                        resolution_tier: "tier2".into(),
+                    });
+                }
+            }
+
+            // Tier 2: receiver is a known type -> check impl_map
+            let impl_map = self.impl_map.lock().unwrap();
+            if let Some(methods) = impl_map.get(receiver.as_str()) {
+                if methods.iter().any(|m| m == callee) {
+                    let cc = self.content_cache.lock().unwrap();
+                    let is_generic =
+                        cc.values().any(|c| helpers::is_generic_impl(c, receiver));
+                    let confidence = if is_generic { 0.60 } else { 0.80 };
+                    return Some(ResolvedEdge {
+                        target_file: call_site.file_path.clone(),
+                        target_name: callee.clone(),
+                        confidence,
+                        resolution_tier: "tier2".into(),
+                    });
+                }
+            }
+        }
+
+        // Same file definition (no receiver -- bare function call)
         for def in &caller_result.definitions {
             if def.name == *callee {
                 return Some(ResolvedEdge {
@@ -166,206 +354,5 @@ impl LanguageResolver for RustLangResolver {
     }
 }
 
-/// Check if a Rust definition at the given line is `pub`.
-/// Handles `pub fn`, `pub(crate) fn`, `pub(super) fn`, `pub(in path) fn`.
-fn rust_is_public(content: &str, line_start: u32) -> bool {
-    if line_start == 0 {
-        return false;
-    }
-    let lines: Vec<&str> = content.lines().collect();
-    let idx = (line_start as usize).saturating_sub(1);
-    if idx < lines.len() {
-        let line = lines[idx].trim_start();
-        return line.starts_with("pub ") || line.starts_with("pub(");
-    }
-    false
-}
-
-/// Resolve a Rust `use` path (crate:: or super::) to a file path.
-fn resolve_rust_use_path(dir: &Path, source: &str) -> Option<String> {
-    if source.starts_with("super::") {
-        let rest = source.strip_prefix("super::")?;
-        let parent = dir.parent()?;
-        let module_name = rest.split("::").next()?;
-        let as_file = parent.join(format!("{module_name}.rs"));
-        let as_mod = parent.join(module_name).join("mod.rs");
-        if as_file.exists() {
-            return Some(as_file.to_string_lossy().to_string());
-        }
-        if as_mod.exists() {
-            return Some(as_mod.to_string_lossy().to_string());
-        }
-        return Some(as_file.to_string_lossy().to_string());
-    }
-    if source.starts_with("crate::") {
-        let rest = source.strip_prefix("crate::")?;
-        let segments: Vec<&str> = rest.split("::").collect();
-        // Walk up from current dir to find src/ or project root
-        let mut search_dir = dir;
-        let mut project_root = None;
-        loop {
-            if search_dir.join("Cargo.toml").exists() {
-                project_root = Some(search_dir.to_path_buf());
-                break;
-            }
-            match search_dir.parent() {
-                Some(p) if p != search_dir => search_dir = p,
-                _ => break,
-            }
-        }
-        if let Some(root) = project_root {
-            let src_dir = root.join("src");
-            // Try progressively shorter module paths
-            for depth in (1..=segments.len().min(3)).rev() {
-                let module_path = segments[..depth].join("/");
-                let as_file = src_dir.join(format!("{module_path}.rs"));
-                let as_mod = src_dir.join(&module_path).join("mod.rs");
-                if as_file.exists() {
-                    return Some(as_file.to_string_lossy().to_string());
-                }
-                if as_mod.exists() {
-                    return Some(as_mod.to_string_lossy().to_string());
-                }
-            }
-            // Return the best guess even if file doesn't exist yet
-            let module_name = segments[0];
-            let as_file = src_dir.join(format!("{module_name}.rs"));
-            return Some(as_file.to_string_lossy().to_string());
-        }
-    }
-    None
-}
-
-fn find_import_for_name<'a>(imports: &'a [Import], name: &str) -> Option<&'a Import> {
-    imports.iter().find(|imp| {
-        imp.imported_names.iter().any(|n| n == name)
-            || imp.source.ends_with(&format!("::{name}"))
-    })
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_rust_resolver_parse_function() {
-        let resolver = RustLangResolver::new();
-        let source = r#"
-pub fn greet(name: &str) -> String {
-    format!("Hello, {}!", name)
-}
-"#;
-        let result = resolver.parse_file(Path::new("test.rs"), source);
-        let funcs: Vec<_> = result.definitions.iter()
-            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
-        assert_eq!(funcs.len(), 1);
-        assert_eq!(funcs[0].name, "greet");
-        assert!(funcs[0].is_public);
-        assert!(funcs[0].type_hints_present);
-    }
-
-    #[test]
-    fn test_rust_resolver_private_function() {
-        let resolver = RustLangResolver::new();
-        let source = r#"
-fn internal_helper(x: i32) -> i32 {
-    x + 1
-}
-"#;
-        let result = resolver.parse_file(Path::new("test.rs"), source);
-        let funcs: Vec<_> = result.definitions.iter()
-            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
-        assert_eq!(funcs.len(), 1);
-        assert!(!funcs[0].is_public);
-    }
-
-    #[test]
-    fn test_rust_resolver_caches_results() {
-        let resolver = RustLangResolver::new();
-        let source = "fn hello() {}";
-        let path = Path::new("cached.rs");
-        resolver.parse_file(path, source);
-        let defs = resolver.resolve_definitions(path);
-        let funcs: Vec<_> = defs.iter()
-            .filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
-        assert_eq!(funcs.len(), 1);
-    }
-
-    #[test]
-    fn test_rust_resolver_same_file_call_edge() {
-        let resolver = RustLangResolver::new();
-        let source = r#"
-fn helper() -> i32 { 1 }
-fn main() { helper(); }
-"#;
-        let path = Path::new("edge.rs");
-        resolver.parse_file(path, source);
-        let edge = resolver.resolve_call_edge(&CallSite {
-            file_path: "edge.rs".into(),
-            line: 3,
-            callee_name: "helper".into(),
-            receiver: None,
-        });
-        assert!(edge.is_some());
-        let edge = edge.unwrap();
-        assert_eq!(edge.target_name, "helper");
-        assert!(edge.confidence >= 0.90);
-    }
-
-    #[test]
-    fn test_rust_is_public() {
-        assert!(rust_is_public("pub fn greet() {}", 1));
-        assert!(!rust_is_public("fn internal() {}", 1));
-        assert!(rust_is_public("  pub fn greet() {}", 1));
-    }
-
-    #[test]
-    fn test_rust_resolver_parses_use_imports() {
-        let resolver = RustLangResolver::new();
-        let source = r#"
-use crate::store::GraphStore;
-use super::utils::helper;
-
-fn main() {
-    let s = GraphStore::new();
-    helper();
-}
-"#;
-        let path = Path::new("test_imports.rs");
-        let result = resolver.parse_file(path, source);
-        assert!(
-            result.imports.len() >= 2,
-            "expected at least 2 imports, got {}",
-            result.imports.len()
-        );
-        // crate:: import gets resolved to a file path by resolve_rust_use_path
-        let store_imp = result
-            .imports
-            .iter()
-            .find(|i| i.source.contains("store") && i.imported_names.contains(&"GraphStore".to_string()));
-        assert!(store_imp.is_some(), "should have store import with GraphStore name");
-        assert!(store_imp.unwrap().is_relative);
-    }
-
-    #[test]
-    fn test_rust_resolver_cross_file_call_via_import() {
-        let resolver = RustLangResolver::new();
-        let source = r#"
-use crate::store::GraphStore;
-
-fn main() {
-    GraphStore::new();
-}
-"#;
-        let path = Path::new("test_cross.rs");
-        resolver.parse_file(path, source);
-        let edge = resolver.resolve_call_edge(&CallSite {
-            file_path: "test_cross.rs".into(),
-            line: 5,
-            callee_name: "GraphStore".into(),
-            receiver: None,
-        });
-        // Should resolve via the use import
-        assert!(edge.is_some(), "should resolve GraphStore via use import");
-    }
-}
+mod tests;

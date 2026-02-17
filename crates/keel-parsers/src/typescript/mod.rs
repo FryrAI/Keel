@@ -145,6 +145,11 @@ impl TsResolver {
             }
         }
 
+        // Tier 2: extract triple-slash reference directives as implicit imports
+        let triple_slash_imports =
+            helpers::extract_triple_slash_references(content, dir, &self.module_resolver);
+        result.imports.extend(triple_slash_imports);
+
         // Cache semantic info
         self.semantic_cache
             .lock()

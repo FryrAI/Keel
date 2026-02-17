@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::path::Path;
+
+use oxc_resolver::Resolver;
 
 use crate::resolver::Import;
 
@@ -72,6 +75,67 @@ pub(crate) fn resolve_path_alias(
         }
     }
     None
+}
+
+/// Extract `/// <reference path="..." />` directives from TypeScript source.
+///
+/// Triple-slash references are treated as implicit imports. The referenced
+/// path is resolved via oxc_resolver (relative to the file's directory).
+/// Confidence: 0.75 (reliable but older TS mechanism).
+pub(crate) fn extract_triple_slash_references(
+    content: &str,
+    dir: &Path,
+    resolver: &Resolver,
+) -> Vec<Import> {
+    let mut imports = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        // Only process lines at the top of the file (before any real code)
+        // Triple-slash refs must appear before any other statements.
+        if !trimmed.starts_with("///") && !trimmed.is_empty() && !trimmed.starts_with("//") {
+            break;
+        }
+        if let Some(path_val) = extract_reference_path(trimmed) {
+            let resolved_source = if let Ok(resolved) = resolver.resolve(dir, &path_val) {
+                resolved.full_path().to_string_lossy().to_string()
+            } else {
+                // Fall back to joining with dir for relative paths
+                dir.join(&path_val).to_string_lossy().to_string()
+            };
+            imports.push(Import {
+                source: resolved_source,
+                imported_names: vec![], // namespace-level import
+                file_path: String::new(), // filled by caller
+                line: (i + 1) as u32,
+                is_relative: path_val.starts_with('.'),
+            });
+        }
+    }
+    imports
+}
+
+/// Parse `/// <reference path="..." />` and return the path value.
+fn extract_reference_path(line: &str) -> Option<String> {
+    let s = line.strip_prefix("///")?;
+    let s = s.trim();
+    if !s.starts_with("<reference") {
+        return None;
+    }
+    // Find path="..." or path='...'
+    let path_attr = s.find("path=")?;
+    let rest = &s[path_attr + 5..];
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let inner = &rest[1..];
+    let end = inner.find(quote)?;
+    let val = &inner[..end];
+    if val.is_empty() {
+        None
+    } else {
+        Some(val.to_string())
+    }
 }
 
 /// Extract a string literal from a `from '...'` or `from "..."` fragment.

@@ -1,5 +1,6 @@
 ; Keel tree-sitter queries for Rust
-; Captures: @def.func, @def.struct, @def.impl, @def.trait, @ref.call, @ref.use
+; Captures: @def.func, @def.struct, @def.impl, @def.trait, @def.macro,
+;           @ref.call, @ref.use, @ref.macro_invocation
 
 ; --- Function definitions ---
 (function_item
@@ -56,6 +57,20 @@
 ; --- Use declarations ---
 (use_declaration
   argument: (_) @ref.use.path) @ref.use
+
+; --- Macro definitions (macro_rules!) ---
+(macro_definition
+  name: (identifier) @def.macro.name) @def.macro
+
+; --- Macro invocations (my_vec!()) ---
+(macro_invocation
+  macro: (identifier) @ref.macro_invocation.name) @ref.macro_invocation
+
+; --- Trait impl blocks (impl Trait for Type) ---
+(impl_item
+  trait: (_) @def.trait_impl.trait_name
+  type: (_) @def.trait_impl.type_name
+  body: (declaration_list) @def.trait_impl.body) @def.trait_impl
 
 ; --- Mod declarations ---
 (mod_item
