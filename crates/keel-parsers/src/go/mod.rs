@@ -74,6 +74,10 @@ impl LanguageResolver for GoResolver {
         "go"
     }
 
+    fn supported_extensions(&self) -> &[&str] {
+        &["go"]
+    }
+
     fn parse_file(&self, path: &Path, content: &str) -> ParseResult {
         self.parse_and_cache(path, content)
     }
@@ -103,9 +107,12 @@ impl LanguageResolver for GoResolver {
             let pkg_alias = &callee[..dot_pos];
             let func_name = &callee[dot_pos + 1..];
 
-            // Find matching import
+            // Find matching import, skipping blank imports (side-effect only)
             let import = caller_result.imports.iter().find(|imp| {
-                // Import alias matches, or last segment of path matches
+                // Skip blank imports — they don't produce call edges
+                if imp.imported_names.contains(&"_".to_string()) {
+                    return false;
+                }
                 let alias = go_package_alias(&imp.source);
                 alias == pkg_alias
             });
@@ -120,7 +127,7 @@ impl LanguageResolver for GoResolver {
             }
         }
 
-        // Unqualified call — check same file definitions
+        // Unqualified call — check same file definitions first
         for def in &caller_result.definitions {
             if def.name == *callee {
                 return Some(ResolvedEdge {
@@ -128,6 +135,18 @@ impl LanguageResolver for GoResolver {
                     target_name: callee.clone(),
                     confidence: 0.90, // same package
                     resolution_tier: "tier1".into(),
+                });
+            }
+        }
+
+        // Unqualified call — check dot imports (`. "pkg"` brings names into scope)
+        for imp in &caller_result.imports {
+            if imp.imported_names.contains(&".".to_string()) {
+                return Some(ResolvedEdge {
+                    target_file: imp.source.clone(),
+                    target_name: callee.clone(),
+                    confidence: 0.60, // dot import — lower confidence
+                    resolution_tier: "tier2_heuristic".into(),
                 });
             }
         }

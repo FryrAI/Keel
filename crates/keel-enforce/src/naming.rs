@@ -45,7 +45,8 @@ pub fn suggest_name(
 
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    if scored.is_empty() {
+    // No matches at all, or all scores below confidence threshold
+    if scored.is_empty() || scored[0].0 < 0.3 {
         return NameResult {
             version: "0.1.0".to_string(),
             command: "name".to_string(),

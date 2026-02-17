@@ -416,6 +416,46 @@ After release-mode benchmarks, update all marketing: README, PROGRESS, landing p
 
 ---
 
+## 15. Round 11 Plan: UX Polish + Resolution Depth
+
+**Approach:** 3-agent swarm. Focus on feedback polish and achievable resolution tests.
+
+### From Feedback (claudecode_feedback.md v2)
+
+| # | Item | Severity | Fix |
+|---|------|----------|-----|
+| P1 | `name` unreliable placement | MEDIUM | Better path-keyword extraction, module convention detection, low-confidence abort |
+| P2 | `check` high-caller summary | LOW | Summarize 20+ callers as "N callers across M files", --verbose for full list |
+| P3 | `discover --context N` | LOW | Parameterize context lines (currently fixed) |
+| P4 | Deprecate `where` | LOW | Print hint to use `discover --name` instead |
+
+### Achievable Resolution Tests (~15 from 68 ignored)
+
+| Language | Tests | Feature | Complexity |
+|----------|-------|---------|-----------|
+| Parser | 1 | `supports_extension()` method on LanguageResolver | Trivial |
+| Go | 3 | blank/dot/module-relative imports | LOW-MED |
+| Python | 5 | `__all__` basic list parsing | MEDIUM |
+| Rust | 3 | use alias, use self, glob use | MEDIUM |
+| TypeScript | 1 | package.json exports field | LOW-MED |
+
+### Swarm Assignment
+
+| Agent | Tasks | Files |
+|-------|-------|-------|
+| **polish** | P1-P4 feedback items, check caller summary, discover --context N, deprecate where | name.rs, naming.rs, check.rs, discover.rs, output formatters |
+| **resolution-a** | Go imports (3), Python __all__ (5), parser supports_extension (1) | go/mod.rs, python/mod.rs, python.scm, resolver trait |
+| **resolution-b** | Rust use statements (3), TS package.json exports (1), plus any quick wins | rust_lang/mod.rs, typescript/mod.rs |
+
+### Success Criteria
+- `keel name` returns "no confident match" when score < 0.3
+- `check` summarizes 20+ callers
+- `discover --context 5` works
+- 68 → ~53 ignored tests
+- 0 failures, 0 clippy warnings
+
+---
+
 ## Appendix: Running a Single Pane Manually
 
 If you don't want the full swarm, you can run any pane independently:

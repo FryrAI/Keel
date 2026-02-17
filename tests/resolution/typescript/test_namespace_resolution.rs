@@ -104,11 +104,62 @@ merge({}, {});
 }
 
 #[test]
-#[ignore = "BUG: package.json exports field parsing not implemented in parser layer"]
 /// Conditional exports in package.json should be respected during resolution.
 fn test_package_json_conditional_exports() {
-    // Requires reading and parsing package.json's "exports" field,
-    // which is a runtime/bundler concern beyond tree-sitter parsing.
+    use std::fs;
+    let tmp = std::env::temp_dir().join("keel_test_pkg_exports");
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(tmp.join("node_modules/my-lib/dist")).unwrap();
+
+    // package.json with conditional exports field
+    fs::write(
+        tmp.join("node_modules/my-lib/package.json"),
+        r#"{
+            "name": "my-lib",
+            "exports": {
+                ".": {
+                    "import": "./dist/index.mjs",
+                    "require": "./dist/index.cjs",
+                    "default": "./dist/index.js"
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    // Create the target file that exports resolves to
+    fs::write(
+        tmp.join("node_modules/my-lib/dist/index.mjs"),
+        "export function helper() {}",
+    )
+    .unwrap();
+
+    let resolver = TsResolver::new();
+    let source = r#"import { helper } from 'my-lib';"#;
+    let file_path = tmp.join("app.ts");
+    let result = resolver.parse_file(&file_path, source);
+
+    // Import should be captured
+    assert!(!result.imports.is_empty(), "should have at least one import");
+    let imp = result
+        .imports
+        .iter()
+        .find(|i| i.source.contains("my-lib") || i.source.contains("index.mjs"));
+    assert!(
+        imp.is_some(),
+        "should have my-lib import, got: {:?}",
+        result.imports.iter().map(|i| &i.source).collect::<Vec<_>>()
+    );
+
+    // oxc_resolver should resolve via exports field to the actual file
+    let imp = imp.unwrap();
+    assert!(
+        imp.source.contains("dist/index.mjs"),
+        "should resolve via exports field to dist/index.mjs, got: {}",
+        imp.source
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
 }
 
 #[test]

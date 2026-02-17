@@ -70,6 +70,19 @@ impl EnforcementEngine {
         let callee_count = callees.len() as u32;
         let is_public_api = node.is_public;
 
+        // Summarize callers when >= 20
+        let caller_summary = if caller_count >= 20 {
+            let unique_files: std::collections::HashSet<&str> =
+                callers.iter().map(|c| c.file.as_str()).collect();
+            Some(format!(
+                "{} callers across {} files",
+                caller_count,
+                unique_files.len()
+            ))
+        } else {
+            None
+        };
+
         // Compute risk level
         let level = compute_risk_level(
             caller_count,
@@ -98,6 +111,7 @@ impl EnforcementEngine {
             is_public_api,
             callers,
             callees,
+            caller_summary,
         };
 
         // Generate suggestions

@@ -39,10 +39,26 @@ impl PyResolver {
             }
         };
 
+        // Extract __all__ from tree-sitter AST
+        let all_exports = extract_python_all(&mut parser, content);
+
         // Tier 2: enhance definitions with Python-specific analysis
         for def in &mut result.definitions {
             def.type_hints_present = py_has_type_hints(&def.signature);
-            def.is_public = !def.name.starts_with('_');
+            match &all_exports {
+                Some(DunderAll::Literal(names)) => {
+                    // Module node stays public; other defs use __all__
+                    if def.kind == keel_core::types::NodeKind::Module {
+                        def.is_public = true;
+                    } else {
+                        def.is_public = names.contains(&def.name);
+                    }
+                }
+                Some(DunderAll::Dynamic) | None => {
+                    // No __all__ or dynamic __all__ — use convention
+                    def.is_public = !def.name.starts_with('_');
+                }
+            }
         }
 
         // Tier 2: resolve relative imports to file paths
@@ -76,6 +92,10 @@ impl Default for PyResolver {
 impl LanguageResolver for PyResolver {
     fn language(&self) -> &str {
         "python"
+    }
+
+    fn supported_extensions(&self) -> &[&str] {
+        &["py"]
     }
 
     fn parse_file(&self, path: &Path, content: &str) -> ParseResult {
@@ -183,6 +203,58 @@ fn resolve_python_relative_import(dir: &Path, source: &str) -> Option<String> {
         // Return the file path even if it doesn't exist yet
         Some(as_file.to_string_lossy().to_string())
     }
+}
+
+/// Result of parsing `__all__` from a Python module.
+enum DunderAll {
+    /// `__all__` is a literal list of string names.
+    Literal(Vec<String>),
+    /// `__all__` is a dynamic expression (concatenation, function call, etc.).
+    Dynamic,
+}
+
+/// Extract `__all__` from a Python source file using tree-sitter.
+fn extract_python_all(
+    parser: &mut crate::treesitter::TreeSitterParser,
+    source: &str,
+) -> Option<DunderAll> {
+    let tree = parser.parse("python", source.as_bytes()).ok()?;
+    let root = tree.root_node();
+    let bytes = source.as_bytes();
+
+    for i in 0..root.child_count() {
+        let stmt = root.child(i)?;
+        if stmt.kind() != "expression_statement" {
+            continue;
+        }
+        let expr = stmt.child(0)?;
+        if expr.kind() != "assignment" {
+            continue;
+        }
+        let left = expr.child_by_field_name("left")?;
+        if left.kind() != "identifier" || left.utf8_text(bytes).ok()? != "__all__" {
+            continue;
+        }
+        let right = expr.child_by_field_name("right")?;
+        if right.kind() == "list" {
+            // Extract string literals from the list
+            let mut names = Vec::new();
+            for j in 0..right.named_child_count() {
+                let item = right.named_child(j)?;
+                if item.kind() == "string" {
+                    let text = item.utf8_text(bytes).ok()?;
+                    let name = text
+                        .trim_matches(|c: char| c == '\'' || c == '"')
+                        .to_string();
+                    names.push(name);
+                }
+            }
+            return Some(DunderAll::Literal(names));
+        }
+        // Non-list right-hand side — dynamic __all__
+        return Some(DunderAll::Dynamic);
+    }
+    None
 }
 
 fn find_import_for_name<'a>(imports: &'a [Import], name: &str) -> Option<&'a Import> {

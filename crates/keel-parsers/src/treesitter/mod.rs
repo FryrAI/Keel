@@ -299,6 +299,12 @@ fn extract_imports(
                 "ref.import.name" => {
                     imported_names.push(node_text(cap.node, source).to_string());
                 }
+                "ref.import.blank" => {
+                    imported_names.push("_".to_string());
+                }
+                "ref.import.dot" => {
+                    imported_names.push(".".to_string());
+                }
                 "ref.import" => {
                     line = cap.node.start_position().row as u32 + 1;
                 }
@@ -312,18 +318,60 @@ fn extract_imports(
             }
         }
 
-        if let Some(src) = source_path {
+        if let Some(raw_src) = source_path {
+            let mut src = raw_src;
             let is_relative = src.starts_with('.')
                 || src.starts_with("./")
                 || src.starts_with("../")
                 || src.starts_with("crate::")
                 || src.starts_with("super::");
-            // For Rust use paths, extract the last segment as the imported name
+
+            // Handle Rust use statement special syntax before default extraction
+            let mut is_wildcard = false;
+            // 1. Alias: "crate::module::Name as Alias"
+            if src.contains(" as ") && !src.contains('{') {
+                if let Some(as_pos) = src.rfind(" as ") {
+                    let alias = src[as_pos + 4..].trim().to_string();
+                    src = src[..as_pos].trim().to_string();
+                    imported_names.push(alias);
+                }
+            }
+            // 2. Use list: "crate::module::{A, B, self}"
+            else if let (Some(brace_start), Some(brace_end)) =
+                (src.find('{'), src.rfind('}'))
+            {
+                let base = src[..brace_start].trim_end_matches("::").to_string();
+                let items_str = &src[brace_start + 1..brace_end];
+                for item in items_str.split(',') {
+                    let item = item.trim();
+                    if item == "self" {
+                        // self refers to the module itself
+                        if let Some(module_name) = base.rsplit("::").next() {
+                            imported_names.push(module_name.to_string());
+                        }
+                    } else if item.contains(" as ") {
+                        if let Some(as_pos) = item.rfind(" as ") {
+                            imported_names
+                                .push(item[as_pos + 4..].trim().to_string());
+                        }
+                    } else if !item.is_empty() {
+                        imported_names.push(item.to_string());
+                    }
+                }
+                src = base;
+            }
+            // 3. Wildcard: "crate::module::*"
+            else if src.ends_with("::*") {
+                src = src[..src.len() - 3].to_string();
+                is_wildcard = true;
+                // imported_names stays empty for wildcard
+            }
+
+            // Fallback: For simple Rust use paths, extract the last segment
             // e.g. "crate::store::GraphStore" → imported_names = ["GraphStore"]
-            if imported_names.is_empty() && src.contains("::") {
+            if imported_names.is_empty() && !is_wildcard && src.contains("::") {
                 if let Some(last) = src.rsplit("::").next() {
-                    // Skip glob imports like "crate::prelude::*"
-                    if last != "*" && !last.is_empty() {
+                    if !last.is_empty() {
                         imported_names.push(last.to_string());
                     }
                 }
@@ -346,7 +394,22 @@ fn extract_imports(
             });
         }
     }
-    imports
+    // Deduplicate: blank/dot import queries may match the same import_spec as the
+    // basic pattern. Keep the more specific entry (the one with "_" or "." markers)
+    // over the plain one for the same (source, line).
+    let mut deduped: Vec<Import> = Vec::with_capacity(imports.len());
+    for imp in imports {
+        let special = imp.imported_names.iter().any(|n| n == "_" || n == ".");
+        if let Some(existing) = deduped.iter_mut().find(|e| e.source == imp.source && e.line == imp.line) {
+            // Replace plain entry with the more specific blank/dot entry
+            if special {
+                *existing = imp;
+            }
+        } else {
+            deduped.push(imp);
+        }
+    }
+    deduped
 }
 
 pub fn detect_language(path: &Path) -> Option<&'static str> {

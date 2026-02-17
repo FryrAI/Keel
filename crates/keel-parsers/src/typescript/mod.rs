@@ -174,6 +174,10 @@ impl LanguageResolver for TsResolver {
         "typescript"
     }
 
+    fn supported_extensions(&self) -> &[&str] {
+        &["ts", "tsx", "js", "jsx"]
+    }
+
     fn parse_file(&self, path: &Path, content: &str) -> ParseResult {
         self.parse_and_cache(path, content)
     }

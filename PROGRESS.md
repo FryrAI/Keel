@@ -15,9 +15,11 @@ agent UX pain points: discover accepts file paths + names, `keel search`, `keel 
 flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map tool. Round 9 added
 `keel check` and `keel analyze` commands, `compile --delta`, `discover --context`, and naming fixes.
 Round 10 (3-agent swarm) implemented schema v2 migration, module node auto-creation, dynamic dispatch
-confidence, Cursor/Gemini hook fixes, and 5 bug fixes.
+confidence, Cursor/Gemini hook fixes, and 5 bug fixes. Round 11 polished UX (name reliability, check
+caller summary, --context N, deprecate where) and added resolution features (Go imports, Python __all__,
+Rust use statements, TS package.json exports, supports_extension trait method).
 
-**957 tests passing, 0 failures, 68 ignored (feature-blocked), 0 clippy warnings.**
+**972 tests passing, 0 failures, 55 ignored (feature-blocked), 0 clippy warnings.**
 
 ## Test Status — Actual Numbers
 
@@ -25,8 +27,8 @@ confidence, Cursor/Gemini hook fixes, and 5 bug fixes.
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 957 | Round 10: schema v2, module nodes, dynamic dispatch, hook fixes, bug fixes |
-| **Ignored** | 68 | Feature-blocked (advanced resolution, large perf) |
+| **Passing** | 972 | Round 11: UX polish, Go imports, Python __all__, Rust use, TS exports |
+| **Ignored** | 55 | Feature-blocked (advanced resolution, large perf) |
 | **Failing** | 0 | Clean |
 
 ### Where the Passing Tests Live
@@ -51,6 +53,30 @@ confidence, Cursor/Gemini hook fixes, and 5 bug fixes.
 | tests/tool_integration/ | 31 | Claude Code hooks, instruction files, git hooks, hook execution |
 | other integration | ~160 | Graph, parsing, correctness |
 | **Total** | **986** | |
+
+## Round 11: UX Polish + Resolution Depth (2026-02-17) — COMPLETED
+
+3-agent swarm (polish, resolution-a, resolution-b) running in parallel.
+
+### Polish Agent — Feedback Items
+- **Name reliability**: Low-confidence abort (scores < 0.3 → "no confident match")
+- **Check caller summary**: 20+ callers shown as "N callers across M files" + top 5
+- **Discover --context N**: Parameterized (default 5, `--context 10` for more)
+- **Deprecate where**: Prints hint to use `discover --name` instead
+
+### Resolution-A — Go + Python + Trait
+- **Go imports**: blank import (`_`), dot import (`.`), module-relative (3 tests)
+- **Python __all__**: literal list parsing, concatenation/dynamic detection (5 tests)
+- **supports_extension()**: Added to LanguageResolver trait with all 4 impls (1 test)
+
+### Resolution-B — Rust + TypeScript
+- **Rust use statements**: alias (`as`), self imports, glob wildcard (3 tests)
+- **TS package.json exports**: conditional exports resolution via oxc_resolver (1 test)
+
+### Results
+- 957 → 972 tests passing (+15)
+- 68 → 55 ignored (-13 un-ignored)
+- 0 failures, 0 clippy warnings maintained
 
 ## Round 10: Core Features + Bug Fixes (2026-02-17) — COMPLETED
 
@@ -316,7 +342,7 @@ Zero orphans. Zero regressions. 4 consecutive green rounds.
 All tests pass. Clippy clean. Ready to tag v0.1.0.
 
 ### P1: Polish (post-release)
-- 68 ignored tests → implement underlying features (advanced resolution, --merge, large perf)
+- 55 ignored tests → implement underlying features (advanced resolution, large perf)
 - Config format: TOML migration (keel.toml alongside keel.json)
 - Performance: measure actual memory usage, verify <200ms compile on release builds
 
@@ -329,7 +355,7 @@ All tests pass. Clippy clean. Ready to tag v0.1.0.
 - `keel serve --mcp` end-to-end with Claude Code and Cursor
 
 ## Test Count History
-207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 (current)
+207 → 338 → 442 → 446 → 455 → 467 → 478 → 874 → 887 → 926 → 931 → 953 → 895 → 910 → 919 → 927 → 957 → 972 (current)
 
 Note: Count dropped from 953 to 895 between Round 6-7 due to stricter runtime counting
 (`cargo test --workspace` output vs `#[test]` annotation count). Round 10 counts use

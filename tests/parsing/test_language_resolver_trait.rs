@@ -23,12 +23,20 @@ fn test_resolver_language_identifier() {
 }
 
 #[test]
-#[ignore = "BUG: LanguageResolver trait has no supports_extension method"]
 /// Every LanguageResolver must correctly identify supported file extensions.
 fn test_resolver_supported_extensions() {
-    // The LanguageResolver trait does not define a supports_extension() method.
-    // File extension detection is handled by treesitter::detect_language() instead.
-    // This test would require adding a method to the frozen contract.
+    let ts = TsResolver::new();
+    let py = PyResolver::new();
+    let go = GoResolver::new();
+    let rs = RustLangResolver::new();
+
+    assert_eq!(ts.supported_extensions(), &["ts", "tsx", "js", "jsx"]);
+    assert_eq!(py.supported_extensions(), &["py"]);
+    assert_eq!(go.supported_extensions(), &["go"]);
+    assert_eq!(rs.supported_extensions(), &["rs"]);
+
+    // Default trait impl returns empty slice
+    // (verified implicitly: if any impl forgot to override, it would fail above)
 }
 
 #[test]

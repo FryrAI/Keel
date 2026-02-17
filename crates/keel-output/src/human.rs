@@ -200,6 +200,18 @@ impl OutputFormatter for HumanFormatter {
             result.risk.caller_count, result.risk.cross_file_callers,
             result.risk.cross_module_callers, result.risk.callee_count,
         ));
+        if let Some(ref summary) = result.risk.caller_summary {
+            out.push_str(&format!("  {}\n", summary));
+            for c in result.risk.callers.iter().take(5) {
+                out.push_str(&format!("    {} [{}] at {}:{}\n", c.name, c.hash, c.file, c.line));
+            }
+            if result.risk.callers.len() > 5 {
+                out.push_str(&format!(
+                    "    ... and {} more (use --verbose for full list)\n",
+                    result.risk.callers.len() - 5
+                ));
+            }
+        }
         if result.risk.is_public_api {
             out.push_str("  PUBLIC API\n");
         }

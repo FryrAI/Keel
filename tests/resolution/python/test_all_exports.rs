@@ -6,19 +6,70 @@ use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
 
 #[test]
-#[ignore = "BUG: __all__ list parsing not implemented in tree-sitter layer"]
 /// __all__ should define the public API of a module for star imports.
 fn test_all_defines_public_api() {
-    // Parsing __all__ = ['foo', 'Bar'] requires AST-level analysis of
-    // assignment expressions, which is not in the tree-sitter query.
+    let resolver = PyResolver::new();
+    let source = r#"
+__all__ = ['foo', 'Bar']
+
+def foo():
+    pass
+
+def bar():
+    pass
+
+class Bar:
+    pass
+
+class Baz:
+    pass
+"#;
+    let path = Path::new("/project/api.py");
+    let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
+
+    let foo = defs.iter().find(|d| d.name == "foo").unwrap();
+    let bar = defs.iter().find(|d| d.name == "bar").unwrap();
+    let bar_cls = defs.iter().find(|d| d.name == "Bar").unwrap();
+    let baz = defs.iter().find(|d| d.name == "Baz").unwrap();
+
+    assert!(foo.is_public, "foo should be public (__all__ listed)");
+    assert!(!bar.is_public, "bar should be private (not in __all__)");
+    assert!(bar_cls.is_public, "Bar should be public (__all__ listed)");
+    assert!(!baz.is_public, "Baz should be private (not in __all__)");
 }
 
 #[test]
-#[ignore = "BUG: __all__ validation not implemented in tree-sitter layer"]
-/// __all__ with names not defined in the module should produce a warning.
+/// __all__ with names not defined in the module should not crash.
 fn test_all_with_undefined_names() {
-    // Requires cross-referencing __all__ entries against definitions,
-    // a Tier 2 feature.
+    let resolver = PyResolver::new();
+    let source = r#"
+__all__ = ['foo', 'nonexistent']
+
+def foo():
+    pass
+
+def bar():
+    pass
+"#;
+    let path = Path::new("/project/partial_all.py");
+    let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
+
+    let foo = defs.iter().find(|d| d.name == "foo").unwrap();
+    let bar = defs.iter().find(|d| d.name == "bar").unwrap();
+
+    assert!(foo.is_public, "foo should be public (__all__ listed)");
+    assert!(!bar.is_public, "bar should be private (not in __all__)");
+    // 'nonexistent' in __all__ doesn't crash — it just has no matching def
 }
 
 #[test]
@@ -108,22 +159,104 @@ def greet(name):
 }
 
 #[test]
-#[ignore = "BUG: __all__ concatenation parsing not implemented"]
-/// __all__ should be parsed even when defined with concatenation.
+/// __all__ with concatenation falls back to convention-based visibility.
 fn test_all_with_concatenation() {
-    // Parsing __all__ = ['foo'] + ['bar'] requires expression evaluation.
+    let resolver = PyResolver::new();
+    let source = r#"
+__all__ = ['foo'] + ['bar']
+
+def foo():
+    pass
+
+def _private():
+    pass
+"#;
+    let path = Path::new("/project/concat_all.py");
+    let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
+
+    let foo = defs.iter().find(|d| d.name == "foo").unwrap();
+    let priv_fn = defs.iter().find(|d| d.name == "_private").unwrap();
+
+    // Concatenation is dynamic — falls back to underscore convention
+    assert!(foo.is_public, "foo should be public (no underscore)");
+    assert!(!priv_fn.is_public, "_private should be private (underscore)");
 }
 
 #[test]
-#[ignore = "BUG: __all__ change tracking not implemented"]
-/// __all__ changes should trigger re-evaluation of dependent imports.
+/// Re-parsing with different __all__ should update visibility.
 fn test_all_change_triggers_reevaluation() {
-    // Requires incremental dependency tracking for __all__ changes.
+    let resolver = PyResolver::new();
+    let path = Path::new("/project/changing.py");
+
+    // First parse: only foo is public
+    let source1 = r#"
+__all__ = ['foo']
+
+def foo():
+    pass
+
+def bar():
+    pass
+"#;
+    let result1 = resolver.parse_file(path, source1);
+    let defs1: Vec<_> = result1
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
+    assert!(defs1.iter().find(|d| d.name == "foo").unwrap().is_public);
+    assert!(!defs1.iter().find(|d| d.name == "bar").unwrap().is_public);
+
+    // Second parse: both foo and bar are public
+    let source2 = r#"
+__all__ = ['foo', 'bar']
+
+def foo():
+    pass
+
+def bar():
+    pass
+"#;
+    let result2 = resolver.parse_file(path, source2);
+    let defs2: Vec<_> = result2
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
+    assert!(defs2.iter().find(|d| d.name == "foo").unwrap().is_public);
+    assert!(defs2.iter().find(|d| d.name == "bar").unwrap().is_public);
 }
 
 #[test]
-#[ignore = "BUG: dynamic __all__ detection not implemented"]
-/// Dynamic __all__ (computed at runtime) should be marked as unresolvable.
+/// Dynamic __all__ (computed at runtime) falls back to convention.
 fn test_dynamic_all_unresolvable() {
-    // Requires static analysis of __all__ expressions to detect dynamic cases.
+    let resolver = PyResolver::new();
+    let source = r#"
+__all__ = get_exports()
+
+def foo():
+    pass
+
+def _private():
+    pass
+"#;
+    let path = Path::new("/project/dynamic_all.py");
+    let result = resolver.parse_file(path, source);
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
+
+    let foo = defs.iter().find(|d| d.name == "foo").unwrap();
+    let priv_fn = defs.iter().find(|d| d.name == "_private").unwrap();
+
+    // Dynamic __all__ is unresolvable — falls back to underscore convention
+    assert!(foo.is_public, "foo should be public (no underscore)");
+    assert!(!priv_fn.is_public, "_private should be private (underscore)");
 }

@@ -24,6 +24,9 @@ pub struct RiskAssessment {
     pub is_public_api: bool,
     pub callers: Vec<CheckCallerRef>,
     pub callees: Vec<CheckCalleeRef>,
+    /// When callers >= 20, summary string like "42 callers across 8 files"
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub caller_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

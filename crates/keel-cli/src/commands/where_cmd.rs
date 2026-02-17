@@ -2,6 +2,7 @@ use keel_output::OutputFormatter;
 
 /// Run `keel where <hash>` — resolve hash to file:line.
 pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: bool) -> i32 {
+    eprintln!("hint: `keel where` is deprecated. Use `keel discover --name <name>` or `keel discover <hash>` instead.");
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {

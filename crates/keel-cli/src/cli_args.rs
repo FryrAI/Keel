@@ -61,8 +61,8 @@ pub(crate) enum Commands {
         /// Look up by function name instead of hash
         #[arg(long)]
         name: bool,
-        /// Include N lines of source code (default: 10 when flag present)
-        #[arg(long, default_missing_value = "10", num_args = 0..=1)]
+        /// Include N lines of source code (default: 5 when flag present)
+        #[arg(long, default_missing_value = "5", num_args = 0..=1)]
         context: Option<u32>,
     },
 

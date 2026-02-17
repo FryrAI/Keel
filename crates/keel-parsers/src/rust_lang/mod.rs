@@ -79,6 +79,10 @@ impl LanguageResolver for RustLangResolver {
         "rust"
     }
 
+    fn supported_extensions(&self) -> &[&str] {
+        &["rs"]
+    }
+
     fn parse_file(&self, path: &Path, content: &str) -> ParseResult {
         self.parse_and_cache(path, content)
     }

@@ -13,8 +13,18 @@ pub fn format_check(result: &CheckResult) -> String {
         "CALLERS total={} cross_file={} cross_module={}\n",
         r.caller_count, r.cross_file_callers, r.cross_module_callers,
     ));
-    for c in &r.callers {
-        out.push_str(&format!("  {}@{}:{}\n", c.hash, c.file, c.line));
+    if let Some(ref summary) = r.caller_summary {
+        out.push_str(&format!("  SUMMARY: {}\n", summary));
+        for c in r.callers.iter().take(5) {
+            out.push_str(&format!("  {}@{}:{}\n", c.hash, c.file, c.line));
+        }
+        if r.callers.len() > 5 {
+            out.push_str(&format!("  ... and {} more (use --verbose for full list)\n", r.callers.len() - 5));
+        }
+    } else {
+        for c in &r.callers {
+            out.push_str(&format!("  {}@{}:{}\n", c.hash, c.file, c.line));
+        }
     }
 
     out.push_str(&format!(

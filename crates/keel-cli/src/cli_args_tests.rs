@@ -505,7 +505,7 @@ fn parse_discover_context_flag_no_value() {
     let cli = parse(&["keel", "discover", "abc123", "--context"]);
     match cli.command {
         Commands::Discover { context, .. } => {
-            assert_eq!(context, Some(10)); // default_missing_value
+            assert_eq!(context, Some(5)); // default_missing_value
         }
         _ => panic!("expected Discover"),
     }

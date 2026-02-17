@@ -53,3 +53,29 @@
     (import_spec
       name: (package_identifier) @ref.import.name
       path: (interpreted_string_literal) @ref.import.source))) @ref.import
+
+; Blank import (side-effect only) — single
+(import_declaration
+  (import_spec
+    name: (blank_identifier) @ref.import.blank
+    path: (interpreted_string_literal) @ref.import.source)) @ref.import
+
+; Blank import (side-effect only) — grouped
+(import_declaration
+  (import_spec_list
+    (import_spec
+      name: (blank_identifier) @ref.import.blank
+      path: (interpreted_string_literal) @ref.import.source))) @ref.import
+
+; Dot import (all exported names into scope) — single
+(import_declaration
+  (import_spec
+    name: (dot) @ref.import.dot
+    path: (interpreted_string_literal) @ref.import.source)) @ref.import
+
+; Dot import (all exported names into scope) — grouped
+(import_declaration
+  (import_spec_list
+    (import_spec
+      name: (dot) @ref.import.dot
+      path: (interpreted_string_literal) @ref.import.source))) @ref.import

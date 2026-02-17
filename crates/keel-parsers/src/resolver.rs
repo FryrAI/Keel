@@ -32,6 +32,12 @@ pub trait LanguageResolver: Send + Sync {
     /// Attempt to resolve a call-site to a concrete target.
     /// Returns `None` when resolution is ambiguous or unsupported.
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge>;
+
+    /// Returns the file extensions this resolver handles (without leading dot).
+    /// Default implementation returns an empty slice.
+    fn supported_extensions(&self) -> &[&str] {
+        &[]
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -99,3 +99,25 @@ fn test_fallback_score_path_dominates() {
         path_heavy * 0.65
     );
 }
+
+#[test]
+fn test_low_confidence_threshold() {
+    // Scores below 0.3 should be treated as "no confident match"
+    let desc = vec!["quantum".to_string(), "entanglement".to_string()];
+    // Path with no real overlap should score well below 0.3
+    let low = compute_path_score(&desc, "src/auth_handler.py");
+    assert!(low < 0.3, "unrelated path should score below threshold: {}", low);
+}
+
+#[test]
+fn test_majority_prefix_detection() {
+    // 3/5 share "get_" prefix → majority → detected
+    let names = vec!["get_user", "get_session", "get_token", "create_item", "delete_item"];
+    let prefix = detect_common_prefix(&names);
+    assert_eq!(prefix, Some("get_".to_string()));
+
+    // 2/5 share prefix → not majority → None
+    let names2 = vec!["get_user", "get_session", "create_item", "delete_item", "check_auth"];
+    let prefix2 = detect_common_prefix(&names2);
+    assert!(prefix2.is_none(), "non-majority prefix should be None");
+}
