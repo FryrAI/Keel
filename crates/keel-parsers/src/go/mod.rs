@@ -207,10 +207,7 @@ impl LanguageResolver for GoResolver {
 
         // Re-acquire for unqualified calls
         let cache = self.cache.lock().unwrap();
-        let caller_result = match cache.get(&caller_file) {
-            Some(r) => r,
-            None => return None,
-        };
+        let caller_result = cache.get(&caller_file)?;
 
         // Unqualified call -- check same file definitions first
         for def in &caller_result.definitions {

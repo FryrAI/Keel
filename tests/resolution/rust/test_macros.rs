@@ -115,19 +115,43 @@ fn main() {
 }
 
 #[test]
-#[ignore = "TIER3: requires proc-macro crate analysis (rust-analyzer) -- deferred by design"]
-/// Derive macro usage should create edges to the derive macro definition.
+/// Derive macro usage should create references for each derive name.
 fn test_derive_macro_resolution() {
-    // #[derive(Serialize)] requires resolving to the serde_derive proc
-    // macro crate, which is beyond parser scope.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+#[derive(Debug, Clone)]
+pub struct Config {
+    name: String,
+}
+"#;
+    let path = Path::new("derive.rs");
+    resolver.parse_file(path, source);
+    let refs = resolver.resolve_references(path);
+    let debug_ref = refs.iter().find(|r| r.name == "Debug");
+    assert!(debug_ref.is_some(),
+        "should capture Debug derive as reference, got: {:?}",
+        refs.iter().map(|r| &r.name).collect::<Vec<_>>());
+    let clone_ref = refs.iter().find(|r| r.name == "Clone");
+    assert!(clone_ref.is_some(), "should capture Clone derive as reference");
 }
 
 #[test]
-#[ignore = "TIER3: requires proc-macro analysis (rust-analyzer) -- deferred by design"]
-/// Attribute macro resolution should link to the proc macro function.
+/// Attribute macro resolution should capture path-based attribute macros as references.
 fn test_attribute_macro_resolution() {
-    // #[tokio::main] requires resolving to the tokio proc macro, which
-    // is beyond parser scope.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+#[tokio::main]
+async fn main() {
+    println!("hello");
+}
+"#;
+    let path = Path::new("attr_macro.rs");
+    resolver.parse_file(path, source);
+    let refs = resolver.resolve_references(path);
+    let tokio_ref = refs.iter().find(|r| r.name == "tokio::main");
+    assert!(tokio_ref.is_some(),
+        "should capture tokio::main attribute macro as reference, got: {:?}",
+        refs.iter().map(|r| &r.name).collect::<Vec<_>>());
 }
 
 #[test]

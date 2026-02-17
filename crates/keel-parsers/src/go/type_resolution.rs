@@ -170,8 +170,8 @@ fn extract_interface_methods(content: &str, line_start: u32, line_end: u32) -> V
     let lines: Vec<&str> = content.lines().collect();
     let start = line_start as usize;
     let end = (line_end as usize).saturating_sub(1).min(lines.len());
-    for i in start..end {
-        let trimmed = lines[i].trim();
+    for line in lines.iter().take(end).skip(start) {
+        let trimmed = line.trim();
         if let Some(paren_pos) = trimmed.find('(') {
             let name = trimmed[..paren_pos].trim();
             if !name.is_empty()

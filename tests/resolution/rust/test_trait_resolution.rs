@@ -164,33 +164,126 @@ fn process(f: &dyn Formatter) {
 }
 
 #[test]
-#[ignore = "TIER3: requires generic constraint solving -- deferred by design"]
 /// Trait bounds on generics should constrain resolution candidates.
 fn test_trait_bound_resolution() {
-    // `fn process<T: LanguageResolver>(resolver: &T)` requires understanding
-    // generic bounds to filter resolution candidates.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+trait Processor {
+    fn process(&self) -> String;
+}
+struct FileProcessor;
+impl Processor for FileProcessor {
+    fn process(&self) -> String { "done".to_string() }
+}
+fn run<T: Processor>(p: &T) {
+    p.process();
+}
+"#;
+    let path = Path::new("bounds.rs");
+    resolver.parse_file(path, source);
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "bounds.rs".into(),
+        line: 12,
+        callee_name: "process".into(),
+        receiver: Some("T".into()),
+    });
+    assert!(edge.is_some(), "should resolve process() via trait bound on T");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "process");
+    assert!((edge.confidence - 0.65).abs() < 0.01,
+        "trait bound resolution confidence should be 0.65, got {}", edge.confidence);
+    assert_eq!(edge.resolution_tier, "tier2");
 }
 
 #[test]
-#[ignore = "TIER3: requires trait hierarchy traversal (rust-analyzer) -- deferred by design"]
 /// Supertraits should include their methods in the resolution scope.
 fn test_supertrait_method_resolution() {
-    // Resolving methods from supertraits requires parsing the trait
-    // hierarchy (trait AdvancedResolver: LanguageResolver + Debug).
+    let resolver = RustLangResolver::new();
+    let source = r#"
+trait Base {
+    fn base_method(&self) -> String;
+}
+trait Advanced: Base {
+    fn advanced_method(&self) -> String;
+}
+struct Worker;
+impl Base for Worker {
+    fn base_method(&self) -> String { "base".to_string() }
+}
+impl Advanced for Worker {
+    fn advanced_method(&self) -> String { "adv".to_string() }
+}
+fn run<T: Advanced>(w: &T) {
+    w.base_method();
+}
+"#;
+    let path = Path::new("supertrait.rs");
+    resolver.parse_file(path, source);
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "supertrait.rs".into(),
+        line: 18,
+        callee_name: "base_method".into(),
+        receiver: Some("T".into()),
+    });
+    assert!(edge.is_some(), "should resolve base_method() via supertrait of Advanced");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "base_method");
+    assert_eq!(edge.resolution_tier, "tier2");
 }
 
 #[test]
-#[ignore = "TIER3: requires type-level inference (rust-analyzer) -- deferred by design"]
 /// Associated types in traits should be resolved to concrete types in implementations.
 fn test_associated_type_resolution() {
-    // Resolving `type Output;` to its concrete type requires finding
-    // the relevant impl block and extracting the associated type.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+trait Converter {
+    type Output;
+    fn convert(&self) -> Self::Output;
+}
+struct StringConverter;
+impl Converter for StringConverter {
+    type Output = String;
+    fn convert(&self) -> String { "converted".to_string() }
+}
+"#;
+    let path = Path::new("assoc.rs");
+    resolver.parse_file(path, source);
+    let assoc_types = resolver.get_associated_types();
+    let found = assoc_types.iter().any(|(trait_name, type_name, concrete)| {
+        trait_name == "Converter" && type_name == "Output" && concrete == "String"
+    });
+    assert!(found,
+        "should extract associated type Output = String from Converter impl, got: {:?}",
+        assoc_types);
 }
 
 #[test]
-#[ignore = "TIER3: requires where clause constraint analysis (rust-analyzer) -- deferred by design"]
 /// Where clauses should constrain trait resolution the same as inline bounds.
 fn test_where_clause_resolution() {
-    // `fn process<T>(r: &T) where T: LanguageResolver + Send` requires
-    // parsing where clauses to determine type constraints.
+    let resolver = RustLangResolver::new();
+    let source = r#"
+trait Validator {
+    fn validate(&self) -> bool;
+}
+struct DataValidator;
+impl Validator for DataValidator {
+    fn validate(&self) -> bool { true }
+}
+fn check<T>(v: &T) where T: Validator {
+    v.validate();
+}
+"#;
+    let path = Path::new("where.rs");
+    resolver.parse_file(path, source);
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "where.rs".into(),
+        line: 12,
+        callee_name: "validate".into(),
+        receiver: Some("T".into()),
+    });
+    assert!(edge.is_some(), "should resolve validate() via where clause on T");
+    let edge = edge.unwrap();
+    assert_eq!(edge.target_name, "validate");
+    assert!((edge.confidence - 0.65).abs() < 0.01,
+        "where clause resolution confidence should be 0.65, got {}", edge.confidence);
 }

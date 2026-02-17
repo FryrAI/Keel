@@ -1,12 +1,14 @@
 mod helpers;
 pub mod mod_resolution;
+pub mod trait_resolution;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::resolver::{
-    CallSite, Definition, Import, LanguageResolver, ParseResult, Reference, ResolvedEdge,
+    CallSite, Definition, Import, LanguageResolver, ParseResult, Reference, ReferenceKind,
+    ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
 use helpers::{find_import_for_name, resolve_rust_use_path, rust_is_public};
@@ -20,21 +22,17 @@ pub struct TraitImpl {
     pub file_path: String,
 }
 
-/// Tier 1 + Tier 2 resolver for Rust.
-///
-/// - Tier 1: tree-sitter-rust for structural extraction.
-/// - Tier 2: heuristic resolution (no rust-analyzer for now).
+/// Tier 1 (tree-sitter) + Tier 2 (heuristic) resolver for Rust.
 pub struct RustLangResolver {
     parser: Mutex<TreeSitterParser>,
     cache: Mutex<HashMap<PathBuf, ParseResult>>,
-    /// Maps module names from `mod foo;` declarations to resolved file paths.
     mod_paths: Mutex<HashMap<String, PathBuf>>,
-    /// Recorded `impl Trait for Type` blocks for trait method resolution.
     trait_impls: Mutex<Vec<TraitImpl>>,
-    /// Maps type name -> vec of method names from inherent `impl Type { }` blocks.
     impl_map: Mutex<HashMap<String, Vec<String>>>,
-    /// Raw content cache for cross-file analysis (generic impl detection, etc.).
     content_cache: Mutex<HashMap<PathBuf, String>>,
+    generic_bounds: Mutex<HashMap<String, Vec<String>>>,
+    supertrait_bounds: Mutex<HashMap<String, Vec<String>>>,
+    associated_types: Mutex<Vec<(String, String, String)>>,
 }
 
 impl RustLangResolver {
@@ -46,12 +44,20 @@ impl RustLangResolver {
             trait_impls: Mutex::new(Vec::new()),
             impl_map: Mutex::new(HashMap::new()),
             content_cache: Mutex::new(HashMap::new()),
+            generic_bounds: Mutex::new(HashMap::new()),
+            supertrait_bounds: Mutex::new(HashMap::new()),
+            associated_types: Mutex::new(Vec::new()),
         }
     }
 
     /// Returns the resolved mod paths from `mod foo;` declarations.
     pub fn get_mod_paths(&self) -> HashMap<String, PathBuf> {
         self.mod_paths.lock().unwrap().clone()
+    }
+
+    /// Returns extracted associated type implementations.
+    pub fn get_associated_types(&self) -> Vec<(String, String, String)> {
+        self.associated_types.lock().unwrap().clone()
     }
 
     fn parse_and_cache(&self, path: &Path, content: &str) -> ParseResult {
@@ -107,21 +113,40 @@ impl RustLangResolver {
             });
         }
 
-        // Tier 2: extract `impl Trait for Type` blocks via text heuristics
+        // Tier 2: extract impl blocks, generic bounds, supertraits, assoc types
         let file_str = path.to_string_lossy().to_string();
-        let extracted_impls = helpers::extract_trait_impls(content, &file_str);
-        {
-            let mut impls = self.trait_impls.lock().unwrap();
-            impls.extend(extracted_impls);
+        self.trait_impls.lock().unwrap()
+            .extend(helpers::extract_trait_impls(content, &file_str));
+        for (tn, ms) in helpers::extract_impl_methods(content) {
+            self.impl_map.lock().unwrap().entry(tn).or_default().extend(ms);
         }
-
-        // Tier 2: extract inherent `impl Type { }` blocks
-        let inherent_impls = helpers::extract_impl_methods(content);
         {
-            let mut impl_map = self.impl_map.lock().unwrap();
-            for (type_name, methods) in inherent_impls {
-                impl_map.entry(type_name).or_default().extend(methods);
+            let mut gb = self.generic_bounds.lock().unwrap();
+            for (k, v) in trait_resolution::extract_generic_bounds(content) {
+                gb.entry(k).or_default().extend(v);
             }
+            for (k, v) in trait_resolution::extract_where_clause_bounds(content) {
+                gb.entry(k).or_default().extend(v);
+            }
+        }
+        for (k, v) in trait_resolution::extract_supertrait_bounds(content) {
+            self.supertrait_bounds.lock().unwrap().entry(k).or_default().extend(v);
+        }
+        self.associated_types.lock().unwrap()
+            .extend(trait_resolution::extract_associated_type_impls(content));
+
+        // Tier 2: extract derive macros and attribute macros as references
+        for (name, line) in helpers::extract_derive_attrs(content) {
+            result.references.push(Reference {
+                name, file_path: file_str.clone(), line,
+                kind: ReferenceKind::TypeRef, resolved_to: None,
+            });
+        }
+        for (name, line) in helpers::extract_attribute_macros(content) {
+            result.references.push(Reference {
+                name, file_path: file_str.clone(), line,
+                kind: ReferenceKind::Call, resolved_to: None,
+            });
         }
 
         // Cache raw content for cross-file analysis
@@ -261,6 +286,23 @@ impl LanguageResolver for RustLangResolver {
                     confidence: 0.80,
                     resolution_tier: "tier1".into(),
                 });
+            }
+        }
+
+        // Tier 2: generic type parameter resolution via trait bounds
+        if let Some(receiver) = &call_site.receiver {
+            let gb = self.generic_bounds.lock().unwrap();
+            if gb.contains_key(receiver.as_str()) {
+                let gb_clone = gb.clone();
+                drop(gb);
+                let sb = self.supertrait_bounds.lock().unwrap().clone();
+                let ti = self.trait_impls.lock().unwrap().clone();
+                if let Some(edge) = trait_resolution::resolve_generic_method_call(
+                    receiver, callee, &gb_clone, &HashMap::new(), &ti, &sb,
+                    &call_site.file_path,
+                ) {
+                    return Some(edge);
+                }
             }
         }
 

@@ -58,7 +58,17 @@ impl TsResolver {
     }
 
     /// Load tsconfig.json path aliases from a project root.
+    ///
+    /// Also loads path aliases from any `"references"` entries, merging
+    /// referenced project aliases into the current resolver (without
+    /// following transitive references to avoid infinite recursion).
     pub fn load_tsconfig_paths(&self, project_root: &Path) {
+        self.load_tsconfig_paths_inner(project_root, false);
+    }
+
+    /// Inner implementation with recursion guard. When `is_ref` is true,
+    /// we skip following nested `"references"` to prevent infinite loops.
+    fn load_tsconfig_paths_inner(&self, project_root: &Path, is_ref: bool) {
         let tsconfig_path = project_root.join("tsconfig.json");
         let content = match std::fs::read_to_string(&tsconfig_path) {
             Ok(c) => c,
@@ -68,29 +78,43 @@ impl TsResolver {
             Ok(v) => v,
             Err(_) => return,
         };
-        let paths = match json
+
+        // Load path aliases from compilerOptions.paths (if present)
+        if let Some(paths) = json
             .get("compilerOptions")
             .and_then(|co| co.get("paths"))
             .and_then(|p| p.as_object())
         {
-            Some(p) => p,
-            None => return,
-        };
-        let base_url = json
-            .get("compilerOptions")
-            .and_then(|co| co.get("baseUrl"))
-            .and_then(|b| b.as_str())
-            .unwrap_or(".");
-        let base = project_root.join(base_url);
+            let base_url = json
+                .get("compilerOptions")
+                .and_then(|co| co.get("baseUrl"))
+                .and_then(|b| b.as_str())
+                .unwrap_or(".");
+            let base = project_root.join(base_url);
 
-        let mut aliases = self.path_aliases.lock().unwrap();
-        for (alias, targets) in paths {
-            if let Some(target) = targets.as_array().and_then(|a| a.first()) {
-                if let Some(target_str) = target.as_str() {
-                    let clean_alias = alias.trim_end_matches("/*");
-                    let clean_target = target_str.trim_end_matches("/*");
-                    let resolved = base.join(clean_target).to_string_lossy().to_string();
-                    aliases.insert(clean_alias.to_string(), resolved);
+            let mut aliases = self.path_aliases.lock().unwrap();
+            for (alias, targets) in paths {
+                if let Some(target) = targets.as_array().and_then(|a| a.first()) {
+                    if let Some(target_str) = target.as_str() {
+                        let clean_alias = alias.trim_end_matches("/*");
+                        let clean_target = target_str.trim_end_matches("/*");
+                        let resolved = base.join(clean_target).to_string_lossy().to_string();
+                        aliases.entry(clean_alias.to_string()).or_insert(resolved);
+                    }
+                }
+            }
+        }
+
+        // Load project references (only from the top-level tsconfig, not recursively)
+        if !is_ref {
+            if let Some(refs) = json.get("references").and_then(|r| r.as_array()) {
+                for reference in refs {
+                    if let Some(ref_path) = reference.get("path").and_then(|p| p.as_str()) {
+                        let ref_root = project_root.join(ref_path);
+                        if ref_root.join("tsconfig.json").exists() {
+                            self.load_tsconfig_paths_inner(&ref_root, true);
+                        }
+                    }
                 }
             }
         }

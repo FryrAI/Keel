@@ -259,6 +259,75 @@ fn skip_generics(s: &str) -> Option<&str> {
     None
 }
 
+/// Extract derive macro names from `#[derive(Name1, Name2)]`.
+/// Returns Vec<(macro_name, line_number)> with 1-based line numbers.
+pub fn extract_derive_attrs(content: &str) -> Vec<(String, u32)> {
+    let mut result = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("#[derive(") {
+            continue;
+        }
+        // Extract content between #[derive( and )]
+        let start = trimmed.find('(').unwrap() + 1;
+        let end = match trimmed.find(")]") {
+            Some(e) => e,
+            None => continue,
+        };
+        let names_str = &trimmed[start..end];
+        for name in names_str.split(',') {
+            let name = name.trim();
+            if !name.is_empty() {
+                result.push((name.to_string(), (i + 1) as u32));
+            }
+        }
+    }
+    result
+}
+
+/// Built-in attributes that should NOT be captured as macro references.
+const BUILTIN_ATTRS: &[&str] = &[
+    "cfg", "test", "allow", "deny", "warn", "doc", "must_use",
+    "inline", "repr", "ignore", "derive", "cfg_attr", "cfg_test",
+    "feature", "link", "no_mangle", "export_name", "cold", "track_caller",
+];
+
+/// Extract attribute macros from `#[path::name]` or `#[path::name(...)]`.
+/// Skips built-in attrs (see BUILTIN_ATTRS).
+/// Returns Vec<(macro_path, line_number)> with 1-based line numbers.
+pub fn extract_attribute_macros(content: &str) -> Vec<(String, u32)> {
+    let mut result = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("#[") || trimmed.starts_with("#![") {
+            continue;
+        }
+        // Extract the attr name/path
+        let after_hash = &trimmed[2..];
+        // Find the end of the attr path (at '(', ']', ' ', or '=')
+        let end = after_hash
+            .find(['(', ']', ' ', '='])
+            .unwrap_or(after_hash.len());
+        let attr_path = after_hash[..end].trim();
+
+        if attr_path.is_empty() {
+            continue;
+        }
+
+        // Check if it's a built-in: compare the first segment
+        let first_segment = attr_path.split("::").next().unwrap_or(attr_path);
+        if BUILTIN_ATTRS.contains(&first_segment) {
+            continue;
+        }
+
+        // Only capture path-based attrs (containing ::) to avoid noise
+        if attr_path.contains("::") {
+            result.push((attr_path.to_string(), (i + 1) as u32));
+        }
+    }
+    result
+}
+
 /// Check if a line looks like a generic impl (contains `impl<`).
 pub fn is_generic_impl(content: &str, type_name: &str) -> bool {
     for line in content.lines() {
