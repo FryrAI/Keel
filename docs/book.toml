@@ -1,0 +1,16 @@
+[book]
+authors = ["Fryr AI"]
+language = "en"
+src = "src"
+title = "keel"
+description = "Structural code enforcement for LLM coding agents"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/FryrAI/Keel"
+edit-url-template = "https://github.com/FryrAI/Keel/edit/main/docs/src/{path}"
+site-url = "/Keel/"

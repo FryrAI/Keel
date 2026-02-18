@@ -15,6 +15,9 @@
 *.swp
 *.swo
 
+# mdBook build output
+docs/book/
+
 # VS Code extension
 extensions/vscode/node_modules/
 extensions/vscode/out/

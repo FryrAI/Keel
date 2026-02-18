@@ -83,7 +83,7 @@ extensions/
 brew tap FryrAI/tap && brew install keel
 
 # Linux / macOS (script)
-curl -fsSL https://gist.githubusercontent.com/FryrAI/fe93164768d13aaa8dcdf68ad1ce6439/raw/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/FryrAI/Keel/main/scripts/install.sh | bash
 
 # From source
 cargo install --path crates/keel-cli

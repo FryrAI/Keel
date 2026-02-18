@@ -161,24 +161,24 @@ write_launch_scripts() {
     mkdir -p /tmp/claude/
 
     # Pane 1: Test Infrastructure
-    cat > /tmp/claude/launch-test-infra.sh <<'SCRIPT'
+    cat > /tmp/claude/launch-test-infra.sh <<SCRIPT
 #!/usr/bin/env bash
-cd $HOME/keel-ci-test-infra
-claude --dangerously-skip-permissions -p "$(cat $PROMPT_DIR/test-infra.md)"
+cd "$WT_TEST_INFRA"
+claude --dangerously-skip-permissions -p "\$(cat "$PROMPT_DIR/test-infra.md")"
 SCRIPT
 
     # Pane 2: Enforcement
-    cat > /tmp/claude/launch-enforcement.sh <<'SCRIPT'
+    cat > /tmp/claude/launch-enforcement.sh <<SCRIPT
 #!/usr/bin/env bash
-cd $HOME/keel-ci-enforcement
-claude --dangerously-skip-permissions -p "$(cat $PROMPT_DIR/enforcement.md)"
+cd "$WT_ENFORCEMENT"
+claude --dangerously-skip-permissions -p "\$(cat "$PROMPT_DIR/enforcement.md")"
 SCRIPT
 
     # Pane 3: Bugs
-    cat > /tmp/claude/launch-bugs.sh <<'SCRIPT'
+    cat > /tmp/claude/launch-bugs.sh <<SCRIPT
 #!/usr/bin/env bash
-cd $HOME/keel-ci-bugs
-claude --dangerously-skip-permissions -p "$(cat $PROMPT_DIR/bugs.md)"
+cd "$WT_BUGS"
+claude --dangerously-skip-permissions -p "\$(cat "$PROMPT_DIR/bugs.md")"
 SCRIPT
 
     chmod +x /tmp/claude/launch-*.sh

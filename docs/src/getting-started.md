@@ -156,6 +156,7 @@ See [Agent Integration Guide](agent-integration.md) for detailed setup instructi
 ## Next Steps
 
 - [Commands Reference](commands.md) -- full documentation for every keel command
+- [Error Codes](error-codes.md) -- detailed reference for every error and warning code
 - [Agent Integration](agent-integration.md) -- wiring keel into Claude Code, Cursor, Windsurf, and other tools
 - [Configuration](config.md) -- customizing enforcement rules, circuit breaker, and batch mode
 - [FAQ](faq.md) -- troubleshooting and common questions
