@@ -204,7 +204,7 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/FryrAI/homebrew-tap.git tap
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/FryrAI/homebrew-keel.git tap
           mkdir -p tap/Formula
           cp dist/homebrew/keel.rb tap/Formula/keel.rb
           cd tap

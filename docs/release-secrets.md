@@ -17,16 +17,16 @@ Needed for: `cargo publish` to crates.io
 
 ### `HOMEBREW_TAP_TOKEN`
 
-Needed for: pushing updated formula to `FryrAI/homebrew-tap`
+Needed for: pushing updated formula to `FryrAI/homebrew-keel`
 
 **Setup:**
 1. Create a fine-grained PAT at https://github.com/settings/personal-access-tokens/new
-2. Scope it to the `FryrAI/homebrew-tap` repo with **Contents: Read and write** permission
+2. Scope it to the `FryrAI/homebrew-keel` repo with **Contents: Read and write** permission
 3. Add to repo: `gh secret set HOMEBREW_TAP_TOKEN --repo FryrAI/Keel`
 
-**Prerequisite:** The `FryrAI/homebrew-tap` repo must exist with a `Formula/` directory. Create it if it doesn't:
+**Prerequisite:** The `FryrAI/homebrew-keel` repo must exist with a `Formula/` directory. Create it if it doesn't:
 ```bash
-gh repo create FryrAI/homebrew-tap --public --description "Homebrew tap for keel"
+gh repo create FryrAI/homebrew-keel --public --description "Homebrew tap for keel"
 ```
 
 ### Already Set

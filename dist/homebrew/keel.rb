@@ -1,6 +1,6 @@
 # Homebrew formula for keel — structural code enforcement
 # This template is updated by CI on each release.
-# To use as a tap: brew tap FryrAI/tap && brew install keel
+# To use as a tap: brew tap FryrAI/keel && brew install keel
 
 class Keel < Formula
   desc "Structural code enforcement for LLM coding agents"

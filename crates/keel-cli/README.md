@@ -12,7 +12,7 @@ cargo install keel-cli
 curl -fsSL https://keel.engineer/install.sh | bash
 
 # Via Homebrew
-brew tap FryrAI/tap && brew install keel
+brew tap FryrAI/keel && brew install keel
 ```
 
 ## Quick Start

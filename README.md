@@ -80,7 +80,7 @@ extensions/
 
 ```bash
 # macOS (Homebrew)
-brew tap FryrAI/tap && brew install keel
+brew tap FryrAI/keel && brew install keel
 
 # Linux / macOS (script)
 curl -fsSL https://raw.githubusercontent.com/FryrAI/Keel/main/scripts/install.sh | bash
