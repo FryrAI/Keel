@@ -108,6 +108,64 @@ fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/check".into(),
+            description: "Pre-edit risk assessment: callers, callees, risk level, suggestions".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["hash"],
+                "properties": {
+                    "hash": { "type": "string" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/fix".into(),
+            description: "Compile files and generate fix plans for violations".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "files": { "type": "array", "items": { "type": "string" } }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/search".into(),
+            description: "Search graph nodes by name substring".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["function", "class", "module"] },
+                    "limit": { "type": "integer", "default": 20 }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/name".into(),
+            description: "Suggest name and location for new code based on description".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["description"],
+                "properties": {
+                    "description": { "type": "string" },
+                    "module": { "type": "string", "description": "Filter to modules matching this path substring" },
+                    "kind": { "type": "string", "enum": ["function", "class"] }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/analyze".into(),
+            description: "Analyze a file for structure, code smells, and refactoring opportunities".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string" }
+                }
+            }),
+        },
     ]
 }
 
@@ -132,6 +190,11 @@ fn dispatch(
         "keel/where" => handle_where(store, params),
         "keel/explain" => handle_explain(store, params),
         "keel/map" => handle_map(store, params),
+        "keel/check" => crate::mcp_check::handle_check(engine, params),
+        "keel/fix" => crate::mcp_fix::handle_fix(store, engine, params),
+        "keel/search" => crate::mcp_search::handle_search(store, params),
+        "keel/name" => crate::mcp_name::handle_name(store, params),
+        "keel/analyze" => crate::mcp_analyze::handle_analyze(store, params),
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Method not found: {}", method),
