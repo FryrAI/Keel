@@ -68,6 +68,17 @@ impl EnforcementEngine {
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
 
+            // Fixup: use graph-stored hashes so `keel explain <hash>` works.
+            // Some checks (E002, E003, W001, W002) compute hashes freshly, which
+            // may differ from the graph when map used disambiguation for collisions.
+            for v in &mut file_violations {
+                if let Some(node) = existing_nodes.iter().find(|n| {
+                    n.file_path == v.file && n.line_start == v.line
+                }) {
+                    v.hash = node.hash.clone();
+                }
+            }
+
             // Downgrade low-confidence violations (dynamic dispatch) to WARNING
             file_violations = Self::apply_dynamic_dispatch_threshold(file_violations);
 
