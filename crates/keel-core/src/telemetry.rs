@@ -12,7 +12,7 @@ use rusqlite::{params, Connection};
 use crate::types::GraphError;
 
 /// A single telemetry event recorded after a command completes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TelemetryEvent {
     pub id: Option<i64>,
     pub timestamp: String,
