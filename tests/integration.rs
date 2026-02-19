@@ -19,3 +19,7 @@ mod test_multi_lang_init;
 mod test_multi_lang_map;
 #[path = "integration/test_multi_lang_compile.rs"]
 mod test_multi_lang_compile;
+
+// Monorepo tests
+#[path = "integration/test_monorepo.rs"]
+mod test_monorepo;

@@ -300,8 +300,12 @@ fn extract_package_name(source: &str) -> Option<String> {
     if source.contains('/') && !source.starts_with('.') {
         return source.rsplit('/').next().map(String::from);
     }
-    // Bare package name
-    if !source.starts_with('.') && !source.starts_with('/') {
+    // Bare package name (no path separators, no Rust-style ::)
+    if !source.starts_with('.')
+        && !source.starts_with('/')
+        && !source.contains("::")
+        && !source.contains('/')
+    {
         return Some(source.to_string());
     }
     None
@@ -418,5 +422,79 @@ mod tests {
 
         let result = resolve_import_to_module("react", &modules);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_package_import_npm() {
+        let mut pkg_index: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        let mut shared_fns = HashMap::new();
+        shared_fns.insert("formatDate".to_string(), 42u64);
+        shared_fns.insert("parseDate".to_string(), 43u64);
+        pkg_index.insert("shared".to_string(), shared_fns);
+
+        // Direct package name match
+        let result = resolve_package_import("formatDate", "shared", &pkg_index);
+        assert!(result.is_some());
+        let (id, conf) = result.unwrap();
+        assert_eq!(id, 42);
+        assert!(conf < 0.80); // lower confidence for cross-package
+
+        // Scoped package: @myorg/shared -> shared
+        let result = resolve_package_import("parseDate", "@myorg/shared", &pkg_index);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, 43);
+    }
+
+    #[test]
+    fn test_resolve_package_import_go() {
+        let mut pkg_index: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        let mut utils_fns = HashMap::new();
+        utils_fns.insert("FormatTime".to_string(), 100u64);
+        pkg_index.insert("utils".to_string(), utils_fns);
+
+        // Go module path: last segment is package name
+        let result = resolve_package_import(
+            "FormatTime",
+            "github.com/myorg/repo/utils",
+            &pkg_index,
+        );
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, 100);
+    }
+
+    #[test]
+    fn test_resolve_package_import_not_found() {
+        let pkg_index: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        let result = resolve_package_import("missing", "unknown-pkg", &pkg_index);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_build_package_node_index() {
+        let mut global: HashMap<String, Vec<(String, u64)>> = HashMap::new();
+        global.insert("doWork".to_string(), vec![
+            ("packages/core/src/worker.ts".to_string(), 10),
+            ("packages/api/src/handler.ts".to_string(), 20),
+        ]);
+
+        let mut file_packages = HashMap::new();
+        file_packages.insert("packages/core/src/worker.ts".to_string(), "core".to_string());
+        file_packages.insert("packages/api/src/handler.ts".to_string(), "api".to_string());
+
+        let index = build_package_node_index(&global, &file_packages);
+        assert_eq!(index.get("core").unwrap().get("doWork"), Some(&10));
+        assert_eq!(index.get("api").unwrap().get("doWork"), Some(&20));
+    }
+
+    #[test]
+    fn test_extract_package_name_variants() {
+        assert_eq!(extract_package_name("@scope/name"), Some("name".to_string()));
+        assert_eq!(extract_package_name("keel_core::types"), Some("keel_core".to_string()));
+        assert_eq!(extract_package_name("github.com/org/repo/pkg"), Some("pkg".to_string()));
+        assert_eq!(extract_package_name("lodash"), Some("lodash".to_string()));
+        assert_eq!(extract_package_name("./local"), None);
+        // crate/super/self are not external packages
+        assert_eq!(extract_package_name("crate::store"), None);
+        assert_eq!(extract_package_name("super::sibling"), None);
     }
 }

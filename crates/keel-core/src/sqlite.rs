@@ -91,7 +91,6 @@ impl SqliteGraphStore {
             CREATE INDEX IF NOT EXISTS idx_nodes_module ON nodes(module_id);
             CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
             CREATE INDEX IF NOT EXISTS idx_nodes_name_kind ON nodes(name, kind);
-            CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package);
 
             -- Previous hashes for rename tracking
             CREATE TABLE IF NOT EXISTS previous_hashes (
@@ -171,6 +170,12 @@ impl SqliteGraphStore {
 
         // Run migrations for existing databases
         self.run_migrations()?;
+
+        // Create indexes that depend on columns added by migrations.
+        // These use IF NOT EXISTS so they're safe to run on every open.
+        let _ = self
+            .conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package)");
 
         Ok(())
     }

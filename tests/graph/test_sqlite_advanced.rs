@@ -291,7 +291,7 @@ fn test_sqlite_auto_create_schema() {
     assert!(db_path.exists(), "db file should have been created");
 
     let version = store.schema_version().unwrap();
-    assert_eq!(version, 2, "schema version should be 2");
+    assert_eq!(version, 3, "schema version should be 3");
 
     // Verify we can perform basic operations on the fresh schema
     let modules = store.get_all_modules();

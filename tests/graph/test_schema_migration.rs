@@ -12,7 +12,7 @@ fn test_schema_version_tracking() {
     let version = store.schema_version().expect("schema_version should succeed");
 
     // THEN it reports version 2
-    assert_eq!(version, 2, "initial schema version should be 2");
+    assert_eq!(version, 3, "initial schema version should be 3");
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn test_v1_to_v2_migration() {
 
     // THEN schema version is now 2
     let version = store.schema_version().unwrap();
-    assert_eq!(version, 2, "v1 database should be migrated to v2");
+    assert_eq!(version, 3, "v1 database should be migrated to v3");
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn test_migrated_data_accessible() {
     let store = SqliteGraphStore::open(db_str).unwrap();
 
     // THEN the migrated data is queryable
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), 3);
 
     // Drop store so we can open raw connection
     drop(store);
@@ -165,7 +165,7 @@ fn test_future_schema_version_not_rejected() {
     // First create a valid database
     {
         let store = SqliteGraphStore::open(db_str).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 2);
+        assert_eq!(store.schema_version().unwrap(), 3);
     }
 
     // Manually set schema_version to 99 via raw SQL
@@ -199,7 +199,7 @@ fn test_migration_idempotency() {
     {
         let store = SqliteGraphStore::open(db_path_str).expect("first open");
         let v = store.schema_version().expect("version check");
-        assert_eq!(v, 2, "first open should be v2");
+        assert_eq!(v, 3, "first open should be v2");
     }
 
     // AND the store is opened again at the same path
@@ -208,6 +208,6 @@ fn test_migration_idempotency() {
         let v = store.schema_version().expect("version check");
 
         // THEN the schema version is still 2 (no corruption or double-migration)
-        assert_eq!(v, 2, "second open should still be v2");
+        assert_eq!(v, 3, "second open should still be v2");
     }
 }
