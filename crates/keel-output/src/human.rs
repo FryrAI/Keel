@@ -84,7 +84,11 @@ impl OutputFormatter for HumanFormatter {
 
         if let Some(ref ctx) = result.body_context {
             let header = if ctx.truncated {
-                format!("\nBody (first {} of {} lines):", ctx.lines.lines().count(), ctx.line_count)
+                format!(
+                    "\nBody (first {} of {} lines):",
+                    ctx.lines.lines().count(),
+                    ctx.line_count
+                )
             } else {
                 format!("\nBody ({} lines):", ctx.line_count)
             };
@@ -160,7 +164,10 @@ impl OutputFormatter for HumanFormatter {
             out.push_str(&format!("  Cause: {}\n", plan.cause));
             for action in &plan.actions {
                 out.push_str(&format!("  Fix {}:{}:\n", action.file, action.line));
-                out.push_str(&format!("    - {}\n    + {}\n", action.old_text, action.new_text));
+                out.push_str(&format!(
+                    "    - {}\n    + {}\n",
+                    action.old_text, action.new_text
+                ));
             }
             out.push('\n');
         }
@@ -192,18 +199,28 @@ impl OutputFormatter for HumanFormatter {
     fn format_check(&self, result: &CheckResult) -> String {
         let mut out = format!(
             "{} [{}] risk={} health={}\n  --> {}:{}-{}\n",
-            result.target.name, result.target.hash, result.risk.level, result.risk.health,
-            result.target.file, result.target.line_start, result.target.line_end,
+            result.target.name,
+            result.target.hash,
+            result.risk.level,
+            result.risk.health,
+            result.target.file,
+            result.target.line_start,
+            result.target.line_end,
         );
         out.push_str(&format!(
             "  callers={} (cross-file={}, cross-module={}), callees={}\n",
-            result.risk.caller_count, result.risk.cross_file_callers,
-            result.risk.cross_module_callers, result.risk.callee_count,
+            result.risk.caller_count,
+            result.risk.cross_file_callers,
+            result.risk.cross_module_callers,
+            result.risk.callee_count,
         ));
         if let Some(ref summary) = result.risk.caller_summary {
             out.push_str(&format!("  {}\n", summary));
             for c in result.risk.callers.iter().take(5) {
-                out.push_str(&format!("    {} [{}] at {}:{}\n", c.name, c.hash, c.file, c.line));
+                out.push_str(&format!(
+                    "    {} [{}] at {}:{}\n",
+                    c.name, c.hash, c.file, c.line
+                ));
             }
             if result.risk.callers.len() > 5 {
                 out.push_str(&format!(
@@ -239,16 +256,28 @@ impl OutputFormatter for HumanFormatter {
             },
         );
         for k in &delta.new_errors {
-            out.push_str(&format!("  + ERROR [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+            out.push_str(&format!(
+                "  + ERROR [{}] {} at {}:{}\n",
+                k.code, k.hash, k.file, k.line
+            ));
         }
         for k in &delta.resolved_errors {
-            out.push_str(&format!("  - ERROR [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+            out.push_str(&format!(
+                "  - ERROR [{}] {} at {}:{}\n",
+                k.code, k.hash, k.file, k.line
+            ));
         }
         for k in &delta.new_warnings {
-            out.push_str(&format!("  + WARN  [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+            out.push_str(&format!(
+                "  + WARN  [{}] {} at {}:{}\n",
+                k.code, k.hash, k.file, k.line
+            ));
         }
         for k in &delta.resolved_warnings {
-            out.push_str(&format!("  - WARN  [{}] {} at {}:{}\n", k.code, k.hash, k.file, k.line));
+            out.push_str(&format!(
+                "  - WARN  [{}] {} at {}:{}\n",
+                k.code, k.hash, k.file, k.line
+            ));
         }
         out.push_str(&format!(
             "  Total: {} errors, {} warnings\n",
@@ -266,8 +295,13 @@ impl OutputFormatter for HumanFormatter {
         for f in &s.functions {
             out.push_str(&format!(
                 "  {} [{}] lines {}-{} ({} lines) callers={} callees={}{}\n",
-                f.name, f.hash, f.line_start, f.line_end, f.lines,
-                f.callers, f.callees,
+                f.name,
+                f.hash,
+                f.line_start,
+                f.line_end,
+                f.lines,
+                f.callers,
+                f.callees,
                 if f.is_public { " PUB" } else { "" },
             ));
         }
@@ -278,7 +312,10 @@ impl OutputFormatter for HumanFormatter {
             }
         }
         if !result.refactor_opportunities.is_empty() {
-            out.push_str(&format!("\nRefactoring ({}):\n", result.refactor_opportunities.len()));
+            out.push_str(&format!(
+                "\nRefactoring ({}):\n",
+                result.refactor_opportunities.len()
+            ));
             for r in &result.refactor_opportunities {
                 out.push_str(&format!("  {}\n", r.message));
             }

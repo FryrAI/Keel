@@ -258,7 +258,11 @@ fn test_reexport_from_external_package() {
     // so tree-sitter does NOT produce import entries for it. The re-export is
     // handled internally by extract_reexports in the semantic cache.
     // Verify that parsing at least succeeds without error.
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     assert_eq!(
         defs.len(),
         0,

@@ -29,9 +29,7 @@ pub fn run(
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel discover: failed to open graph database: {}", e);
@@ -118,12 +116,7 @@ fn read_body_context(
 }
 
 /// List all symbols in a file with their hashes.
-fn discover_file(
-    store: &dyn GraphStore,
-    query: &str,
-    cwd: &std::path::Path,
-    verbose: bool,
-) -> i32 {
+fn discover_file(store: &dyn GraphStore, query: &str, cwd: &std::path::Path, verbose: bool) -> i32 {
     // Normalize the file path to be relative (matching how nodes are stored)
     let path = std::path::Path::new(query);
     let rel_path = if path.is_absolute() {

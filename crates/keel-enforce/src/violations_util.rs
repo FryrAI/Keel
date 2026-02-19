@@ -10,7 +10,9 @@ pub fn is_test_file(path: &str) -> bool {
         return true;
     }
     // Python: test_*.py or *_test.py
-    if basename.ends_with(".py") && (basename.starts_with("test_") || basename.ends_with("_test.py")) {
+    if basename.ends_with(".py")
+        && (basename.starts_with("test_") || basename.ends_with("_test.py"))
+    {
         return true;
     }
     // TypeScript/JavaScript: *.test.ts, *.spec.ts, *.test.js, *.spec.js, *.test.tsx, *.spec.tsx
@@ -38,7 +40,9 @@ pub fn count_params(sig: &str) -> usize {
 /// Count args in a call expression. Rough heuristic — returns 0 if cannot parse.
 pub fn count_call_args(name: &str) -> usize {
     // In practice, the parser provides arg count. This is a fallback.
-    let Some(start) = name.find('(') else { return 0 };
+    let Some(start) = name.find('(') else {
+        return 0;
+    };
     let Some(end) = name.rfind(')') else { return 0 };
     let args = &name[start + 1..end].trim();
     if args.is_empty() {

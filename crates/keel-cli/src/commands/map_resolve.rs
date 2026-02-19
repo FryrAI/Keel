@@ -65,7 +65,10 @@ pub fn resolve_cross_file_call(
 
     // Unqualified calls: check if any import brings this name into scope
     for imp in imports {
-        let names_match = imp.imported_names.iter().any(|n| n == func_name || n == "*");
+        let names_match = imp
+            .imported_names
+            .iter()
+            .any(|n| n == func_name || n == "*");
         if !names_match {
             continue;
         }
@@ -152,7 +155,10 @@ pub fn resolve_import_to_module(
         }
         if !candidates.is_empty() {
             candidates.sort_by_key(|(p, _)| {
-                let fname = Path::new(p).file_name().and_then(|f| f.to_str()).unwrap_or("");
+                let fname = Path::new(p)
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .unwrap_or("");
                 if fname == "mod.go" || fname == "main.go" || fname.contains(last_segment) {
                     0
                 } else {
@@ -165,7 +171,9 @@ pub fn resolve_import_to_module(
 
     // 3. Rust crate:: paths: convert to src/ file paths
     if import_source.starts_with("crate::") {
-        let rest = import_source.strip_prefix("crate::").unwrap_or(import_source);
+        let rest = import_source
+            .strip_prefix("crate::")
+            .unwrap_or(import_source);
         let segments: Vec<&str> = rest.split("::").collect();
         for depth in (1..=segments.len()).rev() {
             let module_path = segments[..depth].join("/");
@@ -453,11 +461,8 @@ mod tests {
         pkg_index.insert("utils".to_string(), utils_fns);
 
         // Go module path: last segment is package name
-        let result = resolve_package_import(
-            "FormatTime",
-            "github.com/myorg/repo/utils",
-            &pkg_index,
-        );
+        let result =
+            resolve_package_import("FormatTime", "github.com/myorg/repo/utils", &pkg_index);
         assert!(result.is_some());
         assert_eq!(result.unwrap().0, 100);
     }
@@ -472,13 +477,19 @@ mod tests {
     #[test]
     fn test_build_package_node_index() {
         let mut global: HashMap<String, Vec<(String, u64)>> = HashMap::new();
-        global.insert("doWork".to_string(), vec![
-            ("packages/core/src/worker.ts".to_string(), 10),
-            ("packages/api/src/handler.ts".to_string(), 20),
-        ]);
+        global.insert(
+            "doWork".to_string(),
+            vec![
+                ("packages/core/src/worker.ts".to_string(), 10),
+                ("packages/api/src/handler.ts".to_string(), 20),
+            ],
+        );
 
         let mut file_packages = HashMap::new();
-        file_packages.insert("packages/core/src/worker.ts".to_string(), "core".to_string());
+        file_packages.insert(
+            "packages/core/src/worker.ts".to_string(),
+            "core".to_string(),
+        );
         file_packages.insert("packages/api/src/handler.ts".to_string(), "api".to_string());
 
         let index = build_package_node_index(&global, &file_packages);
@@ -488,9 +499,18 @@ mod tests {
 
     #[test]
     fn test_extract_package_name_variants() {
-        assert_eq!(extract_package_name("@scope/name"), Some("name".to_string()));
-        assert_eq!(extract_package_name("keel_core::types"), Some("keel_core".to_string()));
-        assert_eq!(extract_package_name("github.com/org/repo/pkg"), Some("pkg".to_string()));
+        assert_eq!(
+            extract_package_name("@scope/name"),
+            Some("name".to_string())
+        );
+        assert_eq!(
+            extract_package_name("keel_core::types"),
+            Some("keel_core".to_string())
+        );
+        assert_eq!(
+            extract_package_name("github.com/org/repo/pkg"),
+            Some("pkg".to_string())
+        );
         assert_eq!(extract_package_name("lodash"), Some("lodash".to_string()));
         assert_eq!(extract_package_name("./local"), None);
         // crate/super/self are not external packages

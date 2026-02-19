@@ -95,8 +95,7 @@ fn main() {
         result.imports.len()
     );
     let store_imp = result.imports.iter().find(|i| {
-        i.source.contains("store")
-            && i.imported_names.contains(&"GraphStore".to_string())
+        i.source.contains("store") && i.imported_names.contains(&"GraphStore".to_string())
     });
     assert!(
         store_imp.is_some(),

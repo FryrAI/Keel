@@ -134,8 +134,10 @@ impl SqliteGraphStore {
         )?;
 
         // Re-insert endpoints
-        self.conn
-            .execute("DELETE FROM external_endpoints WHERE node_id = ?1", params![node.id])?;
+        self.conn.execute(
+            "DELETE FROM external_endpoints WHERE node_id = ?1",
+            params![node.id],
+        )?;
         for ep in &node.external_endpoints {
             self.conn.execute(
                 "INSERT INTO external_endpoints (node_id, kind, method, path, direction) VALUES (?1, ?2, ?3, ?4, ?5)",

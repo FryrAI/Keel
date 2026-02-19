@@ -6,12 +6,18 @@ use keel_core::store::GraphStore;
 
 use crate::mcp::{lock_store, JsonRpcError, SharedStore};
 
-pub(crate) fn handle_search(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+pub(crate) fn handle_search(
+    store: &SharedStore,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let query = params
         .as_ref()
         .and_then(|p| p.get("query"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError { code: -32602, message: "Missing 'query' parameter".into() })?
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "Missing 'query' parameter".into(),
+        })?
         .to_lowercase();
 
     let kind_filter = params

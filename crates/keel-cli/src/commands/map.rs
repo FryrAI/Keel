@@ -3,9 +3,7 @@ use std::fs;
 
 use keel_core::hash::{compute_hash, compute_hash_disambiguated};
 use keel_core::store::GraphStore;
-use keel_core::types::{
-    EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind,
-};
+use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_output::OutputFormatter;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
@@ -14,7 +12,9 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::FileWalker;
 
-use super::map_helpers::{build_map_result, build_module_profiles, make_relative, populate_hotspots, populate_functions};
+use super::map_helpers::{
+    build_map_result, build_module_profiles, make_relative, populate_functions, populate_hotspots,
+};
 use super::map_resolve::{
     build_package_node_index, find_containing_def, resolve_cross_file_call,
     resolve_import_to_module, resolve_package_import, resolve_same_directory_call,
@@ -46,9 +46,8 @@ pub fn run(
 
     // Open graph store
     let db_path = keel_dir.join("graph.db");
-    let mut store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let mut store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
+    {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel map: failed to open graph database: {}", e);
@@ -268,7 +267,11 @@ pub fn run(
             entries
                 .iter()
                 .find(|e| make_relative(&cwd, &e.path) == fd.file_path)
-                .and_then(|e| e.package.as_ref().map(|p| (fd.file_path.clone(), p.clone())))
+                .and_then(|e| {
+                    e.package
+                        .as_ref()
+                        .map(|p| (fd.file_path.clone(), p.clone()))
+                })
         })
         .collect();
     let package_node_index = if config.monorepo.enabled {
@@ -323,23 +326,21 @@ pub fn run(
 
             // Fallback: same-directory/same-package resolution (Go, Python)
             // In Go, all files in the same directory share a package namespace.
-            if target_id.is_none() && !reference.name.contains('.') && !reference.name.contains("::") {
-                target_id = resolve_same_directory_call(
-                    &reference.name,
-                    file_path,
-                    &global_name_index,
-                );
+            if target_id.is_none()
+                && !reference.name.contains('.')
+                && !reference.name.contains("::")
+            {
+                target_id =
+                    resolve_same_directory_call(&reference.name, file_path, &global_name_index);
             }
 
             // Fallback: cross-package resolution (monorepo mode)
             let mut confidence = 0.80;
             if target_id.is_none() && !package_node_index.is_empty() {
                 for imp in &file_data.imports {
-                    if let Some((pkg_tgt, pkg_conf)) = resolve_package_import(
-                        &reference.name,
-                        &imp.source,
-                        &package_node_index,
-                    ) {
+                    if let Some((pkg_tgt, pkg_conf)) =
+                        resolve_package_import(&reference.name, &imp.source, &package_node_index)
+                    {
                         target_id = Some(pkg_tgt);
                         confidence = pkg_conf;
                         break;
@@ -397,9 +398,8 @@ pub fn run(
     }
 
     // Filter out edges referencing non-existent nodes (valid_node_ids built in first pass)
-    let (valid_edges, invalid_edges): (Vec<_>, Vec<_>) = edge_changes
-        .into_iter()
-        .partition(|e| match e {
+    let (valid_edges, invalid_edges): (Vec<_>, Vec<_>) =
+        edge_changes.into_iter().partition(|e| match e {
             EdgeChange::Add(edge) => {
                 valid_node_ids.contains(&edge.source_id) && valid_node_ids.contains(&edge.target_id)
             }
@@ -422,13 +422,20 @@ pub fn run(
     });
 
     // Gather stats from node_changes and valid_edges BEFORE consuming them
-    let total_edges = valid_edges.iter().filter(|e| matches!(e, EdgeChange::Add(_))).count() as u32;
+    let total_edges = valid_edges
+        .iter()
+        .filter(|e| matches!(e, EdgeChange::Add(_)))
+        .count() as u32;
     let mut map_result = build_map_result(&node_changes, &valid_edges, &entries);
     map_result.depth = _depth;
 
     // Populate hotspots (depth >= 1) and function entries (depth >= 2)
-    if _depth >= 1 { populate_hotspots(&mut map_result, &node_changes, &valid_edges); }
-    if _depth >= 2 { populate_functions(&mut map_result, &node_changes, &valid_edges); }
+    if _depth >= 1 {
+        populate_hotspots(&mut map_result, &node_changes, &valid_edges);
+    }
+    if _depth >= 2 {
+        populate_functions(&mut map_result, &node_changes, &valid_edges);
+    }
 
     // Build module profiles from node data (before consuming node_changes)
     let module_profiles = build_module_profiles(&node_changes);
@@ -467,7 +474,11 @@ pub fn run(
     }
 
     if verbose {
-        eprintln!("keel map: mapped {} files, {} edges", entries.len(), total_edges);
+        eprintln!(
+            "keel map: mapped {} files, {} edges",
+            entries.len(),
+            total_edges
+        );
     }
 
     let output = formatter.format_map(&map_result);

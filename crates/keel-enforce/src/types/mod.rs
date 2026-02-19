@@ -1,20 +1,20 @@
-mod fix_name;
+mod analyze;
 mod check;
 mod delta;
-mod analyze;
+mod fix_name;
 
-pub use fix_name::*;
+pub use analyze::*;
 pub use check::*;
 pub use delta::*;
-pub use analyze::*;
+pub use fix_name::*;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResult {
     pub version: String,
     pub command: String,
-    pub status: String,  // "ok" | "error" | "warning"
+    pub status: String, // "ok" | "error" | "warning"
     pub files_analyzed: Vec<String>,
     pub errors: Vec<Violation>,
     pub warnings: Vec<Violation>,
@@ -24,7 +24,7 @@ pub struct CompileResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Violation {
     pub code: String,
-    pub severity: String,  // "ERROR" | "WARNING" | "INFO"
+    pub severity: String, // "ERROR" | "WARNING" | "INFO"
     pub category: String,
     pub message: String,
     pub file: String,
@@ -36,8 +36,8 @@ pub struct Violation {
     pub suppressed: bool,
     pub suppress_hint: Option<String>,
     pub affected: Vec<AffectedNode>,
-    pub suggested_module: Option<String>,  // W001 only
-    pub existing: Option<ExistingNode>,    // W002 only
+    pub suggested_module: Option<String>, // W001 only
+    pub existing: Option<ExistingNode>,   // W002 only
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,7 +142,7 @@ pub struct ExplainResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolutionStep {
-    pub kind: String,  // "import", "call", "type_ref", "re_export"
+    pub kind: String, // "import", "call", "type_ref", "re_export"
     pub file: String,
     pub line: u32,
     pub text: String,

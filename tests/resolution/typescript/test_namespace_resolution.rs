@@ -33,7 +33,10 @@ namespace Validators {
     } else {
         // If captured, verify the function is present
         let func = result.definitions.iter().find(|d| d.name == "isValid");
-        assert!(func.is_some(), "should capture isValid if namespaces are supported");
+        assert!(
+            func.is_some(),
+            "should capture isValid if namespaces are supported"
+        );
     }
 }
 
@@ -118,9 +121,10 @@ function greet(name: string): string {
     let result = resolver.parse_file(&file_path, source);
 
     // The triple-slash reference should be extracted as an import
-    let ref_import = result.imports.iter().find(|i| {
-        i.source.contains("types.d.ts")
-    });
+    let ref_import = result
+        .imports
+        .iter()
+        .find(|i| i.source.contains("types.d.ts"));
     assert!(
         ref_import.is_some(),
         "should extract triple-slash reference as import, got: {:?}",
@@ -204,7 +208,10 @@ fn test_package_json_conditional_exports() {
     let result = resolver.parse_file(&file_path, source);
 
     // Import should be captured
-    assert!(!result.imports.is_empty(), "should have at least one import");
+    assert!(
+        !result.imports.is_empty(),
+        "should have at least one import"
+    );
     let imp = result
         .imports
         .iter()

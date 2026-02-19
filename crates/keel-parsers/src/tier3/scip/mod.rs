@@ -13,8 +13,8 @@ pub mod symbol;
 
 use std::path::{Path, PathBuf};
 
-use crate::resolver::CallSite;
 use super::provider::{Tier3Provider, Tier3Result};
+use crate::resolver::CallSite;
 
 /// Tier 3 provider backed by a pre-built SCIP protobuf index.
 pub struct ScipProvider {
@@ -30,7 +30,11 @@ impl ScipProvider {
     /// returns `false`.
     pub fn new(language: &str, index_path: PathBuf) -> Self {
         let index = Self::try_load_index(&index_path);
-        Self { language: language.to_owned(), index_path, index }
+        Self {
+            language: language.to_owned(),
+            index_path,
+            index,
+        }
     }
 
     fn try_load_index(path: &Path) -> Option<reader::ScipIndex> {
@@ -52,7 +56,10 @@ impl ScipProvider {
             }
         }
         #[cfg(not(feature = "tier3"))]
-        { let _ = path; None }
+        {
+            let _ = path;
+            None
+        }
     }
 
     pub fn index(&self) -> Option<&reader::ScipIndex> {
@@ -104,22 +111,38 @@ mod tests {
     use reader::{ScipDefinition, ScipIndex, ScipOccurrence};
 
     fn provider_with_index(language: &str, index: ScipIndex) -> ScipProvider {
-        ScipProvider { language: language.to_owned(), index_path: PathBuf::from("/dev/null"), index: Some(index) }
+        ScipProvider {
+            language: language.to_owned(),
+            index_path: PathBuf::from("/dev/null"),
+            index: Some(index),
+        }
     }
 
     fn no_index_provider() -> ScipProvider {
-        ScipProvider { language: "typescript".into(), index_path: PathBuf::from("/none"), index: None }
+        ScipProvider {
+            language: "typescript".into(),
+            index_path: PathBuf::from("/none"),
+            index: None,
+        }
     }
 
     fn cs(file: &str, line: u32, name: &str) -> CallSite {
-        CallSite { file_path: file.into(), line, callee_name: name.into(), receiver: None }
+        CallSite {
+            file_path: file.into(),
+            line,
+            callee_name: name.into(),
+            receiver: None,
+        }
     }
 
     #[test]
     fn test_no_index_is_unavailable() {
         let p = no_index_provider();
         assert!(!p.is_available());
-        assert!(matches!(p.resolve(&cs("src/main.ts", 10, "foo")), Tier3Result::Unavailable));
+        assert!(matches!(
+            p.resolve(&cs("src/main.ts", 10, "foo")),
+            Tier3Result::Unavailable
+        ));
     }
 
     #[test]
@@ -129,7 +152,10 @@ mod tests {
 
     #[test]
     fn test_language_accessor() {
-        assert_eq!(provider_with_index("python", ScipIndex::empty()).language(), "python");
+        assert_eq!(
+            provider_with_index("python", ScipIndex::empty()).language(),
+            "python"
+        );
     }
 
     #[test]
@@ -137,17 +163,31 @@ mod tests {
         let sym = "scip-typescript npm pkg 1.0.0 src/lib.ts/processData#";
         let mut index = ScipIndex::empty();
         index.insert_definition(ScipDefinition {
-            symbol: sym.into(), file_path: "src/lib.ts".into(),
-            line: 14, column: 0, name: "processData".into(),
+            symbol: sym.into(),
+            file_path: "src/lib.ts".into(),
+            line: 14,
+            column: 0,
+            name: "processData".into(),
         });
-        index.insert_occurrence("src/main.ts", ScipOccurrence {
-            symbol: sym.into(), line: 9, column: 4, is_definition: false,
-        });
+        index.insert_occurrence(
+            "src/main.ts",
+            ScipOccurrence {
+                symbol: sym.into(),
+                line: 9,
+                column: 4,
+                is_definition: false,
+            },
+        );
 
         let p = provider_with_index("typescript", index);
         // CallSite line 10 (1-based) -> SCIP line 9 (0-based).
         match p.resolve(&cs("src/main.ts", 10, "processData")) {
-            Tier3Result::Resolved { target_file, target_name, confidence, provider } => {
+            Tier3Result::Resolved {
+                target_file,
+                target_name,
+                confidence,
+                provider,
+            } => {
                 assert_eq!(target_file, "src/lib.ts");
                 assert_eq!(target_name, "processData");
                 assert!((confidence - 0.95).abs() < f64::EPSILON);
@@ -160,7 +200,10 @@ mod tests {
     #[test]
     fn test_resolve_miss_returns_unresolved() {
         let p = provider_with_index("typescript", ScipIndex::empty());
-        assert!(matches!(p.resolve(&cs("src/main.ts", 10, "unknownFunc")), Tier3Result::Unresolved));
+        assert!(matches!(
+            p.resolve(&cs("src/main.ts", 10, "unknownFunc")),
+            Tier3Result::Unresolved
+        ));
     }
 
     #[test]
@@ -175,15 +218,27 @@ mod tests {
         let sym = "scip-python python pkg 3.10 src/utils.py/helper#";
         let mut index = ScipIndex::empty();
         index.insert_definition(ScipDefinition {
-            symbol: sym.into(), file_path: "src/utils.py".into(),
-            line: 4, column: 0, name: "helper".into(),
+            symbol: sym.into(),
+            file_path: "src/utils.py".into(),
+            line: 4,
+            column: 0,
+            name: "helper".into(),
         });
-        index.insert_occurrence("src/app.py", ScipOccurrence {
-            symbol: sym.into(), line: 9, column: 0, is_definition: false,
-        });
+        index.insert_occurrence(
+            "src/app.py",
+            ScipOccurrence {
+                symbol: sym.into(),
+                line: 9,
+                column: 0,
+                is_definition: false,
+            },
+        );
 
         let p = provider_with_index("python", index);
-        let results = p.resolve_batch(&[cs("src/app.py", 10, "helper"), cs("src/app.py", 99, "missing")]);
+        let results = p.resolve_batch(&[
+            cs("src/app.py", 10, "helper"),
+            cs("src/app.py", 99, "missing"),
+        ]);
         assert_eq!(results.len(), 2);
         assert!(results[0].is_resolved());
         assert!(!results[1].is_resolved());

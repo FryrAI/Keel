@@ -77,8 +77,14 @@ fn test_different_signatures_produce_different_hashes() {
     let h2 = compute_hash("fn bar(x: i32) -> i32", body, doc);
     let h3 = compute_hash("fn foo(x: i64) -> i64", body, doc);
 
-    assert_ne!(h1, h2, "different function names should produce different hashes");
-    assert_ne!(h1, h3, "different param types should produce different hashes");
+    assert_ne!(
+        h1, h2,
+        "different function names should produce different hashes"
+    );
+    assert_ne!(
+        h1, h3,
+        "different param types should produce different hashes"
+    );
     assert_ne!(h2, h3, "all three should be unique");
 }
 
@@ -151,7 +157,10 @@ fn test_docstring_changes_do_change_hash() {
     let h2 = compute_hash(sig, body, "Does Y");
     let h3 = compute_hash(sig, body, "");
 
-    assert_ne!(h1, h2, "different docstrings should produce different hashes");
+    assert_ne!(
+        h1, h2,
+        "different docstrings should produce different hashes"
+    );
     assert_ne!(h1, h3, "docstring vs no docstring should differ");
     assert_ne!(h2, h3, "all three should be unique");
 }
@@ -291,10 +300,7 @@ fn test_parameter_reorder_changes_hash() {
     let h1 = compute_hash("fn foo(a: i32, b: String)", body, doc);
     let h2 = compute_hash("fn foo(b: String, a: i32)", body, doc);
 
-    assert_ne!(
-        h1, h2,
-        "reordering parameters must change the hash"
-    );
+    assert_ne!(h1, h2, "reordering parameters must change the hash");
 }
 
 #[test]
@@ -307,7 +313,10 @@ fn test_return_type_change_changes_hash() {
     let h2 = compute_hash("fn foo() -> String", body, doc);
     let h3 = compute_hash("fn foo()", body, doc);
 
-    assert_ne!(h1, h2, "different return types must produce different hashes");
+    assert_ne!(
+        h1, h2,
+        "different return types must produce different hashes"
+    );
     assert_ne!(h1, h3, "return type vs no return type must differ");
     assert_ne!(h2, h3, "all three should be unique");
 }

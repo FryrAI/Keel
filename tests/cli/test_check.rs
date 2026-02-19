@@ -31,10 +31,26 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -62,7 +78,10 @@ fn get_hash_by_name(dir: &std::path::Path, name: &str) -> Option<String> {
 #[test]
 fn test_check_with_valid_hash() {
     let dir = init_and_map(&[
-        ("src/caller.ts", "import { target } from './target';\nexport function caller(): void { target(); }\n"),
+        (
+            "src/caller.ts",
+            "import { target } from './target';\nexport function caller(): void { target(); }\n",
+        ),
         ("src/target.ts", "export function target(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -82,15 +101,19 @@ fn test_check_with_valid_hash() {
         );
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(!stdout.is_empty(), "check should produce output for a valid node");
+        assert!(
+            !stdout.is_empty(),
+            "check should produce output for a valid node"
+        );
     }
 }
 
 #[test]
 fn test_check_with_name_flag() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function uniqueFn(x: number): number { return x; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function uniqueFn(x: number): number { return x; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -109,9 +132,10 @@ fn test_check_with_name_flag() {
 
 #[test]
 fn test_check_nonexistent_hash_exits_2() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -126,14 +150,18 @@ fn test_check_nonexistent_hash_exits_2() {
         "check with nonexistent hash should exit 2"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not found"), "stderr should mention 'not found': {stderr}");
+    assert!(
+        stderr.contains("not found"),
+        "stderr should mention 'not found': {stderr}"
+    );
 }
 
 #[test]
 fn test_check_file_path_rejected() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -179,9 +207,10 @@ fn test_check_not_initialized_exits_2() {
 
 #[test]
 fn test_check_performance() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();

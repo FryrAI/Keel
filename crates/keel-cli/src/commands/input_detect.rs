@@ -1,7 +1,8 @@
 //! Utility for detecting whether user input is a file path, function name, or hash.
 
 pub fn looks_like_file_path(s: &str) -> bool {
-    s.contains('/') || s.contains('\\')
+    s.contains('/')
+        || s.contains('\\')
         || s.ends_with(".py")
         || s.ends_with(".ts")
         || s.ends_with(".tsx")

@@ -36,7 +36,10 @@ func Process() int {
         callee_name: "helper".into(),
         receiver: None,
     });
-    assert!(edge.is_some(), "Should resolve same-package cross-file call");
+    assert!(
+        edge.is_some(),
+        "Should resolve same-package cross-file call"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "helper");
     assert!(
@@ -230,10 +233,7 @@ func ProcessRequest() string {
     return "ok"
 }
 "#;
-    resolver.parse_file(
-        Path::new("/project/handlers/handler.go"),
-        source_main,
-    );
+    resolver.parse_file(Path::new("/project/handlers/handler.go"), source_main);
 
     // Parse _test.go file in same directory
     let source_test = r#"
@@ -244,10 +244,7 @@ func TestProcessRequest() {
     _ = result
 }
 "#;
-    resolver.parse_file(
-        Path::new("/project/handlers/handler_test.go"),
-        source_test,
-    );
+    resolver.parse_file(Path::new("/project/handlers/handler_test.go"), source_test);
 
     // _test.go should resolve calls to the main package
     let edge = resolver.resolve_call_edge(&CallSite {

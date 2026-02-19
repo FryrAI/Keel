@@ -110,7 +110,8 @@ fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/check".into(),
-            description: "Pre-edit risk assessment: callers, callees, risk level, suggestions".into(),
+            description: "Pre-edit risk assessment: callers, callees, risk level, suggestions"
+                .into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["hash"],
@@ -157,7 +158,8 @@ fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/analyze".into(),
-            description: "Analyze a file for structure, code smells, and refactoring opportunities".into(),
+            description: "Analyze a file for structure, code smells, and refactoring opportunities"
+                .into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["file"],
@@ -244,19 +246,33 @@ pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> S
 }
 
 pub(crate) fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
-    JsonRpcError { code: -32603, message: e.to_string() }
+    JsonRpcError {
+        code: -32603,
+        message: e.to_string(),
+    }
 }
 
 fn missing_param(name: &str) -> JsonRpcError {
-    JsonRpcError { code: -32602, message: format!("Missing '{}' parameter", name) }
+    JsonRpcError {
+        code: -32602,
+        message: format!("Missing '{}' parameter", name),
+    }
 }
 
 fn not_found(hash: &str) -> JsonRpcError {
-    JsonRpcError { code: -32602, message: format!("Node not found: {}", hash) }
+    JsonRpcError {
+        code: -32602,
+        message: format!("Node not found: {}", hash),
+    }
 }
 
-pub(crate) fn lock_store(store: &SharedStore) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
-    store.lock().map_err(|_| JsonRpcError { code: -32603, message: "Store lock poisoned".into() })
+pub(crate) fn lock_store(
+    store: &SharedStore,
+) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
+    store.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Store lock poisoned".into(),
+    })
 }
 
 fn handle_discover(engine: &SharedEngine, params: Option<Value>) -> Result<Value, JsonRpcError> {
@@ -278,7 +294,9 @@ fn handle_discover(engine: &SharedEngine, params: Option<Value>) -> Result<Value
         message: "Engine lock poisoned".into(),
     })?;
 
-    let result = engine.discover(&hash, depth).ok_or_else(|| not_found(&hash))?;
+    let result = engine
+        .discover(&hash, depth)
+        .ok_or_else(|| not_found(&hash))?;
     serde_json::to_value(result).map_err(internal_err)
 }
 

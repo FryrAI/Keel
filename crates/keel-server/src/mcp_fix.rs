@@ -19,7 +19,10 @@ pub(crate) fn handle_fix(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
-    let file_indexes: Vec<_> = files.iter().filter_map(|p| parse_file_to_index(p)).collect();
+    let file_indexes: Vec<_> = files
+        .iter()
+        .filter_map(|p| parse_file_to_index(p))
+        .collect();
 
     let mut engine = engine.lock().map_err(|_| JsonRpcError {
         code: -32603,
@@ -29,7 +32,9 @@ pub(crate) fn handle_fix(
     let compile_result = engine.compile(&file_indexes);
 
     // Collect all violations (errors + warnings) and generate fix plans
-    let all_violations: Vec<_> = compile_result.errors.iter()
+    let all_violations: Vec<_> = compile_result
+        .errors
+        .iter()
         .chain(compile_result.warnings.iter())
         .collect();
 

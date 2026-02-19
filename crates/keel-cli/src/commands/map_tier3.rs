@@ -79,7 +79,9 @@ pub(crate) fn run_tier3_pass(
                 ..
             } = result
             {
-                if let Some(tgt_id) = find_target_node(global_name_index, &target_file, &target_name) {
+                if let Some(tgt_id) =
+                    find_target_node(global_name_index, &target_file, &target_name)
+                {
                     let source_id = find_containing_def(
                         fd.definitions,
                         reference.line,
@@ -108,7 +110,10 @@ pub(crate) fn run_tier3_pass(
     }
 
     if verbose && tier3_resolved > 0 {
-        eprintln!("keel map: tier3 resolved {} additional references", tier3_resolved);
+        eprintln!(
+            "keel map: tier3 resolved {} additional references",
+            tier3_resolved
+        );
     }
 
     registry.shutdown();
@@ -142,9 +147,8 @@ fn register_providers(
         // Register LSP providers from config
         for (lang, cmd_args) in &config.lsp_commands {
             if let Some((cmd, args)) = cmd_args.split_first() {
-                let provider = keel_parsers::tier3::lsp::LspProvider::new(
-                    lang, cmd, args, cwd.to_path_buf(),
-                );
+                let provider =
+                    keel_parsers::tier3::lsp::LspProvider::new(lang, cmd, args, cwd.to_path_buf());
                 registry.register(Box::new(provider));
             }
         }

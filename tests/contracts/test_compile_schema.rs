@@ -1,7 +1,5 @@
 /// Contract tests for compile output JSON schema compliance.
-use keel_enforce::types::{
-    AffectedNode, CompileInfo, CompileResult, ExistingNode, Violation,
-};
+use keel_enforce::types::{AffectedNode, CompileInfo, CompileResult, ExistingNode, Violation};
 
 use super::test_schema_helpers::validate_against_schema;
 

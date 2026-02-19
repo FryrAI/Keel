@@ -2,17 +2,11 @@ use keel_enforce::types::NameResult;
 
 pub fn format_name(result: &NameResult) -> String {
     if result.suggestions.is_empty() {
-        return format!(
-            "NAME no suggestions for \"{}\"\n",
-            result.description,
-        );
+        return format!("NAME no suggestions for \"{}\"\n", result.description,);
     }
 
     let best = &result.suggestions[0];
-    let mut out = format!(
-        "NAME suggestion for \"{}\"\n",
-        result.description,
-    );
+    let mut out = format!("NAME suggestion for \"{}\"\n", result.description,);
 
     out.push_str(&format!(
         "\nLOCATION {} (best match: [{}] score={:.2})\n",

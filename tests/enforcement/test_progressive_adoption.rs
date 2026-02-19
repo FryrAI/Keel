@@ -1,8 +1,8 @@
 // Tests for progressive adoption (new vs existing code) (Spec 006 - Enforcement Engine)
+use keel_core::types::NodeKind;
 use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::Violation;
 use keel_parsers::resolver::{Definition, FileIndex};
-use keel_core::types::NodeKind;
 
 use crate::common::in_memory_store;
 
@@ -79,10 +79,14 @@ fn test_multiple_files_independent_violations() {
     let clean = make_clean_file("clean_func");
     let result = engine.compile(&[dirty, clean]);
 
-    let dirty_violations: Vec<&Violation> = result.errors.iter()
+    let dirty_violations: Vec<&Violation> = result
+        .errors
+        .iter()
         .filter(|v| v.file.contains("dirty"))
         .collect();
-    let clean_violations: Vec<&Violation> = result.errors.iter()
+    let clean_violations: Vec<&Violation> = result
+        .errors
+        .iter()
         .filter(|v| v.file.contains("clean"))
         .collect();
 

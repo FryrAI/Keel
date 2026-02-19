@@ -1,9 +1,7 @@
 // Tests for E001 broken caller detection (Spec 006 - Enforcement Engine)
 use keel_core::hash::compute_hash;
 use keel_core::store::GraphStore;
-use keel_core::types::{
-    EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind, EdgeChange,
-};
+use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_enforce::violations::check_broken_callers;
 use keel_parsers::resolver::{Definition, FileIndex};
 
@@ -73,15 +71,32 @@ fn make_edge(id: u64, src: u64, tgt: u64) -> GraphEdge {
 fn test_e001_signature_change_breaks_callers() {
     let mut store = in_memory_store();
     let orig_node = make_node(1, "foo", "def foo(a: int)", "return a", "lib.py", 1);
-    store.update_nodes(vec![NodeChange::Add(orig_node)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(orig_node)])
+        .unwrap();
 
     for i in 2..=4 {
-        let caller = make_node(i, &format!("caller_{i}"), &format!("def caller_{i}()"), "foo(1)", "main.py", i as u32 * 10);
+        let caller = make_node(
+            i,
+            &format!("caller_{i}"),
+            &format!("def caller_{i}()"),
+            "foo(1)",
+            "main.py",
+            i as u32 * 10,
+        );
         store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-        store.update_edges(vec![EdgeChange::Add(make_edge(i, i, 1))]).unwrap();
+        store
+            .update_edges(vec![EdgeChange::Add(make_edge(i, i, 1))])
+            .unwrap();
     }
 
-    let new_def = make_definition("foo", "def foo(a: int, b: str)", "return a + b", "lib.py", 1);
+    let new_def = make_definition(
+        "foo",
+        "def foo(a: int, b: str)",
+        "return a + b",
+        "lib.py",
+        1,
+    );
     let file = make_file_index("lib.py", vec![new_def]);
 
     let violations = check_broken_callers(&file, &store);
@@ -95,14 +110,29 @@ fn test_e001_signature_change_breaks_callers() {
 #[test]
 fn test_e001_includes_fix_hint() {
     let mut store = in_memory_store();
-    let orig = make_node(1, "greet", "def greet(name: str)", "return name", "lib.py", 1);
+    let orig = make_node(
+        1,
+        "greet",
+        "def greet(name: str)",
+        "return name",
+        "lib.py",
+        1,
+    );
     store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
 
     let caller = make_node(2, "main", "def main()", "greet('hi')", "main.py", 1);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
-    let new_def = make_definition("greet", "def greet(name: str, lang: str)", "return name + lang", "lib.py", 1);
+    let new_def = make_definition(
+        "greet",
+        "def greet(name: str, lang: str)",
+        "return name + lang",
+        "lib.py",
+        1,
+    );
     let file = make_file_index("lib.py", vec![new_def]);
     let violations = check_broken_callers(&file, &store);
 
@@ -114,14 +144,36 @@ fn test_e001_includes_fix_hint() {
 #[test]
 fn test_e001_includes_location() {
     let mut store = in_memory_store();
-    let orig = make_node(1, "process", "def process(data: str)", "return data", "utils.py", 5);
+    let orig = make_node(
+        1,
+        "process",
+        "def process(data: str)",
+        "return data",
+        "utils.py",
+        5,
+    );
     store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
 
-    let caller = make_node(2, "handler", "def handler()", "process('x')", "handler.py", 20);
+    let caller = make_node(
+        2,
+        "handler",
+        "def handler()",
+        "process('x')",
+        "handler.py",
+        20,
+    );
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
-    let new_def = make_definition("process", "def process(data: list)", "return list(data)", "utils.py", 5);
+    let new_def = make_definition(
+        "process",
+        "def process(data: list)",
+        "return list(data)",
+        "utils.py",
+        5,
+    );
     let file = make_file_index("utils.py", vec![new_def]);
     let violations = check_broken_callers(&file, &store);
 
@@ -138,7 +190,13 @@ fn test_e001_no_callers_no_violation() {
     let orig = make_node(1, "lonely", "def lonely(x: int)", "return x", "lib.py", 1);
     store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
 
-    let new_def = make_definition("lonely", "def lonely(x: int, y: int)", "return x + y", "lib.py", 1);
+    let new_def = make_definition(
+        "lonely",
+        "def lonely(x: int, y: int)",
+        "return x + y",
+        "lib.py",
+        1,
+    );
     let file = make_file_index("lib.py", vec![new_def]);
     let violations = check_broken_callers(&file, &store);
 
@@ -153,7 +211,9 @@ fn test_e001_no_change_no_violation() {
 
     let caller = make_node(2, "user", "def user()", "stable(1)", "main.py", 1);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let same_def = make_definition("stable", "def stable(x: int)", "return x", "lib.py", 1);
     let file = make_file_index("lib.py", vec![same_def]);
@@ -168,18 +228,36 @@ fn test_e001_multiple_changes_multiple_errors() {
 
     let fn_a = make_node(1, "func_a", "def func_a(x: int)", "return x", "lib.py", 1);
     let fn_b = make_node(2, "func_b", "def func_b(y: str)", "return y", "lib.py", 10);
-    store.update_nodes(vec![NodeChange::Add(fn_a), NodeChange::Add(fn_b)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(fn_a), NodeChange::Add(fn_b)])
+        .unwrap();
 
     let caller_a = make_node(3, "call_a", "def call_a()", "func_a(1)", "main.py", 1);
     let caller_b = make_node(4, "call_b", "def call_b()", "func_b('hi')", "main.py", 10);
-    store.update_nodes(vec![NodeChange::Add(caller_a), NodeChange::Add(caller_b)]).unwrap();
-    store.update_edges(vec![
-        EdgeChange::Add(make_edge(1, 3, 1)),
-        EdgeChange::Add(make_edge(2, 4, 2)),
-    ]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(caller_a), NodeChange::Add(caller_b)])
+        .unwrap();
+    store
+        .update_edges(vec![
+            EdgeChange::Add(make_edge(1, 3, 1)),
+            EdgeChange::Add(make_edge(2, 4, 2)),
+        ])
+        .unwrap();
 
-    let new_a = make_definition("func_a", "def func_a(x: int, z: bool)", "return x and z", "lib.py", 1);
-    let new_b = make_definition("func_b", "def func_b(y: str, w: str)", "return y + w", "lib.py", 10);
+    let new_a = make_definition(
+        "func_a",
+        "def func_a(x: int, z: bool)",
+        "return x and z",
+        "lib.py",
+        1,
+    );
+    let new_b = make_definition(
+        "func_b",
+        "def func_b(y: str, w: str)",
+        "return y + w",
+        "lib.py",
+        10,
+    );
     let file = make_file_index("lib.py", vec![new_a, new_b]);
     let violations = check_broken_callers(&file, &store);
 
@@ -194,7 +272,9 @@ fn test_e001_severity_is_error() {
     store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
     let caller = make_node(2, "g", "def g()", "f(1)", "b.py", 1);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let new_def = make_definition("f", "def f(x: int, y: int)", "return x+y", "a.py", 1);
     let file = make_file_index("a.py", vec![new_def]);
@@ -211,7 +291,9 @@ fn test_e001_error_code_format() {
     store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
     let caller = make_node(2, "k", "def k()", "h()", "b.py", 1);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let new_def = make_definition("h", "def h(x: int)", "return x", "a.py", 1);
     let file = make_file_index("a.py", vec![new_def]);
@@ -228,7 +310,9 @@ fn test_e001_confidence_from_resolution_tier() {
     store.update_nodes(vec![NodeChange::Add(orig)]).unwrap();
     let caller = make_node(2, "fn2", "def fn2()", "fn1(1)", "b.py", 1);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let new_def = make_definition("fn1", "def fn1(x: str)", "return str(x)", "a.py", 1);
     let file = make_file_index("a.py", vec![new_def]);

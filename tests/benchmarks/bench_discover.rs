@@ -114,7 +114,11 @@ fn bench_discover_highly_connected_node() {
     let elapsed = start.elapsed();
 
     assert!(result.is_some(), "discover should find hub node");
-    assert!(elapsed.as_millis() < 1000, "highly-connected discover took {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 1000,
+        "highly-connected discover took {:?}",
+        elapsed
+    );
 }
 
 #[test]
@@ -128,7 +132,11 @@ fn bench_discover_leaf_node() {
     let elapsed = start.elapsed();
 
     assert!(result.is_some(), "discover should find leaf node");
-    assert!(elapsed.as_millis() < 500, "leaf discover took {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 500,
+        "leaf discover took {:?}",
+        elapsed
+    );
 }
 
 #[test]

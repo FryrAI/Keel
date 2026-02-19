@@ -1,7 +1,5 @@
 /// Contract tests for discover output JSON schema compliance.
-use keel_enforce::types::{
-    CalleeInfo, CallerInfo, DiscoverResult, ModuleContext, NodeInfo,
-};
+use keel_enforce::types::{CalleeInfo, CallerInfo, DiscoverResult, ModuleContext, NodeInfo};
 
 use super::test_schema_helpers::validate_against_schema;
 
@@ -88,10 +86,7 @@ fn discover_output_with_upstream_downstream_matches_schema() {
         }],
         module_context: ModuleContext {
             module: "src/api.rs".to_string(),
-            sibling_functions: vec![
-                "parse_body".to_string(),
-                "send_response".to_string(),
-            ],
+            sibling_functions: vec!["parse_body".to_string(), "send_response".to_string()],
             responsibility_keywords: vec!["api".to_string(), "http".to_string()],
             function_count: 4,
             external_endpoints: vec!["GET /api/users".to_string()],

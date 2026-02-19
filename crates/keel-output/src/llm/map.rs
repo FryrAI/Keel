@@ -1,5 +1,5 @@
-use keel_enforce::types::MapResult;
 use crate::token_budget;
+use keel_enforce::types::MapResult;
 
 /// Format map result at depth 0: summary only (~2 lines).
 pub fn format_map_depth0(result: &MapResult) -> String {
@@ -151,16 +151,14 @@ mod tests {
                     function_names: vec![],
                 },
             ],
-            hotspots: vec![
-                HotspotEntry {
-                    path: "src/auth/middleware.rs".into(),
-                    name: "validate_token".into(),
-                    hash: "abc12345678".into(),
-                    callers: 23,
-                    callees: 8,
-                    keywords: vec!["auth".into(), "jwt".into()],
-                },
-            ],
+            hotspots: vec![HotspotEntry {
+                path: "src/auth/middleware.rs".into(),
+                name: "validate_token".into(),
+                hash: "abc12345678".into(),
+                callers: 23,
+                callees: 8,
+                keywords: vec!["auth".into(), "jwt".into()],
+            }],
             depth: 1,
             functions: vec![],
         }

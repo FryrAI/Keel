@@ -14,32 +14,62 @@ fn parse_err(args: &[&str]) -> clap::error::Error {
 #[test]
 fn parse_init() {
     let cli = parse(&["keel", "init"]);
-    assert!(matches!(cli.command, Commands::Init { merge: false, yes: false }));
+    assert!(matches!(
+        cli.command,
+        Commands::Init {
+            merge: false,
+            yes: false
+        }
+    ));
 }
 
 #[test]
 fn parse_init_merge() {
     let cli = parse(&["keel", "init", "--merge"]);
-    assert!(matches!(cli.command, Commands::Init { merge: true, yes: false }));
+    assert!(matches!(
+        cli.command,
+        Commands::Init {
+            merge: true,
+            yes: false
+        }
+    ));
 }
 
 #[test]
 fn parse_init_yes() {
     let cli = parse(&["keel", "init", "--yes"]);
-    assert!(matches!(cli.command, Commands::Init { merge: false, yes: true }));
+    assert!(matches!(
+        cli.command,
+        Commands::Init {
+            merge: false,
+            yes: true
+        }
+    ));
 }
 
 #[test]
 fn parse_init_yes_short() {
     let cli = parse(&["keel", "init", "-y"]);
-    assert!(matches!(cli.command, Commands::Init { merge: false, yes: true }));
+    assert!(matches!(
+        cli.command,
+        Commands::Init {
+            merge: false,
+            yes: true
+        }
+    ));
 }
 
 #[test]
 fn parse_map_defaults() {
     let cli = parse(&["keel", "map"]);
     match cli.command {
-        Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
+        Commands::Map {
+            llm_verbose,
+            scope,
+            strict,
+            depth,
+            tier3,
+        } => {
             assert!(!llm_verbose);
             assert!(scope.is_none());
             assert!(!strict);
@@ -52,9 +82,25 @@ fn parse_map_defaults() {
 
 #[test]
 fn parse_map_all_flags() {
-    let cli = parse(&["keel", "map", "--llm-verbose", "--scope", "auth,core", "--strict", "--depth", "2", "--tier3"]);
+    let cli = parse(&[
+        "keel",
+        "map",
+        "--llm-verbose",
+        "--scope",
+        "auth,core",
+        "--strict",
+        "--depth",
+        "2",
+        "--tier3",
+    ]);
     match cli.command {
-        Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
+        Commands::Map {
+            llm_verbose,
+            scope,
+            strict,
+            depth,
+            tier3,
+        } => {
             assert!(llm_verbose);
             assert_eq!(scope.as_deref(), Some("auth,core"));
             assert!(strict);
@@ -69,7 +115,13 @@ fn parse_map_all_flags() {
 fn parse_discover_required_query() {
     let cli = parse(&["keel", "discover", "abc123"]);
     match cli.command {
-        Commands::Discover { query, depth, suggest_placement, name, context } => {
+        Commands::Discover {
+            query,
+            depth,
+            suggest_placement,
+            name,
+            context,
+        } => {
             assert_eq!(query, "abc123");
             assert_eq!(depth, 1);
             assert!(!suggest_placement);
@@ -82,9 +134,21 @@ fn parse_discover_required_query() {
 
 #[test]
 fn parse_discover_with_depth() {
-    let cli = parse(&["keel", "discover", "h1", "--depth", "3", "--suggest-placement"]);
+    let cli = parse(&[
+        "keel",
+        "discover",
+        "h1",
+        "--depth",
+        "3",
+        "--suggest-placement",
+    ]);
     match cli.command {
-        Commands::Discover { query, depth, suggest_placement, .. } => {
+        Commands::Discover {
+            query,
+            depth,
+            suggest_placement,
+            ..
+        } => {
             assert_eq!(query, "h1");
             assert_eq!(depth, 3);
             assert!(suggest_placement);
@@ -114,7 +178,18 @@ fn parse_discover_missing_query() {
 fn parse_compile_no_files() {
     let cli = parse(&["keel", "compile"]);
     match cli.command {
-        Commands::Compile { files, batch_start, batch_end, strict, suppress, depth, changed, since, delta, .. } => {
+        Commands::Compile {
+            files,
+            batch_start,
+            batch_end,
+            strict,
+            suppress,
+            depth,
+            changed,
+            since,
+            delta,
+            ..
+        } => {
             assert!(files.is_empty());
             assert!(!batch_start);
             assert!(!batch_end);
@@ -144,7 +219,11 @@ fn parse_compile_with_files() {
 fn parse_compile_batch_start() {
     let cli = parse(&["keel", "compile", "--batch-start"]);
     match cli.command {
-        Commands::Compile { batch_start, batch_end, .. } => {
+        Commands::Compile {
+            batch_start,
+            batch_end,
+            ..
+        } => {
             assert!(batch_start);
             assert!(!batch_end);
         }
@@ -156,7 +235,11 @@ fn parse_compile_batch_start() {
 fn parse_compile_batch_end() {
     let cli = parse(&["keel", "compile", "--batch-end"]);
     match cli.command {
-        Commands::Compile { batch_start, batch_end, .. } => {
+        Commands::Compile {
+            batch_start,
+            batch_end,
+            ..
+        } => {
             assert!(!batch_start);
             assert!(batch_end);
         }
@@ -168,7 +251,9 @@ fn parse_compile_batch_end() {
 fn parse_compile_strict_and_suppress() {
     let cli = parse(&["keel", "compile", "--strict", "--suppress", "W001"]);
     match cli.command {
-        Commands::Compile { strict, suppress, .. } => {
+        Commands::Compile {
+            strict, suppress, ..
+        } => {
             assert!(strict);
             assert_eq!(suppress.as_deref(), Some("W001"));
         }
@@ -194,7 +279,12 @@ fn parse_where_missing_hash() {
 fn parse_explain() {
     let cli = parse(&["keel", "explain", "E001", "abc123"]);
     match cli.command {
-        Commands::Explain { error_code, hash, tree, depth } => {
+        Commands::Explain {
+            error_code,
+            hash,
+            tree,
+            depth,
+        } => {
             assert_eq!(error_code, "E001");
             assert_eq!(hash, "abc123");
             assert!(!tree);
@@ -318,7 +408,11 @@ fn multiple_global_flags() {
 fn parse_fix_no_args() {
     let cli = parse(&["keel", "fix"]);
     match cli.command {
-        Commands::Fix { hashes, file, apply } => {
+        Commands::Fix {
+            hashes,
+            file,
+            apply,
+        } => {
             assert!(hashes.is_empty());
             assert!(file.is_none());
             assert!(!apply);
@@ -356,7 +450,11 @@ fn parse_fix_with_file_and_apply() {
 fn parse_name_basic() {
     let cli = parse(&["keel", "name", "validate user JWT token"]);
     match cli.command {
-        Commands::Name { description, module, kind } => {
+        Commands::Name {
+            description,
+            module,
+            kind,
+        } => {
             assert_eq!(description, "validate user JWT token");
             assert!(module.is_none());
             assert!(kind.is_none());
@@ -367,9 +465,21 @@ fn parse_name_basic() {
 
 #[test]
 fn parse_name_with_options() {
-    let cli = parse(&["keel", "name", "handle auth", "--module", "src/auth.rs", "--kind", "fn"]);
+    let cli = parse(&[
+        "keel",
+        "name",
+        "handle auth",
+        "--module",
+        "src/auth.rs",
+        "--kind",
+        "fn",
+    ]);
     match cli.command {
-        Commands::Name { description, module, kind } => {
+        Commands::Name {
+            description,
+            module,
+            kind,
+        } => {
             assert_eq!(description, "handle auth");
             assert_eq!(module.as_deref(), Some("src/auth.rs"));
             assert_eq!(kind.as_deref(), Some("fn"));

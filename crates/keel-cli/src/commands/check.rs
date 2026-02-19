@@ -4,12 +4,7 @@ use keel_output::OutputFormatter;
 use super::input_detect;
 
 /// Run `keel check <query>` — pre-edit risk assessment.
-pub fn run(
-    formatter: &dyn OutputFormatter,
-    verbose: bool,
-    query: String,
-    name_mode: bool,
-) -> i32 {
+pub fn run(formatter: &dyn OutputFormatter, verbose: bool, query: String, name_mode: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -25,9 +20,7 @@ pub fn run(
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel check: failed to open graph database: {}", e);
@@ -46,9 +39,16 @@ pub fn run(
             }
             1 => nodes[0].hash.clone(),
             _ => {
-                eprintln!("keel check: ambiguous name '{}' — {} matches:", query, nodes.len());
+                eprintln!(
+                    "keel check: ambiguous name '{}' — {} matches:",
+                    query,
+                    nodes.len()
+                );
                 for n in &nodes {
-                    eprintln!("  {} hash={} {}:{}", n.name, n.hash, n.file_path, n.line_start);
+                    eprintln!(
+                        "  {} hash={} {}:{}",
+                        n.name, n.hash, n.file_path, n.line_start
+                    );
                 }
                 eprintln!("Use the hash directly: keel check <hash>");
                 return 2;
@@ -66,9 +66,16 @@ pub fn run(
             0 => query, // Try as hash
             1 => nodes[0].hash.clone(),
             _ => {
-                eprintln!("keel check: ambiguous name '{}' — {} matches:", query, nodes.len());
+                eprintln!(
+                    "keel check: ambiguous name '{}' — {} matches:",
+                    query,
+                    nodes.len()
+                );
                 for n in &nodes {
-                    eprintln!("  {} hash={} {}:{}", n.name, n.hash, n.file_path, n.line_start);
+                    eprintln!(
+                        "  {} hash={} {}:{}",
+                        n.name, n.hash, n.file_path, n.line_start
+                    );
                 }
                 eprintln!("Use the hash directly: keel check <hash>");
                 return 2;
@@ -80,7 +87,10 @@ pub fn run(
     match engine.check(&hash) {
         Some(result) => {
             if verbose {
-                eprintln!("keel check: risk={} callers={}", result.risk.level, result.risk.caller_count);
+                eprintln!(
+                    "keel check: risk={} callers={}",
+                    result.risk.level, result.risk.caller_count
+                );
             }
             let output = formatter.format_check(&result);
             if !output.is_empty() {

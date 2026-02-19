@@ -56,10 +56,7 @@ pub fn extract_where_clause_bounds(content: &str) -> HashMap<String, Vec<String>
         } else if let Some(pos) = trimmed.find(") where ") {
             // Inline where clause: fn foo<T>(x: T) where T: Trait {
             let after_where = &trimmed[pos + 8..];
-            after_where
-                .trim_end_matches('{')
-                .trim()
-                .to_string()
+            after_where.trim_end_matches('{').trim().to_string()
         } else {
             continue;
         };
@@ -75,23 +72,41 @@ pub fn extract_supertrait_bounds(content: &str) -> HashMap<String, Vec<String>> 
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        let rest = if let Some(s) = trimmed.strip_prefix("pub trait ") { s }
-            else if let Some(s) = trimmed.strip_prefix("trait ") { s }
-            else { continue };
-        let name_end = rest.find(['<', ':', '{', ' '])
-            .unwrap_or(rest.len());
+        let rest = if let Some(s) = trimmed.strip_prefix("pub trait ") {
+            s
+        } else if let Some(s) = trimmed.strip_prefix("trait ") {
+            s
+        } else {
+            continue;
+        };
+        let name_end = rest.find(['<', ':', '{', ' ']).unwrap_or(rest.len());
         let trait_name = rest[..name_end].trim();
-        if trait_name.is_empty() { continue; }
+        if trait_name.is_empty() {
+            continue;
+        }
         let after_name = &rest[name_end..];
         let after_generics = if after_name.starts_with('<') {
             skip_angle_brackets(after_name).unwrap_or(after_name)
-        } else { after_name };
+        } else {
+            after_name
+        };
         if let Some(pos) = after_generics.find(':') {
-            let bs = after_generics[pos + 1..].split('{').next().unwrap_or("")
-                .split("where").next().unwrap_or("").trim();
-            let bounds: Vec<String> = bs.split('+')
-                .map(|b| b.trim().to_string()).filter(|b| !b.is_empty()).collect();
-            if !bounds.is_empty() { result.insert(trait_name.to_string(), bounds); }
+            let bs = after_generics[pos + 1..]
+                .split('{')
+                .next()
+                .unwrap_or("")
+                .split("where")
+                .next()
+                .unwrap_or("")
+                .trim();
+            let bounds: Vec<String> = bs
+                .split('+')
+                .map(|b| b.trim().to_string())
+                .filter(|b| !b.is_empty())
+                .collect();
+            if !bounds.is_empty() {
+                result.insert(trait_name.to_string(), bounds);
+            }
         }
     }
     result
@@ -112,14 +127,26 @@ pub fn extract_associated_type_impls(content: &str) -> Vec<(String, String, Stri
         }
         for ch in trimmed.chars() {
             match ch {
-                '{' => { brace_depth += 1; if current_trait.is_some() { in_impl = true; } }
-                '}' => { brace_depth -= 1;
-                    if in_impl && brace_depth <= 0 { current_trait = None; in_impl = false; } }
+                '{' => {
+                    brace_depth += 1;
+                    if current_trait.is_some() {
+                        in_impl = true;
+                    }
+                }
+                '}' => {
+                    brace_depth -= 1;
+                    if in_impl && brace_depth <= 0 {
+                        current_trait = None;
+                        in_impl = false;
+                    }
+                }
                 _ => {}
             }
         }
         if in_impl {
-            if let (Some(ref ct), Some((tn, c))) = (&current_trait, parse_associated_type_def(trimmed)) {
+            if let (Some(ref ct), Some((tn, c))) =
+                (&current_trait, parse_associated_type_def(trimmed))
+            {
                 result.push((ct.clone(), tn, c));
             }
         }
@@ -130,7 +157,8 @@ pub fn extract_associated_type_impls(content: &str) -> Vec<(String, String, Stri
 /// Resolve a generic method call via trait bounds + supertrait expansion.
 /// Returns confidence 0.65 when a matching trait impl is found.
 pub fn resolve_generic_method_call(
-    receiver: &str, method: &str,
+    receiver: &str,
+    method: &str,
     generic_bounds: &HashMap<String, Vec<String>>,
     where_bounds: &HashMap<String, Vec<String>>,
     trait_impls: &[TraitImpl],
@@ -138,9 +166,15 @@ pub fn resolve_generic_method_call(
     _file_path: &str,
 ) -> Option<ResolvedEdge> {
     let mut all_bounds: Vec<String> = Vec::new();
-    if let Some(b) = generic_bounds.get(receiver) { all_bounds.extend(b.clone()); }
-    if let Some(b) = where_bounds.get(receiver) { all_bounds.extend(b.clone()); }
-    if all_bounds.is_empty() { return None; }
+    if let Some(b) = generic_bounds.get(receiver) {
+        all_bounds.extend(b.clone());
+    }
+    if let Some(b) = where_bounds.get(receiver) {
+        all_bounds.extend(b.clone());
+    }
+    if all_bounds.is_empty() {
+        return None;
+    }
 
     // Expand via supertraits
     let mut expanded = all_bounds.clone();
@@ -150,9 +184,10 @@ pub fn resolve_generic_method_call(
 
     // Check trait_impls for any trait in expanded bounds that has the method
     for trait_name in &expanded {
-        if let Some(ti) = trait_impls.iter().find(|ti| {
-            ti.trait_name == *trait_name && ti.methods.iter().any(|m| m == method)
-        }) {
+        if let Some(ti) = trait_impls
+            .iter()
+            .find(|ti| ti.trait_name == *trait_name && ti.methods.iter().any(|m| m == method))
+        {
             return Some(ResolvedEdge {
                 target_file: ti.file_path.clone(),
                 target_name: method.to_string(),
@@ -209,10 +244,18 @@ fn parse_type_params_with_bounds(params: &str, result: &mut HashMap<String, Vec<
         let seg = seg.trim();
         if let Some(pos) = seg.find(':') {
             let param = seg[..pos].trim();
-            let bounds: Vec<String> = seg[pos + 1..].trim().split('+')
-                .map(|b| { let b = b.trim(); b.find('<').map_or(b, |i| &b[..i]).to_string() })
-                .filter(|b| !b.is_empty()).collect();
-            if !bounds.is_empty() { result.entry(param.to_string()).or_default().extend(bounds); }
+            let bounds: Vec<String> = seg[pos + 1..]
+                .trim()
+                .split('+')
+                .map(|b| {
+                    let b = b.trim();
+                    b.find('<').map_or(b, |i| &b[..i]).to_string()
+                })
+                .filter(|b| !b.is_empty())
+                .collect();
+            if !bounds.is_empty() {
+                result.entry(param.to_string()).or_default().extend(bounds);
+            }
         }
     }
 }
@@ -243,14 +286,23 @@ fn collect_where_clause(lines: &[&str], start_idx: usize) -> String {
     let mut clause = String::new();
     for line in &lines[start_idx..] {
         let trimmed = line.trim();
-        let part = if let Some(s) = trimmed.strip_prefix("where ") { s }
-            else if trimmed == "where" { "" } else { trimmed };
+        let part = if let Some(s) = trimmed.strip_prefix("where ") {
+            s
+        } else if trimmed == "where" {
+            ""
+        } else {
+            trimmed
+        };
         let part = part.trim_end_matches('{').trim();
         if !part.is_empty() {
-            if !clause.is_empty() { clause.push_str(", "); }
+            if !clause.is_empty() {
+                clause.push_str(", ");
+            }
             clause.push_str(part);
         }
-        if trimmed.contains('{') { break; }
+        if trimmed.contains('{') {
+            break;
+        }
     }
     clause
 }
@@ -261,10 +313,18 @@ fn parse_where_clause_items(clause: &str, result: &mut HashMap<String, Vec<Strin
         let seg = seg.trim();
         if let Some(pos) = seg.find(':') {
             let param = seg[..pos].trim();
-            let bounds: Vec<String> = seg[pos + 1..].trim().split('+')
-                .map(|b| { let b = b.trim(); b.find('<').map_or(b, |i| &b[..i]).to_string() })
-                .filter(|b| !b.is_empty()).collect();
-            if !bounds.is_empty() { result.entry(param.to_string()).or_default().extend(bounds); }
+            let bounds: Vec<String> = seg[pos + 1..]
+                .trim()
+                .split('+')
+                .map(|b| {
+                    let b = b.trim();
+                    b.find('<').map_or(b, |i| &b[..i]).to_string()
+                })
+                .filter(|b| !b.is_empty())
+                .collect();
+            if !bounds.is_empty() {
+                result.entry(param.to_string()).or_default().extend(bounds);
+            }
         }
     }
 }
@@ -283,7 +343,9 @@ fn parse_impl_trait_for(line: &str) -> Option<(String, String)> {
     if trait_part.is_empty() || type_part.is_empty() {
         return None;
     }
-    let trait_name = trait_part.find('<').map_or(trait_part, |i| &trait_part[..i]);
+    let trait_name = trait_part
+        .find('<')
+        .map_or(trait_part, |i| &trait_part[..i]);
     Some((trait_name.to_string(), type_part.to_string()))
 }
 
@@ -292,10 +354,7 @@ fn parse_associated_type_def(line: &str) -> Option<(String, String)> {
     let s = line.strip_prefix("type ")?.trim();
     let eq_pos = s.find('=')?;
     let name = s[..eq_pos].trim();
-    let concrete = s[eq_pos + 1..]
-        .trim()
-        .trim_end_matches(';')
-        .trim();
+    let concrete = s[eq_pos + 1..].trim().trim_end_matches(';').trim();
     if name.is_empty() || concrete.is_empty() {
         return None;
     }
@@ -366,7 +425,14 @@ impl Converter for StringConverter {
 "#;
         let assoc = extract_associated_type_impls(src);
         assert_eq!(assoc.len(), 1);
-        assert_eq!(assoc[0], ("Converter".to_string(), "Output".to_string(), "String".to_string()));
+        assert_eq!(
+            assoc[0],
+            (
+                "Converter".to_string(),
+                "Output".to_string(),
+                "String".to_string()
+            )
+        );
     }
 
     #[test]

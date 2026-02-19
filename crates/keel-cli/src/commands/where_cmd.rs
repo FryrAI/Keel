@@ -18,9 +18,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: 
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel where: failed to open graph database: {}", e);

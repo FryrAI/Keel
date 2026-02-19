@@ -200,9 +200,10 @@ fn test_path_alias_tsconfig_extends() {
     assert!(!result.imports.is_empty(), "should have imports");
 
     // The import should reference the alias or the resolved path
-    let has_alias_or_resolved = result.imports.iter().any(|imp| {
-        imp.source.contains("shared") || imp.source.contains("helpers")
-    });
+    let has_alias_or_resolved = result
+        .imports
+        .iter()
+        .any(|imp| imp.source.contains("shared") || imp.source.contains("helpers"));
     assert!(
         has_alias_or_resolved,
         "import should reference @shared or resolved path, got: {:?}",
@@ -281,15 +282,17 @@ fn test_path_alias_uses_oxc_resolver() {
 
     // oxc_resolver resolves to absolute filesystem paths; check if any import
     // source is an absolute path (starts with '/') pointing to engine.ts
-    let resolved_to_absolute = result.imports.iter().any(|imp| {
-        imp.source.starts_with('/') && imp.source.contains("engine")
-    });
+    let resolved_to_absolute = result
+        .imports
+        .iter()
+        .any(|imp| imp.source.starts_with('/') && imp.source.contains("engine"));
     // If oxc_resolver is active, at least one import should be an absolute path.
     // If not active, the alias expansion should still produce a path containing
     // "core" or "engine".
-    let resolved_any = result.imports.iter().any(|imp| {
-        imp.source.contains("engine") || imp.source.contains("core")
-    });
+    let resolved_any = result
+        .imports
+        .iter()
+        .any(|imp| imp.source.contains("engine") || imp.source.contains("core"));
     assert!(
         resolved_any,
         "import should be resolved (absolute or expanded alias), got: {:?}",
@@ -304,8 +307,7 @@ fn test_path_alias_uses_oxc_resolver() {
             .find(|imp| imp.source.starts_with('/') && imp.source.contains("engine"))
             .unwrap();
         assert!(
-            abs_import.source.ends_with("engine.ts")
-                || abs_import.source.ends_with("engine"),
+            abs_import.source.ends_with("engine.ts") || abs_import.source.ends_with("engine"),
             "absolute resolved path should point to engine.ts, got: {}",
             abs_import.source
         );

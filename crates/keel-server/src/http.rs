@@ -200,7 +200,9 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        assert!(resp.headers().contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+        assert!(resp
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
     }
 
     #[tokio::test]

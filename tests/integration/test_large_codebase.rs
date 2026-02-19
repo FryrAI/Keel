@@ -213,16 +213,14 @@ fn test_discover_in_large_graph_under_50ms() {
 
     // Find a hash from the graph
     let db_path = dir.path().join(".keel/graph.db");
-    let store =
-        keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).unwrap();
+    let store = keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).unwrap();
     let modules = keel_core::store::GraphStore::get_all_modules(&store);
     assert!(!modules.is_empty(), "Should have modules in graph");
 
     // Get a function node hash
     let mut hash = None;
     for module in &modules {
-        let nodes =
-            keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
+        let nodes = keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
         for node in &nodes {
             if node.kind == keel_core::types::NodeKind::Function {
                 hash = Some(node.hash.clone());

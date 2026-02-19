@@ -1,6 +1,6 @@
 mod helpers;
-mod star_imports;
 pub mod package_resolution;
+mod star_imports;
 pub mod ty;
 
 use std::collections::HashMap;
@@ -12,8 +12,8 @@ use crate::resolver::{
 };
 use crate::treesitter::TreeSitterParser;
 use helpers::{
-    extract_python_all, find_import_for_name, py_has_type_hints,
-    resolve_python_relative_import, DunderAll,
+    extract_python_all, find_import_for_name, py_has_type_hints, resolve_python_relative_import,
+    DunderAll,
 };
 
 /// Tier 1 + Tier 2 resolver for Python.
@@ -46,9 +46,7 @@ impl PyResolver {
 
     /// Returns whether a ty client is configured and available.
     pub fn has_ty(&self) -> bool {
-        self.ty_client
-            .as_ref()
-            .is_some_and(|c| c.is_available())
+        self.ty_client.as_ref().is_some_and(|c| c.is_available())
     }
 
     fn parse_and_cache(&self, path: &Path, content: &str) -> ParseResult {
@@ -183,10 +181,9 @@ impl LanguageResolver for PyResolver {
             .unwrap_or_default();
         for imp in &caller_result.imports {
             if imp.source.contains('.') && !imp.is_relative {
-                if let Some(resolved) = package_resolution::resolve_python_package_chain(
-                    &caller_dir,
-                    &imp.source,
-                ) {
+                if let Some(resolved) =
+                    package_resolution::resolve_python_package_chain(&caller_dir, &imp.source)
+                {
                     if imp
                         .imported_names
                         .iter()

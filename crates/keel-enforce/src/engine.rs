@@ -57,7 +57,11 @@ impl EnforcementEngine {
             let mut file_violations = Vec::new();
 
             // E001: broken callers (uses cached nodes)
-            file_violations.extend(violations::check_broken_callers_with_cache(file, &*self.store, &existing_nodes));
+            file_violations.extend(violations::check_broken_callers_with_cache(
+                file,
+                &*self.store,
+                &existing_nodes,
+            ));
             // E002: missing type hints (gated by config)
             if self.enforce_config.type_hints {
                 file_violations.extend(violations::check_missing_type_hints(file));
@@ -67,7 +71,11 @@ impl EnforcementEngine {
                 file_violations.extend(violations::check_missing_docstring(file));
             }
             // E004: function removed (uses cached nodes)
-            file_violations.extend(violations::check_removed_functions_with_cache(file, &*self.store, &existing_nodes));
+            file_violations.extend(violations::check_removed_functions_with_cache(
+                file,
+                &*self.store,
+                &existing_nodes,
+            ));
             // E005: arity mismatch
             file_violations.extend(violations::check_arity_mismatch(file, &*self.store));
             // W001: placement (gated by config)
@@ -81,9 +89,10 @@ impl EnforcementEngine {
             // Some checks (E002, E003, W001, W002) compute hashes freshly, which
             // may differ from the graph when map used disambiguation for collisions.
             for v in &mut file_violations {
-                if let Some(node) = existing_nodes.iter().find(|n| {
-                    n.file_path == v.file && n.line_start == v.line
-                }) {
+                if let Some(node) = existing_nodes
+                    .iter()
+                    .find(|n| n.file_path == v.file && n.line_start == v.line)
+                {
                     v.hash = node.hash.clone();
                 }
             }
@@ -139,16 +148,10 @@ impl EnforcementEngine {
             if let Some(batch) = &mut self.batch_state {
                 if batch.is_expired() {
                     // Auto-expire: flush deferred
-                    let deferred = self.batch_state.take()
-                        .unwrap()
-                        .drain();
+                    let deferred = self.batch_state.take().unwrap().drain();
                     Self::partition_violations(deferred, &mut all_errors, &mut all_warnings);
                     // Non-deferred violations from this file
-                    Self::partition_violations(
-                        file_violations,
-                        &mut all_errors,
-                        &mut all_warnings,
-                    );
+                    Self::partition_violations(file_violations, &mut all_errors, &mut all_warnings);
                 } else {
                     batch.touch();
                     let (immediate, deferred): (Vec<_>, Vec<_>) = file_violations
@@ -276,7 +279,9 @@ impl EnforcementEngine {
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
-                    let action = self.circuit_breaker.record_failure(&v.code, &v.hash, &v.file);
+                    let action = self
+                        .circuit_breaker
+                        .record_failure(&v.code, &v.hash, &v.file);
                     match action {
                         BreakerAction::FixHint => {} // fix_hint already set
                         BreakerAction::WiderContext => {

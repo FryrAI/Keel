@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use super::PressureLevel;
+use serde::{Deserialize, Serialize};
 
 /// Identity key for diffing violations between compiles.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]

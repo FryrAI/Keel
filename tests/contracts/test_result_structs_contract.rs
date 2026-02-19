@@ -4,9 +4,8 @@
 /// and deserialized back without loss, which is critical since the JSON
 /// output schemas in tests/schemas/ depend on these shapes.
 use keel_enforce::types::{
-    AffectedNode, CalleeInfo, CallerInfo, CompileInfo, CompileResult,
-    DiscoverResult, ExistingNode, ExplainResult, ModuleContext, NodeInfo,
-    ResolutionStep, Violation,
+    AffectedNode, CalleeInfo, CallerInfo, CompileInfo, CompileResult, DiscoverResult, ExistingNode,
+    ExplainResult, ModuleContext, NodeInfo, ResolutionStep, Violation,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,12 +91,18 @@ fn compile_result_round_trips() {
     assert_eq!(deserialized.version, original.version);
     assert_eq!(deserialized.command, original.command);
     assert_eq!(deserialized.status, original.status);
-    assert_eq!(deserialized.files_analyzed.len(), original.files_analyzed.len());
+    assert_eq!(
+        deserialized.files_analyzed.len(),
+        original.files_analyzed.len()
+    );
     assert_eq!(deserialized.errors.len(), original.errors.len());
     assert_eq!(deserialized.warnings.len(), original.warnings.len());
     assert_eq!(deserialized.errors[0].code, "E001");
     assert_eq!(deserialized.errors[0].confidence, 0.95);
-    assert_eq!(deserialized.warnings[0].suggested_module, Some("src/auth.rs".to_string()));
+    assert_eq!(
+        deserialized.warnings[0].suggested_module,
+        Some("src/auth.rs".to_string())
+    );
 }
 
 #[test]

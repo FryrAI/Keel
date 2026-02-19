@@ -139,7 +139,12 @@ fn add(a: i32, b: i32) -> i32 { a + b }
         .iter()
         .filter(|d| d.kind == NodeKind::Module)
         .collect();
-    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(
+        modules.len(),
+        1,
+        "expected 1 Module node per file, got {}",
+        modules.len()
+    );
     assert_eq!(modules[0].name, "math", "module name should be file stem");
     assert_eq!(modules[0].file_path, "math.rs");
 }

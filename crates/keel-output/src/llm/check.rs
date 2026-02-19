@@ -4,9 +4,13 @@ pub fn format_check(result: &CheckResult) -> String {
     let r = &result.risk;
     let mut out = format!(
         "CHECK hash={} name={} file={}:{}-{} RISK={} HEALTH={}\n",
-        result.target.hash, result.target.name, result.target.file,
-        result.target.line_start, result.target.line_end,
-        r.level.to_uppercase(), r.health.to_uppercase(),
+        result.target.hash,
+        result.target.name,
+        result.target.file,
+        result.target.line_start,
+        result.target.line_end,
+        r.level.to_uppercase(),
+        r.health.to_uppercase(),
     );
 
     out.push_str(&format!(
@@ -19,7 +23,10 @@ pub fn format_check(result: &CheckResult) -> String {
             out.push_str(&format!("  {}@{}:{}\n", c.hash, c.file, c.line));
         }
         if r.callers.len() > 5 {
-            out.push_str(&format!("  ... and {} more (use --verbose for full list)\n", r.callers.len() - 5));
+            out.push_str(&format!(
+                "  ... and {} more (use --verbose for full list)\n",
+                r.callers.len() - 5
+            ));
         }
     } else {
         for c in &r.callers {

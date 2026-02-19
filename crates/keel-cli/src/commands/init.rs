@@ -144,8 +144,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     if merge && config_path.exists() {
         // Merge mode: read existing config and deep-merge with new defaults
         let existing_json = fs::read_to_string(&config_path).unwrap_or_default();
-        let existing: serde_json::Value =
-            serde_json::from_str(&existing_json).unwrap_or(serde_json::Value::Object(Default::default()));
+        let existing: serde_json::Value = serde_json::from_str(&existing_json)
+            .unwrap_or(serde_json::Value::Object(Default::default()));
 
         let new_config = KeelConfig {
             version: "0.1.0".to_string(),
@@ -153,8 +153,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
             monorepo: monorepo_config.clone(),
             ..KeelConfig::default()
         };
-        let new_json: serde_json::Value =
-            serde_json::to_value(&new_config).unwrap_or(serde_json::Value::Object(Default::default()));
+        let new_json: serde_json::Value = serde_json::to_value(&new_config)
+            .unwrap_or(serde_json::Value::Object(Default::default()));
 
         // Deep merge: new values fill in missing keys, existing values preserved
         let merged = merge::json_deep_merge(&new_json, &existing);
@@ -194,7 +194,10 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
                 // Reset circuit breaker state on merge
                 if let Err(e) = store.save_circuit_breaker(&[]) {
                     if verbose {
-                        eprintln!("keel init --merge: warning: failed to reset circuit breaker: {}", e);
+                        eprintln!(
+                            "keel init --merge: warning: failed to reset circuit breaker: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -222,7 +225,10 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     // Build the list of agent tools to generate configs for
     let selected_tools: Vec<&DetectedTool> = if yes {
         // --yes: skip prompt, use detected agents only
-        detected_tools.iter().filter(|t| **t != DetectedTool::GitHubActions).collect()
+        detected_tools
+            .iter()
+            .filter(|t| **t != DetectedTool::GitHubActions)
+            .collect()
     } else {
         // Interactive multi-select: all agents listed, detected ones pre-checked
         let all_agents = DetectedTool::all_agents();
@@ -377,7 +383,10 @@ fn update_gitignore(root: &Path, verbose: bool) {
     match fs::write(&gitignore_path, content) {
         Ok(_) => {
             if verbose {
-                eprintln!("keel init: updated .gitignore with {} keel entries", missing.len());
+                eprintln!(
+                    "keel init: updated .gitignore with {} keel entries",
+                    missing.len()
+                );
             }
         }
         Err(e) => {

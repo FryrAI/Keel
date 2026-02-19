@@ -27,7 +27,11 @@ fn setup_project(files: usize, fns_per_file: usize, lines_per_fn: usize) -> Temp
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -42,7 +46,11 @@ fn map_with_threads(dir: &std::path::Path, num_threads: usize) -> std::time::Dur
         .output()
         .unwrap();
     let elapsed = start.elapsed();
-    assert!(output.status.success(), "map failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     elapsed
 }
 
@@ -56,7 +64,11 @@ fn bench_parallel_parsing_scales_with_cores() {
 
     // Re-init to clear cache
     let keel = keel_bin();
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // Multi-thread (default = all cores)
     let multi = map_with_threads(dir.path(), 0);
@@ -69,11 +81,7 @@ fn bench_parallel_parsing_scales_with_cores() {
         "single-threaded map took {:?}",
         single
     );
-    assert!(
-        multi.as_secs() < 60,
-        "multi-threaded map took {:?}",
-        multi
-    );
+    assert!(multi.as_secs() < 60, "multi-threaded map took {:?}", multi);
 }
 
 #[test]
@@ -101,11 +109,7 @@ fn bench_parallel_parsing_4_threads() {
 
     // 4 threads should complete within budget
     // Debug mode + parallel test contention: allow 60s
-    assert!(
-        elapsed.as_secs() < 60,
-        "4-thread map took {:?}",
-        elapsed
-    );
+    assert!(elapsed.as_secs() < 60, "4-thread map took {:?}", elapsed);
 }
 
 #[test]
@@ -133,9 +137,9 @@ fn bench_parallel_parsing_handles_mixed_file_sizes() {
     let dir = TempDir::new().unwrap();
 
     // Generate files of varying sizes
-    let small = generate_project(30, 2, 5, "typescript");   // small files
-    let medium = generate_project(15, 5, 20, "typescript");  // medium files
-    let large = generate_project(5, 10, 50, "typescript");   // large files
+    let small = generate_project(30, 2, 5, "typescript"); // small files
+    let medium = generate_project(15, 5, 20, "typescript"); // medium files
+    let large = generate_project(5, 10, 50, "typescript"); // large files
 
     for (path, content) in small.iter().chain(medium.iter()).chain(large.iter()) {
         let full = dir.path().join(path);
@@ -146,7 +150,11 @@ fn bench_parallel_parsing_handles_mixed_file_sizes() {
     }
 
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
 
     let elapsed = map_with_threads(dir.path(), 4);

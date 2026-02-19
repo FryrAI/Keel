@@ -158,7 +158,10 @@ fn test_claude_md_generation() {
     let md = dir.path().join("CLAUDE.md");
     assert!(md.exists(), "CLAUDE.md should be generated");
     let contents = fs::read_to_string(&md).unwrap();
-    assert!(contents.contains("keel"), "should contain keel instructions");
+    assert!(
+        contents.contains("keel"),
+        "should contain keel instructions"
+    );
 }
 
 #[test]

@@ -31,8 +31,16 @@ fn setup_initialized_project() -> TempDir {
     .unwrap();
 
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -52,7 +60,10 @@ fn test_init_merge_preserves_existing_config() {
         .expect("Failed to run keel init --merge");
 
     assert!(output.status.success(), "init --merge should succeed");
-    assert!(config_path.exists(), "keel.json should still exist after merge");
+    assert!(
+        config_path.exists(),
+        "keel.json should still exist after merge"
+    );
     let after = fs::read_to_string(&config_path).unwrap();
     let _: serde_json::Value =
         serde_json::from_str(&after).expect("keel.json should still be valid JSON after merge");
@@ -78,8 +89,13 @@ fn test_init_merge_remaps_with_existing_data() {
 
     assert!(output.status.success(), "init --merge should succeed");
     assert!(dir.path().join(".keel/graph.db").exists());
-    let db_size = fs::metadata(dir.path().join(".keel/graph.db")).unwrap().len();
-    assert!(db_size > 4096, "graph.db should contain mapped data after merge");
+    let db_size = fs::metadata(dir.path().join(".keel/graph.db"))
+        .unwrap()
+        .len();
+    assert!(
+        db_size > 4096,
+        "graph.db should contain mapped data after merge"
+    );
 }
 
 #[test]
@@ -94,7 +110,10 @@ fn test_init_merge_handles_schema_migration() {
         .output()
         .expect("Failed to run keel init --merge");
 
-    assert!(output.status.success(), "init --merge should handle current schema");
+    assert!(
+        output.status.success(),
+        "init --merge should handle current schema"
+    );
 }
 
 #[test]
@@ -124,5 +143,8 @@ fn test_init_merge_resets_circuit_breaker() {
         .unwrap();
 
     let code = compile_out.status.code().unwrap_or(-1);
-    assert!(code == 0 || code == 1, "compile after merge should exit 0 or 1, got {code}");
+    assert!(
+        code == 0 || code == 1,
+        "compile after merge should exit 0 or 1, got {code}"
+    );
 }

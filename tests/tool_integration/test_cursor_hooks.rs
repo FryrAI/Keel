@@ -25,12 +25,24 @@ fn init_project() -> TempDir {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
-    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
     // Create .cursor/ so tool detection fires during keel init
     fs::create_dir_all(dir.path().join(".cursor")).unwrap();
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -48,7 +60,10 @@ fn test_cursor_hooks_json_has_file_edit_trigger() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
     let contents = fs::read_to_string(&hooks).unwrap();
-    assert!(contents.contains("keel compile"), "should reference keel compile on file edit");
+    assert!(
+        contents.contains("keel compile"),
+        "should reference keel compile on file edit"
+    );
 }
 
 #[test]
@@ -72,7 +87,11 @@ fn test_cursor_hooks_json_merges_with_existing() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
-    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
 
     // Create .cursor/ with existing hooks.json BEFORE keel init
     let cursor_dir = dir.path().join(".cursor");
@@ -81,12 +100,23 @@ fn test_cursor_hooks_json_merges_with_existing() {
 
     // Run keel init — should detect .cursor and merge
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let hooks = dir.path().join(".cursor/hooks.json");
     let contents = fs::read_to_string(&hooks).unwrap();
-    assert!(contents.contains("existing"), "existing hooks should be preserved");
+    assert!(
+        contents.contains("existing"),
+        "existing hooks should be preserved"
+    );
     assert!(contents.contains("hooks"), "keel hooks should be added");
 }
 

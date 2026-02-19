@@ -120,9 +120,17 @@ fn test_walk_with_packages_annotation() {
     for entry in &entries {
         let path_str = entry.path.to_str().unwrap();
         if path_str.contains("packages/web") {
-            assert_eq!(entry.package.as_deref(), Some("web"), "web file should have web package");
+            assert_eq!(
+                entry.package.as_deref(),
+                Some("web"),
+                "web file should have web package"
+            );
         } else if path_str.contains("packages/api") {
-            assert_eq!(entry.package.as_deref(), Some("api"), "api file should have api package");
+            assert_eq!(
+                entry.package.as_deref(),
+                Some("api"),
+                "api file should have api package"
+            );
         } else if entry.path.file_name().and_then(|n| n.to_str()) == Some("config.ts") {
             assert_eq!(entry.package, None, "root file should have no package");
         }

@@ -149,10 +149,7 @@ impl TelemetryStore {
 
     /// Aggregate telemetry over the last N days.
     pub fn aggregate(&self, days: u32) -> Result<TelemetryAggregate, GraphError> {
-        let cutoff = format!(
-            "datetime('now', '-{} days')",
-            days
-        );
+        let cutoff = format!("datetime('now', '-{} days')", days);
 
         let total: u64 = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM events WHERE timestamp >= {cutoff}"),
@@ -161,13 +158,17 @@ impl TelemetryStore {
         )?;
 
         let total_errors: u64 = self.conn.query_row(
-            &format!("SELECT COALESCE(SUM(error_count), 0) FROM events WHERE timestamp >= {cutoff}"),
+            &format!(
+                "SELECT COALESCE(SUM(error_count), 0) FROM events WHERE timestamp >= {cutoff}"
+            ),
             [],
             |r| r.get(0),
         )?;
 
         let total_warnings: u64 = self.conn.query_row(
-            &format!("SELECT COALESCE(SUM(warning_count), 0) FROM events WHERE timestamp >= {cutoff}"),
+            &format!(
+                "SELECT COALESCE(SUM(warning_count), 0) FROM events WHERE timestamp >= {cutoff}"
+            ),
             [],
             |r| r.get(0),
         )?;
@@ -204,9 +205,9 @@ impl TelemetryStore {
         }
 
         // Language percentages — average across all events
-        let mut lang_stmt = self.conn.prepare(
-            &format!("SELECT language_mix FROM events WHERE timestamp >= {cutoff}"),
-        )?;
+        let mut lang_stmt = self.conn.prepare(&format!(
+            "SELECT language_mix FROM events WHERE timestamp >= {cutoff}"
+        ))?;
         let mut lang_totals: HashMap<String, f64> = HashMap::new();
         let mut lang_count = 0u64;
         let lang_rows = lang_stmt.query_map([], |row| row.get::<_, String>(0))?;
@@ -222,7 +223,10 @@ impl TelemetryStore {
             }
         }
         let language_percentages: HashMap<String, f64> = if lang_count > 0 {
-            lang_totals.into_iter().map(|(k, v)| (k, v / lang_count as f64)).collect()
+            lang_totals
+                .into_iter()
+                .map(|(k, v)| (k, v / lang_count as f64))
+                .collect()
         } else {
             HashMap::new()
         };
@@ -241,7 +245,10 @@ impl TelemetryStore {
     /// Delete events older than N days.
     pub fn prune(&self, days: u32) -> Result<u64, GraphError> {
         let deleted = self.conn.execute(
-            &format!("DELETE FROM events WHERE timestamp < datetime('now', '-{} days')", days),
+            &format!(
+                "DELETE FROM events WHERE timestamp < datetime('now', '-{} days')",
+                days
+            ),
             [],
         )?;
         Ok(deleted as u64)
@@ -270,7 +277,9 @@ pub fn new_event(command: &str, duration_ms: u64, exit_code: i32) -> TelemetryEv
 fn chrono_utc_now() -> String {
     // Use SystemTime for a dependency-free UTC timestamp
     let now = std::time::SystemTime::now();
-    let duration = now.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let duration = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
     let secs = duration.as_secs();
     // Convert to rough ISO 8601 — good enough for SQLite datetime comparisons
     let days_since_epoch = secs / 86400;

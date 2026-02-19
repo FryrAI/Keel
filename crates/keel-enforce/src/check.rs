@@ -4,8 +4,7 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::engine::{node_to_info, EnforcementEngine};
 use crate::types::{
-    CheckCalleeRef, CheckCallerRef, CheckResult, CheckSuggestion, RiskAssessment,
-    Violation,
+    CheckCalleeRef, CheckCallerRef, CheckResult, CheckSuggestion, RiskAssessment, Violation,
 };
 
 impl EnforcementEngine {
@@ -115,12 +114,8 @@ impl EnforcementEngine {
         };
 
         // Generate suggestions
-        let suggestions = self.generate_suggestions(
-            &node,
-            caller_count,
-            cross_module_callers,
-            &risk.callees,
-        );
+        let suggestions =
+            self.generate_suggestions(&node, caller_count, cross_module_callers, &risk.callees);
 
         // Module context
         let module_context = self.build_module_context(node.module_id);
@@ -137,10 +132,7 @@ impl EnforcementEngine {
     }
 
     /// Gather violations relevant to a specific node (E002, E003, W001, W002).
-    fn gather_node_violations(
-        &self,
-        node: &keel_core::types::GraphNode,
-    ) -> Vec<Violation> {
+    fn gather_node_violations(&self, node: &keel_core::types::GraphNode) -> Vec<Violation> {
         let mut violations = Vec::new();
 
         // E002: missing type hints

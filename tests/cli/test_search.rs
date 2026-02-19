@@ -31,18 +31,35 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
 #[test]
 fn test_search_exact_match() {
-    let dir = init_and_map(&[
-        ("src/utils.ts", "export function calculateTotal(x: number): number { return x; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/utils.ts",
+        "export function calculateTotal(x: number): number { return x; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -61,9 +78,10 @@ fn test_search_exact_match() {
 
 #[test]
 fn test_search_json_output() {
-    let dir = init_and_map(&[
-        ("src/math.ts", "export function add(a: number, b: number): number { return a + b; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/math.ts",
+        "export function add(a: number, b: number): number { return a + b; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -74,14 +92,18 @@ fn test_search_json_output() {
 
     assert_eq!(output.status.code(), Some(0), "search --json should exit 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let val: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("search --json should produce valid JSON: {e}\nstdout: {stdout}"));
+    let val: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("search --json should produce valid JSON: {e}\nstdout: {stdout}")
+    });
 
     assert_eq!(val["command"], "search");
     assert!(val["results"].is_array(), "results should be an array");
 
     let results = val["results"].as_array().unwrap();
-    assert!(!results.is_empty(), "should find at least one result for 'add'");
+    assert!(
+        !results.is_empty(),
+        "should find at least one result for 'add'"
+    );
 
     let first = &results[0];
     assert!(first["hash"].is_string(), "result should have a hash");
@@ -92,8 +114,14 @@ fn test_search_json_output() {
 #[test]
 fn test_search_substring_fallback() {
     let dir = init_and_map(&[
-        ("src/handlers.ts", "export function handleUserLogin(user: string): void {}\n"),
-        ("src/utils.ts", "export function handlePayment(amount: number): void {}\n"),
+        (
+            "src/handlers.ts",
+            "export function handleUserLogin(user: string): void {}\n",
+        ),
+        (
+            "src/utils.ts",
+            "export function handlePayment(amount: number): void {}\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -116,9 +144,10 @@ fn test_search_substring_fallback() {
 
 #[test]
 fn test_search_with_kind_filter() {
-    let dir = init_and_map(&[
-        ("src/models.ts", "export class UserModel {}\nexport function createUser(name: string): void {}\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/models.ts",
+        "export class UserModel {}\nexport function createUser(name: string): void {}\n",
+    )]);
     let keel = keel_bin();
 
     // Search for "User" filtered to functions only
@@ -144,9 +173,10 @@ fn test_search_with_kind_filter() {
 
 #[test]
 fn test_search_no_results() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -155,11 +185,18 @@ fn test_search_no_results() {
         .output()
         .expect("Failed to run keel search");
 
-    assert_eq!(output.status.code(), Some(0), "search with no results should still exit 0");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "search with no results should still exit 0"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let val: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let results = val["results"].as_array().unwrap();
-    assert!(results.is_empty(), "should find no results for gibberish term");
+    assert!(
+        results.is_empty(),
+        "should find no results for gibberish term"
+    );
 }
 
 #[test]
@@ -182,9 +219,10 @@ fn test_search_not_initialized_exits_2() {
 
 #[test]
 fn test_search_llm_format() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -203,9 +241,10 @@ fn test_search_llm_format() {
 
 #[test]
 fn test_search_performance() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();

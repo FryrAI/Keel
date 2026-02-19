@@ -30,18 +30,35 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
 #[test]
 fn test_fix_clean_project_exits_0() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -52,7 +69,8 @@ fn test_fix_clean_project_exits_0() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "fix on clean project should exit 0\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -61,7 +79,10 @@ fn test_fix_clean_project_exits_0() {
 #[test]
 fn test_fix_generates_plan_for_violations() {
     let dir = init_and_map(&[
-        ("src/caller.ts", "import { target } from './target';\nexport function caller(): void { target(); }\n"),
+        (
+            "src/caller.ts",
+            "import { target } from './target';\nexport function caller(): void { target(); }\n",
+        ),
         ("src/target.ts", "export function target(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -90,8 +111,14 @@ fn test_fix_generates_plan_for_violations() {
 #[test]
 fn test_fix_with_file_flag() {
     let dir = init_and_map(&[
-        ("src/a.ts", "export function fnA(x: number): number { return x; }\n"),
-        ("src/b.ts", "export function fnB(y: string): string { return y; }\n"),
+        (
+            "src/a.ts",
+            "export function fnA(x: number): number { return x; }\n",
+        ),
+        (
+            "src/b.ts",
+            "export function fnB(y: string): string { return y; }\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -135,7 +162,10 @@ fn test_fix_not_initialized_exits_2() {
 #[test]
 fn test_fix_with_specific_hash() {
     let dir = init_and_map(&[
-        ("src/caller.ts", "import { target } from './target';\nexport function caller(): void { target(); }\n"),
+        (
+            "src/caller.ts",
+            "import { target } from './target';\nexport function caller(): void { target(); }\n",
+        ),
         ("src/target.ts", "export function target(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -157,9 +187,10 @@ fn test_fix_with_specific_hash() {
 
 #[test]
 fn test_fix_apply_on_clean_project() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -170,7 +201,8 @@ fn test_fix_apply_on_clean_project() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "fix --apply on clean project should exit 0\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );

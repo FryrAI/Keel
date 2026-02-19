@@ -90,10 +90,19 @@ fn all_schema_files_are_valid_json() {
 #[test]
 fn all_schemas_have_required_meta_fields() {
     let schemas = [
-        ("compile", include_str!("../schemas/compile_output.schema.json")),
-        ("discover", include_str!("../schemas/discover_output.schema.json")),
+        (
+            "compile",
+            include_str!("../schemas/compile_output.schema.json"),
+        ),
+        (
+            "discover",
+            include_str!("../schemas/discover_output.schema.json"),
+        ),
         ("map", include_str!("../schemas/map_output.schema.json")),
-        ("explain", include_str!("../schemas/explain_output.schema.json")),
+        (
+            "explain",
+            include_str!("../schemas/explain_output.schema.json"),
+        ),
     ];
 
     for (name, schema_str) in &schemas {

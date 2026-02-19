@@ -117,14 +117,19 @@ fn detect_npm_workspaces(root: &Path) -> Option<MonorepoLayout> {
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
     let workspace_globs = match parsed.get("workspaces") {
-        Some(serde_json::Value::Array(arr)) => {
-            arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()
-        }
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect::<Vec<_>>(),
         Some(serde_json::Value::Object(obj)) => {
             // Yarn-style: { packages: [...] }
             obj.get("packages")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default()
         }
         _ => return None,
@@ -248,9 +253,10 @@ fn detect_turbo(root: &Path) -> Option<MonorepoLayout> {
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
     let workspace_globs = match parsed.get("workspaces") {
-        Some(serde_json::Value::Array(arr)) => {
-            arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()
-        }
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect::<Vec<_>>(),
         _ => return None,
     };
 
@@ -332,7 +338,10 @@ fn extract_toml_array(content: &str, key: &str) -> Option<Vec<String>> {
                     in_array = true;
                     // Parse any values on this line after [
                     let partial = after_eq.trim_start_matches('[');
-                    parse_inline_array(&format!("[{}]", partial.trim_end_matches(']')), &mut values);
+                    parse_inline_array(
+                        &format!("[{}]", partial.trim_end_matches(']')),
+                        &mut values,
+                    );
                 }
             }
             continue;
@@ -378,7 +387,10 @@ fn expand_glob_pattern(
 ) {
     // Handle patterns like "crates/*", "packages/*", "apps/**"
     let clean = pattern.trim_end_matches('/');
-    if let Some(prefix) = clean.strip_suffix("/*").or_else(|| clean.strip_suffix("/**")) {
+    if let Some(prefix) = clean
+        .strip_suffix("/*")
+        .or_else(|| clean.strip_suffix("/**"))
+    {
         let search_dir = root.join(prefix);
         if let Ok(entries) = fs::read_dir(&search_dir) {
             for entry in entries.flatten() {
@@ -406,11 +418,7 @@ fn expand_glob_pattern(
         // Literal directory path (e.g., "web" or "server")
         let pkg_path = root.join(clean);
         if pkg_path.is_dir() {
-            let name = clean
-                .rsplit('/')
-                .next()
-                .unwrap_or(clean)
-                .to_string();
+            let name = clean.rsplit('/').next().unwrap_or(clean).to_string();
             packages.push(PackageInfo {
                 name,
                 path: pkg_path,
@@ -422,11 +430,7 @@ fn expand_glob_pattern(
 }
 
 /// Recursively scan for Nx `project.json` files up to `max_depth`.
-fn scan_for_project_json(
-    dir: &Path,
-    packages: &mut Vec<PackageInfo>,
-    max_depth: u32,
-) {
+fn scan_for_project_json(dir: &Path, packages: &mut Vec<PackageInfo>, max_depth: u32) {
     if max_depth == 0 {
         return;
     }

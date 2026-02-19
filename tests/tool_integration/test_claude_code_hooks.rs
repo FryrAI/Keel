@@ -150,7 +150,10 @@ fn test_claude_code_hook_skips_non_source_files() {
     let dir = init_project();
     let settings = dir.path().join(".claude/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
-    assert!(!contents.is_empty(), "settings should exist with file filtering");
+    assert!(
+        !contents.is_empty(),
+        "settings should exist with file filtering"
+    );
 }
 
 #[test]

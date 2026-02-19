@@ -46,7 +46,10 @@ fn test_mixed_project_total_node_count() {
     assert!(ts_result.definitions.len() >= 2, "TS should have >= 2 defs");
     assert!(py_result.definitions.len() >= 2, "Py should have >= 2 defs");
     assert!(go_result.definitions.len() >= 2, "Go should have >= 2 defs");
-    assert!(rs_result.definitions.len() >= 2, "Rust should have >= 2 defs");
+    assert!(
+        rs_result.definitions.len() >= 2,
+        "Rust should have >= 2 defs"
+    );
     assert!(total >= 8, "total definitions should be >= 8, got {total}");
 }
 
@@ -57,10 +60,7 @@ fn test_mixed_project_no_cross_language_edges() {
     let py = PyResolver::new();
 
     let ts_result = ts.parse_file(Path::new("utils.ts"), "function helper(): void {}");
-    let py_result = py.parse_file(
-        Path::new("utils.py"),
-        "def helper() -> None:\n    pass\n",
-    );
+    let py_result = py.parse_file(Path::new("utils.py"), "def helper() -> None:\n    pass\n");
 
     // TS references should only refer to TS file
     for r in &ts_result.references {
@@ -97,7 +97,10 @@ fn test_mixed_project_per_language_accuracy() {
         "def x() -> None:\n    pass\n\ndef y() -> None:\n    pass\n",
     );
     let go_result = go.parse_file(Path::new("one.go"), "package main\nfunc Single() {}");
-    let rs_result = rs.parse_file(Path::new("four.rs"), "fn w() {} fn x() {} fn y() {} fn z() {}");
+    let rs_result = rs.parse_file(
+        Path::new("four.rs"),
+        "fn w() {} fn x() {} fn y() {} fn z() {}",
+    );
 
     let ts_funcs = ts_result
         .definitions

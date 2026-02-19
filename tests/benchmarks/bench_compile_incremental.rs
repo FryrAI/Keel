@@ -22,9 +22,17 @@ fn setup_mapped_project(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -32,9 +40,10 @@ fn setup_mapped_project(files: &[(&str, &str)]) -> TempDir {
 #[test]
 /// Single TypeScript file compile benchmark.
 fn bench_compile_single_typescript_file_under_200ms() {
-    let dir = setup_mapped_project(&[
-        ("src/target.ts", "export function target(x: number): number { return x + 1; }\n"),
-    ]);
+    let dir = setup_mapped_project(&[(
+        "src/target.ts",
+        "export function target(x: number): number { return x + 1; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();
@@ -54,9 +63,10 @@ fn bench_compile_single_typescript_file_under_200ms() {
 #[test]
 /// Single Python file compile benchmark.
 fn bench_compile_single_python_file_under_200ms() {
-    let dir = setup_mapped_project(&[
-        ("src/target.py", "def target(x: int) -> int:\n    return x + 1\n"),
-    ]);
+    let dir = setup_mapped_project(&[(
+        "src/target.py",
+        "def target(x: int) -> int:\n    return x + 1\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();
@@ -75,9 +85,10 @@ fn bench_compile_single_python_file_under_200ms() {
 #[test]
 /// Compile a file with many callers.
 fn bench_compile_file_with_many_callers() {
-    let files: Vec<(&str, &str)> = vec![
-        ("src/util.ts", "export function util(x: number): number { return x; }\n"),
-    ];
+    let files: Vec<(&str, &str)> = vec![(
+        "src/util.ts",
+        "export function util(x: number): number { return x; }\n",
+    )];
 
     // Create caller files that reference util (static allocations)
     let caller_contents: Vec<String> = (0..20)
@@ -96,7 +107,10 @@ fn bench_compile_file_with_many_callers() {
 
     // Need to convert to &str pairs — use a Vec of owned tuples
     let all_files: Vec<(String, String)> = {
-        let mut v = vec![("src/util.ts".to_string(), "export function util(x: number): number { return x; }\n".to_string())];
+        let mut v = vec![(
+            "src/util.ts".to_string(),
+            "export function util(x: number): number { return x; }\n".to_string(),
+        )];
         for (i, content) in caller_contents.iter().enumerate() {
             v.push((format!("src/caller_{i}.ts"), content.clone()));
         }
@@ -112,8 +126,16 @@ fn bench_compile_file_with_many_callers() {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // Modify the utility function
     fs::write(
@@ -132,7 +154,11 @@ fn bench_compile_file_with_many_callers() {
 
     let code = output.status.code().unwrap_or(-1);
     assert!(code == 0 || code == 1, "compile failed with {code}");
-    assert!(elapsed.as_secs() < 5, "compile with callers took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 5,
+        "compile with callers took {:?}",
+        elapsed
+    );
 
     let _ = (files, caller_files); // suppress unused warnings
 }
@@ -140,9 +166,10 @@ fn bench_compile_file_with_many_callers() {
 #[test]
 /// Compile a file with no changes — fast-path.
 fn bench_compile_file_with_no_violations() {
-    let dir = setup_mapped_project(&[
-        ("src/clean.ts", "/** Clean. */\nexport function clean(x: number): number { return x; }\n"),
-    ]);
+    let dir = setup_mapped_project(&[(
+        "src/clean.ts",
+        "/** Clean. */\nexport function clean(x: number): number { return x; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();
@@ -155,5 +182,9 @@ fn bench_compile_file_with_no_violations() {
 
     let code = output.status.code().unwrap_or(-1);
     assert!(code == 0 || code == 1, "compile failed with {code}");
-    assert!(elapsed.as_secs() < 3, "no-change compile took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 3,
+        "no-change compile took {:?}",
+        elapsed
+    );
 }

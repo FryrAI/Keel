@@ -1,3 +1,4 @@
+pub mod analyze;
 pub mod check;
 pub mod compile;
 pub mod discover;
@@ -6,7 +7,6 @@ pub mod fix;
 pub mod map;
 pub mod name;
 pub mod violation;
-pub mod analyze;
 
 use crate::OutputFormatter;
 use keel_enforce::types::{
@@ -33,7 +33,11 @@ impl LlmFormatter {
     }
 
     pub fn with_depths(map_depth: u32, compile_depth: u32) -> Self {
-        Self { map_depth, compile_depth, max_tokens: 500 }
+        Self {
+            map_depth,
+            compile_depth,
+            max_tokens: 500,
+        }
     }
 
     pub fn with_max_tokens(mut self, max_tokens: Option<usize>) -> Self {

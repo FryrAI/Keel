@@ -93,12 +93,12 @@ pub fn run_keel(dir: &Path, args: &[&str]) -> (i32, String, String) {
 /// Count the number of nodes stored in `graph.db` for the repo at `dir`.
 pub fn count_graph_nodes(dir: &Path) -> usize {
     let db_path = dir.join(".keel").join("graph.db");
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("failed to open graph.db");
+    let conn =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("failed to open graph.db");
 
-    conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get::<_, usize>(0))
-        .expect("failed to count nodes")
+    conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| {
+        row.get::<_, usize>(0)
+    })
+    .expect("failed to count nodes")
 }

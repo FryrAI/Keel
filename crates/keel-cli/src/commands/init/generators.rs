@@ -17,7 +17,10 @@ pub fn generate_claude_code(root: &Path) -> Vec<(PathBuf, String)> {
     let settings_path = root.join(".claude/settings.json");
     match merge::merge_json_file(&settings_path, templates::CLAUDE_CODE_SETTINGS) {
         Ok(content) => files.push((settings_path, content)),
-        Err(e) => eprintln!("keel init: warning: Claude Code settings merge failed: {}", e),
+        Err(e) => eprintln!(
+            "keel init: warning: Claude Code settings merge failed: {}",
+            e
+        ),
     }
 
     // CLAUDE.md — markdown marker merge
@@ -116,7 +119,10 @@ pub fn generate_copilot(root: &Path) -> Vec<(PathBuf, String)> {
     let md_path = root.join(".github/copilot-instructions.md");
     match merge::merge_markdown_file(&md_path, templates::COPILOT_INSTRUCTIONS) {
         Ok(content) => files.push((md_path, content)),
-        Err(e) => eprintln!("keel init: warning: copilot-instructions.md merge failed: {}", e),
+        Err(e) => eprintln!(
+            "keel init: warning: copilot-instructions.md merge failed: {}",
+            e
+        ),
     }
 
     files

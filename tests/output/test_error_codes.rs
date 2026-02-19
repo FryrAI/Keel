@@ -4,12 +4,7 @@ use keel_output::human::HumanFormatter;
 use keel_output::json::JsonFormatter;
 use keel_output::OutputFormatter;
 
-fn make_violation(
-    code: &str,
-    severity: &str,
-    category: &str,
-    fix_hint: Option<&str>,
-) -> Violation {
+fn make_violation(code: &str, severity: &str, category: &str, fix_hint: Option<&str>) -> Violation {
     Violation {
         code: code.into(),
         severity: severity.into(),
@@ -74,7 +69,12 @@ fn test_error_code_e001_format() {
 
 #[test]
 fn test_error_code_e002_format() {
-    let v = make_violation("E002", "ERROR", "missing_type_hints", Some("Add type hints"));
+    let v = make_violation(
+        "E002",
+        "ERROR",
+        "missing_type_hints",
+        Some("Add type hints"),
+    );
     let fmt = HumanFormatter;
     let out = fmt.format_compile(&wrap_in_compile(v));
 
@@ -106,12 +106,7 @@ fn test_error_code_e004_format() {
 
 #[test]
 fn test_error_code_e005_format() {
-    let v = make_violation(
-        "E005",
-        "ERROR",
-        "arity_mismatch",
-        Some("Update call site"),
-    );
+    let v = make_violation("E005", "ERROR", "arity_mismatch", Some("Update call site"));
     let fmt = HumanFormatter;
     let out = fmt.format_compile(&wrap_in_compile(v));
 

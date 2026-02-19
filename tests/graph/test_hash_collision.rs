@@ -41,7 +41,10 @@ fn test_collision_detected_on_duplicate_hash() {
 
     // THEN inserting the second node with the same hash but different name should error
     let result_b = store.update_nodes(vec![NodeChange::Add(node_b)]);
-    assert!(result_b.is_err(), "Second insert with colliding hash should error");
+    assert!(
+        result_b.is_err(),
+        "Second insert with colliding hash should error"
+    );
 
     match result_b.unwrap_err() {
         GraphError::HashCollision { hash, .. } => {
@@ -70,7 +73,11 @@ fn test_disambiguated_hash_generation() {
     );
 
     // AND both are 11-char base62
-    assert_eq!(disambiguated.len(), 11, "disambiguated hash must be 11 chars");
+    assert_eq!(
+        disambiguated.len(),
+        11,
+        "disambiguated hash must be 11 chars"
+    );
     assert!(
         disambiguated.chars().all(|c| c.is_ascii_alphanumeric()),
         "disambiguated hash must be base62, got {:?}",
@@ -159,7 +166,12 @@ fn test_no_false_collision_on_unique_hashes() {
         let sig = format!("fn unique_func_{i}(x: i32) -> i32");
         let body = format!("x + {i}");
         let hash = compute_hash(&sig, &body, "");
-        let node = make_node(i + 1, &hash, &format!("unique_func_{i}"), NodeKind::Function);
+        let node = make_node(
+            i + 1,
+            &hash,
+            &format!("unique_func_{i}"),
+            NodeKind::Function,
+        );
         changes.push(NodeChange::Add(node));
     }
 

@@ -6,12 +6,18 @@ use keel_enforce::naming::suggest_name;
 
 use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedStore};
 
-pub(crate) fn handle_name(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+pub(crate) fn handle_name(
+    store: &SharedStore,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let description = params
         .as_ref()
         .and_then(|p| p.get("description"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError { code: -32602, message: "Missing 'description' parameter".into() })?
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "Missing 'description' parameter".into(),
+        })?
         .to_string();
 
     let module_filter = params

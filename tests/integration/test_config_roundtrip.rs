@@ -59,12 +59,15 @@ fn test_init_creates_default_config() {
     assert!(config_path.exists(), "keel.json not created");
 
     let config_str = fs::read_to_string(&config_path).unwrap();
-    let config: serde_json::Value = serde_json::from_str(&config_str)
-        .expect("keel.json should be valid JSON");
+    let config: serde_json::Value =
+        serde_json::from_str(&config_str).expect("keel.json should be valid JSON");
 
     // Check default structure
     assert_eq!(config["version"], "0.1.0");
-    assert!(config["languages"].is_array(), "should have languages array");
+    assert!(
+        config["languages"].is_array(),
+        "should have languages array"
+    );
     assert!(config["enforce"].is_object(), "should have enforce section");
     assert_eq!(config["enforce"]["type_hints"], true);
     assert_eq!(config["enforce"]["docstrings"], true);
@@ -126,11 +129,7 @@ fn test_config_language_override() {
     fs::create_dir_all(&src).unwrap();
 
     // Create both TS and Python files
-    fs::write(
-        src.join("app.ts"),
-        "function run(): void {}\n",
-    )
-    .unwrap();
+    fs::write(src.join("app.ts"), "function run(): void {}\n").unwrap();
     fs::write(
         src.join("helper.py"),
         "def helper(x: int) -> int:\n    return x\n",

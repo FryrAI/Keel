@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{GraphNode, NodeKind};
-use keel_server::KeelServer;
 use keel_server::mcp::{create_shared_engine, process_line};
+use keel_server::KeelServer;
 
 #[test]
 fn test_server_starts_and_loads_graph() {

@@ -67,7 +67,12 @@ impl CircuitBreaker {
 
     /// Record a failure and return the recommended action.
     /// `file_path` is used as fallback identifier when `hash` is empty.
-    pub fn record_failure(&mut self, error_code: &str, hash: &str, file_path: &str) -> BreakerAction {
+    pub fn record_failure(
+        &mut self,
+        error_code: &str,
+        hash: &str,
+        file_path: &str,
+    ) -> BreakerAction {
         let key = Self::make_key(error_code, hash, file_path);
         let entry = self.state.entry(key).or_insert(FailureState {
             consecutive: 0,
@@ -94,9 +99,7 @@ impl CircuitBreaker {
     /// Check if a (error_code, hash/file) pair has been downgraded.
     pub fn is_downgraded(&self, error_code: &str, hash: &str, file_path: &str) -> bool {
         let key = Self::make_key(error_code, hash, file_path);
-        self.state
-            .get(&key)
-            .is_some_and(|s| s.downgraded)
+        self.state.get(&key).is_some_and(|s| s.downgraded)
     }
 
     /// Get the current failure count for a (error_code, hash/file) pair.
@@ -136,9 +139,18 @@ mod tests {
     #[test]
     fn test_escalation_sequence() {
         let mut cb = CircuitBreaker::new();
-        assert_eq!(cb.record_failure("E001", "abc", "file.rs"), BreakerAction::FixHint);
-        assert_eq!(cb.record_failure("E001", "abc", "file.rs"), BreakerAction::WiderContext);
-        assert_eq!(cb.record_failure("E001", "abc", "file.rs"), BreakerAction::Downgrade);
+        assert_eq!(
+            cb.record_failure("E001", "abc", "file.rs"),
+            BreakerAction::FixHint
+        );
+        assert_eq!(
+            cb.record_failure("E001", "abc", "file.rs"),
+            BreakerAction::WiderContext
+        );
+        assert_eq!(
+            cb.record_failure("E001", "abc", "file.rs"),
+            BreakerAction::Downgrade
+        );
         assert!(cb.is_downgraded("E001", "abc", "file.rs"));
     }
 

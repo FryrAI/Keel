@@ -1,8 +1,8 @@
 // Tests for Python relative import resolution (Spec 003 - Python Resolution)
 
-use std::path::Path;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
+use std::path::Path;
 
 #[test]
 /// Single-dot relative import should resolve to a sibling module.
@@ -22,7 +22,11 @@ def main():
     assert_eq!(result.imports.len(), 1);
     let imp = &result.imports[0];
     assert!(imp.is_relative);
-    assert!(imp.source.contains("b.py"), "Expected source to contain b.py, got: {}", imp.source);
+    assert!(
+        imp.source.contains("b.py"),
+        "Expected source to contain b.py, got: {}",
+        imp.source
+    );
     assert!(imp.imported_names.contains(&"process".to_string()));
 }
 

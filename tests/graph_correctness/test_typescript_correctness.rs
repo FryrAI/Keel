@@ -30,7 +30,12 @@ function output(result: string): void { console.log(result); }
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert_eq!(funcs.len(), 5, "expected 5 Function definitions, got {}", funcs.len());
+    assert_eq!(
+        funcs.len(),
+        5,
+        "expected 5 Function definitions, got {}",
+        funcs.len()
+    );
 }
 
 #[test]
@@ -63,7 +68,12 @@ class Dog extends Animal {
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(classes.len(), 2, "expected 2 Class definitions, got {}", classes.len());
+    assert_eq!(
+        classes.len(),
+        2,
+        "expected 2 Class definitions, got {}",
+        classes.len()
+    );
     assert!(classes.iter().any(|c| c.name == "Animal"), "missing Animal");
     assert!(classes.iter().any(|c| c.name == "Dog"), "missing Dog");
 }
@@ -85,7 +95,12 @@ function hello(): void { }
         .iter()
         .filter(|d| d.kind == NodeKind::Module)
         .collect();
-    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(
+        modules.len(),
+        1,
+        "expected 1 Module node per file, got {}",
+        modules.len()
+    );
     assert_eq!(modules[0].name, "hello", "module name should be file stem");
     assert_eq!(modules[0].file_path, "hello.ts");
 }
@@ -250,7 +265,11 @@ function pair<A, B>(a: A, b: B): [A, B] { return [a, b]; }
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert!(funcs.len() >= 2, "expected >= 2 generic functions, got {}", funcs.len());
+    assert!(
+        funcs.len() >= 2,
+        "expected >= 2 generic functions, got {}",
+        funcs.len()
+    );
     assert!(
         funcs.iter().any(|f| f.name == "identity"),
         "missing generic function 'identity'"

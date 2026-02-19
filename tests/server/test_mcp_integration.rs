@@ -134,10 +134,7 @@ fn test_mcp_stdin_stdout_tools_list() {
         .iter()
         .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
         .collect();
-    assert!(
-        !tool_names.is_empty(),
-        "tools list should not be empty"
-    );
+    assert!(!tool_names.is_empty(), "tools list should not be empty");
 
     // Clean up
     drop(stdin);
@@ -193,11 +190,17 @@ fn test_mcp_stdin_stdout_invalid_json() {
 
 /// Helper trait for wait_timeout on Child.
 trait ChildExt {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
 }
 
 impl ChildExt for std::process::Child {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    fn wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
         let start = std::time::Instant::now();
         loop {
             match self.try_wait()? {

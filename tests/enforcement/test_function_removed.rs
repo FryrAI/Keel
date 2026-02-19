@@ -1,9 +1,7 @@
 // Tests for E004 function removed detection (Spec 006 - Enforcement Engine)
 use keel_core::hash::compute_hash;
 use keel_core::store::GraphStore;
-use keel_core::types::{
-    EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind,
-};
+use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_enforce::violations::check_removed_functions;
 use keel_parsers::resolver::{Definition, FileIndex};
 
@@ -45,13 +43,29 @@ fn make_edge(id: u64, src: u64, tgt: u64) -> GraphEdge {
 #[test]
 fn test_e004_deleted_function_with_callers() {
     let mut store = in_memory_store();
-    let target = make_node(1, "process", "def process(data: str)", "return data", "utils.py", 1);
+    let target = make_node(
+        1,
+        "process",
+        "def process(data: str)",
+        "return data",
+        "utils.py",
+        1,
+    );
     store.update_nodes(vec![NodeChange::Add(target)]).unwrap();
 
     for i in 2..=3 {
-        let caller = make_node(i, &format!("caller_{i}"), &format!("def caller_{i}()"), "process('x')", "main.py", i as u32 * 10);
+        let caller = make_node(
+            i,
+            &format!("caller_{i}"),
+            &format!("def caller_{i}()"),
+            "process('x')",
+            "main.py",
+            i as u32 * 10,
+        );
         store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-        store.update_edges(vec![EdgeChange::Add(make_edge(i, i, 1))]).unwrap();
+        store
+            .update_edges(vec![EdgeChange::Add(make_edge(i, i, 1))])
+            .unwrap();
     }
 
     let file = FileIndex {
@@ -95,12 +109,21 @@ fn test_e004_deleted_function_no_callers() {
 #[test]
 fn test_e004_includes_original_location() {
     let mut store = in_memory_store();
-    let target = make_node(1, "compute", "def compute(x: int)", "return x*2", "src/calc.py", 42);
+    let target = make_node(
+        1,
+        "compute",
+        "def compute(x: int)",
+        "return x*2",
+        "src/calc.py",
+        42,
+    );
     store.update_nodes(vec![NodeChange::Add(target)]).unwrap();
 
     let caller = make_node(2, "app", "def app()", "compute(5)", "main.py", 10);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let file = FileIndex {
         file_path: "src/calc.py".to_string(),
@@ -126,7 +149,9 @@ fn test_e004_fix_hint_present() {
 
     let caller = make_node(2, "handler", "def handler()", "getData()", "routes.py", 5);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let file = FileIndex {
         file_path: "api.py".to_string(),
@@ -152,7 +177,9 @@ fn test_e004_function_still_exists_no_violation() {
 
     let caller = make_node(2, "user", "def user()", "keep_me()", "main.py", 1);
     store.update_nodes(vec![NodeChange::Add(caller)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(make_edge(1, 2, 1))])
+        .unwrap();
 
     let def = Definition {
         name: "keep_me".to_string(),

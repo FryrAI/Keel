@@ -172,7 +172,11 @@ fn parse_response(raw: &str) -> serde_json::Value {
 #[test]
 fn test_mcp_server_registers_all_tools() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("tools/list", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("tools/list", None),
+    ));
 
     let tools = resp["result"].as_array().unwrap();
     assert_eq!(tools.len(), 10);
@@ -199,7 +203,11 @@ fn test_mcp_server_registers_all_tools() {
 fn test_mcp_compile_tool_returns_violations() {
     let store = test_store();
     let params = serde_json::json!({"files": ["src/test.py"]});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/compile", Some(params)),
+    ));
 
     let result = &resp["result"];
     assert_eq!(result["command"], "compile");
@@ -212,7 +220,11 @@ fn test_mcp_compile_tool_returns_violations() {
 fn test_mcp_compile_tool_clean_returns_empty() {
     let store = test_store();
     let params = serde_json::json!({"files": []});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/compile", Some(params)),
+    ));
 
     let result = &resp["result"];
     assert_eq!(result["status"], "ok");
@@ -225,7 +237,11 @@ fn test_mcp_discover_tool_returns_adjacency() {
     let store = store_with_graph();
     let engine = engine_with_graph();
     let params = serde_json::json!({"hash": "targetFunc01"});
-    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &engine,
+        &rpc("keel/discover", Some(params)),
+    ));
 
     let result = &resp["result"];
     assert_eq!(result["target"]["name"], "handleReq");
@@ -241,7 +257,11 @@ fn test_mcp_discover_tool_returns_adjacency() {
 fn test_mcp_discover_tool_unknown_hash() {
     let store = test_store();
     let params = serde_json::json!({"hash": "doesNotExist"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/discover", Some(params)),
+    ));
 
     assert!(resp["error"].is_object());
     assert_eq!(resp["error"]["code"], -32602);
@@ -254,7 +274,11 @@ fn test_mcp_discover_tool_unknown_hash() {
 #[test]
 fn test_mcp_map_tool_triggers_full_remap() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/map", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/map", None),
+    ));
 
     let result = &resp["result"];
     assert_eq!(result["status"], "ok");
@@ -265,7 +289,11 @@ fn test_mcp_map_tool_triggers_full_remap() {
 fn test_mcp_explain_tool_returns_resolution_chain() {
     let store = store_with_node();
     let params = serde_json::json!({"error_code": "E001", "hash": "testHash1234"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/explain", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/explain", Some(params)),
+    ));
 
     let result = &resp["result"];
     assert_eq!(result["error_code"], "E001");
@@ -275,17 +303,18 @@ fn test_mcp_explain_tool_returns_resolution_chain() {
     assert!(!chain.is_empty());
     assert_eq!(chain[0]["kind"], "lookup");
 
-    assert!(result["summary"]
-        .as_str()
-        .unwrap()
-        .contains("processData"));
+    assert!(result["summary"].as_str().unwrap().contains("processData"));
 }
 
 #[test]
 fn test_mcp_where_tool_resolves_hash_to_location() {
     let store = store_with_node();
     let params = serde_json::json!({"hash": "testHash1234"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/where", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/where", Some(params)),
+    ));
 
     let result = &resp["result"];
     assert_eq!(result["file"], "src/processor.rs");

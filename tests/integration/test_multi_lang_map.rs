@@ -5,7 +5,9 @@
 
 use std::process::Command;
 
-use super::test_multi_lang_setup::{find_hash_by_name, init_and_map, keel_bin, setup_mixed_project};
+use super::test_multi_lang_setup::{
+    find_hash_by_name, init_and_map, keel_bin, setup_mixed_project,
+};
 
 #[test]
 fn test_discover_works_across_languages() {

@@ -321,8 +321,12 @@ fn test_concurrent_keel_processes_lock_graph_db() {
         .spawn()
         .expect("Failed to spawn second compile");
 
-    let output1 = child1.wait_with_output().expect("Failed to wait for child1");
-    let output2 = child2.wait_with_output().expect("Failed to wait for child2");
+    let output1 = child1
+        .wait_with_output()
+        .expect("Failed to wait for child1");
+    let output2 = child2
+        .wait_with_output()
+        .expect("Failed to wait for child2");
 
     // Neither should panic or be killed
     assert!(

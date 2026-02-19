@@ -34,7 +34,11 @@ fn main() {
     assert!(
         macro_def.is_some(),
         "should find my_vec macro definition, got: {:?}",
-        result.definitions.iter().map(|d| &d.name).collect::<Vec<_>>()
+        result
+            .definitions
+            .iter()
+            .map(|d| &d.name)
+            .collect::<Vec<_>>()
     );
     // At minimum, parsing should succeed and capture the function
     let main_fn = result.definitions.iter().find(|d| d.name == "main");
@@ -55,7 +59,10 @@ pub struct Config {
     let result = resolver.parse_file(Path::new("config.rs"), source);
 
     let struct_def = result.definitions.iter().find(|d| d.name == "Config");
-    assert!(struct_def.is_some(), "should find Config struct despite derive macros");
+    assert!(
+        struct_def.is_some(),
+        "should find Config struct despite derive macros"
+    );
     assert!(
         struct_def.unwrap().is_public,
         "pub struct with derive should be public"
@@ -128,11 +135,16 @@ pub struct Config {
     resolver.parse_file(path, source);
     let refs = resolver.resolve_references(path);
     let debug_ref = refs.iter().find(|r| r.name == "Debug");
-    assert!(debug_ref.is_some(),
+    assert!(
+        debug_ref.is_some(),
         "should capture Debug derive as reference, got: {:?}",
-        refs.iter().map(|r| &r.name).collect::<Vec<_>>());
+        refs.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
     let clone_ref = refs.iter().find(|r| r.name == "Clone");
-    assert!(clone_ref.is_some(), "should capture Clone derive as reference");
+    assert!(
+        clone_ref.is_some(),
+        "should capture Clone derive as reference"
+    );
 }
 
 #[test]
@@ -149,9 +161,11 @@ async fn main() {
     resolver.parse_file(path, source);
     let refs = resolver.resolve_references(path);
     let tokio_ref = refs.iter().find(|r| r.name == "tokio::main");
-    assert!(tokio_ref.is_some(),
+    assert!(
+        tokio_ref.is_some(),
         "should capture tokio::main attribute macro as reference, got: {:?}",
-        refs.iter().map(|r| &r.name).collect::<Vec<_>>());
+        refs.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
 }
 
 #[test]

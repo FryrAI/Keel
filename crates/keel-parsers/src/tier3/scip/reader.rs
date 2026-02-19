@@ -11,11 +11,11 @@ use std::path::Path;
 /// A definition extracted from the SCIP index.
 #[derive(Debug, Clone)]
 pub struct ScipDefinition {
-    pub symbol: String,      // full SCIP symbol string
-    pub file_path: String,   // repo-relative path
-    pub line: u32,           // 0-based (SCIP convention)
-    pub column: u32,         // 0-based
-    pub name: String,        // simple name extracted from symbol
+    pub symbol: String,    // full SCIP symbol string
+    pub file_path: String, // repo-relative path
+    pub line: u32,         // 0-based (SCIP convention)
+    pub column: u32,       // 0-based
+    pub name: String,      // simple name extracted from symbol
 }
 
 /// A single occurrence (reference or definition) within a file.
@@ -99,7 +99,8 @@ impl ScipIndex {
                         column: col,
                         name,
                     };
-                    me.definitions.insert((file.clone(), line, col), def.clone());
+                    me.definitions
+                        .insert((file.clone(), line, col), def.clone());
                     me.symbol_to_defs.entry(symbol_str).or_default().push(def);
                 }
             }
@@ -146,11 +147,17 @@ impl ScipIndex {
     pub fn insert_definition(&mut self, def: ScipDefinition) {
         self.definitions
             .insert((def.file_path.clone(), def.line, def.column), def.clone());
-        self.symbol_to_defs.entry(def.symbol.clone()).or_default().push(def);
+        self.symbol_to_defs
+            .entry(def.symbol.clone())
+            .or_default()
+            .push(def);
     }
 
     pub fn insert_occurrence(&mut self, file: &str, occ: ScipOccurrence) {
-        self.file_occurrences.entry(file.to_owned()).or_default().push(occ);
+        self.file_occurrences
+            .entry(file.to_owned())
+            .or_default()
+            .push(occ);
     }
 }
 
@@ -159,11 +166,22 @@ mod tests {
     use super::*;
 
     fn def(symbol: &str, file: &str, line: u32, name: &str) -> ScipDefinition {
-        ScipDefinition { symbol: symbol.into(), file_path: file.into(), line, column: 0, name: name.into() }
+        ScipDefinition {
+            symbol: symbol.into(),
+            file_path: file.into(),
+            line,
+            column: 0,
+            name: name.into(),
+        }
     }
 
     fn ref_occ(symbol: &str, line: u32) -> ScipOccurrence {
-        ScipOccurrence { symbol: symbol.into(), line, column: 4, is_definition: false }
+        ScipOccurrence {
+            symbol: symbol.into(),
+            line,
+            column: 4,
+            is_definition: false,
+        }
     }
 
     #[test]
@@ -192,13 +210,19 @@ mod tests {
         idx.insert_occurrence("src/main.ts", ref_occ(sym, 5));
 
         // Hit: correct file, line, name.
-        let result = idx.resolve_reference("src/main.ts", 5, "doWork").expect("should resolve");
+        let result = idx
+            .resolve_reference("src/main.ts", 5, "doWork")
+            .expect("should resolve");
         assert_eq!(result.name, "doWork");
         assert_eq!(result.file_path, "src/lib.ts");
 
         // Miss: wrong line, wrong name, unknown file.
         assert!(idx.resolve_reference("src/main.ts", 6, "doWork").is_none());
-        assert!(idx.resolve_reference("src/main.ts", 5, "otherFunc").is_none());
-        assert!(idx.resolve_reference("src/unknown.ts", 5, "doWork").is_none());
+        assert!(idx
+            .resolve_reference("src/main.ts", 5, "otherFunc")
+            .is_none());
+        assert!(idx
+            .resolve_reference("src/unknown.ts", 5, "doWork")
+            .is_none());
     }
 }

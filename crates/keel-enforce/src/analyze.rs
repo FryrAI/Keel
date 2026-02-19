@@ -123,7 +123,10 @@ fn detect_smells(
             smells.push(CodeSmell {
                 kind: SmellKind::HighFanOut,
                 severity: "WARNING".to_string(),
-                message: format!("`{}` calls {} functions (>10) — monolithic", f.name, f.callees),
+                message: format!(
+                    "`{}` calls {} functions (>10) — monolithic",
+                    f.name, f.callees
+                ),
                 target: Some(f.name.clone()),
             });
         }
@@ -214,10 +217,7 @@ fn detect_refactoring(
     if line_count > 400 {
         ops.push(RefactorOpportunity {
             kind: RefactorKind::SplitFile,
-            message: format!(
-                "File is {} lines — split into focused modules",
-                line_count,
-            ),
+            message: format!("File is {} lines — split into focused modules", line_count,),
             target: None,
             rationale: "Files over 400 lines reduce readability and increase merge conflicts"
                 .to_string(),
@@ -258,7 +258,9 @@ fn detect_refactoring(
                                 f.name, caller.name,
                             ),
                             target: Some(f.name.clone()),
-                            rationale: "Single-use helper functions add indirection without reuse benefit".to_string(),
+                            rationale:
+                                "Single-use helper functions add indirection without reuse benefit"
+                                    .to_string(),
                         });
                     }
                 }
@@ -287,7 +289,9 @@ fn detect_refactoring(
                         kind: RefactorKind::MoveToModule,
                         message: format!(
                             "`{}` has {}/{} callers from other files — consider moving closer",
-                            f.name, external, call_edges.len(),
+                            f.name,
+                            external,
+                            call_edges.len(),
                         ),
                         target: Some(f.name.clone()),
                         rationale:

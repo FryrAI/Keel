@@ -31,10 +31,26 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -53,26 +69,31 @@ fn test_analyze_single_file() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "analyze should exit 0 for a mapped file\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.is_empty(), "analyze should produce output for a mapped file");
+    assert!(
+        !stdout.is_empty(),
+        "analyze should produce output for a mapped file"
+    );
 }
 
 #[test]
 fn test_analyze_file_with_class() {
-    let dir = init_and_map(&[
-        ("src/service.ts", concat!(
+    let dir = init_and_map(&[(
+        "src/service.ts",
+        concat!(
             "export class UserService {\n",
             "  getUser(id: string): string { return id; }\n",
             "  createUser(name: string): string { return name; }\n",
             "  deleteUser(id: string): void {}\n",
             "}\n",
-        )),
-    ]);
+        ),
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -83,7 +104,8 @@ fn test_analyze_file_with_class() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "analyze should exit 0\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -91,9 +113,10 @@ fn test_analyze_file_with_class() {
 
 #[test]
 fn test_analyze_unknown_file_exits_2() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -139,9 +162,10 @@ fn test_analyze_not_initialized_exits_2() {
 
 #[test]
 fn test_analyze_verbose_shows_counts() {
-    let dir = init_and_map(&[
-        ("src/mod.ts", "export function a(): void {}\nexport function b(): void {}\nexport class C {}\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/mod.ts",
+        "export function a(): void {}\nexport function b(): void {}\nexport class C {}\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -162,9 +186,10 @@ fn test_analyze_verbose_shows_counts() {
 
 #[test]
 fn test_analyze_performance() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();

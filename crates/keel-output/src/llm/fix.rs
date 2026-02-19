@@ -48,11 +48,20 @@ pub fn format_fix_apply(result: &FixApplyResult) -> String {
         result.actions_applied,
         result.actions_failed,
         result.files_modified.len(),
-        if result.recompile_clean { "CLEAN" } else { "DIRTY" },
+        if result.recompile_clean {
+            "CLEAN"
+        } else {
+            "DIRTY"
+        },
     );
 
     for d in &result.details {
-        out.push_str(&format!("  {} {}:{}", d.status.to_uppercase(), d.file, d.line));
+        out.push_str(&format!(
+            "  {} {}:{}",
+            d.status.to_uppercase(),
+            d.file,
+            d.line
+        ));
         if let Some(ref err) = d.error {
             out.push_str(&format!(" err={}", err));
         }
@@ -128,12 +137,16 @@ mod tests {
             recompile_errors: 0,
             details: vec![
                 FixApplyDetail {
-                    file: "src/a.rs".into(), line: 10,
-                    status: "applied".into(), error: None,
+                    file: "src/a.rs".into(),
+                    line: 10,
+                    status: "applied".into(),
+                    error: None,
                 },
                 FixApplyDetail {
-                    file: "src/a.rs".into(), line: 20,
-                    status: "applied".into(), error: None,
+                    file: "src/a.rs".into(),
+                    line: 20,
+                    status: "applied".into(),
+                    error: None,
                 },
             ],
         };
@@ -154,11 +167,14 @@ mod tests {
             recompile_errors: 2,
             details: vec![
                 FixApplyDetail {
-                    file: "src/a.rs".into(), line: 10,
-                    status: "applied".into(), error: None,
+                    file: "src/a.rs".into(),
+                    line: 10,
+                    status: "applied".into(),
+                    error: None,
                 },
                 FixApplyDetail {
-                    file: "src/missing.rs".into(), line: 5,
+                    file: "src/missing.rs".into(),
+                    line: 5,
                     status: "failed".into(),
                     error: Some("file not found: src/missing.rs".into()),
                 },

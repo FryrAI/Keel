@@ -159,9 +159,14 @@ fn test_sqlite_resolution_cache() {
     {
         let conn = rusqlite::Connection::open(db_str).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM resolution_cache", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM resolution_cache", [], |row| {
+                row.get(0)
+            })
             .unwrap();
-        assert_eq!(count, 0, "clear_all should remove all resolution_cache entries");
+        assert_eq!(
+            count, 0,
+            "clear_all should remove all resolution_cache entries"
+        );
     }
 }
 
@@ -263,10 +268,7 @@ fn test_sqlite_concurrent_reads() {
                 let reader = SqliteGraphStore::open(&p).unwrap();
                 for i in 1..=10u64 {
                     let node = reader.get_node(&format!("conc_hash_{i}"));
-                    assert!(
-                        node.is_some(),
-                        "thread {thread_id} failed to read node {i}"
-                    );
+                    assert!(node.is_some(), "thread {thread_id} failed to read node {i}");
                     assert_eq!(node.unwrap().name, format!("fn_{i}"));
                 }
             })

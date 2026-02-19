@@ -31,10 +31,26 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -54,7 +70,8 @@ fn test_name_basic_suggestion() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "name should exit 0\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -66,9 +83,18 @@ fn test_name_basic_suggestion() {
 #[test]
 fn test_name_with_module_constraint() {
     let dir = init_and_map(&[
-        ("src/auth/login.ts", "export function login(user: string): boolean { return true; }\n"),
-        ("src/auth/register.ts", "export function register(user: string): boolean { return true; }\n"),
-        ("src/utils.ts", "export function hash(input: string): string { return input; }\n"),
+        (
+            "src/auth/login.ts",
+            "export function login(user: string): boolean { return true; }\n",
+        ),
+        (
+            "src/auth/register.ts",
+            "export function register(user: string): boolean { return true; }\n",
+        ),
+        (
+            "src/utils.ts",
+            "export function hash(input: string): string { return input; }\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -80,7 +106,8 @@ fn test_name_with_module_constraint() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "name --module should exit 0\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -88,9 +115,10 @@ fn test_name_with_module_constraint() {
 
 #[test]
 fn test_name_with_kind_constraint() {
-    let dir = init_and_map(&[
-        ("src/models.ts", "export class User {}\nexport function createUser(name: string): void {}\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/models.ts",
+        "export class User {}\nexport function createUser(name: string): void {}\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -101,7 +129,8 @@ fn test_name_with_kind_constraint() {
 
     let code = output.status.code().unwrap_or(-1);
     assert_eq!(
-        code, 0,
+        code,
+        0,
         "name --kind should exit 0\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -132,9 +161,10 @@ fn test_name_not_initialized_exits_2() {
 
 #[test]
 fn test_name_performance() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();

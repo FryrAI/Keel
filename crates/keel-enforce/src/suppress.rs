@@ -38,10 +38,8 @@ impl SuppressionManager {
     /// If the code is not suppressed, returns the violation unchanged.
     pub fn apply(&self, mut violation: crate::types::Violation) -> crate::types::Violation {
         if self.is_suppressed(&violation.code) {
-            violation.suppress_hint = Some(format!(
-                "Suppressed {} via --suppress flag",
-                violation.code
-            ));
+            violation.suppress_hint =
+                Some(format!("Suppressed {} via --suppress flag", violation.code));
             violation.suppressed = true;
             violation.code = "S001".to_string();
             violation.severity = "INFO".to_string();

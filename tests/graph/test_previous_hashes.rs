@@ -174,8 +174,14 @@ fn test_lookup_by_previous_hash() {
     // 3. Reopen and verify get_node("old_hash_val") finds the current node
     let store = SqliteGraphStore::open(db_str).unwrap();
     let found = store.get_node("old_hash_val");
-    assert!(found.is_some(), "get_node should find node via previous_hashes fallback");
+    assert!(
+        found.is_some(),
+        "get_node should find node via previous_hashes fallback"
+    );
     let found = found.unwrap();
-    assert_eq!(found.hash, "new_hash_val", "should return the current node, not the old hash");
+    assert_eq!(
+        found.hash, "new_hash_val",
+        "should return the current node, not the old hash"
+    );
     assert_eq!(found.name, "my_func");
 }

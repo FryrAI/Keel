@@ -6,12 +6,18 @@ use keel_enforce::analyze::analyze_file;
 
 use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedStore};
 
-pub(crate) fn handle_analyze(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+pub(crate) fn handle_analyze(
+    store: &SharedStore,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let file = params
         .as_ref()
         .and_then(|p| p.get("file"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError { code: -32602, message: "Missing 'file' parameter".into() })?
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "Missing 'file' parameter".into(),
+        })?
         .to_string();
 
     let store = lock_store(store)?;

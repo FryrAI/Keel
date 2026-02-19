@@ -43,29 +43,69 @@ fn store_with_node() -> SharedStore {
 }
 
 fn engine_with_node() -> SharedEngine {
-    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(populated_node_store()))))
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(
+        populated_node_store(),
+    ))))
 }
 
 fn make_node(id: u64, hash: &str, name: &str, sig: &str, file: &str) -> GraphNode {
     GraphNode {
-        id, hash: hash.into(), kind: NodeKind::Function, name: name.into(),
-        signature: sig.into(), file_path: file.into(),
-        line_start: 1, line_end: 20, docstring: None,
-        is_public: true, type_hints_present: true, has_docstring: false,
-        external_endpoints: vec![], previous_hashes: vec![], module_id: 0,
+        id,
+        hash: hash.into(),
+        kind: NodeKind::Function,
+        name: name.into(),
+        signature: sig.into(),
+        file_path: file.into(),
+        line_start: 1,
+        line_end: 20,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        has_docstring: false,
+        external_endpoints: vec![],
+        previous_hashes: vec![],
+        module_id: 0,
         package: None,
     }
 }
 
 fn make_edge_test_data() -> (Vec<GraphNode>, Vec<EdgeChange>) {
     let nodes = vec![
-        make_node(1, "targetHash01", "handleRequest", "fn handleRequest(req: Request) -> Response", "src/handler.rs"),
+        make_node(
+            1,
+            "targetHash01",
+            "handleRequest",
+            "fn handleRequest(req: Request) -> Response",
+            "src/handler.rs",
+        ),
         make_node(2, "callerHash01", "main", "fn main()", "src/main.rs"),
-        make_node(3, "calleeHash01", "validate", "fn validate(data: &str) -> bool", "src/validate.rs"),
+        make_node(
+            3,
+            "calleeHash01",
+            "validate",
+            "fn validate(data: &str) -> bool",
+            "src/validate.rs",
+        ),
     ];
     let edges = vec![
-        EdgeChange::Add(GraphEdge { id: 1, source_id: 2, target_id: 1, kind: EdgeKind::Calls, file_path: "src/main.rs".into(), line: 3, confidence: 1.0 }),
-        EdgeChange::Add(GraphEdge { id: 2, source_id: 1, target_id: 3, kind: EdgeKind::Calls, file_path: "src/handler.rs".into(), line: 20, confidence: 1.0 }),
+        EdgeChange::Add(GraphEdge {
+            id: 1,
+            source_id: 2,
+            target_id: 1,
+            kind: EdgeKind::Calls,
+            file_path: "src/main.rs".into(),
+            line: 3,
+            confidence: 1.0,
+        }),
+        EdgeChange::Add(GraphEdge {
+            id: 2,
+            source_id: 1,
+            target_id: 3,
+            kind: EdgeKind::Calls,
+            file_path: "src/handler.rs".into(),
+            line: 20,
+            confidence: 1.0,
+        }),
     ];
     (nodes, edges)
 }
@@ -85,30 +125,34 @@ fn store_with_edges() -> SharedStore {
 }
 
 fn engine_with_edges() -> SharedEngine {
-    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(populated_edge_store()))))
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(
+        populated_edge_store(),
+    ))))
 }
 
 /// Store with a module + function node — needed for search which iterates modules.
 fn store_with_module_and_node() -> SharedStore {
     let store = SqliteGraphStore::in_memory().unwrap();
-    store.insert_node(&GraphNode {
-        id: 100,
-        hash: "moduleHash01".to_string(),
-        kind: NodeKind::Module,
-        name: "lib".to_string(),
-        signature: String::new(),
-        file_path: "src/lib.rs".to_string(),
-        line_start: 1,
-        line_end: 50,
-        docstring: None,
-        is_public: true,
-        type_hints_present: true,
-        has_docstring: false,
-        external_endpoints: vec![],
-        previous_hashes: vec![],
-        module_id: 0,
-        package: None,
-    }).unwrap();
+    store
+        .insert_node(&GraphNode {
+            id: 100,
+            hash: "moduleHash01".to_string(),
+            kind: NodeKind::Module,
+            name: "lib".to_string(),
+            signature: String::new(),
+            file_path: "src/lib.rs".to_string(),
+            line_start: 1,
+            line_end: 50,
+            docstring: None,
+            is_public: true,
+            type_hints_present: true,
+            has_docstring: false,
+            external_endpoints: vec![],
+            previous_hashes: vec![],
+            module_id: 0,
+            package: None,
+        })
+        .unwrap();
     store.insert_node(&make_test_node()).unwrap();
     Arc::new(Mutex::new(store))
 }
@@ -130,7 +174,11 @@ fn parse_response(raw: &str) -> Value {
 #[test]
 fn test_initialize() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("initialize", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("initialize", None),
+    ));
     assert_eq!(resp["jsonrpc"], "2.0");
     assert_eq!(resp["result"]["serverInfo"]["name"], "keel");
     assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
@@ -140,7 +188,11 @@ fn test_initialize() {
 #[test]
 fn test_tools_list() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("tools/list", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("tools/list", None),
+    ));
     let tools: Vec<ToolInfo> = serde_json::from_value(resp["result"].clone()).unwrap();
     assert_eq!(tools.len(), 10);
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
@@ -159,10 +211,18 @@ fn test_tools_list() {
 #[test]
 fn test_tools_list_has_input_schemas() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("tools/list", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("tools/list", None),
+    ));
     let tools = resp["result"].as_array().unwrap();
     for tool in tools {
-        assert!(tool["inputSchema"].is_object(), "tool {} missing inputSchema", tool["name"]);
+        assert!(
+            tool["inputSchema"].is_object(),
+            "tool {} missing inputSchema",
+            tool["name"]
+        );
     }
 }
 
@@ -170,7 +230,11 @@ fn test_tools_list_has_input_schemas() {
 fn test_compile_with_files() {
     let store = test_store();
     let params = serde_json::json!({"files": ["src/main.rs"]});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/compile", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["status"], "ok");
     assert_eq!(result["files_analyzed"][0], "src/main.rs");
@@ -179,16 +243,27 @@ fn test_compile_with_files() {
 #[test]
 fn test_compile_no_params() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/compile", None),
+    ));
     assert_eq!(resp["result"]["status"], "ok");
-    assert!(resp["result"]["files_analyzed"].as_array().unwrap().is_empty());
+    assert!(resp["result"]["files_analyzed"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
 fn test_compile_batch_start() {
     let store = test_store();
     let params = serde_json::json!({"files": ["a.rs"], "batch_start": true});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/compile", Some(params)),
+    ));
     assert_eq!(resp["result"]["status"], "batch_started");
 }
 
@@ -196,7 +271,11 @@ fn test_compile_batch_start() {
 fn test_compile_batch_end() {
     let store = test_store();
     let params = serde_json::json!({"files": [], "batch_end": true});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/compile", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/compile", Some(params)),
+    ));
     assert_eq!(resp["result"]["status"], "batch_ended");
 }
 
@@ -205,7 +284,11 @@ fn test_discover_existing_node() {
     let store = store_with_node();
     let engine = engine_with_node();
     let params = serde_json::json!({"hash": "a7Bx3kM9f2Q"});
-    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &engine,
+        &rpc("keel/discover", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["target"]["name"], "doStuff");
     assert_eq!(result["target"]["hash"], "a7Bx3kM9f2Q");
@@ -215,15 +298,26 @@ fn test_discover_existing_node() {
 fn test_discover_not_found() {
     let store = test_store();
     let params = serde_json::json!({"hash": "nonexistent"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/discover", Some(params)),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
-    assert!(resp["error"]["message"].as_str().unwrap().contains("not found"));
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not found"));
 }
 
 #[test]
 fn test_discover_missing_hash() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/discover", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/discover", None),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
     assert!(resp["error"]["message"].as_str().unwrap().contains("hash"));
 }
@@ -233,7 +327,11 @@ fn test_discover_with_edges() {
     let store = store_with_edges();
     let engine = engine_with_edges();
     let params = serde_json::json!({"hash": "targetHash01"});
-    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &engine,
+        &rpc("keel/discover", Some(params)),
+    ));
     let result = &resp["result"];
 
     assert_eq!(result["target"]["name"], "handleRequest");
@@ -256,7 +354,11 @@ fn test_discover_no_edges() {
     let store = store_with_node();
     let engine = engine_with_node();
     let params = serde_json::json!({"hash": "a7Bx3kM9f2Q"});
-    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/discover", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &engine,
+        &rpc("keel/discover", Some(params)),
+    ));
     let result = &resp["result"];
     assert!(result["upstream"].as_array().unwrap().is_empty());
     assert!(result["downstream"].as_array().unwrap().is_empty());
@@ -266,7 +368,11 @@ fn test_discover_no_edges() {
 fn test_where_existing_node() {
     let store = store_with_node();
     let params = serde_json::json!({"hash": "a7Bx3kM9f2Q"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/where", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/where", Some(params)),
+    ));
     assert_eq!(resp["result"]["file"], "src/lib.rs");
     assert_eq!(resp["result"]["line_start"], 10);
     assert_eq!(resp["result"]["line_end"], 20);
@@ -277,7 +383,11 @@ fn test_where_existing_node() {
 fn test_where_not_found() {
     let store = test_store();
     let params = serde_json::json!({"hash": "nope"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/where", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/where", Some(params)),
+    ));
     assert!(resp["error"].is_object());
     assert_eq!(resp["error"]["code"], -32602);
 }
@@ -285,7 +395,11 @@ fn test_where_not_found() {
 #[test]
 fn test_where_missing_hash() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/where", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/where", None),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
     assert!(resp["error"]["message"].as_str().unwrap().contains("hash"));
 }
@@ -294,7 +408,11 @@ fn test_where_missing_hash() {
 fn test_explain_existing_node() {
     let store = store_with_node();
     let params = serde_json::json!({"error_code": "E001", "hash": "a7Bx3kM9f2Q"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/explain", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/explain", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["error_code"], "E001");
     assert_eq!(result["hash"], "a7Bx3kM9f2Q");
@@ -307,7 +425,11 @@ fn test_explain_existing_node() {
 fn test_explain_not_found() {
     let store = test_store();
     let params = serde_json::json!({"hash": "nope"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/explain", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/explain", Some(params)),
+    ));
     assert!(resp["error"].is_object());
     assert_eq!(resp["error"]["code"], -32602);
 }
@@ -316,7 +438,11 @@ fn test_explain_not_found() {
 fn test_explain_missing_hash() {
     let store = test_store();
     let params = serde_json::json!({"error_code": "E001"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/explain", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/explain", Some(params)),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
     assert!(resp["error"]["message"].as_str().unwrap().contains("hash"));
 }
@@ -325,14 +451,22 @@ fn test_explain_missing_hash() {
 fn test_explain_defaults_error_code() {
     let store = store_with_node();
     let params = serde_json::json!({"hash": "a7Bx3kM9f2Q"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/explain", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/explain", Some(params)),
+    ));
     assert_eq!(resp["result"]["error_code"], "E001");
 }
 
 #[test]
 fn test_map() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/map", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/map", None),
+    ));
     assert_eq!(resp["result"]["status"], "ok");
     assert_eq!(resp["result"]["format"], "json");
 }
@@ -341,7 +475,11 @@ fn test_map() {
 fn test_map_with_format() {
     let store = test_store();
     let params = serde_json::json!({"format": "llm"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/map", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/map", Some(params)),
+    ));
     assert_eq!(resp["result"]["format"], "llm");
 }
 
@@ -349,7 +487,11 @@ fn test_map_with_format() {
 fn test_map_with_scope() {
     let store = test_store();
     let params = serde_json::json!({"scope": ["auth", "payments"]});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/map", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/map", Some(params)),
+    ));
     let scope = resp["result"]["scope"].as_array().unwrap();
     assert_eq!(scope.len(), 2);
     assert_eq!(scope[0], "auth");
@@ -359,9 +501,16 @@ fn test_map_with_scope() {
 #[test]
 fn test_unknown_method() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("bogus/method", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("bogus/method", None),
+    ));
     assert_eq!(resp["error"]["code"], -32601);
-    assert!(resp["error"]["message"].as_str().unwrap().contains("bogus/method"));
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("bogus/method"));
 }
 
 #[test]
@@ -397,7 +546,11 @@ fn test_response_null_id_when_missing() {
 #[test]
 fn test_jsonrpc_version_in_response() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("initialize", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("initialize", None),
+    ));
     assert_eq!(resp["jsonrpc"], "2.0");
 }
 
@@ -408,7 +561,11 @@ fn test_check_existing_node() {
     let store = store_with_node();
     let engine = engine_with_node();
     let params = serde_json::json!({"hash": "a7Bx3kM9f2Q"});
-    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/check", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &engine,
+        &rpc("keel/check", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["target"]["hash"], "a7Bx3kM9f2Q");
     assert_eq!(result["target"]["name"], "doStuff");
@@ -420,14 +577,22 @@ fn test_check_existing_node() {
 fn test_check_not_found() {
     let store = test_store();
     let params = serde_json::json!({"hash": "nonexistent"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/check", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/check", Some(params)),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
 }
 
 #[test]
 fn test_check_missing_hash() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/check", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/check", None),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
     assert!(resp["error"]["message"].as_str().unwrap().contains("hash"));
 }
@@ -438,7 +603,11 @@ fn test_check_missing_hash() {
 fn test_fix_empty_files() {
     let store = test_store();
     let params = serde_json::json!({"files": []});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/fix", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/fix", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["command"], "fix");
     assert_eq!(result["violations_addressed"], 0);
@@ -447,7 +616,11 @@ fn test_fix_empty_files() {
 #[test]
 fn test_fix_no_params() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/fix", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/fix", None),
+    ));
     let result = &resp["result"];
     assert_eq!(result["command"], "fix");
 }
@@ -458,7 +631,11 @@ fn test_fix_no_params() {
 fn test_search_no_results() {
     let store = test_store();
     let params = serde_json::json!({"query": "nonexistent"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/search", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["count"], 0);
     assert!(result["results"].as_array().unwrap().is_empty());
@@ -468,7 +645,11 @@ fn test_search_no_results() {
 fn test_search_finds_node() {
     let store = store_with_module_and_node();
     let params = serde_json::json!({"query": "doStuff"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/search", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["count"], 1);
     assert_eq!(result["results"][0]["name"], "doStuff");
@@ -478,14 +659,22 @@ fn test_search_finds_node() {
 fn test_search_case_insensitive() {
     let store = store_with_module_and_node();
     let params = serde_json::json!({"query": "dostuff"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/search", Some(params)),
+    ));
     assert_eq!(resp["result"]["count"], 1);
 }
 
 #[test]
 fn test_search_missing_query() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/search", None),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
     assert!(resp["error"]["message"].as_str().unwrap().contains("query"));
 }
@@ -494,7 +683,11 @@ fn test_search_missing_query() {
 fn test_search_with_kind_filter() {
     let store = store_with_module_and_node();
     let params = serde_json::json!({"query": "doStuff", "kind": "class"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/search", Some(params)),
+    ));
     // doStuff is a function, not a class — should not match
     assert_eq!(resp["result"]["count"], 0);
 }
@@ -504,16 +697,27 @@ fn test_search_with_kind_filter() {
 #[test]
 fn test_name_missing_description() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/name", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/name", None),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
-    assert!(resp["error"]["message"].as_str().unwrap().contains("description"));
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("description"));
 }
 
 #[test]
 fn test_name_empty_graph() {
     let store = test_store();
     let params = serde_json::json!({"description": "handle user authentication"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/name", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/name", Some(params)),
+    ));
     let result = &resp["result"];
     assert_eq!(result["command"], "name");
     // Empty graph yields no suggestions
@@ -525,7 +729,11 @@ fn test_name_empty_graph() {
 #[test]
 fn test_analyze_missing_file() {
     let store = test_store();
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/analyze", None)));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/analyze", None),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
     assert!(resp["error"]["message"].as_str().unwrap().contains("file"));
 }
@@ -534,7 +742,14 @@ fn test_analyze_missing_file() {
 fn test_analyze_file_not_in_graph() {
     let store = test_store();
     let params = serde_json::json!({"file": "nonexistent.rs"});
-    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/analyze", Some(params))));
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/analyze", Some(params)),
+    ));
     assert_eq!(resp["error"]["code"], -32602);
-    assert!(resp["error"]["message"].as_str().unwrap().contains("No graph data"));
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("No graph data"));
 }

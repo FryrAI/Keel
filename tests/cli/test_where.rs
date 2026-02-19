@@ -31,9 +31,17 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -41,9 +49,10 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
 #[test]
 /// `keel where <hash>` should return the file path and line number.
 fn test_where_returns_file_and_line() {
-    let dir = init_and_map(&[
-        ("src/parser.ts", "export function parse(input: string): string {\n  return input;\n}\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/parser.ts",
+        "export function parse(input: string): string {\n  return input;\n}\n",
+    )]);
     let keel = keel_bin();
 
     // We can't easily get a real hash without deeper integration,
@@ -66,9 +75,10 @@ fn test_where_returns_file_and_line() {
 #[test]
 /// `keel where` should complete in under 50ms.
 fn test_where_performance_target() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();
@@ -90,9 +100,10 @@ fn test_where_performance_target() {
 #[test]
 /// `keel where` with an invalid hash should return a clear error.
 fn test_where_invalid_hash() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -112,9 +123,10 @@ fn test_where_invalid_hash() {
 #[test]
 /// `keel where` should look up previous hashes if current hash not found.
 fn test_where_checks_previous_hashes() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Modify the function to change its hash

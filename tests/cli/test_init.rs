@@ -52,7 +52,10 @@ fn test_init_creates_keel_directory() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    assert!(dir.path().join(".keel").exists(), ".keel/ directory not created");
+    assert!(
+        dir.path().join(".keel").exists(),
+        ".keel/ directory not created"
+    );
     assert!(
         dir.path().join(".keel/graph.db").exists(),
         ".keel/graph.db not created"
@@ -267,11 +270,15 @@ fn test_init_detects_languages() {
 
     // Should detect at least TypeScript and Python (Go detection depends on implementation)
     assert!(
-        lang_strs.iter().any(|l| l.to_lowercase().contains("typescript") || *l == "ts"),
+        lang_strs
+            .iter()
+            .any(|l| l.to_lowercase().contains("typescript") || *l == "ts"),
         "should detect TypeScript, found: {lang_strs:?}"
     );
     assert!(
-        lang_strs.iter().any(|l| l.to_lowercase().contains("python") || *l == "py"),
+        lang_strs
+            .iter()
+            .any(|l| l.to_lowercase().contains("python") || *l == "py"),
         "should detect Python, found: {lang_strs:?}"
     );
 }
@@ -305,8 +312,7 @@ fn test_init_creates_keelignore_with_correct_patterns() {
         ".keelignore was not created by keel init"
     );
 
-    let contents = fs::read_to_string(&ignore_path)
-        .expect("Failed to read .keelignore");
+    let contents = fs::read_to_string(&ignore_path).expect("Failed to read .keelignore");
 
     // Verify expected default patterns are present
     let expected_patterns = [
@@ -372,8 +378,7 @@ fn test_init_installs_git_precommit_hook() {
         ".git/hooks/pre-commit was not created by keel init"
     );
 
-    let contents = fs::read_to_string(&hook_path)
-        .expect("Failed to read pre-commit hook");
+    let contents = fs::read_to_string(&hook_path).expect("Failed to read pre-commit hook");
 
     // Hook should invoke keel compile
     assert!(

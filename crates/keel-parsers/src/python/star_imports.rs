@@ -23,9 +23,7 @@ pub fn resolve_star_import(
 
     let mut matches: Vec<(&Import, f64)> = Vec::new();
     for star_imp in &star_imports {
-        if let Some((confidence, _)) =
-            find_in_star_target(cache, &star_imp.source, callee_name)
-        {
+        if let Some((confidence, _)) = find_in_star_target(cache, &star_imp.source, callee_name) {
             matches.push((star_imp, confidence));
         }
     }

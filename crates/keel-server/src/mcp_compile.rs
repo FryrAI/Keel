@@ -10,7 +10,10 @@ use keel_enforce::types::{CompileInfo, CompileResult};
 use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
 use crate::parse_shared::parse_file_to_index;
 
-pub(crate) fn handle_compile(engine: &SharedEngine, params: Option<Value>) -> Result<Value, JsonRpcError> {
+pub(crate) fn handle_compile(
+    engine: &SharedEngine,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let files: Vec<String> = params
         .as_ref()
         .and_then(|p| p.get("files").cloned())

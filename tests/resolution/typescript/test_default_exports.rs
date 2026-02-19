@@ -3,9 +3,9 @@
 use std::path::Path;
 
 use keel_core::types::NodeKind;
-use keel_parsers::resolver::{LanguageResolver, ReferenceKind};
 #[allow(unused_imports)]
 use keel_parsers::resolver::CallSite;
+use keel_parsers::resolver::{LanguageResolver, ReferenceKind};
 use keel_parsers::typescript::TsResolver;
 
 #[test]
@@ -16,11 +16,18 @@ fn test_default_export_named_function() {
     let result = resolver.parse_file(Path::new("module.ts"), source);
 
     // The function should be captured as a definition
-    let func = result.definitions.iter().find(|d| d.kind == NodeKind::Function);
+    let func = result
+        .definitions
+        .iter()
+        .find(|d| d.kind == NodeKind::Function);
     assert!(
         func.is_some(),
         "default export named function should produce a Function definition, got: {:?}",
-        result.definitions.iter().map(|d| &d.name).collect::<Vec<_>>()
+        result
+            .definitions
+            .iter()
+            .map(|d| &d.name)
+            .collect::<Vec<_>>()
     );
     if let Some(f) = func {
         assert_eq!(f.name, "process");
@@ -39,11 +46,18 @@ export default class Parser {
 "#;
     let result = resolver.parse_file(Path::new("module.ts"), source);
 
-    let class = result.definitions.iter().find(|d| d.kind == NodeKind::Class);
+    let class = result
+        .definitions
+        .iter()
+        .find(|d| d.kind == NodeKind::Class);
     assert!(
         class.is_some(),
         "default export class should produce a Class definition, got: {:?}",
-        result.definitions.iter().map(|d| (&d.name, &d.kind)).collect::<Vec<_>>()
+        result
+            .definitions
+            .iter()
+            .map(|d| (&d.name, &d.kind))
+            .collect::<Vec<_>>()
     );
     if let Some(c) = class {
         assert_eq!(c.name, "Parser");
@@ -57,7 +71,11 @@ fn test_default_export_anonymous() {
     let resolver = TsResolver::new();
     let source = "export default () => { return 42; };";
     let result = resolver.parse_file(Path::new("module.ts"), source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
 
     // Anonymous default exports are not guaranteed to produce named definitions.
     // This test documents the actual behavior.
@@ -115,7 +133,11 @@ fn test_reexport_default_export() {
 
     // Parsing should succeed without panics
     // b.ts itself defines no functions/classes
-    let b_defs: Vec<_> = b_result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let b_defs: Vec<_> = b_result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     assert_eq!(
         b_defs.len(),
         0,

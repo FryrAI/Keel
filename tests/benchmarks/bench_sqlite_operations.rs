@@ -35,7 +35,11 @@ fn bench_sqlite_insert_10k_nodes() {
 
     let start = Instant::now();
     for i in 0..10_000u64 {
-        let node = make_node(i + 1, &format!("func_{i}"), &format!("src/mod_{}.ts", i / 10));
+        let node = make_node(
+            i + 1,
+            &format!("func_{i}"),
+            &format!("src/mod_{}.ts", i / 10),
+        );
         store.insert_node(&node).unwrap();
     }
     let elapsed = start.elapsed();
@@ -60,15 +64,18 @@ fn bench_sqlite_insert_50k_edges() {
     let edges: Vec<_> = (0..5_000u64)
         .map(|i| {
             use keel_core::types::{EdgeChange, NodeChange};
-            let _ = (NodeChange::Add(make_node(0, "", "")), EdgeChange::Add(GraphEdge {
-                id: 0,
-                source_id: 0,
-                target_id: 0,
-                kind: EdgeKind::Calls,
-                file_path: String::new(),
-                line: 0,
-                confidence: 1.0,
-            }));
+            let _ = (
+                NodeChange::Add(make_node(0, "", "")),
+                EdgeChange::Add(GraphEdge {
+                    id: 0,
+                    source_id: 0,
+                    target_id: 0,
+                    kind: EdgeKind::Calls,
+                    file_path: String::new(),
+                    line: 0,
+                    confidence: 1.0,
+                }),
+            );
             GraphEdge {
                 id: i + 1,
                 source_id: (i % 1_000) + 1,
@@ -171,7 +178,11 @@ fn bench_sqlite_full_graph_load() {
 
     // Insert 1000 nodes
     for i in 0..1_000u64 {
-        let node = make_node(i + 1, &format!("func_{i}"), &format!("src/mod_{}.ts", i / 10));
+        let node = make_node(
+            i + 1,
+            &format!("func_{i}"),
+            &format!("src/mod_{}.ts", i / 10),
+        );
         store.insert_node(&node).unwrap();
     }
 

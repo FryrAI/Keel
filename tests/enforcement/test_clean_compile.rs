@@ -1,7 +1,7 @@
 // Tests for clean compile behavior (Spec 006 - Enforcement Engine)
+use keel_core::types::NodeKind;
 use keel_enforce::engine::EnforcementEngine;
 use keel_parsers::resolver::{Definition, FileIndex};
-use keel_core::types::NodeKind;
 
 use crate::common::in_memory_store;
 

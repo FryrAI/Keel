@@ -9,17 +9,17 @@
 //! - W001: placement suggestion (function may belong in a different module)
 //! - W002: duplicate name (same function name in multiple modules)
 
-pub mod types;
-pub mod circuit_breaker;
+pub mod analyze;
 pub mod batch;
+pub mod check;
+pub mod circuit_breaker;
+pub mod engine;
+pub mod fix_generator;
+pub mod hash_diff;
+pub mod naming;
+pub mod snapshot;
 pub mod suppress;
+pub mod types;
+pub mod violations;
 pub mod violations_extended;
 pub mod violations_util;
-pub mod violations;
-pub mod engine;
-pub mod hash_diff;
-pub mod fix_generator;
-pub mod naming;
-pub mod check;
-pub mod snapshot;
-pub mod analyze;

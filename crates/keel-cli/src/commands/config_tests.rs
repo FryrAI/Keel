@@ -33,9 +33,18 @@ fn test_resolve_dot_path() {
             "detailed": false,
         }
     });
-    assert_eq!(resolve_dot_path(&json, "tier"), Some(&serde_json::json!("free")));
-    assert_eq!(resolve_dot_path(&json, "telemetry.enabled"), Some(&serde_json::json!(true)));
-    assert_eq!(resolve_dot_path(&json, "telemetry.remote"), Some(&serde_json::json!(true)));
+    assert_eq!(
+        resolve_dot_path(&json, "tier"),
+        Some(&serde_json::json!("free"))
+    );
+    assert_eq!(
+        resolve_dot_path(&json, "telemetry.enabled"),
+        Some(&serde_json::json!(true))
+    );
+    assert_eq!(
+        resolve_dot_path(&json, "telemetry.remote"),
+        Some(&serde_json::json!(true))
+    );
     assert_eq!(resolve_dot_path(&json, "nonexistent"), None);
     assert_eq!(resolve_dot_path(&json, "telemetry.nonexistent"), None);
 }
@@ -53,11 +62,23 @@ fn test_set_dot_path() {
     assert!(set_dot_path(&mut json, "tier", serde_json::json!("team")));
     assert_eq!(json["tier"], serde_json::json!("team"));
 
-    assert!(set_dot_path(&mut json, "telemetry.enabled", serde_json::json!(false)));
+    assert!(set_dot_path(
+        &mut json,
+        "telemetry.enabled",
+        serde_json::json!(false)
+    ));
     assert_eq!(json["telemetry"]["enabled"], serde_json::json!(false));
 
-    assert!(!set_dot_path(&mut json, "nonexistent", serde_json::json!("x")));
-    assert!(!set_dot_path(&mut json, "telemetry.nonexistent", serde_json::json!("x")));
+    assert!(!set_dot_path(
+        &mut json,
+        "nonexistent",
+        serde_json::json!("x")
+    ));
+    assert!(!set_dot_path(
+        &mut json,
+        "telemetry.nonexistent",
+        serde_json::json!("x")
+    ));
 }
 
 #[test]

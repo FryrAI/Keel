@@ -1,8 +1,8 @@
 // Tests for Python star import resolution (Spec 003 - Python Resolution)
 
-use std::path::Path;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{CallSite, LanguageResolver};
+use std::path::Path;
 
 #[test]
 /// Star import should import all public names from the target module.
@@ -76,7 +76,10 @@ def main():
         callee_name: "foo".into(),
         receiver: None,
     });
-    assert!(edge.is_some(), "foo should resolve via star import (__all__)");
+    assert!(
+        edge.is_some(),
+        "foo should resolve via star import (__all__)"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "foo");
     assert!(
@@ -176,7 +179,10 @@ def main():
         receiver: None,
     });
 
-    assert!(edge.is_some(), "Expected call edge to be resolved via explicit import");
+    assert!(
+        edge.is_some(),
+        "Expected call edge to be resolved via explicit import"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "foo");
     assert_eq!(edge.target_file, "utils");
@@ -209,7 +215,10 @@ def main():
         receiver: None,
     });
 
-    assert!(edge.is_some(), "Expected same-file call edge to be resolved");
+    assert!(
+        edge.is_some(),
+        "Expected same-file call edge to be resolved"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "helper");
     assert_eq!(edge.target_file, "/project/app.py");
@@ -296,10 +305,7 @@ fn test_star_import_from_package() {
 def exported_func():
     return "from package"
 "#;
-    resolver.parse_file(
-        Path::new("/project/mypkg/__init__.py"),
-        init_source,
-    );
+    resolver.parse_file(Path::new("/project/mypkg/__init__.py"), init_source);
 
     // Parse caller with star import from the package
     let caller_source = r#"

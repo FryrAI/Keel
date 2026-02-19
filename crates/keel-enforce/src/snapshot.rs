@@ -54,14 +54,9 @@ pub fn compute_delta(previous: &ViolationSnapshot, current: &CompileResult) -> C
     let prev_errors: HashSet<ViolationKey> = previous.errors.iter().cloned().collect();
     let prev_warnings: HashSet<ViolationKey> = previous.warnings.iter().cloned().collect();
 
-    let new_errors: Vec<ViolationKey> = current_errors
-        .difference(&prev_errors)
-        .cloned()
-        .collect();
-    let resolved_errors: Vec<ViolationKey> = prev_errors
-        .difference(&current_errors)
-        .cloned()
-        .collect();
+    let new_errors: Vec<ViolationKey> = current_errors.difference(&prev_errors).cloned().collect();
+    let resolved_errors: Vec<ViolationKey> =
+        prev_errors.difference(&current_errors).cloned().collect();
     let new_warnings: Vec<ViolationKey> = current_warnings
         .difference(&prev_warnings)
         .cloned()

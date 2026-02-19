@@ -55,9 +55,27 @@ fn make_edge(
 fn store_with_two_functions() -> SqliteGraphStore {
     let mut store = SqliteGraphStore::in_memory().expect("in-memory store");
     let nodes = vec![
-        NodeChange::Add(make_node(100, "mod_test_hash", NodeKind::Module, "test_mod", 0)),
-        NodeChange::Add(make_node(1, "fn_caller_hsh", NodeKind::Function, "caller", 100)),
-        NodeChange::Add(make_node(2, "fn_callee_hsh", NodeKind::Function, "callee", 100)),
+        NodeChange::Add(make_node(
+            100,
+            "mod_test_hash",
+            NodeKind::Module,
+            "test_mod",
+            0,
+        )),
+        NodeChange::Add(make_node(
+            1,
+            "fn_caller_hsh",
+            NodeKind::Function,
+            "caller",
+            100,
+        )),
+        NodeChange::Add(make_node(
+            2,
+            "fn_callee_hsh",
+            NodeKind::Function,
+            "callee",
+            100,
+        )),
     ];
     store.update_nodes(nodes).expect("insert nodes");
     store
@@ -89,7 +107,14 @@ fn test_create_imports_edge() {
     let imported_id = 101_u64;
 
     // WHEN a GraphEdge with EdgeKind::Imports is created
-    let edge = make_edge(20, importer_id, imported_id, EdgeKind::Imports, "src/api.rs", 1);
+    let edge = make_edge(
+        20,
+        importer_id,
+        imported_id,
+        EdgeKind::Imports,
+        "src/api.rs",
+        1,
+    );
 
     // THEN the edge captures the import relationship and source location
     assert_eq!(edge.source_id, importer_id);
@@ -107,7 +132,14 @@ fn test_create_contains_edge() {
     let function_id = 1_u64;
 
     // WHEN a GraphEdge with EdgeKind::Contains is created
-    let edge = make_edge(30, module_id, function_id, EdgeKind::Contains, "src/test.rs", 5);
+    let edge = make_edge(
+        30,
+        module_id,
+        function_id,
+        EdgeKind::Contains,
+        "src/test.rs",
+        5,
+    );
 
     // THEN the edge represents structural containment
     assert_eq!(edge.source_id, module_id);
@@ -124,7 +156,14 @@ fn test_create_implements_edge() {
     let interface_id = 20_u64;
 
     // WHEN a GraphEdge with EdgeKind::Inherits is created (Inherits covers implements)
-    let edge = make_edge(40, implementor_id, interface_id, EdgeKind::Inherits, "src/impl.rs", 3);
+    let edge = make_edge(
+        40,
+        implementor_id,
+        interface_id,
+        EdgeKind::Inherits,
+        "src/impl.rs",
+        3,
+    );
 
     // THEN the edge links the implementor to the interface using Inherits
     assert_eq!(edge.source_id, implementor_id);
@@ -141,7 +180,14 @@ fn test_create_inherits_edge() {
     let parent_id = 20_u64;
 
     // WHEN a GraphEdge with EdgeKind::Inherits is created
-    let edge = make_edge(50, child_id, parent_id, EdgeKind::Inherits, "src/models.py", 8);
+    let edge = make_edge(
+        50,
+        child_id,
+        parent_id,
+        EdgeKind::Inherits,
+        "src/models.py",
+        8,
+    );
 
     // THEN the edge represents the inheritance chain
     assert_eq!(edge.source_id, child_id);
@@ -158,10 +204,34 @@ fn test_bidirectional_edge_lookup() {
     let mut store = SqliteGraphStore::in_memory().expect("in-memory store");
 
     let nodes = vec![
-        NodeChange::Add(make_node(100, "mod_bidi_hash", NodeKind::Module, "bidi_mod", 0)),
-        NodeChange::Add(make_node(1, "fn_target_hsh", NodeKind::Function, "target_fn", 100)),
-        NodeChange::Add(make_node(2, "fn_call_a_hsh", NodeKind::Function, "caller_a", 100)),
-        NodeChange::Add(make_node(3, "fn_call_b_hsh", NodeKind::Function, "caller_b", 100)),
+        NodeChange::Add(make_node(
+            100,
+            "mod_bidi_hash",
+            NodeKind::Module,
+            "bidi_mod",
+            0,
+        )),
+        NodeChange::Add(make_node(
+            1,
+            "fn_target_hsh",
+            NodeKind::Function,
+            "target_fn",
+            100,
+        )),
+        NodeChange::Add(make_node(
+            2,
+            "fn_call_a_hsh",
+            NodeKind::Function,
+            "caller_a",
+            100,
+        )),
+        NodeChange::Add(make_node(
+            3,
+            "fn_call_b_hsh",
+            NodeKind::Function,
+            "caller_b",
+            100,
+        )),
     ];
     store.update_nodes(nodes).expect("insert nodes");
 
@@ -175,16 +245,30 @@ fn test_bidirectional_edge_lookup() {
 
     // WHEN querying for incoming edges on that function
     let incoming = store.get_edges(1, EdgeDirection::Incoming);
-    assert_eq!(incoming.len(), 2, "target_fn should have 2 incoming call edges");
+    assert_eq!(
+        incoming.len(),
+        2,
+        "target_fn should have 2 incoming call edges"
+    );
 
     // Verify callers are nodes 2 and 3
     let caller_ids: Vec<u64> = incoming.iter().map(|e| e.source_id).collect();
-    assert!(caller_ids.contains(&2), "caller_a should be in incoming edges");
-    assert!(caller_ids.contains(&3), "caller_b should be in incoming edges");
+    assert!(
+        caller_ids.contains(&2),
+        "caller_a should be in incoming edges"
+    );
+    assert!(
+        caller_ids.contains(&3),
+        "caller_b should be in incoming edges"
+    );
 
     // THEN querying with EdgeDirection::Both returns all connected edges
     let both = store.get_edges(1, EdgeDirection::Both);
-    assert_eq!(both.len(), 3, "target_fn should have 3 total edges (2 in + 1 out)");
+    assert_eq!(
+        both.len(),
+        3,
+        "target_fn should have 3 total edges (2 in + 1 out)"
+    );
 }
 
 #[test]
@@ -200,7 +284,10 @@ fn test_edge_resolution_tier() {
     };
 
     // THEN the confidence is stored and reflects high-confidence resolution
-    assert!(resolved.confidence > 0.9, "Tier 1 tree-sitter resolution should be high confidence");
+    assert!(
+        resolved.confidence > 0.9,
+        "Tier 1 tree-sitter resolution should be high confidence"
+    );
     assert_eq!(resolved.target_name, "hash_password");
     assert_eq!(resolved.target_file, "src/utils.rs");
 }
@@ -265,7 +352,14 @@ fn test_self_referential_edge() {
     let recursive_id = 1_u64;
 
     // WHEN a Calls edge is created from the node to itself
-    let self_edge = make_edge(99, recursive_id, recursive_id, EdgeKind::Calls, "src/test.rs", 3);
+    let self_edge = make_edge(
+        99,
+        recursive_id,
+        recursive_id,
+        EdgeKind::Calls,
+        "src/test.rs",
+        3,
+    );
     let result = store.update_edges(vec![EdgeChange::Add(self_edge)]);
 
     // THEN the edge is valid and stored correctly
@@ -276,6 +370,10 @@ fn test_self_referential_edge() {
         .iter()
         .filter(|e| e.source_id == recursive_id && e.target_id == recursive_id)
         .collect();
-    assert_eq!(self_edges.len(), 1, "Should have exactly one self-referential edge");
+    assert_eq!(
+        self_edges.len(),
+        1,
+        "Should have exactly one self-referential edge"
+    );
     assert_eq!(self_edges[0].kind, EdgeKind::Calls);
 }

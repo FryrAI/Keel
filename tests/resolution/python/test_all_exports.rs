@@ -1,9 +1,9 @@
 // Tests for Python __all__ export list and public API handling (Spec 003 - Python Resolution)
 
-use std::path::Path;
 use keel_core::types::NodeKind;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
+use std::path::Path;
 
 #[test]
 /// __all__ should define the public API of a module for star imports.
@@ -88,7 +88,11 @@ def __internal():
 "#;
     let path = Path::new("/project/module.py");
     let result = resolver.parse_file(path, source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
 
     assert_eq!(defs.len(), 3);
 
@@ -97,8 +101,14 @@ def __internal():
     let internal_def = defs.iter().find(|d| d.name == "__internal").unwrap();
 
     assert!(process_def.is_public, "process() should be public");
-    assert!(!helper_def.is_public, "_helper() should be private (underscore prefix)");
-    assert!(!internal_def.is_public, "__internal() should be private (dunder prefix)");
+    assert!(
+        !helper_def.is_public,
+        "_helper() should be private (underscore prefix)"
+    );
+    assert!(
+        !internal_def.is_public,
+        "__internal() should be private (dunder prefix)"
+    );
 }
 
 #[test]
@@ -111,7 +121,11 @@ def greet(name: str, age: int) -> str:
 "#;
     let path = Path::new("/project/typed.py");
     let result = resolver.parse_file(path, source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
 
     assert_eq!(defs.len(), 1);
     assert!(
@@ -130,7 +144,11 @@ def greet(name: str):
 "#;
     let path = Path::new("/project/partial.py");
     let result = resolver.parse_file(path, source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
 
     assert_eq!(defs.len(), 1);
     assert!(
@@ -149,7 +167,11 @@ def greet(name):
 "#;
     let path = Path::new("/project/untyped.py");
     let result = resolver.parse_file(path, source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
 
     assert_eq!(defs.len(), 1);
     assert!(
@@ -184,7 +206,10 @@ def _private():
 
     // Concatenation is dynamic — falls back to underscore convention
     assert!(foo.is_public, "foo should be public (no underscore)");
-    assert!(!priv_fn.is_public, "_private should be private (underscore)");
+    assert!(
+        !priv_fn.is_public,
+        "_private should be private (underscore)"
+    );
 }
 
 #[test]
@@ -258,5 +283,8 @@ def _private():
 
     // Dynamic __all__ is unresolvable — falls back to underscore convention
     assert!(foo.is_public, "foo should be public (no underscore)");
-    assert!(!priv_fn.is_public, "_private should be private (underscore)");
+    assert!(
+        !priv_fn.is_public,
+        "_private should be private (underscore)"
+    );
 }

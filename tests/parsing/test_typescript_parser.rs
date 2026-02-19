@@ -16,12 +16,19 @@ fn test_ts_parse_named_function() {
     let source = "function greet(name: string): string { return name; }";
     let result = resolver.parse_file(Path::new("test.ts"), source);
 
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     let def = &funcs[0];
     assert_eq!(def.name, "greet");
     assert_eq!(def.file_path, "test.ts");
-    assert!(def.type_hints_present, "function with type annotations should have type_hints_present");
+    assert!(
+        def.type_hints_present,
+        "function with type annotations should have type_hints_present"
+    );
     assert!(def.line_start >= 1);
 }
 
@@ -37,7 +44,11 @@ fn test_ts_parse_arrow_function() {
     // The typescript.scm query captures arrow functions assigned to const.
     // If tree-sitter does not capture this, leave the test ignored with
     // a BUG annotation. Verify at runtime.
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     if funcs.is_empty() {
         panic!(
             "BUG: tree-sitter TS query doesn't capture arrow function const assignments. \
@@ -90,8 +101,14 @@ class UserService {
     assert_eq!(methods.len(), 3, "should have three method definitions");
     let method_names: Vec<&str> = methods.iter().map(|m| m.name.as_str()).collect();
     assert!(method_names.contains(&"getUser"), "missing getUser method");
-    assert!(method_names.contains(&"createUser"), "missing createUser method");
-    assert!(method_names.contains(&"deleteUser"), "missing deleteUser method");
+    assert!(
+        method_names.contains(&"createUser"),
+        "missing createUser method"
+    );
+    assert!(
+        method_names.contains(&"deleteUser"),
+        "missing deleteUser method"
+    );
 }
 
 #[test]
@@ -105,7 +122,11 @@ fn test_ts_parse_interface() {
 
     // The tree-sitter extraction code handles @def.type.name -> NodeKind::Class,
     // but the typescript.scm query may not have an interface_declaration pattern.
-    let non_module: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let non_module: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     if non_module.is_empty() {
         eprintln!(
             "NOTE: interface_declaration not captured by typescript.scm query. \
@@ -202,7 +223,11 @@ fn test_ts_parse_enum() {
 
     // The tree-sitter extraction code handles @def.enum.name -> NodeKind::Class,
     // but the typescript.scm query may not have an enum_declaration pattern.
-    let non_module: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let non_module: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     if non_module.is_empty() {
         eprintln!(
             "NOTE: enum_declaration not captured by typescript.scm query. \
@@ -212,7 +237,11 @@ fn test_ts_parse_enum() {
     }
 
     assert_eq!(non_module[0].name, "Color");
-    assert_eq!(non_module[0].kind, NodeKind::Class, "enums should map to NodeKind::Class");
+    assert_eq!(
+        non_module[0].kind,
+        NodeKind::Class,
+        "enums should map to NodeKind::Class"
+    );
 }
 
 #[test]
@@ -237,7 +266,11 @@ fn test_ts_parse_type_alias() {
 
     // Type aliases may produce a Class node (via @def.type.name) if the query
     // covers type_alias_declaration, or may produce nothing at all.
-    let non_module: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let non_module: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     if non_module.is_empty() {
         eprintln!(
             "NOTE: type_alias_declaration not captured by typescript.scm query. \

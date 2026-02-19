@@ -69,8 +69,7 @@ pub fn extract_mod_declarations(content: &str, file_dir: &Path) -> Vec<ModDeclar
 
         // Check preceding line for #[path = "..."]
         let custom_path = if i > 0 {
-            extract_path_attribute(lines[i - 1].trim())
-                .map(|p| file_dir.join(p))
+            extract_path_attribute(lines[i - 1].trim()).map(|p| file_dir.join(p))
         } else {
             None
         };
@@ -119,10 +118,7 @@ fn resolve_mod_to_path(dir: &Path, name: &str) -> PathBuf {
 }
 
 /// Build a lookup map from module name to resolved file path.
-pub fn build_mod_path_map(
-    content: &str,
-    file_dir: &Path,
-) -> HashMap<String, PathBuf> {
+pub fn build_mod_path_map(content: &str, file_dir: &Path) -> HashMap<String, PathBuf> {
     extract_mod_declarations(content, file_dir)
         .into_iter()
         .map(|m| (m.name, m.resolved_path))

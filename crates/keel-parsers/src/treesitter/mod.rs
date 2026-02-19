@@ -6,9 +6,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 use crate::queries;
-use crate::resolver::{
-    Definition, ParseResult, Reference, ReferenceKind,
-};
+use crate::resolver::{Definition, ParseResult, Reference, ReferenceKind};
 use keel_core::types::NodeKind;
 
 pub struct TreeSitterParser {
@@ -39,8 +37,7 @@ impl TreeSitterParser {
         source: &str,
     ) -> Result<ParseResult, ParseError> {
         let lang = language_for_name(lang_name)?;
-        let query = queries::query_for_language(&lang, lang_name)
-            .map_err(ParseError::Query)?;
+        let query = queries::query_for_language(&lang, lang_name).map_err(ParseError::Query)?;
         self.parser
             .set_language(&lang)
             .map_err(|e| ParseError::Language(format!("{e}")))?;
@@ -108,9 +105,7 @@ pub enum ParseError {
 
 fn language_for_name(name: &str) -> Result<Language, ParseError> {
     match name {
-        "typescript" | "javascript" => {
-            Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
-        }
+        "typescript" | "javascript" => Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         "tsx" => Ok(tree_sitter_typescript::LANGUAGE_TSX.into()),
         "python" => Ok(tree_sitter_python::LANGUAGE.into()),
         "go" => Ok(tree_sitter_go::LANGUAGE.into()),
@@ -150,8 +145,7 @@ fn extract_definitions(
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Function);
                 }
-                "def.class.name" | "def.type.name"
-                | "def.struct.name" | "def.enum.name"
+                "def.class.name" | "def.type.name" | "def.struct.name" | "def.enum.name"
                 | "def.trait.name" => {
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Class);
@@ -170,19 +164,27 @@ fn extract_definitions(
                 "def.func.return_type" | "def.method.return_type" => {
                     return_type_text = node_text(cap.node, source).to_string();
                 }
-                "def.func.body" | "def.method.body"
-                | "def.class.body" | "def.type.body"
-                | "def.struct.body" | "def.enum.body"
-                | "def.trait.body" | "def.impl.body" => {
+                "def.func.body" | "def.method.body" | "def.class.body" | "def.type.body"
+                | "def.struct.body" | "def.enum.body" | "def.trait.body" | "def.impl.body" => {
                     body_text = node_text(cap.node, source).to_string();
                 }
-                "def.func" | "def.method" | "def.class"
-                | "def.type" | "def.struct" | "def.enum"
-                | "def.trait" | "def.impl" | "def.mod"
-                | "def.macro" | "def.trait_impl"
-                | "def.method.parent" | "def.export"
-                | "def.method.receiver" | "def.impl.type"
-                | "def.trait_impl.trait_name" | "def.trait_impl.type_name"
+                "def.func"
+                | "def.method"
+                | "def.class"
+                | "def.type"
+                | "def.struct"
+                | "def.enum"
+                | "def.trait"
+                | "def.impl"
+                | "def.mod"
+                | "def.macro"
+                | "def.trait_impl"
+                | "def.method.parent"
+                | "def.export"
+                | "def.method.receiver"
+                | "def.impl.type"
+                | "def.trait_impl.trait_name"
+                | "def.trait_impl.type_name"
                 | "def.trait_impl.body" => {
                     line_start = cap.node.start_position().row as u32 + 1;
                     line_end = cap.node.end_position().row as u32 + 1;
@@ -198,8 +200,10 @@ fn extract_definitions(
                 format!("{n}{params_text} -> {return_type_text}")
             };
             let has_type_hints = !params_text.is_empty()
-                && (params_text.contains(':') || params_text.contains(" int")
-                    || params_text.contains(" string") || params_text.contains(" bool"));
+                && (params_text.contains(':')
+                    || params_text.contains(" int")
+                    || params_text.contains(" string")
+                    || params_text.contains(" bool"));
 
             defs.push(Definition {
                 name: n,
@@ -305,4 +309,3 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests;
-

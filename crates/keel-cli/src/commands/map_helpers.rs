@@ -21,13 +21,25 @@ pub fn build_map_result(
         .collect();
 
     let total_nodes = nodes.len() as u32;
-    let total_edges = valid_edges.iter().filter(|e| matches!(e, EdgeChange::Add(_))).count() as u32;
+    let total_edges = valid_edges
+        .iter()
+        .filter(|e| matches!(e, EdgeChange::Add(_)))
+        .count() as u32;
     let modules_count = nodes.iter().filter(|n| n.kind == NodeKind::Module).count() as u32;
-    let functions_count = nodes.iter().filter(|n| n.kind == NodeKind::Function).count() as u32;
+    let functions_count = nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::Function)
+        .count() as u32;
     let classes_count = nodes.iter().filter(|n| n.kind == NodeKind::Class).count() as u32;
 
-    let non_module_nodes: Vec<_> = nodes.iter().filter(|n| n.kind != NodeKind::Module).collect();
-    let type_hint_count = non_module_nodes.iter().filter(|n| n.type_hints_present).count();
+    let non_module_nodes: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.kind != NodeKind::Module)
+        .collect();
+    let type_hint_count = non_module_nodes
+        .iter()
+        .filter(|n| n.type_hints_present)
+        .count();
     let docstring_count = non_module_nodes.iter().filter(|n| n.has_docstring).count();
     let type_hint_coverage = if non_module_nodes.is_empty() {
         0.0
@@ -47,7 +59,10 @@ pub fn build_map_result(
     let mut langs: Vec<String> = languages.into_iter().collect();
     langs.sort();
 
-    let external_endpoint_count = nodes.iter().map(|n| n.external_endpoints.len()).sum::<usize>() as u32;
+    let external_endpoint_count = nodes
+        .iter()
+        .map(|n| n.external_endpoints.len())
+        .sum::<usize>() as u32;
 
     // Build caller/callee count maps for function refs
     let mut callers_map: HashMap<u64, u32> = HashMap::new();
@@ -250,7 +265,10 @@ pub fn build_module_profiles(node_changes: &[NodeChange]) -> Vec<ModuleProfile> 
         })
         .collect();
 
-    let modules: Vec<_> = nodes.iter().filter(|n| n.kind == NodeKind::Module).collect();
+    let modules: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::Module)
+        .collect();
 
     modules
         .iter()
@@ -261,8 +279,14 @@ pub fn build_module_profiles(node_changes: &[NodeChange]) -> Vec<ModuleProfile> 
                 .filter(|n| n.module_id == module_id && n.kind != NodeKind::Module)
                 .collect();
 
-            let fn_count = children.iter().filter(|n| n.kind == NodeKind::Function).count() as u32;
-            let cls_count = children.iter().filter(|n| n.kind == NodeKind::Class).count() as u32;
+            let fn_count = children
+                .iter()
+                .filter(|n| n.kind == NodeKind::Function)
+                .count() as u32;
+            let cls_count = children
+                .iter()
+                .filter(|n| n.kind == NodeKind::Class)
+                .count() as u32;
             let line_count = m.line_end.saturating_sub(m.line_start) + 1;
 
             // Extract keywords from file path segments
@@ -300,7 +324,9 @@ pub fn build_module_profiles(node_changes: &[NodeChange]) -> Vec<ModuleProfile> 
 
 /// Extract keywords from a file path (e.g., "src/auth/middleware.rs" -> ["auth", "middleware"]).
 fn extract_path_keywords(path: &str) -> Vec<String> {
-    let stop_words = ["src", "lib", "app", "pkg", "cmd", "internal", "mod", "index", "main"];
+    let stop_words = [
+        "src", "lib", "app", "pkg", "cmd", "internal", "mod", "index", "main",
+    ];
     path.replace('\\', "/")
         .split('/')
         .flat_map(|seg| {
@@ -313,9 +339,7 @@ fn extract_path_keywords(path: &str) -> Vec<String> {
 }
 
 /// Extract keywords from function/class names in a module.
-fn extract_name_keywords(
-    children: &[&&keel_core::types::GraphNode],
-) -> Vec<String> {
+fn extract_name_keywords(children: &[&&keel_core::types::GraphNode]) -> Vec<String> {
     children
         .iter()
         .flat_map(|n| split_identifier(&n.name))
@@ -344,9 +368,7 @@ fn split_identifier(name: &str) -> Vec<String> {
 }
 
 /// Extract common function name prefixes (first segment before underscore).
-fn extract_function_prefixes(
-    children: &[&&keel_core::types::GraphNode],
-) -> Vec<String> {
+fn extract_function_prefixes(children: &[&&keel_core::types::GraphNode]) -> Vec<String> {
     let mut prefix_counts: HashMap<String, u32> = HashMap::new();
     for n in children {
         if n.kind != NodeKind::Function {

@@ -25,8 +25,10 @@ impl SqliteGraphStore {
                 return HashMap::new();
             }
         };
-        let params: Vec<&dyn rusqlite::ToSql> =
-            node_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        let params: Vec<&dyn rusqlite::ToSql> = node_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
         let rows = match stmt.query_map(params.as_slice(), |row| {
             Ok((
                 row.get::<_, u64>(0)?,
@@ -53,10 +55,7 @@ impl SqliteGraphStore {
 
     /// Batch-load previous hashes for multiple nodes in a single query.
     /// Replaces N individual load_previous_hashes() calls with 1 query.
-    pub(crate) fn batch_load_previous_hashes(
-        &self,
-        node_ids: &[u64],
-    ) -> HashMap<u64, Vec<String>> {
+    pub(crate) fn batch_load_previous_hashes(&self, node_ids: &[u64]) -> HashMap<u64, Vec<String>> {
         if node_ids.is_empty() {
             return HashMap::new();
         }
@@ -72,8 +71,10 @@ impl SqliteGraphStore {
                 return HashMap::new();
             }
         };
-        let params: Vec<&dyn rusqlite::ToSql> =
-            node_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        let params: Vec<&dyn rusqlite::ToSql> = node_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
         let rows = match stmt.query_map(params.as_slice(), |row| {
             Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?))
         }) {

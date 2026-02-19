@@ -6,8 +6,7 @@
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{
-    EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphNode, GraphError,
-    NodeChange, NodeKind,
+    EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphError, GraphNode, NodeChange, NodeKind,
 };
 
 /// Helper to create a minimal test node.
@@ -63,7 +62,10 @@ fn contract_get_node_by_hash() {
 fn contract_get_node_by_hash_missing() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let found = store.get_node("nonexistent_hash");
-    assert!(found.is_none(), "get_node should return None for missing hash");
+    assert!(
+        found.is_none(),
+        "get_node should return None for missing hash"
+    );
 }
 
 #[test]
@@ -93,8 +95,12 @@ fn contract_get_edges_outgoing() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "hash_caller01", "caller", NodeKind::Function, 0);
     let n2 = test_node(2, "hash_callee01", "callee", NodeKind::Function, 0);
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))])
+        .unwrap();
 
     let edges = store.get_edges(1, EdgeDirection::Outgoing);
     assert_eq!(edges.len(), 1);
@@ -106,8 +112,12 @@ fn contract_get_edges_incoming() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "hash_src00001", "source", NodeKind::Function, 0);
     let n2 = test_node(2, "hash_tgt00001", "target", NodeKind::Function, 0);
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))])
+        .unwrap();
 
     let edges = store.get_edges(2, EdgeDirection::Incoming);
     assert_eq!(edges.len(), 1);
@@ -120,16 +130,26 @@ fn contract_get_edges_both() {
     let n1 = test_node(1, "hash_a_both01", "a", NodeKind::Function, 0);
     let n2 = test_node(2, "hash_b_both01", "b", NodeKind::Function, 0);
     let n3 = test_node(3, "hash_c_both01", "c", NodeKind::Function, 0);
-    store.update_nodes(vec![
-        NodeChange::Add(n1), NodeChange::Add(n2), NodeChange::Add(n3),
-    ]).unwrap();
-    store.update_edges(vec![
-        EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls)),
-        EdgeChange::Add(test_edge(2, 2, 3, EdgeKind::Calls)),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(n1),
+            NodeChange::Add(n2),
+            NodeChange::Add(n3),
+        ])
+        .unwrap();
+    store
+        .update_edges(vec![
+            EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls)),
+            EdgeChange::Add(test_edge(2, 2, 3, EdgeKind::Calls)),
+        ])
+        .unwrap();
 
     let edges = store.get_edges(2, EdgeDirection::Both);
-    assert_eq!(edges.len(), 2, "Node 2 should have 1 incoming + 1 outgoing edge");
+    assert_eq!(
+        edges.len(),
+        2,
+        "Node 2 should have 1 incoming + 1 outgoing edge"
+    );
 }
 
 #[test]
@@ -152,7 +172,9 @@ fn contract_get_nodes_in_file() {
     let n1 = test_node(1, "hash_file_a01", "func_a", NodeKind::Function, 0);
     let mut n2 = test_node(2, "hash_file_b01", "func_b", NodeKind::Function, 0);
     n2.file_path = "src/other.rs".to_string();
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
 
     let nodes = store.get_nodes_in_file("src/contract_test.rs");
     assert_eq!(nodes.len(), 1);
@@ -169,9 +191,13 @@ fn contract_get_all_modules() {
     let m1 = test_node(100, "hash_mod_a001", "mod_a", NodeKind::Module, 0);
     let m2 = test_node(101, "hash_mod_b001", "mod_b", NodeKind::Module, 0);
     let f1 = test_node(1, "hash_func_001", "func_a", NodeKind::Function, 100);
-    store.update_nodes(vec![
-        NodeChange::Add(m1), NodeChange::Add(m2), NodeChange::Add(f1),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(m1),
+            NodeChange::Add(m2),
+            NodeChange::Add(f1),
+        ])
+        .unwrap();
 
     let modules = store.get_all_modules();
     assert_eq!(modules.len(), 2, "Should return only module-kind nodes");
@@ -198,7 +224,9 @@ fn contract_update_nodes_update() {
 
     let mut updated = test_node(1, "hash_upd_0002", "renamed", NodeKind::Function, 0);
     updated.signature = "fn renamed() -> bool".to_string();
-    store.update_nodes(vec![NodeChange::Update(updated)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Update(updated)])
+        .unwrap();
 
     let found = store.get_node_by_id(1).unwrap();
     assert_eq!(found.name, "renamed");
@@ -238,7 +266,9 @@ fn contract_update_edges_add() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "hash_ea_00001", "src_fn", NodeKind::Function, 0);
     let n2 = test_node(2, "hash_ea_00002", "tgt_fn", NodeKind::Function, 0);
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
 
     let result = store.update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))]);
     assert!(result.is_ok());
@@ -252,8 +282,12 @@ fn contract_update_edges_remove() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "hash_er_00001", "src_fn", NodeKind::Function, 0);
     let n2 = test_node(2, "hash_er_00002", "tgt_fn", NodeKind::Function, 0);
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
-    store.update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(test_edge(1, 1, 2, EdgeKind::Calls))])
+        .unwrap();
 
     store.update_edges(vec![EdgeChange::Remove(1)]).unwrap();
     let edges = store.get_edges(1, EdgeDirection::Outgoing);
@@ -282,7 +316,10 @@ fn contract_get_previous_hashes_empty() {
 fn contract_get_module_profile_missing() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let profile = store.get_module_profile(999);
-    assert!(profile.is_none(), "Module profile should be None for nonexistent module");
+    assert!(
+        profile.is_none(),
+        "Module profile should be None for nonexistent module"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -297,10 +334,17 @@ fn contract_hash_collision_different_names() {
 
     let n2 = test_node(2, "collision_hash", "func_b", NodeKind::Function, 0);
     let result = store.update_nodes(vec![NodeChange::Add(n2)]);
-    assert!(result.is_err(), "Should detect hash collision for different function names");
+    assert!(
+        result.is_err(),
+        "Should detect hash collision for different function names"
+    );
 
     match result.unwrap_err() {
-        GraphError::HashCollision { hash, existing, new_fn } => {
+        GraphError::HashCollision {
+            hash,
+            existing,
+            new_fn,
+        } => {
             assert_eq!(hash, "collision_hash");
             assert_eq!(existing, "func_a");
             assert_eq!(new_fn, "func_b");

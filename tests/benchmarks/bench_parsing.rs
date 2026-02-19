@@ -23,7 +23,11 @@ fn setup_and_init(project: &[(String, String)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -36,12 +40,20 @@ fn bench_parse_1k_typescript_files() {
     let keel = keel_bin();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
     assert!(output.status.success(), "map failed");
     // Debug mode + parallel test contention: allow 90s (release target: 2s)
-    assert!(elapsed.as_secs() < 90, "parsing 100 TS files took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 90,
+        "parsing 100 TS files took {:?}",
+        elapsed
+    );
 }
 
 #[test]
@@ -52,12 +64,20 @@ fn bench_parse_5k_python_files() {
     let keel = keel_bin();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
     assert!(output.status.success(), "map failed");
     // Debug mode + parallel test contention: allow 60s
-    assert!(elapsed.as_secs() < 60, "parsing 100 Python files took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 60,
+        "parsing 100 Python files took {:?}",
+        elapsed
+    );
 }
 
 #[test]
@@ -75,15 +95,27 @@ fn bench_parse_10k_mixed_files() {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
     assert!(output.status.success(), "map failed");
     // Debug mode + parallel test contention: allow 60s
-    assert!(elapsed.as_secs() < 60, "mixed-lang parsing took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 60,
+        "mixed-lang parsing took {:?}",
+        elapsed
+    );
 }
 
 #[test]
@@ -94,7 +126,11 @@ fn bench_per_file_parse_time_under_5ms() {
     let keel = keel_bin();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
     assert!(output.status.success(), "map failed");

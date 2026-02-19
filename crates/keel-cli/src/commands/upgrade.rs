@@ -30,9 +30,11 @@ fn platform_artifact() -> Result<String, String> {
     let platform = match os {
         "linux" => "linux",
         "macos" => "darwin",
-        _ => return Err(format!(
-            "unsupported OS: {os}. Download manually from https://github.com/{REPO}/releases"
-        )),
+        _ => {
+            return Err(format!(
+                "unsupported OS: {os}. Download manually from https://github.com/{REPO}/releases"
+            ))
+        }
     };
 
     let arch_suffix = match arch {
@@ -91,14 +93,17 @@ fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 fn download_to(url: &str, dest: &PathBuf) -> Result<(), String> {
     let bytes = download_bytes(url)?;
-    fs::write(dest, &bytes)
-        .map_err(|e| format!("failed to write {}: {e}", dest.display()))?;
+    fs::write(dest, &bytes).map_err(|e| format!("failed to write {}: {e}", dest.display()))?;
     Ok(())
 }
 
-fn verify_checksum(binary_path: &PathBuf, checksum_path: &PathBuf, artifact: &str) -> Result<(), String> {
-    let checksums = fs::read_to_string(checksum_path)
-        .map_err(|e| format!("failed to read checksums: {e}"))?;
+fn verify_checksum(
+    binary_path: &PathBuf,
+    checksum_path: &PathBuf,
+    artifact: &str,
+) -> Result<(), String> {
+    let checksums =
+        fs::read_to_string(checksum_path).map_err(|e| format!("failed to read checksums: {e}"))?;
 
     let expected = checksums
         .lines()
@@ -106,8 +111,7 @@ fn verify_checksum(binary_path: &PathBuf, checksum_path: &PathBuf, artifact: &st
         .and_then(|line| line.split_whitespace().next())
         .ok_or_else(|| format!("no checksum found for {artifact}"))?;
 
-    let binary_bytes = fs::read(binary_path)
-        .map_err(|e| format!("failed to read binary: {e}"))?;
+    let binary_bytes = fs::read(binary_path).map_err(|e| format!("failed to read binary: {e}"))?;
 
     let actual = sha256_simple(&binary_bytes);
 
@@ -144,7 +148,9 @@ fn sha256_simple(data: &[u8]) -> String {
         stdin.write_all(data).ok();
     }
 
-    let output = child.wait_with_output().expect("failed to wait for sha256sum");
+    let output = child
+        .wait_with_output()
+        .expect("failed to wait for sha256sum");
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.split_whitespace().next().unwrap_or("").to_string()
 }
@@ -168,7 +174,11 @@ pub fn run(version: Option<String>, yes: bool) -> i32 {
 
     let (latest_version, tag) = match version {
         Some(v) => {
-            let tag = if v.starts_with('v') { v.clone() } else { format!("v{v}") };
+            let tag = if v.starts_with('v') {
+                v.clone()
+            } else {
+                format!("v{v}")
+            };
             let ver = v.strip_prefix('v').unwrap_or(&v).to_string();
             (ver, tag)
         }
@@ -246,7 +256,11 @@ pub fn run(version: Option<String>, yes: bool) -> i32 {
 
     if let Err(e) = fs::rename(&tmp_binary, &exe_path) {
         eprintln!("error: failed to replace binary: {e}");
-        eprintln!("try: sudo mv {} {}", tmp_binary.display(), exe_path.display());
+        eprintln!(
+            "try: sudo mv {} {}",
+            tmp_binary.display(),
+            exe_path.display()
+        );
         return 2;
     }
 

@@ -11,16 +11,26 @@ pub fn format_analyze(result: &AnalyzeResult) -> String {
     for f in &s.functions {
         out.push_str(&format!(
             "  fn {} hash={} lines={}-{} ({}) callers={} callees={}{}\n",
-            f.name, f.hash, f.line_start, f.line_end, f.lines,
-            f.callers, f.callees,
+            f.name,
+            f.hash,
+            f.line_start,
+            f.line_end,
+            f.lines,
+            f.callers,
+            f.callees,
             if f.is_public { " PUB" } else { "" },
         ));
     }
     for c in &s.classes {
         out.push_str(&format!(
             "  class {} hash={} lines={}-{} ({}) callers={} callees={}{}\n",
-            c.name, c.hash, c.line_start, c.line_end, c.lines,
-            c.callers, c.callees,
+            c.name,
+            c.hash,
+            c.line_start,
+            c.line_end,
+            c.lines,
+            c.callers,
+            c.callees,
             if c.is_public { " PUB" } else { "" },
         ));
     }
@@ -33,7 +43,10 @@ pub fn format_analyze(result: &AnalyzeResult) -> String {
     }
 
     if !result.refactor_opportunities.is_empty() {
-        out.push_str(&format!("REFACTOR count={}\n", result.refactor_opportunities.len()));
+        out.push_str(&format!(
+            "REFACTOR count={}\n",
+            result.refactor_opportunities.len()
+        ));
         for r in &result.refactor_opportunities {
             out.push_str(&format!("  {:?}: {}\n", r.kind, r.message));
         }

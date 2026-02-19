@@ -3,10 +3,10 @@
 // Most package resolution features require filesystem access and the ty
 // subprocess (Tier 2), which are not available at the parser layer.
 
-use std::path::{Path, PathBuf};
 use keel_parsers::python::ty::{MockTyClient, TyClient, TyResult};
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::LanguageResolver;
+use std::path::{Path, PathBuf};
 
 #[test]
 /// Absolute import of a local package should be captured as an import entry.
@@ -36,7 +36,10 @@ from requests import get
     assert!(!result.imports.is_empty(), "from-import should be captured");
     let imp = &result.imports[0];
     assert_eq!(imp.source, "requests");
-    assert!(!imp.is_relative, "third-party import should not be relative");
+    assert!(
+        !imp.is_relative,
+        "third-party import should not be relative"
+    );
 }
 
 #[test]

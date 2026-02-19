@@ -20,7 +20,10 @@ def process(data: list) -> dict:
     let result = resolver.parse_file(Path::new("test.py"), source);
 
     // THEN a Definition with NodeKind::Function and name "process" is produced
-    assert!(!result.definitions.is_empty(), "should have at least one definition");
+    assert!(
+        !result.definitions.is_empty(),
+        "should have at least one definition"
+    );
     let func = result
         .definitions
         .iter()
@@ -31,7 +34,10 @@ def process(data: list) -> dict:
         func.type_hints_present,
         "process has type hints (param + return), so type_hints_present should be true"
     );
-    assert!(func.is_public, "process does not start with underscore, so is_public");
+    assert!(
+        func.is_public,
+        "process does not start with underscore, so is_public"
+    );
 }
 
 #[test]
@@ -60,7 +66,11 @@ class UserService:
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(class_defs.len(), 1, "should have exactly one class definition");
+    assert_eq!(
+        class_defs.len(),
+        1,
+        "should have exactly one class definition"
+    );
     assert_eq!(class_defs[0].name, "UserService");
 
     let func_defs: Vec<_> = result
@@ -77,11 +87,17 @@ class UserService:
     let func_names: Vec<&str> = func_defs.iter().map(|d| d.name.as_str()).collect();
     assert!(func_names.contains(&"__init__"), "should contain __init__");
     assert!(func_names.contains(&"get_user"), "should contain get_user");
-    assert!(func_names.contains(&"delete_user"), "should contain delete_user");
+    assert!(
+        func_names.contains(&"delete_user"),
+        "should contain delete_user"
+    );
 
     // __init__ starts with underscore, so is_public should be false
     let init_def = func_defs.iter().find(|d| d.name == "__init__").unwrap();
-    assert!(!init_def.is_public, "__init__ should not be public (starts with _)");
+    assert!(
+        !init_def.is_public,
+        "__init__ should not be public (starts with _)"
+    );
 }
 
 #[test]
@@ -97,7 +113,10 @@ from utils.parser import parse_json
     let result = resolver.parse_file(Path::new("app.py"), source);
 
     // THEN an Import is created for "parse_json" from "utils.parser"
-    assert!(!result.imports.is_empty(), "should have at least one import");
+    assert!(
+        !result.imports.is_empty(),
+        "should have at least one import"
+    );
     let imp = result
         .imports
         .iter()

@@ -55,9 +55,7 @@ pub fn run(
     };
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel compile: failed to open graph database: {}", e);
@@ -218,7 +216,11 @@ pub fn run(
             }
             let has_errors = !result.errors.is_empty();
             let has_warnings = !result.warnings.is_empty();
-            return if has_errors || (strict && has_warnings) { 1 } else { 0 };
+            return if has_errors || (strict && has_warnings) {
+                1
+            } else {
+                0
+            };
         }
         // No previous snapshot: fall through to normal output
         if verbose {
@@ -240,7 +242,10 @@ pub fn run(
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed > timeout_ms {
             if verbose {
-                eprintln!("keel compile: timed out ({}ms > {}ms limit)", elapsed, timeout_ms);
+                eprintln!(
+                    "keel compile: timed out ({}ms > {}ms limit)",
+                    elapsed, timeout_ms
+                );
             }
             return 0; // Don't block the agent
         }
@@ -283,7 +288,10 @@ fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
                         return None; // Still locked
                     }
                 } else if verbose {
-                    eprintln!("keel compile: removing stale lock from PID {}", existing_pid);
+                    eprintln!(
+                        "keel compile: removing stale lock from PID {}",
+                        existing_pid
+                    );
                 }
             }
         }

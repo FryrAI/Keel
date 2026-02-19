@@ -5,10 +5,10 @@
 //! - **LLM** (default): Compact format optimized for AI coding agents
 //! - **Human** (`--human`): Colored, formatted output for terminal users
 
-pub mod json;
-pub mod llm;
 pub mod human;
 pub(crate) mod human_helpers;
+pub mod json;
+pub mod llm;
 pub mod token_budget;
 
 use keel_enforce::types::{

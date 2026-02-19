@@ -122,7 +122,10 @@ mod tests {
     #[test]
     fn test_batch_expired() {
         let batch = BatchState::new_expired();
-        assert!(batch.is_expired(), "Batch with past timestamp should be expired");
+        assert!(
+            batch.is_expired(),
+            "Batch with past timestamp should be expired"
+        );
     }
 
     #[test]

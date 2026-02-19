@@ -26,13 +26,7 @@ fn bench_hash_computation(c: &mut Criterion) {
 
     let large_body = body.repeat(50);
     c.bench_function("hash_large_function", |b| {
-        b.iter(|| {
-            compute_hash(
-                black_box(sig),
-                black_box(&large_body),
-                black_box(doc),
-            )
-        })
+        b.iter(|| compute_hash(black_box(sig), black_box(&large_body), black_box(doc)))
     });
 
     c.bench_function("hash_disambiguated", |b| {
@@ -249,10 +243,7 @@ fn bench_sqlite_get_edges(c: &mut Criterion) {
 
     c.bench_function("sqlite_get_outgoing_edges_50", |b| {
         b.iter(|| {
-            store.get_edges(
-                black_box(1),
-                keel_core::types::EdgeDirection::Outgoing,
-            );
+            store.get_edges(black_box(1), keel_core::types::EdgeDirection::Outgoing);
         })
     });
 }

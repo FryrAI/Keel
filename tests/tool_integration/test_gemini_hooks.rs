@@ -25,12 +25,24 @@ fn init_project() -> TempDir {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
-    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
     // Create .gemini/ so tool detection fires during keel init
     fs::create_dir_all(dir.path().join(".gemini")).unwrap();
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -38,7 +50,10 @@ fn init_project() -> TempDir {
 fn test_gemini_settings_json_generation() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
-    assert!(settings.exists(), "Gemini settings.json should be generated");
+    assert!(
+        settings.exists(),
+        "Gemini settings.json should be generated"
+    );
     let contents = fs::read_to_string(&settings).unwrap();
     let _: serde_json::Value = serde_json::from_str(&contents).expect("should be valid JSON");
 }
@@ -55,8 +70,14 @@ fn test_gemini_md_includes_keel_commands() {
     let dir = init_project();
     let md = dir.path().join("GEMINI.md");
     let contents = fs::read_to_string(&md).unwrap();
-    assert!(contents.contains("compile"), "should include compile command");
-    assert!(contents.contains("discover"), "should include discover command");
+    assert!(
+        contents.contains("compile"),
+        "should include compile command"
+    );
+    assert!(
+        contents.contains("discover"),
+        "should include discover command"
+    );
 }
 
 #[test]
@@ -64,7 +85,10 @@ fn test_gemini_md_includes_error_handling() {
     let dir = init_project();
     let md = dir.path().join("GEMINI.md");
     let contents = fs::read_to_string(&md).unwrap();
-    assert!(contents.contains("E001") || contents.contains("error"), "should include error handling");
+    assert!(
+        contents.contains("E001") || contents.contains("error"),
+        "should include error handling"
+    );
 }
 
 #[test]
@@ -72,7 +96,10 @@ fn test_gemini_settings_has_post_edit_hook() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
-    assert!(contents.contains("keel compile"), "should reference keel compile on edit");
+    assert!(
+        contents.contains("keel compile"),
+        "should reference keel compile on edit"
+    );
 }
 
 #[test]
@@ -80,7 +107,11 @@ fn test_gemini_settings_merges_with_existing() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
-    fs::write(src.join("index.ts"), "export function hello(name: string): string { return name; }\n").unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
 
     // Create .gemini/ with existing settings.json BEFORE keel init
     let gemini_dir = dir.path().join(".gemini");
@@ -89,12 +120,23 @@ fn test_gemini_settings_merges_with_existing() {
 
     // Run keel init — should detect .gemini and merge
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "keel init failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let settings = dir.path().join(".gemini/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
-    assert!(contents.contains("existing"), "existing settings should be preserved");
+    assert!(
+        contents.contains("existing"),
+        "existing settings should be preserved"
+    );
     assert!(contents.contains("hooks"), "keel hooks should be added");
 }
 

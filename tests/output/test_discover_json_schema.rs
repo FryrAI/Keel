@@ -130,7 +130,9 @@ fn test_discover_json_edge_metadata() {
     let keywords = mc["responsibility_keywords"].as_array().unwrap();
     assert!(keywords.iter().any(|k| k == "http"));
     let endpoints = mc["external_endpoints"].as_array().unwrap();
-    assert!(endpoints.iter().any(|e| e.as_str().unwrap().contains("GET")));
+    assert!(endpoints
+        .iter()
+        .any(|e| e.as_str().unwrap().contains("GET")));
 }
 
 #[test]

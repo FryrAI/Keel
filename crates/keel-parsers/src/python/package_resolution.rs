@@ -14,10 +14,7 @@ use std::path::{Path, PathBuf};
 /// namespace packages (directories without `__init__.py`).
 ///
 /// Returns `None` if any intermediate directory does not exist.
-pub fn resolve_python_package_chain(
-    base_dir: &Path,
-    module_path: &str,
-) -> Option<PathBuf> {
+pub fn resolve_python_package_chain(base_dir: &Path, module_path: &str) -> Option<PathBuf> {
     let parts: Vec<&str> = module_path.split('.').collect();
     if parts.is_empty() {
         return None;
