@@ -43,6 +43,25 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel where <hash>` — resolve hash to file:line
 - `keel map --llm` — regenerate the LLM-optimized map (includes function names)
 - `keel watch` — auto-compile on file changes
+- `keel check <hash>` — pre-edit risk assessment (callers, risk level)
+- `keel fix [--apply]` — generate and optionally apply fix plans
+- `keel name <description>` — suggest names for new code
+- `keel analyze <file>` — architectural analysis of a file
+
+**Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
+
+### MCP Tools (available via `keel serve --mcp`):
+The keel MCP server exposes these tools directly to your IDE:
+- `keel/compile` — compile files and check for violations
+- `keel/discover` — find callers and callees of a function by hash
+- `keel/where` — resolve a hash to file:line
+- `keel/explain` — explain a violation with resolution chain
+- `keel/map` — full or scoped graph map
+- `keel/check` — pre-edit risk assessment
+- `keel/fix` — generate fix plans for violations
+- `keel/search` — search the graph by name
+- `keel/name` — suggest names for new code
+- `keel/analyze` — architectural analysis of a file
 
 ### Common Mistakes:
 - **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.

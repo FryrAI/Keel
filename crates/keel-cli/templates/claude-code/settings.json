@@ -1,4 +1,10 @@
 {
+  "mcpServers": {
+    "keel": {
+      "command": "keel",
+      "args": ["serve", "--mcp"]
+    }
+  },
   "hooks": {
     "SessionStart": [
       {
