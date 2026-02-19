@@ -39,8 +39,10 @@ pub fn check_broken_callers_with_cache(
 
         // Compute expected hash from current definition
         let new_hash = keel_core::hash::compute_hash(&def.signature, &def.body_text, def.docstring.as_deref().unwrap_or(""));
+        // Also check disambiguated hash (map may have used it for collisions)
+        let new_hash_disambiguated = keel_core::hash::compute_hash_disambiguated(&def.signature, &def.body_text, def.docstring.as_deref().unwrap_or(""), &file.file_path);
 
-        if existing.hash == new_hash {
+        if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
             continue; // No change
         }
 

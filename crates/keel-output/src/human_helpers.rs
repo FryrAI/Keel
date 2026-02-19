@@ -13,6 +13,10 @@ pub(crate) fn format_violation_human(v: &Violation) -> String {
         severity_label, v.code, v.message, v.file, v.line,
     );
 
+    if !v.hash.is_empty() {
+        out.push_str(&format!("   = hash: {}\n", v.hash));
+    }
+
     if let Some(fix) = &v.fix_hint {
         out.push_str(&format!("   = fix: {}\n", fix));
     }
@@ -115,6 +119,7 @@ mod tests {
         let out = fmt.format_compile(&result);
         assert!(out.contains("error[E001]: Signature of `foo` changed"));
         assert!(out.contains("--> src/lib.rs:10"));
+        assert!(out.contains("= hash: abc12345678"));
         assert!(out.contains("= fix: Update callers of `foo`"));
         assert!(out.contains("= callers: src/bar.rs:20"));
         assert!(out.contains("1 error(s), 0 warning(s) in 1 file(s)"));
