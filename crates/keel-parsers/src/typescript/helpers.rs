@@ -138,6 +138,50 @@ fn extract_reference_path(line: &str) -> Option<String> {
     }
 }
 
+/// Check if a file path refers to a JavaScript (not TypeScript) file.
+pub fn is_js_file(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("js" | "jsx" | "mjs" | "cjs") => true,
+        _ => false,
+    }
+}
+
+/// Check if a JS function has JSDoc type hints (`@param` or `@returns`/`@return`)
+/// in a `/** ... */` comment block within the 15 lines preceding the function.
+pub fn js_has_jsdoc_type_hints(source: &str, fn_line: usize) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    // fn_line is 1-based line number
+    if fn_line == 0 || fn_line > lines.len() {
+        return false;
+    }
+    let end = fn_line - 1; // convert to 0-based, exclusive (lines before fn)
+    let start = end.saturating_sub(15);
+
+    let mut in_jsdoc = false;
+    let mut found_param_or_returns = false;
+
+    for line in &lines[start..end] {
+        let trimmed = line.trim();
+        if trimmed.starts_with("/**") {
+            in_jsdoc = true;
+            found_param_or_returns = false;
+        }
+        if in_jsdoc {
+            if trimmed.contains("@param") || trimmed.contains("@returns") || trimmed.contains("@return ") {
+                found_param_or_returns = true;
+            }
+        }
+        if trimmed.contains("*/") {
+            if in_jsdoc && found_param_or_returns {
+                return true;
+            }
+            in_jsdoc = false;
+        }
+    }
+
+    false
+}
+
 /// Extract a string literal from a `from '...'` or `from "..."` fragment.
 pub(crate) fn extract_string_literal(s: &str) -> Option<String> {
     let start_single = s.find('\'');

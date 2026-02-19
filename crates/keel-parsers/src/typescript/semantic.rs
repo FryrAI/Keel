@@ -40,12 +40,16 @@ pub(crate) fn analyze_with_oxc(path: &Path, content: &str) -> OxcSymbolInfo {
     // Detect exported names from source (no Export flag in SymbolFlags 0.49)
     let exported_names = detect_exported_names(content);
 
+    // For JS files, oxc can't infer type annotations — defer to JSDoc check.
+    let is_js = super::helpers::is_js_file(path);
+
     // Walk top-level bindings in root scope
     for symbol_id in scopes.iter_bindings_in(root_scope) {
         let name = symbols.get_name(symbol_id).to_string();
         let is_exported = exported_names.contains(&name);
-        // oxc parsed it successfully = we have precise type info
-        let has_type = true;
+        // TS files: oxc parsed it successfully = we have precise type info.
+        // JS files: type annotations aren't present; JSDoc pass handles it later.
+        let has_type = !is_js;
         symbol_map.insert(name, (is_exported, has_type));
     }
 

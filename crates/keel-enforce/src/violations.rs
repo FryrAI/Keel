@@ -183,10 +183,23 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
             ),
             confidence: 1.0,
             resolution_tier: "tree-sitter".to_string(),
-            fix_hint: Some(format!(
-                "Add type annotations to all parameters and return type of `{}`",
-                def.name
-            )),
+            fix_hint: Some({
+                let is_js = file.file_path.ends_with(".js")
+                    || file.file_path.ends_with(".jsx")
+                    || file.file_path.ends_with(".mjs")
+                    || file.file_path.ends_with(".cjs");
+                if is_js {
+                    format!(
+                        "Add JSDoc @param/@returns annotations to `{}`",
+                        def.name
+                    )
+                } else {
+                    format!(
+                        "Add type annotations to all parameters and return type of `{}`",
+                        def.name
+                    )
+                }
+            }),
             suppressed: false,
             suppress_hint: None,
             affected: vec![],

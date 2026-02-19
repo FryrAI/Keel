@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::resolver::{CallSite, LanguageResolver};
-use crate::typescript::helpers::{extract_string_literal, resolve_path_alias, ts_has_type_hints};
+use crate::typescript::helpers::{
+    extract_string_literal, is_js_file, js_has_jsdoc_type_hints, resolve_path_alias,
+    ts_has_type_hints,
+};
 use crate::typescript::semantic::extract_reexports;
 use crate::typescript::TsResolver;
 
@@ -189,4 +192,92 @@ fn test_extract_string_literal() {
         Some("./module".to_string())
     );
     assert_eq!(extract_string_literal("no quotes here"), None);
+}
+
+#[test]
+fn test_is_js_file() {
+    assert!(is_js_file(Path::new("app.js")));
+    assert!(is_js_file(Path::new("component.jsx")));
+    assert!(is_js_file(Path::new("utils.mjs")));
+    assert!(is_js_file(Path::new("config.cjs")));
+    assert!(!is_js_file(Path::new("app.ts")));
+    assert!(!is_js_file(Path::new("component.tsx")));
+    assert!(!is_js_file(Path::new("no_ext")));
+}
+
+#[test]
+fn test_js_has_jsdoc_type_hints_present() {
+    let source = r#"/**
+ * Greet a user.
+ * @param {string} name - The user's name
+ * @returns {string} A greeting
+ */
+function greet(name) {
+    return `Hello, ${name}!`;
+}"#;
+    // Function is on line 6 (1-based)
+    assert!(js_has_jsdoc_type_hints(source, 6));
+}
+
+#[test]
+fn test_js_has_jsdoc_type_hints_absent() {
+    let source = r#"// Just a regular comment
+function greet(name) {
+    return `Hello, ${name}!`;
+}"#;
+    assert!(!js_has_jsdoc_type_hints(source, 2));
+}
+
+#[test]
+fn test_js_has_jsdoc_no_param_tags() {
+    let source = r#"/**
+ * Greet a user.
+ */
+function greet(name) {
+    return `Hello, ${name}!`;
+}"#;
+    // JSDoc block exists but no @param/@returns
+    assert!(!js_has_jsdoc_type_hints(source, 4));
+}
+
+#[test]
+fn test_js_file_with_jsdoc_parsed_correctly() {
+    let resolver = TsResolver::new();
+    let source = r#"/**
+ * Add two numbers.
+ * @param {number} a - First number
+ * @param {number} b - Second number
+ * @returns {number} The sum
+ */
+export function add(a, b) {
+    return a + b;
+}"#;
+    let result = resolver.parse_file(Path::new("math.js"), source);
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == keel_core::types::NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "add");
+    assert!(funcs[0].type_hints_present, "JSDoc @param should set type_hints_present");
+}
+
+#[test]
+fn test_js_file_without_jsdoc_no_type_hints() {
+    let resolver = TsResolver::new();
+    let source = r#"
+export function add(a, b) {
+    return a + b;
+}
+"#;
+    let result = resolver.parse_file(Path::new("math.js"), source);
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == keel_core::types::NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "add");
+    assert!(!funcs[0].type_hints_present, "No JSDoc should mean type_hints_present is false");
 }

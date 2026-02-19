@@ -15,7 +15,10 @@ use crate::resolver::{
 };
 use crate::treesitter::TreeSitterParser;
 
-use self::helpers::{find_import_for_name, resolve_path_alias, ts_has_type_hints, ts_is_public};
+use self::helpers::{
+    find_import_for_name, is_js_file, js_has_jsdoc_type_hints, resolve_path_alias,
+    ts_has_type_hints, ts_is_public,
+};
 use self::semantic::{analyze_with_oxc, OxcSymbolInfo};
 
 /// Tier 1 + Tier 2 resolver for TypeScript and JavaScript.
@@ -151,6 +154,19 @@ impl TsResolver {
                 // Fallback to heuristic
                 def.type_hints_present = ts_has_type_hints(&def.signature);
                 def.is_public = ts_is_public(content, def.line_start);
+            }
+        }
+
+        // JavaScript JSDoc pass: for .js files, check if functions have
+        // @param/@returns annotations in preceding JSDoc comments.
+        if is_js_file(path) {
+            for def in &mut result.definitions {
+                if def.kind == keel_core::types::NodeKind::Function
+                    && !def.type_hints_present
+                    && js_has_jsdoc_type_hints(content, def.line_start as usize)
+                {
+                    def.type_hints_present = true;
+                }
             }
         }
 
