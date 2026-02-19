@@ -1,3 +1,11 @@
+//! MCP and HTTP server for keel.
+//!
+//! Provides two server modes:
+//! - **MCP** (`keel serve --mcp`): Model Context Protocol over stdin/stdout for IDE integration
+//! - **HTTP** (`keel serve --http`): REST API on localhost for tooling integration
+//!
+//! Also includes a file watcher for automatic re-compilation on changes.
+
 pub mod http;
 pub mod mcp;
 mod mcp_compile;

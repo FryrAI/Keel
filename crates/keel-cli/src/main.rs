@@ -1,3 +1,8 @@
+//! keel CLI — structural code enforcement for LLM coding agents.
+//!
+//! This binary provides the `keel` command with subcommands for initialization,
+//! mapping, compilation, discovery, and serving. See `keel --help` for usage.
+
 use std::time::Instant;
 
 use clap::Parser;

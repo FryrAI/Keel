@@ -1,3 +1,10 @@
+//! Output formatters for keel command results.
+//!
+//! Provides three output modes:
+//! - **JSON** (`--json`): Machine-readable structured output
+//! - **LLM** (default): Compact format optimized for AI coding agents
+//! - **Human** (`--human`): Colored, formatted output for terminal users
+
 pub mod json;
 pub mod llm;
 pub mod human;
