@@ -114,6 +114,7 @@ name = "performance"
 harness = false
 
 [features]
+corpus = []
 perf-tests = []
 tier3 = ["keel-parsers/tier3"]
 
