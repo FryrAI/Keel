@@ -12,6 +12,7 @@ CORPUS_DIR="/tmp/claude/test-corpus"
 METRICS_BASE="/tmp/claude/metrics"
 KEEL_BIN="$(cd "$(dirname "$0")/.." && pwd)/target/release/keel"
 QUICK=false
+LARGE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -19,6 +20,7 @@ while [[ $# -gt 0 ]]; do
         --corpus) CORPUS_DIR="$2"; shift 2 ;;
         --keel) KEEL_BIN="$2"; shift 2 ;;
         --quick) QUICK=true; shift ;;
+        --large) LARGE=true; shift ;;
         *) echo "Unknown arg: $1"; exit 2 ;;
     esac
 done
@@ -259,6 +261,18 @@ print('ok' if ok else 'fail')
 
     validate_repo "$name"
 done
+
+if $LARGE; then
+    echo ""
+    echo "=== Large repos (--large) ==="
+    # These are optional, slow repos for thorough validation
+    for repo_dir in $(find "$CORPUS_DIR" -mindepth 1 -maxdepth 1 -type d | sort); do
+        name=$(basename "$repo_dir")
+        case "$name" in
+            vscode|terraform) validate_repo "$name" ;;
+        esac
+    done
+fi
 
 echo ""
 echo "=== Round $ROUND Summary ==="

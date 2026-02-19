@@ -148,6 +148,34 @@ clone_and_pin \
     "fzf" \
     "v0.57.0"
 
+# --- Monorepo TypeScript ---
+echo ""
+echo "=== Monorepo TypeScript ==="
+
+# turborepo — npm workspace monorepo (~50k LOC)
+clone_and_pin \
+    "https://github.com/vercel/turborepo.git" \
+    "turborepo" \
+    "v2.3.3"
+
+# --- Monorepo Rust ---
+echo ""
+echo "=== Monorepo Rust ==="
+
+# tokio — Cargo workspace, async runtime (~80k LOC)
+clone_and_pin \
+    "https://github.com/tokio-rs/tokio.git" \
+    "tokio" \
+    "tokio-1.43.0"
+
+# --- Extended Python ---
+
+# sqlmodel — well-typed Python, cross-module refs (~10k LOC)
+clone_and_pin \
+    "https://github.com/fastapi/sqlmodel.git" \
+    "sqlmodel" \
+    "0.0.22"
+
 echo ""
 echo "Test corpus setup complete."
 echo "Corpus directory: $CORPUS_DIR"
