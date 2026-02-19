@@ -140,10 +140,10 @@ fn extract_reference_path(line: &str) -> Option<String> {
 
 /// Check if a file path refers to a JavaScript (not TypeScript) file.
 pub fn is_js_file(path: &Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("js" | "jsx" | "mjs" | "cjs") => true,
-        _ => false,
-    }
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("js" | "jsx" | "mjs" | "cjs")
+    )
 }
 
 /// Check if a JS function has JSDoc type hints (`@param` or `@returns`/`@return`)
@@ -166,10 +166,12 @@ pub fn js_has_jsdoc_type_hints(source: &str, fn_line: usize) -> bool {
             in_jsdoc = true;
             found_param_or_returns = false;
         }
-        if in_jsdoc {
-            if trimmed.contains("@param") || trimmed.contains("@returns") || trimmed.contains("@return ") {
-                found_param_or_returns = true;
-            }
+        if in_jsdoc
+            && (trimmed.contains("@param")
+                || trimmed.contains("@returns")
+                || trimmed.contains("@return "))
+        {
+            found_param_or_returns = true;
         }
         if trimmed.contains("*/") {
             if in_jsdoc && found_param_or_returns {
