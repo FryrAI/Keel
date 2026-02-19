@@ -28,6 +28,8 @@ pub struct KeelConfig {
     pub naming_conventions: NamingConventionsConfig,
     #[serde(default)]
     pub monorepo: MonorepoConfig,
+    #[serde(default)]
+    pub tier3: Tier3Config,
 }
 
 /// Product tier — gates feature access.
@@ -90,6 +92,30 @@ pub struct MonorepoConfig {
     pub kind: Option<String>,
     #[serde(default)]
     pub packages: Vec<String>,
+}
+
+/// Tier 3 (LSP/SCIP) resolution configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Tier3Config {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub scip_paths: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub lsp_commands: std::collections::HashMap<String, Vec<String>>,
+    #[serde(default = "default_true")]
+    pub prefer_scip: bool,
+}
+
+impl Default for Tier3Config {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            scip_paths: std::collections::HashMap::new(),
+            lsp_commands: std::collections::HashMap::new(),
+            prefer_scip: true,
+        }
+    }
 }
 
 /// Enforcement severity toggles.
@@ -166,6 +192,7 @@ impl Default for KeelConfig {
             telemetry: TelemetryConfig::default(),
             naming_conventions: NamingConventionsConfig::default(),
             monorepo: MonorepoConfig::default(),
+            tier3: Tier3Config::default(),
         }
     }
 }
@@ -252,6 +279,20 @@ mod tests {
                 kind: Some("CargoWorkspace".to_string()),
                 packages: vec!["core".to_string(), "cli".to_string()],
             },
+            tier3: Tier3Config {
+                enabled: true,
+                scip_paths: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("typescript".to_string(), ".scip/index.scip".to_string());
+                    m
+                },
+                lsp_commands: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("python".to_string(), vec!["pyright-langserver".to_string(), "--stdio".to_string()]);
+                    m
+                },
+                prefer_scip: false,
+            },
         };
 
         // Serialize to JSON
@@ -291,6 +332,10 @@ mod tests {
         assert!(roundtripped.monorepo.enabled);
         assert_eq!(roundtripped.monorepo.kind, Some("CargoWorkspace".to_string()));
         assert_eq!(roundtripped.monorepo.packages, vec!["core", "cli"]);
+        assert!(roundtripped.tier3.enabled);
+        assert_eq!(roundtripped.tier3.scip_paths.get("typescript").unwrap(), ".scip/index.scip");
+        assert_eq!(roundtripped.tier3.lsp_commands.get("python").unwrap(), &vec!["pyright-langserver", "--stdio"]);
+        assert!(!roundtripped.tier3.prefer_scip);
     }
 
     #[test]
@@ -374,6 +419,10 @@ mod tests {
         assert!(!cfg.monorepo.enabled);
         assert!(cfg.monorepo.kind.is_none());
         assert!(cfg.monorepo.packages.is_empty());
+        assert!(!cfg.tier3.enabled);
+        assert!(cfg.tier3.scip_paths.is_empty());
+        assert!(cfg.tier3.lsp_commands.is_empty());
+        assert!(cfg.tier3.prefer_scip);
     }
 
     #[test]

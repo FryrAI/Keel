@@ -27,11 +27,12 @@ fn parse_init_merge() {
 fn parse_map_defaults() {
     let cli = parse(&["keel", "map"]);
     match cli.command {
-        Commands::Map { llm_verbose, scope, strict, depth } => {
+        Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
             assert!(!llm_verbose);
             assert!(scope.is_none());
             assert!(!strict);
             assert_eq!(depth, 1);
+            assert!(!tier3);
         }
         _ => panic!("expected Map"),
     }
@@ -39,13 +40,14 @@ fn parse_map_defaults() {
 
 #[test]
 fn parse_map_all_flags() {
-    let cli = parse(&["keel", "map", "--llm-verbose", "--scope", "auth,core", "--strict", "--depth", "2"]);
+    let cli = parse(&["keel", "map", "--llm-verbose", "--scope", "auth,core", "--strict", "--depth", "2", "--tier3"]);
     match cli.command {
-        Commands::Map { llm_verbose, scope, strict, depth } => {
+        Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
             assert!(llm_verbose);
             assert_eq!(scope.as_deref(), Some("auth,core"));
             assert!(strict);
             assert_eq!(depth, 2);
+            assert!(tier3);
         }
         _ => panic!("expected Map"),
     }

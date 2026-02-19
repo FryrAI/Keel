@@ -39,8 +39,8 @@ fn main() {
 
     let exit_code = match cli.command {
         Commands::Init { merge } => commands::init::run(&*formatter, cli.verbose, merge),
-        Commands::Map { llm_verbose, scope, strict, depth } => {
-            commands::map::run(&*formatter, cli.verbose, llm_verbose, scope, strict, depth)
+        Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
+            commands::map::run(&*formatter, cli.verbose, llm_verbose, scope, strict, depth, tier3)
         }
         Commands::Discover { query, depth, suggest_placement, name, context } => {
             commands::discover::run(
@@ -51,9 +51,11 @@ fn main() {
             commands::search::run(&*formatter, cli.verbose, cli.json, cli.llm, term, kind)
         }
         Commands::Compile {
-            files, batch_start, batch_end, strict, suppress, depth,
+            files, batch_start, batch_end, strict, tier3, suppress, depth,
             changed, since, delta, timeout,
         } => {
+            // tier3 flag is accepted but not yet wired into compile
+            let _ = tier3;
             commands::compile::run(
                 &*formatter, cli.verbose, files, batch_start, batch_end, strict,
                 suppress, depth, changed, since, delta, timeout,

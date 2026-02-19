@@ -46,6 +46,9 @@ pub(crate) enum Commands {
         /// Output depth: 0=summary, 1=modules+hotspots (default), 2=functions, 3=full graph
         #[arg(long, default_value = "1")]
         depth: u32,
+        /// Enable Tier 3 (LSP/SCIP) resolution for unresolved references
+        #[arg(long)]
+        tier3: bool,
     },
 
     /// Look up a function's callers, callees, and context (accepts hash, file path, or --name)
@@ -88,6 +91,9 @@ pub(crate) enum Commands {
         /// Treat warnings as errors
         #[arg(long)]
         strict: bool,
+        /// Enable Tier 3 (LSP/SCIP) resolution for unresolved references
+        #[arg(long)]
+        tier3: bool,
         /// Suppress a specific error/warning code
         #[arg(long)]
         suppress: Option<String>,

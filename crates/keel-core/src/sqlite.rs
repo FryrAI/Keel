@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 
 use crate::types::{ExternalEndpoint, GraphError, GraphNode, NodeKind};
 
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 /// SQLite-backed implementation of the GraphStore trait.
 pub struct SqliteGraphStore {
@@ -192,6 +192,9 @@ impl SqliteGraphStore {
         if current < 3 {
             self.migrate_v2_to_v3()?;
         }
+        if current < 4 {
+            self.migrate_v3_to_v4()?;
+        }
         Ok(())
     }
 
@@ -223,6 +226,27 @@ impl SqliteGraphStore {
             .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package)");
         self.conn.execute(
             "UPDATE keel_meta SET value = '3' WHERE key = 'schema_version'",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Migrate from schema v3 to v4: extend resolution_cache for Tier 3.
+    fn migrate_v3_to_v4(&self) -> Result<(), GraphError> {
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE resolution_cache ADD COLUMN file_content_hash TEXT DEFAULT NULL",
+        );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE resolution_cache ADD COLUMN target_file TEXT DEFAULT NULL",
+        );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE resolution_cache ADD COLUMN target_name TEXT DEFAULT NULL",
+        );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE resolution_cache ADD COLUMN provider TEXT DEFAULT NULL",
+        );
+        self.conn.execute(
+            "UPDATE keel_meta SET value = '4' WHERE key = 'schema_version'",
             [],
         )?;
         Ok(())

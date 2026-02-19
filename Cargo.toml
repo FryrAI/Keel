@@ -72,6 +72,10 @@ notify = "7"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 
+# Tier 3 resolution (SCIP/LSP) — declared as optional in keel-parsers directly
+scip = "0.5"
+protobuf = "3"
+
 # File handling
 ignore = "0.4"
 walkdir = "2"
@@ -110,6 +114,7 @@ harness = false
 
 [features]
 perf-tests = []
+tier3 = ["keel-parsers/tier3"]
 
 [profile.release]
 lto = true

@@ -13,6 +13,7 @@ pub mod resolver;
 pub mod treesitter;
 pub mod walker;
 
+pub mod tier3;
 pub mod typescript;
 pub mod python;
 pub mod go;

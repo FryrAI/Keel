@@ -28,6 +28,7 @@ pub fn run(
     _scope: Option<String>,
     _strict: bool,
     _depth: u32,
+    tier3_enabled: bool,
 ) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -370,6 +371,29 @@ pub fn run(
                 }
             }
         }
+    }
+
+    // === Third pass: Tier 3 resolution for still-unresolved references ===
+    if tier3_enabled || config.tier3.enabled {
+        let tier3_data: Vec<_> = all_file_data
+            .iter()
+            .map(|fd| super::map_tier3::Tier3FileData {
+                file_path: &fd.file_path,
+                definitions: &fd.definitions,
+                references: &fd.references,
+            })
+            .collect();
+        super::map_tier3::run_tier3_pass(
+            &config.tier3,
+            &config.languages,
+            &cwd,
+            verbose,
+            &tier3_data,
+            &name_to_id,
+            &global_name_index,
+            &mut edge_changes,
+            &mut next_id,
+        );
     }
 
     // Filter out edges referencing non-existent nodes (valid_node_ids built in first pass)
