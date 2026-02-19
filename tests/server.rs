@@ -9,3 +9,5 @@ mod test_http_server;
 mod test_watch_mode;
 #[path = "server/test_server_lifecycle.rs"]
 mod test_server_lifecycle;
+#[path = "server/test_mcp_integration.rs"]
+mod test_mcp_integration;
