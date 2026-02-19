@@ -70,6 +70,7 @@ pub struct GraphNode {
     pub external_endpoints: Vec<ExternalEndpoint>,
     pub previous_hashes: Vec<String>,
     pub module_id: u64,
+    pub package: Option<String>,
 }
 
 /// An external endpoint (HTTP, gRPC, GraphQL, etc.) associated with a function.

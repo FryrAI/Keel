@@ -28,6 +28,7 @@ fn test_node(id: u64, hash: &str, name: &str, kind: NodeKind, module_id: u64) ->
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
+        package: None,
     }
 }
 

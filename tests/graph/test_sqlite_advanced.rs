@@ -24,6 +24,7 @@ fn make_node(id: u64, hash: &str, name: &str, kind: NodeKind) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     }
 }
 
@@ -53,6 +54,7 @@ fn test_sqlite_module_profile_storage() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     store
         .update_nodes(vec![NodeChange::Add(module_node)])

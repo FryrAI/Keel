@@ -21,6 +21,7 @@ fn test_create_function_node() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert_eq!(node.kind, NodeKind::Function);
     assert_eq!(node.name, "my_func");
@@ -50,6 +51,7 @@ fn test_create_class_node() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert_eq!(node.kind, NodeKind::Class);
     assert_eq!(node.name, "UserService");
@@ -76,6 +78,7 @@ fn test_create_module_node() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert_eq!(node.kind, NodeKind::Module);
     assert_eq!(node.name, "utils");
@@ -102,6 +105,7 @@ fn test_create_method_node() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 2,
+        package: None,
     };
     assert_eq!(node.kind, NodeKind::Function);
     assert_eq!(node.name, "get_user");
@@ -127,6 +131,7 @@ fn test_create_interface_node() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert_eq!(node.kind, NodeKind::Class);
     assert_eq!(node.name, "Repository");
@@ -152,6 +157,7 @@ fn test_create_trait_node() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert_eq!(node.kind, NodeKind::Class);
     assert_eq!(node.name, "LanguageResolver");
@@ -178,6 +184,7 @@ fn test_node_without_docstring() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert!(node.docstring.is_none());
     assert!(!node.has_docstring);
@@ -202,6 +209,7 @@ fn test_node_with_docstring() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     assert!(node_with.docstring.is_some());
     assert_eq!(node_with.docstring.as_deref(), Some("Process input data"));
@@ -227,6 +235,7 @@ fn test_node_module_id_association() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
 
     let func_node = GraphNode {
@@ -245,6 +254,7 @@ fn test_node_module_id_association() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: module_node.id,
+        package: None,
     };
 
     assert_eq!(func_node.module_id, 100);
@@ -277,6 +287,7 @@ fn test_node_with_external_endpoints() {
         external_endpoints: vec![endpoint],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
 
     assert_eq!(node.external_endpoints.len(), 1);

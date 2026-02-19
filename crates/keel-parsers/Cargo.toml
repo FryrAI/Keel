@@ -30,3 +30,6 @@ walkdir = { workspace = true }
 globset = { workspace = true }
 xxhash-rust = { workspace = true }
 streaming-iterator = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

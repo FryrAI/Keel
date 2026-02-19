@@ -191,6 +191,7 @@ fn make_test_node(id: u64, name: &str, module_id: u64) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
+        package: None,
     }
 }
 

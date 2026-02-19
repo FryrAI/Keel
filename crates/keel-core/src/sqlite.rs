@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 
 use crate::types::{ExternalEndpoint, GraphError, GraphNode, NodeKind};
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 /// SQLite-backed implementation of the GraphStore trait.
 pub struct SqliteGraphStore {
@@ -81,6 +81,7 @@ impl SqliteGraphStore {
                 type_hints_present INTEGER NOT NULL DEFAULT 0,
                 has_docstring INTEGER NOT NULL DEFAULT 0,
                 module_id INTEGER REFERENCES nodes(id),
+                package TEXT DEFAULT NULL,
                 resolution_tier TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -90,6 +91,7 @@ impl SqliteGraphStore {
             CREATE INDEX IF NOT EXISTS idx_nodes_module ON nodes(module_id);
             CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
             CREATE INDEX IF NOT EXISTS idx_nodes_name_kind ON nodes(name, kind);
+            CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package);
 
             -- Previous hashes for rename tracking
             CREATE TABLE IF NOT EXISTS previous_hashes (
@@ -182,6 +184,9 @@ impl SqliteGraphStore {
         if current < 2 {
             self.migrate_v1_to_v2()?;
         }
+        if current < 3 {
+            self.migrate_v2_to_v3()?;
+        }
         Ok(())
     }
 
@@ -198,6 +203,21 @@ impl SqliteGraphStore {
         // Update schema version to 2
         self.conn.execute(
             "UPDATE keel_meta SET value = '2' WHERE key = 'schema_version'",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Migrate from schema v2 to v3: add package column to nodes.
+    fn migrate_v2_to_v3(&self) -> Result<(), GraphError> {
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE nodes ADD COLUMN package TEXT DEFAULT NULL");
+        let _ = self
+            .conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package)");
+        self.conn.execute(
+            "UPDATE keel_meta SET value = '3' WHERE key = 'schema_version'",
             [],
         )?;
         Ok(())
@@ -265,6 +285,7 @@ impl SqliteGraphStore {
             external_endpoints: Vec::new(), // loaded separately
             previous_hashes: Vec::new(),    // loaded separately
             module_id: row.get::<_, Option<u64>>("module_id")?.unwrap_or(0),
+            package: row.get::<_, Option<String>>("package").unwrap_or(None),
         })
     }
 

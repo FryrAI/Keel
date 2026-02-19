@@ -24,6 +24,7 @@ fn make_target(id: u64, name: &str, sig: &str) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     }
 }
 

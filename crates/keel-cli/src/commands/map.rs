@@ -149,6 +149,7 @@ pub fn run(
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         }));
 
         // Create definition nodes
@@ -194,6 +195,7 @@ pub fn run(
                 external_endpoints: vec![],
                 previous_hashes: vec![],
                 module_id,
+                package: None,
             }));
 
             // "contains" edge from module to definition

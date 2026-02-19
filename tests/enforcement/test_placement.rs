@@ -28,6 +28,7 @@ fn make_module_node(id: u64, file: &str) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     }
 }
 

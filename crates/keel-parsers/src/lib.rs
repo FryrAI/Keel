@@ -7,6 +7,7 @@
 //!
 //! Supported languages: TypeScript/JavaScript, Python, Go, Rust.
 
+pub mod monorepo;
 pub mod queries;
 pub mod resolver;
 pub mod treesitter;

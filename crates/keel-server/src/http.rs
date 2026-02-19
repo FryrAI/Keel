@@ -202,6 +202,7 @@ mod tests {
                 external_endpoints: vec![],
                 previous_hashes: vec![],
                 module_id: 0,
+                package: None,
             })
             .unwrap();
         let engine = EnforcementEngine::new(Box::new(store));

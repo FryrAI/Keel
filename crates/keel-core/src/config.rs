@@ -26,6 +26,8 @@ pub struct KeelConfig {
     pub telemetry: TelemetryConfig,
     #[serde(default)]
     pub naming_conventions: NamingConventionsConfig,
+    #[serde(default)]
+    pub monorepo: MonorepoConfig,
 }
 
 /// Product tier — gates feature access.
@@ -77,6 +79,17 @@ pub struct NamingConventionsConfig {
     pub style: Option<String>,
     #[serde(default)]
     pub prefixes: Vec<String>,
+}
+
+/// Monorepo detection and cross-package configuration.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MonorepoConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub packages: Vec<String>,
 }
 
 /// Enforcement severity toggles.
@@ -152,6 +165,7 @@ impl Default for KeelConfig {
             tier: Tier::default(),
             telemetry: TelemetryConfig::default(),
             naming_conventions: NamingConventionsConfig::default(),
+            monorepo: MonorepoConfig::default(),
         }
     }
 }
@@ -233,6 +247,11 @@ mod tests {
                 style: Some("snake_case".to_string()),
                 prefixes: vec!["keel_".to_string(), "test_".to_string()],
             },
+            monorepo: MonorepoConfig {
+                enabled: true,
+                kind: Some("CargoWorkspace".to_string()),
+                packages: vec!["core".to_string(), "cli".to_string()],
+            },
         };
 
         // Serialize to JSON
@@ -269,6 +288,9 @@ mod tests {
         );
         assert_eq!(roundtripped.naming_conventions.style, Some("snake_case".to_string()));
         assert_eq!(roundtripped.naming_conventions.prefixes, vec!["keel_", "test_"]);
+        assert!(roundtripped.monorepo.enabled);
+        assert_eq!(roundtripped.monorepo.kind, Some("CargoWorkspace".to_string()));
+        assert_eq!(roundtripped.monorepo.packages, vec!["core", "cli"]);
     }
 
     #[test]
@@ -349,6 +371,9 @@ mod tests {
         assert!(cfg.telemetry.remote);
         assert!(cfg.naming_conventions.style.is_none());
         assert!(cfg.naming_conventions.prefixes.is_empty());
+        assert!(!cfg.monorepo.enabled);
+        assert!(cfg.monorepo.kind.is_none());
+        assert!(cfg.monorepo.packages.is_empty());
     }
 
     #[test]

@@ -24,6 +24,7 @@ fn make_module_node(id: u64, file: &str) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn make_func_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     }
 }
 
@@ -268,6 +270,7 @@ fn test_w002_class_not_reported() {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     };
     store.update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(class_a)]).unwrap();
 

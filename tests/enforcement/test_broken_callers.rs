@@ -53,6 +53,7 @@ fn make_node(id: u64, name: &str, sig: &str, body: &str, file: &str, line: u32) 
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
+        package: None,
     }
 }
 

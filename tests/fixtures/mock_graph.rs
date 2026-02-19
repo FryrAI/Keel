@@ -33,6 +33,7 @@ fn make_node(
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
+        package: None,
     }
 }
 
@@ -188,6 +189,7 @@ pub fn create_single_module_graph() -> SqliteGraphStore {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 100,
+            package: None,
         }),
         NodeChange::Add(GraphNode {
             id: 2,
@@ -205,6 +207,7 @@ pub fn create_single_module_graph() -> SqliteGraphStore {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 100,
+            package: None,
         }),
         NodeChange::Add(GraphNode {
             id: 3,
@@ -222,6 +225,7 @@ pub fn create_single_module_graph() -> SqliteGraphStore {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 100,
+            package: None,
         }),
     ];
     store.update_nodes(nodes).expect("Failed to insert nodes");

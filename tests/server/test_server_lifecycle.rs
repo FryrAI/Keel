@@ -78,6 +78,7 @@ fn test_server_mcp_process_line_integration() {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     let shared = Arc::new(Mutex::new(store));
@@ -128,6 +129,7 @@ fn test_server_handles_concurrent_requests() {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     let shared: Arc<Mutex<SqliteGraphStore>> = Arc::new(Mutex::new(store));

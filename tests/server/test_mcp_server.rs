@@ -37,6 +37,7 @@ fn store_with_node() -> SharedStore {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     Arc::new(Mutex::new(store))
@@ -61,6 +62,7 @@ fn store_with_graph() -> SharedStore {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     store
@@ -80,6 +82,7 @@ fn store_with_graph() -> SharedStore {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     store
@@ -115,6 +118,7 @@ fn engine_with_graph() -> SharedEngine {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     store
@@ -134,6 +138,7 @@ fn engine_with_graph() -> SharedEngine {
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
+            package: None,
         })
         .unwrap();
     store

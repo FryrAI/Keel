@@ -1192,6 +1192,7 @@ dependencies = [
  "serde",
  "serde_json",
  "streaming-iterator",
+ "tempfile",
  "thiserror 2.0.18",
  "tree-sitter",
  "tree-sitter-go",
