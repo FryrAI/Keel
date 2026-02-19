@@ -88,6 +88,31 @@ fn engine_with_edges() -> SharedEngine {
     Arc::new(Mutex::new(EnforcementEngine::new(Box::new(populated_edge_store()))))
 }
 
+/// Store with a module + function node — needed for search which iterates modules.
+fn store_with_module_and_node() -> SharedStore {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store.insert_node(&GraphNode {
+        id: 100,
+        hash: "moduleHash01".to_string(),
+        kind: NodeKind::Module,
+        name: "lib".to_string(),
+        signature: String::new(),
+        file_path: "src/lib.rs".to_string(),
+        line_start: 1,
+        line_end: 50,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        has_docstring: false,
+        external_endpoints: vec![],
+        previous_hashes: vec![],
+        module_id: 0,
+        package: None,
+    }).unwrap();
+    store.insert_node(&make_test_node()).unwrap();
+    Arc::new(Mutex::new(store))
+}
+
 fn rpc(method: &str, params: Option<Value>) -> String {
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -117,13 +142,18 @@ fn test_tools_list() {
     let store = test_store();
     let resp = parse_response(&process_line(&store, &test_engine(), &rpc("tools/list", None)));
     let tools: Vec<ToolInfo> = serde_json::from_value(resp["result"].clone()).unwrap();
-    assert_eq!(tools.len(), 5);
+    assert_eq!(tools.len(), 10);
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
     assert!(names.contains(&"keel/compile"));
     assert!(names.contains(&"keel/discover"));
     assert!(names.contains(&"keel/where"));
     assert!(names.contains(&"keel/explain"));
     assert!(names.contains(&"keel/map"));
+    assert!(names.contains(&"keel/check"));
+    assert!(names.contains(&"keel/fix"));
+    assert!(names.contains(&"keel/search"));
+    assert!(names.contains(&"keel/name"));
+    assert!(names.contains(&"keel/analyze"));
 }
 
 #[test]
@@ -369,4 +399,142 @@ fn test_jsonrpc_version_in_response() {
     let store = test_store();
     let resp = parse_response(&process_line(&store, &test_engine(), &rpc("initialize", None)));
     assert_eq!(resp["jsonrpc"], "2.0");
+}
+
+// --- keel/check tests ---
+
+#[test]
+fn test_check_existing_node() {
+    let store = store_with_node();
+    let engine = engine_with_node();
+    let params = serde_json::json!({"hash": "a7Bx3kM9f2Q"});
+    let resp = parse_response(&process_line(&store, &engine, &rpc("keel/check", Some(params))));
+    let result = &resp["result"];
+    assert_eq!(result["target"]["hash"], "a7Bx3kM9f2Q");
+    assert_eq!(result["target"]["name"], "doStuff");
+    assert!(result["risk"].is_object());
+    assert!(result["risk"]["level"].is_string());
+}
+
+#[test]
+fn test_check_not_found() {
+    let store = test_store();
+    let params = serde_json::json!({"hash": "nonexistent"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/check", Some(params))));
+    assert_eq!(resp["error"]["code"], -32602);
+}
+
+#[test]
+fn test_check_missing_hash() {
+    let store = test_store();
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/check", None)));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("hash"));
+}
+
+// --- keel/fix tests ---
+
+#[test]
+fn test_fix_empty_files() {
+    let store = test_store();
+    let params = serde_json::json!({"files": []});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/fix", Some(params))));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "fix");
+    assert_eq!(result["violations_addressed"], 0);
+}
+
+#[test]
+fn test_fix_no_params() {
+    let store = test_store();
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/fix", None)));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "fix");
+}
+
+// --- keel/search tests ---
+
+#[test]
+fn test_search_no_results() {
+    let store = test_store();
+    let params = serde_json::json!({"query": "nonexistent"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    let result = &resp["result"];
+    assert_eq!(result["count"], 0);
+    assert!(result["results"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_search_finds_node() {
+    let store = store_with_module_and_node();
+    let params = serde_json::json!({"query": "doStuff"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    let result = &resp["result"];
+    assert_eq!(result["count"], 1);
+    assert_eq!(result["results"][0]["name"], "doStuff");
+}
+
+#[test]
+fn test_search_case_insensitive() {
+    let store = store_with_module_and_node();
+    let params = serde_json::json!({"query": "dostuff"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    assert_eq!(resp["result"]["count"], 1);
+}
+
+#[test]
+fn test_search_missing_query() {
+    let store = test_store();
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", None)));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("query"));
+}
+
+#[test]
+fn test_search_with_kind_filter() {
+    let store = store_with_module_and_node();
+    let params = serde_json::json!({"query": "doStuff", "kind": "class"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/search", Some(params))));
+    // doStuff is a function, not a class — should not match
+    assert_eq!(resp["result"]["count"], 0);
+}
+
+// --- keel/name tests ---
+
+#[test]
+fn test_name_missing_description() {
+    let store = test_store();
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/name", None)));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("description"));
+}
+
+#[test]
+fn test_name_empty_graph() {
+    let store = test_store();
+    let params = serde_json::json!({"description": "handle user authentication"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/name", Some(params))));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "name");
+    // Empty graph yields no suggestions
+    assert!(result["suggestions"].as_array().unwrap().is_empty());
+}
+
+// --- keel/analyze tests ---
+
+#[test]
+fn test_analyze_missing_file() {
+    let store = test_store();
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/analyze", None)));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("file"));
+}
+
+#[test]
+fn test_analyze_file_not_in_graph() {
+    let store = test_store();
+    let params = serde_json::json!({"file": "nonexistent.rs"});
+    let resp = parse_response(&process_line(&store, &test_engine(), &rpc("keel/analyze", Some(params))));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("No graph data"));
 }

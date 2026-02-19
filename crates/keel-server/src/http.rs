@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path as AxumPath, Query, State};
@@ -11,7 +10,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult};
-use keel_parsers::resolver::{FileIndex, LanguageResolver};
+use keel_parsers::resolver::FileIndex;
 
 pub type SharedEngine = Arc<Mutex<EnforcementEngine>>;
 
@@ -128,45 +127,9 @@ async fn explain(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
-// --- File parsing helper ---
+// --- File parsing helper (delegated to parse_shared) ---
 
-/// Detect language from file extension.
-fn detect_language(path: &str) -> Option<&'static str> {
-    match Path::new(path).extension()?.to_str()? {
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => Some("typescript"),
-        "py" | "pyi" => Some("python"),
-        "go" => Some("go"),
-        "rs" => Some("rust"),
-        _ => None,
-    }
-}
-
-/// Parse a single file from disk into a FileIndex.
-fn parse_file_to_index(path: &str) -> Option<FileIndex> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let lang = detect_language(path)?;
-
-    let resolver: Box<dyn LanguageResolver> = match lang {
-        "typescript" => Box::new(keel_parsers::typescript::TsResolver::new()),
-        "python" => Box::new(keel_parsers::python::PyResolver::new()),
-        "go" => Box::new(keel_parsers::go::GoResolver::new()),
-        "rust" => Box::new(keel_parsers::rust_lang::RustLangResolver::new()),
-        _ => return None,
-    };
-
-    let result = resolver.parse_file(Path::new(path), &content);
-    let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
-
-    Some(FileIndex {
-        file_path: path.to_string(),
-        content_hash,
-        definitions: result.definitions,
-        references: result.references,
-        imports: result.imports,
-        external_endpoints: result.external_endpoints,
-        parse_duration_us: 0,
-    })
-}
+use crate::parse_shared::parse_file_to_index;
 
 #[cfg(test)]
 mod tests {
@@ -342,6 +305,7 @@ mod tests {
 
     #[test]
     fn test_detect_language() {
+        use crate::parse_shared::detect_language;
         assert_eq!(detect_language("src/main.rs"), Some("rust"));
         assert_eq!(detect_language("lib/index.ts"), Some("typescript"));
         assert_eq!(detect_language("app.py"), Some("python"));

@@ -8,7 +8,13 @@
 
 pub mod http;
 pub mod mcp;
+mod mcp_analyze;
+mod mcp_check;
 mod mcp_compile;
+mod mcp_fix;
+mod mcp_name;
+mod mcp_search;
+mod parse_shared;
 pub mod watcher;
 
 use std::path::PathBuf;
