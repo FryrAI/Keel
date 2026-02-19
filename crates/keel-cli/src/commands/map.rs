@@ -16,8 +16,8 @@ use keel_parsers::walker::FileWalker;
 
 use super::map_helpers::{build_map_result, build_module_profiles, make_relative, populate_hotspots, populate_functions};
 use super::map_resolve::{
-    find_containing_def, resolve_cross_file_call, resolve_import_to_module,
-    resolve_same_directory_call,
+    build_package_node_index, find_containing_def, resolve_cross_file_call,
+    resolve_import_to_module, resolve_package_import, resolve_same_directory_call,
 };
 
 /// Run `keel map` — full re-parse of the codebase.
@@ -55,9 +55,15 @@ pub fn run(
         }
     };
 
-    // Walk all source files
+    // Walk all source files (with optional monorepo package annotation)
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
     let walker = FileWalker::new(&cwd);
-    let entries = walker.walk();
+    let entries = if config.monorepo.enabled {
+        let layout = keel_parsers::monorepo::detect_monorepo(&cwd);
+        walker.walk_with_packages(&layout)
+    } else {
+        walker.walk()
+    };
 
     if verbose {
         eprintln!("keel map: found {} source files", entries.len());
@@ -149,7 +155,7 @@ pub fn run(
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
-            package: None,
+            package: entry.package.clone(),
         }));
 
         // Create definition nodes
@@ -195,7 +201,7 @@ pub fn run(
                 external_endpoints: vec![],
                 previous_hashes: vec![],
                 module_id,
-                package: None,
+                package: entry.package.clone(),
             }));
 
             // "contains" edge from module to definition
@@ -253,6 +259,23 @@ pub fn run(
         });
     }
 
+    // Build file -> package mapping and cross-package index for monorepo resolution
+    let file_packages: HashMap<String, String> = all_file_data
+        .iter()
+        .filter_map(|fd| {
+            // Look up package from entries by matching file path
+            entries
+                .iter()
+                .find(|e| make_relative(&cwd, &e.path) == fd.file_path)
+                .and_then(|e| e.package.as_ref().map(|p| (fd.file_path.clone(), p.clone())))
+        })
+        .collect();
+    let package_node_index = if config.monorepo.enabled {
+        build_package_node_index(&global_name_index, &file_packages)
+    } else {
+        HashMap::new()
+    };
+
     // === Second pass: cross-file call edges and import edges ===
     for file_data in &all_file_data {
         let file_path = &file_data.file_path;
@@ -307,6 +330,22 @@ pub fn run(
                 );
             }
 
+            // Fallback: cross-package resolution (monorepo mode)
+            let mut confidence = 0.80;
+            if target_id.is_none() && !package_node_index.is_empty() {
+                for imp in &file_data.imports {
+                    if let Some((pkg_tgt, pkg_conf)) = resolve_package_import(
+                        &reference.name,
+                        &imp.source,
+                        &package_node_index,
+                    ) {
+                        target_id = Some(pkg_tgt);
+                        confidence = pkg_conf;
+                        break;
+                    }
+                }
+            }
+
             if let Some(tgt_id) = target_id {
                 let source_id = find_containing_def(
                     &file_data.definitions,
@@ -325,7 +364,7 @@ pub fn run(
                             kind: EdgeKind::Calls,
                             file_path: file_path.clone(),
                             line: reference.line,
-                            confidence: 0.80, // cross-file call, moderate confidence
+                            confidence,
                         }));
                     }
                 }

@@ -112,6 +112,18 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
     // Detect languages present in the repo
     let languages = detect_languages(&cwd);
 
+    // Detect monorepo layout
+    let layout = keel_parsers::monorepo::detect_monorepo(&cwd);
+    let monorepo_config = if layout.kind != keel_parsers::monorepo::MonorepoKind::None {
+        keel_core::config::MonorepoConfig {
+            enabled: true,
+            kind: Some(format!("{:?}", layout.kind)),
+            packages: layout.packages.iter().map(|p| p.name.clone()).collect(),
+        }
+    } else {
+        keel_core::config::MonorepoConfig::default()
+    };
+
     let config_path = cwd.join(".keel/keel.json");
 
     if merge && config_path.exists() {
@@ -123,6 +135,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
         let new_config = KeelConfig {
             version: "0.1.0".to_string(),
             languages: languages.clone(),
+            monorepo: monorepo_config.clone(),
             ..KeelConfig::default()
         };
         let new_json: serde_json::Value =
@@ -145,6 +158,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
         let config = KeelConfig {
             version: "0.1.0".to_string(),
             languages: languages.clone(),
+            monorepo: monorepo_config.clone(),
             ..KeelConfig::default()
         };
         match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
@@ -218,6 +232,19 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
         languages.len(),
         file_count
     );
+
+    if monorepo_config.enabled {
+        eprintln!(
+            "  monorepo: {} ({} packages)",
+            monorepo_config.kind.as_deref().unwrap_or("unknown"),
+            monorepo_config.packages.len()
+        );
+        if verbose {
+            for pkg in &monorepo_config.packages {
+                eprintln!("    - {}", pkg);
+            }
+        }
+    }
 
     if !tools.is_empty() {
         let tool_names: Vec<&str> = tools.iter().map(|t| t.name()).collect();

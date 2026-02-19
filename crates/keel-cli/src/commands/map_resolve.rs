@@ -240,6 +240,96 @@ pub fn resolve_same_directory_call(
     None
 }
 
+/// Resolve a cross-package import by matching a package name to nodes in that package.
+///
+/// Handles:
+/// - npm `@scope/name` or bare package names
+/// - Cargo `crate_name::path`
+/// - Go full module paths
+///
+/// Returns the target node ID if found, along with lower confidence (0.70).
+pub fn resolve_package_import(
+    callee_name: &str,
+    import_source: &str,
+    package_node_index: &HashMap<String, HashMap<String, u64>>,
+) -> Option<(u64, f64)> {
+    // Extract the package name from the import source
+    let pkg_name = extract_package_name(import_source)?;
+
+    // Look up the package in the index
+    let pkg_nodes = package_node_index.get(&pkg_name)?;
+
+    // Try to find the callee in this package's exported symbols
+    if let Some(&node_id) = pkg_nodes.get(callee_name) {
+        return Some((node_id, 0.70)); // cross-package, lower confidence
+    }
+
+    // For qualified calls like "pkg.Func", extract the function part
+    let func_name = callee_name
+        .rsplit_once('.')
+        .or_else(|| callee_name.rsplit_once("::"))
+        .map(|(_, f)| f)
+        .unwrap_or(callee_name);
+
+    if func_name != callee_name {
+        if let Some(&node_id) = pkg_nodes.get(func_name) {
+            return Some((node_id, 0.70));
+        }
+    }
+
+    None
+}
+
+/// Extract a package name from an import source string.
+fn extract_package_name(source: &str) -> Option<String> {
+    // npm scoped packages: @scope/name -> name
+    if source.starts_with('@') {
+        let parts: Vec<&str> = source.splitn(3, '/').collect();
+        if parts.len() >= 2 {
+            return Some(parts[1].to_string());
+        }
+    }
+    // Cargo crate imports: crate_name::path -> crate_name
+    if source.contains("::") {
+        let crate_name = source.split("::").next()?;
+        if crate_name != "crate" && crate_name != "super" && crate_name != "self" {
+            return Some(crate_name.replace('-', "_"));
+        }
+    }
+    // Go module paths: github.com/org/repo/pkg -> pkg (last segment)
+    if source.contains('/') && !source.starts_with('.') {
+        return source.rsplit('/').next().map(String::from);
+    }
+    // Bare package name
+    if !source.starts_with('.') && !source.starts_with('/') {
+        return Some(source.to_string());
+    }
+    None
+}
+
+/// Build a package-level node index: package_name -> (symbol_name -> node_id).
+///
+/// Used for cross-package resolution in monorepo mode.
+pub fn build_package_node_index(
+    global_name_index: &HashMap<String, Vec<(String, u64)>>,
+    file_packages: &HashMap<String, String>,
+) -> HashMap<String, HashMap<String, u64>> {
+    let mut index: HashMap<String, HashMap<String, u64>> = HashMap::new();
+
+    for (name, locations) in global_name_index {
+        for (file_path, node_id) in locations {
+            if let Some(pkg) = file_packages.get(file_path.as_str()) {
+                index
+                    .entry(pkg.clone())
+                    .or_default()
+                    .insert(name.clone(), *node_id);
+            }
+        }
+    }
+
+    index
+}
+
 /// Find which definition contains a given line number.
 pub fn find_containing_def(
     definitions: &[keel_parsers::resolver::Definition],

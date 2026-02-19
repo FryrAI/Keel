@@ -2,11 +2,13 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
+use crate::monorepo::MonorepoLayout;
 use crate::treesitter::detect_language;
 
 pub struct WalkEntry {
     pub path: PathBuf,
     pub language: String,
+    pub package: Option<String>,
 }
 
 pub struct FileWalker {
@@ -46,17 +48,46 @@ impl FileWalker {
                 entries.push(WalkEntry {
                     path,
                     language: lang.to_string(),
+                    package: None,
                 });
             }
         }
 
         entries
     }
+
+    /// Walk files and annotate each with its monorepo package using longest-prefix match.
+    pub fn walk_with_packages(&self, layout: &MonorepoLayout) -> Vec<WalkEntry> {
+        let mut entries = self.walk();
+        for entry in &mut entries {
+            entry.package = find_package_for_path(&entry.path, layout);
+        }
+        entries
+    }
+}
+
+/// Find which package a file belongs to using longest-prefix match.
+fn find_package_for_path(file_path: &Path, layout: &MonorepoLayout) -> Option<String> {
+    let mut best_match: Option<&str> = None;
+    let mut best_len = 0;
+
+    for pkg in &layout.packages {
+        if file_path.starts_with(&pkg.path) {
+            let pkg_len = pkg.path.as_os_str().len();
+            if pkg_len > best_len {
+                best_len = pkg_len;
+                best_match = Some(&pkg.name);
+            }
+        }
+    }
+
+    best_match.map(String::from)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::monorepo::{MonorepoKind, PackageInfo};
     use std::fs;
 
     #[test]
@@ -96,5 +127,54 @@ mod tests {
         assert!(entries[0].path.to_str().unwrap().contains("app.ts"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_walk_with_packages_annotates_correctly() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Create package dirs with source files
+        fs::create_dir_all(root.join("packages/web/src")).unwrap();
+        fs::create_dir_all(root.join("packages/api/src")).unwrap();
+        fs::write(root.join("packages/web/src/app.ts"), "export {}").unwrap();
+        fs::write(root.join("packages/api/src/main.ts"), "export {}").unwrap();
+        fs::write(root.join("root.ts"), "export {}").unwrap();
+
+        let layout = MonorepoLayout {
+            kind: MonorepoKind::NpmWorkspaces,
+            packages: vec![
+                PackageInfo {
+                    name: "web".to_string(),
+                    path: root.join("packages/web"),
+                    kind: MonorepoKind::NpmWorkspaces,
+                    language: "typescript".to_string(),
+                },
+                PackageInfo {
+                    name: "api".to_string(),
+                    path: root.join("packages/api"),
+                    kind: MonorepoKind::NpmWorkspaces,
+                    language: "typescript".to_string(),
+                },
+            ],
+        };
+
+        let walker = FileWalker::new(root);
+        let entries = walker.walk_with_packages(&layout);
+
+        // Find the web and api entries
+        let web_entry = entries.iter().find(|e| {
+            e.path.to_str().unwrap().contains("packages/web")
+        });
+        let api_entry = entries.iter().find(|e| {
+            e.path.to_str().unwrap().contains("packages/api")
+        });
+        let root_entry = entries.iter().find(|e| {
+            e.path.file_name().and_then(|n| n.to_str()) == Some("root.ts")
+        });
+
+        assert_eq!(web_entry.unwrap().package.as_deref(), Some("web"));
+        assert_eq!(api_entry.unwrap().package.as_deref(), Some("api"));
+        assert_eq!(root_entry.unwrap().package, None);
     }
 }
