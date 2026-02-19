@@ -21,6 +21,7 @@ pub enum MonorepoKind {
 }
 
 impl Default for MonorepoKind {
+    #[allow(clippy::derivable_impls)]
     fn default() -> Self {
         MonorepoKind::None
     }
@@ -87,7 +88,7 @@ fn detect_cargo_workspace(root: &Path) -> Option<MonorepoLayout> {
         if trimmed.starts_with("members") {
             // Could be single-line: members = ["a", "b"]
             // or start of multi-line array
-            let after_eq = trimmed.splitn(2, '=').nth(1)?.trim();
+            let after_eq = trimmed.split_once('=')?.1.trim();
             if after_eq.starts_with('[') {
                 // Parse inline or start collecting multi-line
                 let members_str = extract_toml_array(&content, "members")?;
@@ -222,7 +223,7 @@ fn detect_nx(root: &Path) -> Option<MonorepoLayout> {
 
     // Scan for project.json files in immediate subdirectories
     let mut packages = Vec::new();
-    scan_for_project_json(root, root, &mut packages, 3);
+    scan_for_project_json(root, &mut packages, 3);
 
     if packages.is_empty() {
         return None;
@@ -322,7 +323,7 @@ fn extract_toml_array(content: &str, key: &str) -> Option<Vec<String>> {
         if !found_key {
             if trimmed.starts_with(key) && trimmed.contains('=') {
                 found_key = true;
-                let after_eq = trimmed.splitn(2, '=').nth(1)?.trim();
+                let after_eq = trimmed.split_once('=')?.1.trim();
                 if after_eq.starts_with('[') && after_eq.ends_with(']') {
                     // Single-line array
                     parse_inline_array(after_eq, &mut values);
@@ -422,7 +423,6 @@ fn expand_glob_pattern(
 
 /// Recursively scan for Nx `project.json` files up to `max_depth`.
 fn scan_for_project_json(
-    root: &Path,
     dir: &Path,
     packages: &mut Vec<PackageInfo>,
     max_depth: u32,
@@ -455,7 +455,7 @@ fn scan_for_project_json(
             }
             // Don't recurse into discovered packages, but keep looking in other dirs
             if !path.join("project.json").exists() {
-                scan_for_project_json(root, &path, packages, max_depth - 1);
+                scan_for_project_json(&path, packages, max_depth - 1);
             }
         }
     }
