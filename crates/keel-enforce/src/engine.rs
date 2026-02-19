@@ -13,6 +13,7 @@ pub struct EnforcementEngine {
     pub(crate) circuit_breaker: CircuitBreaker,
     pub(crate) batch_state: Option<BatchState>,
     pub(crate) suppressions: SuppressionManager,
+    pub(crate) enforce_config: keel_core::config::EnforceConfig,
 }
 
 impl EnforcementEngine {
@@ -22,6 +23,7 @@ impl EnforcementEngine {
             circuit_breaker: CircuitBreaker::new(),
             batch_state: None,
             suppressions: SuppressionManager::new(),
+            enforce_config: keel_core::config::EnforceConfig::default(),
         }
     }
 
@@ -35,6 +37,7 @@ impl EnforcementEngine {
             circuit_breaker: CircuitBreaker::with_max_failures(config.circuit_breaker.max_failures),
             batch_state: None,
             suppressions: SuppressionManager::new(),
+            enforce_config: config.enforce.clone(),
         }
     }
 
@@ -55,16 +58,22 @@ impl EnforcementEngine {
 
             // E001: broken callers (uses cached nodes)
             file_violations.extend(violations::check_broken_callers_with_cache(file, &*self.store, &existing_nodes));
-            // E002: missing type hints
-            file_violations.extend(violations::check_missing_type_hints(file));
-            // E003: missing docstring
-            file_violations.extend(violations::check_missing_docstring(file));
+            // E002: missing type hints (gated by config)
+            if self.enforce_config.type_hints {
+                file_violations.extend(violations::check_missing_type_hints(file));
+            }
+            // E003: missing docstring (gated by config)
+            if self.enforce_config.docstrings {
+                file_violations.extend(violations::check_missing_docstring(file));
+            }
             // E004: function removed (uses cached nodes)
             file_violations.extend(violations::check_removed_functions_with_cache(file, &*self.store, &existing_nodes));
             // E005: arity mismatch
             file_violations.extend(violations::check_arity_mismatch(file, &*self.store));
-            // W001: placement
-            file_violations.extend(violations::check_placement(file, &*self.store));
+            // W001: placement (gated by config)
+            if self.enforce_config.placement {
+                file_violations.extend(violations::check_placement(file, &*self.store));
+            }
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
 

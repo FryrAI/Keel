@@ -46,13 +46,7 @@ pub fn parse_files_to_indices(
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(root_dir, file_path);
 
-        let content_hash = {
-            let mut h: u64 = 0;
-            for byte in content.as_bytes() {
-                h = h.wrapping_mul(31).wrapping_add(*byte as u64);
-            }
-            h
-        };
+        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
 
         indices.push(FileIndex {
             file_path: rel_path,

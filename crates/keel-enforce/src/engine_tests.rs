@@ -398,3 +398,104 @@ fn test_e003_and_e002_both_fire_for_same_function() {
     assert!(codes.contains(&"E003"), "E003 should fire for missing docstring");
 }
 
+#[test]
+fn test_config_disables_type_hints() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.type_hints = false;
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let mut def = make_definition("process", "def process(x)", "pass", "app.py");
+    def.type_hints_present = false;
+
+    let file = FileIndex {
+        file_path: "app.py".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let e002 = result.errors.iter().find(|v| v.code == "E002");
+    assert!(e002.is_none(), "E002 should NOT fire when type_hints config is false");
+}
+
+#[test]
+fn test_config_disables_docstrings() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.docstrings = false;
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let mut def = make_definition("handle", "fn handle()", "{}", "src/h.rs");
+    def.docstring = None;
+
+    let file = FileIndex {
+        file_path: "src/h.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let e003 = result.errors.iter().find(|v| v.code == "E003");
+    assert!(e003.is_none(), "E003 should NOT fire when docstrings config is false");
+}
+
+#[test]
+fn test_config_disables_placement() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.placement = false;
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let file = FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![make_definition(
+            "db_connect",
+            "fn db_connect()",
+            "{}",
+            "src/lib.rs",
+        )],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let w001 = result.warnings.iter().find(|v| v.code == "W001");
+    assert!(w001.is_none(), "W001 should NOT fire when placement config is false");
+}
+
+#[test]
+fn test_config_defaults_enable_all() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let config = keel_core::config::KeelConfig::default();
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let mut def = make_definition("process", "def process(x)", "pass", "app.py");
+    def.type_hints_present = false;
+
+    let file = FileIndex {
+        file_path: "app.py".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let e002 = result.errors.iter().find(|v| v.code == "E002");
+    assert!(e002.is_some(), "E002 should fire with default config (backward compat)");
+}
+
