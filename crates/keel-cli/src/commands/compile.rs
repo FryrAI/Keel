@@ -68,7 +68,8 @@ pub fn run(
     // Load persisted circuit breaker state
     let cb_state = store.load_circuit_breaker().unwrap_or_default();
 
-    let mut engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
+    let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
     engine.import_circuit_breaker(&cb_state);
 
     // Apply suppressions
@@ -162,13 +163,7 @@ pub fn run(
 
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
-        let content_hash = {
-            let mut h: u64 = 0;
-            for byte in content.as_bytes() {
-                h = h.wrapping_mul(31).wrapping_add(*byte as u64);
-            }
-            h
-        };
+        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
 
         file_indices.push(FileIndex {
             file_path: rel_path,
