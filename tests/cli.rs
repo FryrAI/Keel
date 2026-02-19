@@ -21,3 +21,13 @@ mod test_deinit;
 mod test_stats;
 #[path = "cli/test_exit_codes.rs"]
 mod test_exit_codes;
+#[path = "cli/test_check.rs"]
+mod test_check;
+#[path = "cli/test_search.rs"]
+mod test_search;
+#[path = "cli/test_fix.rs"]
+mod test_fix;
+#[path = "cli/test_name.rs"]
+mod test_name;
+#[path = "cli/test_analyze.rs"]
+mod test_analyze;
