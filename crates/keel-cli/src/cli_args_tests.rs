@@ -14,13 +14,25 @@ fn parse_err(args: &[&str]) -> clap::error::Error {
 #[test]
 fn parse_init() {
     let cli = parse(&["keel", "init"]);
-    assert!(matches!(cli.command, Commands::Init { merge: false }));
+    assert!(matches!(cli.command, Commands::Init { merge: false, yes: false }));
 }
 
 #[test]
 fn parse_init_merge() {
     let cli = parse(&["keel", "init", "--merge"]);
-    assert!(matches!(cli.command, Commands::Init { merge: true }));
+    assert!(matches!(cli.command, Commands::Init { merge: true, yes: false }));
+}
+
+#[test]
+fn parse_init_yes() {
+    let cli = parse(&["keel", "init", "--yes"]);
+    assert!(matches!(cli.command, Commands::Init { merge: false, yes: true }));
+}
+
+#[test]
+fn parse_init_yes_short() {
+    let cli = parse(&["keel", "init", "-y"]);
+    assert!(matches!(cli.command, Commands::Init { merge: false, yes: true }));
 }
 
 #[test]

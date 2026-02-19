@@ -30,6 +30,9 @@ pub(crate) enum Commands {
         /// Merge with existing .keel/ configuration instead of failing
         #[arg(long)]
         merge: bool,
+        /// Skip interactive prompt (use detected agents only)
+        #[arg(long, short)]
+        yes: bool,
     },
 
     /// Full re-map of the codebase

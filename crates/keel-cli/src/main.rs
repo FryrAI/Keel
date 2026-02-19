@@ -38,7 +38,7 @@ fn main() {
     let start = Instant::now();
 
     let exit_code = match cli.command {
-        Commands::Init { merge } => commands::init::run(&*formatter, cli.verbose, merge),
+        Commands::Init { merge, yes } => commands::init::run(&*formatter, cli.verbose, merge, yes),
         Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
             commands::map::run(&*formatter, cli.verbose, llm_verbose, scope, strict, depth, tier3)
         }

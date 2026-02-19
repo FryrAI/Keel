@@ -227,3 +227,60 @@ fn test_instruction_files_idempotent() {
     let first = fs::read_to_string(&md).unwrap();
     assert!(!first.is_empty(), "file should have content");
 }
+
+#[test]
+fn test_init_yes_flag_skips_prompt() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
+    // Create .claude/ so Claude Code is detected
+    fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel)
+        .args(["init", "--yes"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init --yes failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        dir.path().join(".claude/settings.json").exists(),
+        "Claude Code settings.json should be generated with --yes"
+    );
+}
+
+#[test]
+fn test_init_yes_short_flag() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel)
+        .args(["init", "-y"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init -y failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Bare project with -y should still succeed (no agents detected, only AGENTS.md)
+    assert!(
+        dir.path().join("AGENTS.md").exists(),
+        "AGENTS.md should always be generated"
+    );
+}
