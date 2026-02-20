@@ -88,7 +88,7 @@ pub fn detect_tools(root: &Path) -> Vec<DetectedTool> {
     if root.join(".aider.conf.yml").exists() || root.join(".aider").is_dir() {
         tools.push(DetectedTool::Aider);
     }
-    if root.join(".github/copilot-instructions.md").exists() {
+    if root.join(".github/copilot-instructions.md").exists() || root.join(".github").is_dir() {
         tools.push(DetectedTool::Copilot);
     }
     if root.join(".github/workflows").is_dir() {

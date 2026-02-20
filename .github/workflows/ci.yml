@@ -195,7 +195,7 @@ jobs:
             ${{ runner.os }}-cargo-cov-
 
       - name: Generate coverage
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info -- --skip benchmark_tests
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
