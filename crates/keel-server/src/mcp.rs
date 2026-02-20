@@ -397,54 +397,91 @@ fn handle_map(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonR
     if let Some(ref path) = file_path {
         // File-scoped map: return nodes for a single file
         let nodes = store.get_nodes_in_file(path);
-        let node_entries: Vec<Value> = nodes
-            .iter()
-            .map(|n| {
-                serde_json::json!({
-                    "name": n.name,
-                    "hash": n.hash,
-                    "kind": n.kind.as_str(),
-                    "file": n.file_path,
-                    "line_start": n.line_start,
-                    "line_end": n.line_end,
-                    "signature": n.signature,
-                    "is_public": n.is_public,
-                })
-            })
-            .collect();
 
-        Ok(serde_json::json!({
-            "status": "ok",
-            "format": format,
-            "scope": scope,
-            "file_path": path,
-            "nodes": node_entries,
-        }))
+        if format == "llm" {
+            let mut text = format!("FILE {} ({} nodes):\n", path, nodes.len());
+            for n in &nodes {
+                text.push_str(&format!(
+                    "  {} [{}] hash={} pub={} L{}-L{}\n",
+                    n.name,
+                    n.kind.as_str(),
+                    n.hash,
+                    n.is_public,
+                    n.line_start,
+                    n.line_end,
+                ));
+            }
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "llm",
+                "text": text,
+            }))
+        } else {
+            let node_entries: Vec<Value> = nodes
+                .iter()
+                .map(|n| {
+                    serde_json::json!({
+                        "name": n.name,
+                        "hash": n.hash,
+                        "kind": n.kind.as_str(),
+                        "file": n.file_path,
+                        "line_start": n.line_start,
+                        "line_end": n.line_end,
+                        "signature": n.signature,
+                        "is_public": n.is_public,
+                    })
+                })
+                .collect();
+
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "json",
+                "scope": scope,
+                "file_path": path,
+                "nodes": node_entries,
+            }))
+        }
     } else {
         // Full-graph summary: enumerate all modules and their nodes
         let modules = store.get_all_modules();
         let mut total_nodes: usize = 0;
-        let module_entries: Vec<Value> = modules
-            .iter()
-            .map(|m| {
+
+        if format == "llm" {
+            let mut text = String::new();
+            for m in &modules {
                 let nodes = store.get_nodes_in_file(&m.file_path);
                 total_nodes += nodes.len();
-                serde_json::json!({
-                    "name": m.name,
-                    "file": m.file_path,
-                    "node_count": nodes.len(),
+                text.push_str(&format!("MODULE {} nodes={}\n", m.file_path, nodes.len(),));
+            }
+            let header = format!("MAP modules={} nodes={}\n", modules.len(), total_nodes,);
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "llm",
+                "text": format!("{}{}", header, text),
+            }))
+        } else {
+            let module_entries: Vec<Value> = modules
+                .iter()
+                .map(|m| {
+                    let nodes = store.get_nodes_in_file(&m.file_path);
+                    total_nodes += nodes.len();
+                    serde_json::json!({
+                        "name": m.name,
+                        "file": m.file_path,
+                        "node_count": nodes.len(),
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        Ok(serde_json::json!({
-            "status": "ok",
-            "format": format,
-            "scope": scope,
-            "module_count": modules.len(),
-            "total_nodes": total_nodes,
-            "modules": module_entries,
-        }))
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "json",
+                "scope": scope,
+                "module_count": modules.len(),
+                "total_nodes": total_nodes,
+                "modules": module_entries,
+            }))
+        }
     }
 }
 
