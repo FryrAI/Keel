@@ -129,7 +129,7 @@ pub fn build_map_result(
     }
 
     MapResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "map".to_string(),
         summary: MapSummary {
             total_nodes,

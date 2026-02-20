@@ -4,7 +4,7 @@ use keel_enforce::types::{ExplainResult, ResolutionStep};
 #[test]
 fn test_explain_resolution_chain_structure() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "abc12345678".to_string(),
@@ -37,7 +37,7 @@ fn test_explain_resolution_chain_structure() {
 #[test]
 fn test_explain_includes_confidence() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "hash123".to_string(),
@@ -54,7 +54,7 @@ fn test_explain_includes_confidence() {
 #[test]
 fn test_explain_shows_resolution_tier() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "hash123".to_string(),
@@ -70,7 +70,7 @@ fn test_explain_shows_resolution_tier() {
 #[test]
 fn test_explain_result_serialization() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "abc12345678".to_string(),
@@ -95,7 +95,7 @@ fn test_explain_result_serialization() {
 #[test]
 fn test_explain_version_and_command() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E005".to_string(),
         hash: "xyz".to_string(),
@@ -105,14 +105,14 @@ fn test_explain_version_and_command() {
         summary: String::new(),
     };
 
-    assert_eq!(result.version, "0.1.0");
+    assert_eq!(result.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(result.command, "explain");
 }
 
 #[test]
 fn test_explain_empty_chain() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E002".to_string(),
         hash: "h".to_string(),

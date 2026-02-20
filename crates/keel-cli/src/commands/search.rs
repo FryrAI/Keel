@@ -88,7 +88,7 @@ pub fn run(
         println!(
             "{}",
             serde_json::json!({
-                "version": "0.1.0", "command": "search",
+                "version": env!("CARGO_PKG_VERSION"), "command": "search",
                 "term": term, "results": entries,
             })
         );

@@ -94,6 +94,7 @@ fn init_project_with_copilot() -> TempDir {
     )
     .unwrap();
     fs::create_dir_all(dir.path().join(".github")).unwrap();
+    fs::write(dir.path().join(".github/copilot-instructions.md"), "").unwrap();
     let keel = keel_bin();
     let out = Command::new(&keel)
         .arg("init")

@@ -101,7 +101,7 @@ mod tests {
     fn test_llm_clean_compile_is_empty() {
         let fmt = LlmFormatter::new();
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "ok".into(),
             files_analyzed: vec!["src/main.rs".into()],
@@ -120,7 +120,7 @@ mod tests {
     fn test_llm_compile_with_violations() {
         let fmt = LlmFormatter::with_depths(1, 2); // depth 2 for full detail
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "error".into(),
             files_analyzed: vec!["src/lib.rs".into()],
@@ -166,7 +166,7 @@ mod tests {
     fn test_llm_discover() {
         let fmt = LlmFormatter::new();
         let result = DiscoverResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "discover".into(),
             target: NodeInfo {
                 hash: "abc12345678".into(),
@@ -210,7 +210,7 @@ mod tests {
     fn test_llm_explain() {
         let fmt = LlmFormatter::new();
         let result = ExplainResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "explain".into(),
             error_code: "E001".into(),
             hash: "abc12345678".into(),

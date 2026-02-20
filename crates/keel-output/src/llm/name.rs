@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn test_empty_name() {
         let result = NameResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "name".into(),
             description: "validate JWT token".into(),
             suggestions: vec![],
@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn test_name_with_suggestion() {
         let result = NameResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "name".into(),
             description: "validate JWT token and check expiry".into(),
             suggestions: vec![NameSuggestion {

@@ -48,7 +48,7 @@ pub fn suggest_name(
     // No matches at all, or all scores below confidence threshold
     if scored.is_empty() || scored[0].0 < 0.3 {
         return NameResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "name".to_string(),
             description: description.to_string(),
             suggestions: vec![],
@@ -110,7 +110,7 @@ pub fn suggest_name(
         .unwrap_or_default();
 
     NameResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "name".to_string(),
         description: description.to_string(),
         suggestions: vec![NameSuggestion {

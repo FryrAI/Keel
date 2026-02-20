@@ -69,7 +69,7 @@ pub fn analyze_file(store: &dyn GraphStore, file_path: &str) -> Option<AnalyzeRe
     let refactor_ops = detect_refactoring(file_path, line_count, &functions, &nodes, store);
 
     Some(AnalyzeResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "analyze".to_string(),
         file: file_path.to_string(),
         structure,

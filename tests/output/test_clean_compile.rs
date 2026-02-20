@@ -7,7 +7,7 @@ use keel_output::OutputFormatter;
 
 fn clean_compile() -> CompileResult {
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "ok".into(),
         files_analyzed: vec!["src/main.rs".into(), "src/lib.rs".into()],

@@ -6,7 +6,7 @@ use super::test_schema_helpers::validate_against_schema;
 #[test]
 fn explain_output_matches_schema() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "testhash0001".to_string(),
@@ -29,7 +29,7 @@ fn explain_output_matches_schema() {
 #[test]
 fn explain_output_with_multi_step_chain_matches_schema() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "explain_hash3".to_string(),

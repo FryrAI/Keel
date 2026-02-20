@@ -5,7 +5,7 @@ use keel_enforce::types::{AffectedNode, CompileInfo, CompileResult, ExistingNode
 /// When compile passes cleanly, keel outputs empty stdout and exit 0.
 pub fn create_clean_compile() -> CompileResult {
     CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "ok".to_string(),
         files_analyzed: vec!["src/main.rs".to_string(), "src/lib.rs".to_string()],
@@ -22,7 +22,7 @@ pub fn create_clean_compile() -> CompileResult {
 /// Create a CompileResult with 2 E001 (broken_caller) errors.
 pub fn create_compile_with_errors() -> CompileResult {
     CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "error".to_string(),
         files_analyzed: vec![
@@ -93,7 +93,7 @@ pub fn create_compile_with_errors() -> CompileResult {
 /// Create a CompileResult with 1 W001 (placement) and 1 W002 (duplicate_name) warning.
 pub fn create_compile_with_warnings() -> CompileResult {
     CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "warning".to_string(),
         files_analyzed: vec![
@@ -152,7 +152,7 @@ pub fn create_compile_with_warnings() -> CompileResult {
 /// Create a CompileResult with a mix of errors, warnings, and info.
 pub fn create_compile_mixed() -> CompileResult {
     CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "error".to_string(),
         files_analyzed: vec![

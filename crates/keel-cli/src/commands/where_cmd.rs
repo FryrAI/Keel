@@ -34,7 +34,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: 
                 println!(
                     "{}",
                     serde_json::json!({
-                        "version": "0.1.0",
+                        "version": env!("CARGO_PKG_VERSION"),
                         "command": "where",
                         "hash": hash,
                         "file": file,
@@ -51,7 +51,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: 
                 println!(
                     "{}",
                     serde_json::json!({
-                        "version": "0.1.0",
+                        "version": env!("CARGO_PKG_VERSION"),
                         "command": "where",
                         "hash": hash,
                         "error": "hash not found"

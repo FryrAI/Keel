@@ -121,7 +121,7 @@ impl EnforcementEngine {
         let module_context = self.build_module_context(node.module_id);
 
         Some(CheckResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "check".to_string(),
             target,
             risk,

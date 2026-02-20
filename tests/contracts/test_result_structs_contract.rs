@@ -15,7 +15,7 @@ use keel_enforce::types::{
 #[test]
 fn compile_result_serializes_to_json() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "ok".to_string(),
         files_analyzed: vec!["src/main.rs".to_string()],
@@ -35,7 +35,7 @@ fn compile_result_serializes_to_json() {
 #[test]
 fn compile_result_round_trips() {
     let original = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "error".to_string(),
         files_analyzed: vec!["src/lib.rs".to_string(), "src/main.rs".to_string()],
@@ -142,7 +142,7 @@ fn compile_result_violation_with_existing_node() {
 #[test]
 fn discover_result_serializes_to_json() {
     let result = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "target_hash1".to_string(),
@@ -174,7 +174,7 @@ fn discover_result_serializes_to_json() {
 #[test]
 fn discover_result_round_trips() {
     let original = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "target_hash2".to_string(),
@@ -235,7 +235,7 @@ fn discover_result_round_trips() {
 #[test]
 fn explain_result_serializes_to_json() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "explain_hash1".to_string(),
@@ -252,7 +252,7 @@ fn explain_result_serializes_to_json() {
 #[test]
 fn explain_result_round_trips() {
     let original = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "explain_hash2".to_string(),
@@ -293,7 +293,7 @@ fn explain_result_round_trips() {
 #[test]
 fn compile_result_json_has_required_fields() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "ok".to_string(),
         files_analyzed: vec![],
@@ -319,7 +319,7 @@ fn compile_result_json_has_required_fields() {
 #[test]
 fn discover_result_json_has_required_fields() {
     let result = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "test".to_string(),
@@ -356,7 +356,7 @@ fn discover_result_json_has_required_fields() {
 #[test]
 fn explain_result_json_has_required_fields() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "test".to_string(),

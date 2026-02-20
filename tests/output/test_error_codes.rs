@@ -43,7 +43,7 @@ fn make_violation(code: &str, severity: &str, category: &str, fix_hint: Option<&
 fn wrap_in_compile(v: Violation) -> CompileResult {
     let is_error = v.severity == "ERROR";
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: if is_error { "error" } else { "warning" }.into(),
         files_analyzed: vec![v.file.clone()],
@@ -138,7 +138,7 @@ fn test_error_code_s001_format() {
     let v = make_violation("S001", "INFO", "suppressed", None);
     let fmt = HumanFormatter;
     let result = CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "ok".into(),
         files_analyzed: vec!["src/test.py".into()],

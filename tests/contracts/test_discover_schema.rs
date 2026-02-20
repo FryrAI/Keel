@@ -6,7 +6,7 @@ use super::test_schema_helpers::validate_against_schema;
 #[test]
 fn discover_output_matches_schema() {
     let result = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "testhash0001".to_string(),
@@ -39,7 +39,7 @@ fn discover_output_matches_schema() {
 #[test]
 fn discover_output_with_upstream_downstream_matches_schema() {
     let result = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "target_hash02".to_string(),

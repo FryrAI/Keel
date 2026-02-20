@@ -118,7 +118,7 @@ mod tests {
 
     fn sample_map() -> MapResult {
         MapResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "map".into(),
             summary: MapSummary {
                 total_nodes: 142,

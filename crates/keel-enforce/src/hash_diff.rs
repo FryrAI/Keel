@@ -24,7 +24,7 @@ impl EnforcementEngine {
         let module_ctx = self.build_module_context(node.module_id);
 
         Some(DiscoverResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "discover".to_string(),
             target: node_to_info(&node),
             upstream,
@@ -72,7 +72,7 @@ impl EnforcementEngine {
         };
 
         Some(ExplainResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "explain".to_string(),
             error_code: error_code.to_string(),
             hash: hash.to_string(),

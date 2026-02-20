@@ -6,7 +6,7 @@ use super::test_schema_helpers::validate_against_schema;
 #[test]
 fn map_output_matches_schema() {
     let result = MapResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "map".to_string(),
         summary: MapSummary {
             total_nodes: 10,
@@ -52,7 +52,7 @@ fn map_output_matches_schema() {
 #[test]
 fn map_output_empty_modules_matches_schema() {
     let result = MapResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "map".to_string(),
         summary: MapSummary {
             total_nodes: 0,

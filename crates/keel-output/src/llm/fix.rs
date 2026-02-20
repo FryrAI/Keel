@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn test_empty_fix() {
         let result = FixResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "fix".into(),
             violations_addressed: 0,
             files_affected: 0,
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_fix_with_plan() {
         let result = FixResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "fix".into(),
             violations_addressed: 1,
             files_affected: 1,
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_fix_apply_clean() {
         let result = FixApplyResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "fix --apply".into(),
             actions_applied: 2,
             actions_failed: 0,
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_fix_apply_with_failure() {
         let result = FixApplyResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "fix --apply".into(),
             actions_applied: 1,
             actions_failed: 1,

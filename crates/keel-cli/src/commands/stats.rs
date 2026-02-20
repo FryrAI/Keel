@@ -80,7 +80,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
 
     if json {
         let mut stats = serde_json::json!({
-            "version": "0.1.0",
+            "version": env!("CARGO_PKG_VERSION"),
             "command": "stats",
             "modules": module_count,
             "functions": function_count,

@@ -5,7 +5,7 @@ use keel_output::OutputFormatter;
 
 fn clean_compile() -> CompileResult {
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "ok".into(),
         files_analyzed: vec!["src/main.rs".into()],
@@ -41,7 +41,7 @@ fn make_violation(code: &str, severity: &str, category: &str, file: &str) -> Vio
 
 fn compile_with_error() -> CompileResult {
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "error".into(),
         files_analyzed: vec!["src/lib.rs".into()],
@@ -110,7 +110,7 @@ fn test_llm_format_includes_location() {
 fn test_llm_format_multiple_violations() {
     let fmt = LlmFormatter::new();
     let result = CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "error".into(),
         files_analyzed: vec!["a.py".into(), "b.py".into(), "c.py".into()],
@@ -140,7 +140,7 @@ fn test_llm_format_circuit_breaker_context() {
     // Circuit breaker context manifests as AFFECTED callers in the output (depth 2)
     let fmt = LlmFormatter::with_depths(1, 2);
     let result = CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "error".into(),
         files_analyzed: vec!["src/lib.rs".into()],
@@ -202,7 +202,7 @@ fn test_llm_format_clean_compile() {
 fn test_llm_format_error_code_category() {
     let fmt = LlmFormatter::new();
     let result = CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "error".into(),
         files_analyzed: vec!["a.py".into()],

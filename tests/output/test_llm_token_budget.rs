@@ -40,7 +40,7 @@ fn compile_with_many_violations(error_count: usize, warning_count: usize) -> Com
         .collect();
 
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: if error_count > 0 {
             "error"

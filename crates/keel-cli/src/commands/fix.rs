@@ -75,7 +75,7 @@ pub fn run(
         .collect();
 
     let result = FixResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "fix".to_string(),
         violations_addressed: plans.len() as u32,
         files_affected: files_affected.len() as u32,
@@ -163,7 +163,7 @@ fn apply_fix_plans(result: &FixResult, cwd: &std::path::Path, verbose: bool) -> 
 
     let files_vec: Vec<String> = files_modified.into_iter().collect();
     FixApplyResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "fix --apply".into(),
         actions_applied: applied,
         actions_failed: failed,
