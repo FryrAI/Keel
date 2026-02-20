@@ -179,10 +179,11 @@ fn test_mcp_server_registers_all_tools() {
     ));
 
     let tools = resp["result"].as_array().unwrap();
-    assert_eq!(tools.len(), 10);
+    assert_eq!(tools.len(), 11);
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"keel/compile"));
+    assert!(names.contains(&"keel/context"));
     assert!(names.contains(&"keel/discover"));
     assert!(names.contains(&"keel/where"));
     assert!(names.contains(&"keel/explain"));

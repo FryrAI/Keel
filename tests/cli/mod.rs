@@ -14,3 +14,4 @@ mod test_search;
 mod test_fix;
 mod test_name;
 mod test_analyze;
+mod test_context;

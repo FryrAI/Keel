@@ -95,6 +95,7 @@ pub fn command_name(command: &crate::cli_args::Commands) -> &'static str {
         Commands::Fix { .. } => "fix",
         Commands::Name { .. } => "name",
         Commands::Analyze { .. } => "analyze",
+        Commands::Context { .. } => "context",
         Commands::Serve { .. } => "serve",
         Commands::Watch => "watch",
         Commands::Deinit => "deinit",

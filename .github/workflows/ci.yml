@@ -55,6 +55,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Pre-build keel binary for integration tests
+        run: cargo build -p keel-cli
+
       - name: Run tests
         run: cargo test --workspace
 

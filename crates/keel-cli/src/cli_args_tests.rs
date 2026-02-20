@@ -622,6 +622,24 @@ fn parse_analyze_missing_file() {
     parse_err(&["keel", "analyze"]);
 }
 
+// --- Context command ---
+
+#[test]
+fn parse_context_basic() {
+    let cli = parse(&["keel", "context", "src/auth.ts"]);
+    match cli.command {
+        Commands::Context { file } => {
+            assert_eq!(file, "src/auth.ts");
+        }
+        _ => panic!("expected Context"),
+    }
+}
+
+#[test]
+fn parse_context_missing_file() {
+    parse_err(&["keel", "context"]);
+}
+
 // --- Discover --context ---
 
 #[test]
