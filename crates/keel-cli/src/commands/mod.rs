@@ -3,6 +3,7 @@ pub mod check;
 pub mod compile;
 pub mod completion;
 pub mod config;
+pub mod context;
 pub mod deinit;
 pub mod discover;
 pub mod explain;

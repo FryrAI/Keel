@@ -125,6 +125,9 @@ fn main() {
             kind,
         } => commands::name::run(&*formatter, cli.verbose, description, module, kind),
         Commands::Analyze { file } => commands::analyze::run(&*formatter, cli.verbose, file),
+        Commands::Context { file } => {
+            commands::context::run(&*formatter, cli.verbose, file, cli.json, cli.llm)
+        }
         Commands::Serve { mcp, http, watch } => {
             commands::serve::run(&*formatter, cli.verbose, mcp, http, watch)
         }
