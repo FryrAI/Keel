@@ -201,13 +201,13 @@ impl SqliteGraphStore {
     /// Migrate from schema v1 to v2: add resolution_tier to nodes, confidence to edges.
     fn migrate_v1_to_v2(&self) -> Result<(), GraphError> {
         // Add resolution_tier column to nodes (ignore if already exists)
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE nodes ADD COLUMN resolution_tier TEXT NOT NULL DEFAULT ''",
-        );
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE nodes ADD COLUMN resolution_tier TEXT NOT NULL DEFAULT ''");
         // Add confidence column to edges (ignore if already exists)
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0",
-        );
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0");
         // Update schema version to 2
         self.conn.execute(
             "UPDATE keel_meta SET value = '2' WHERE key = 'schema_version'",
@@ -236,15 +236,15 @@ impl SqliteGraphStore {
         let _ = self.conn.execute_batch(
             "ALTER TABLE resolution_cache ADD COLUMN file_content_hash TEXT DEFAULT NULL",
         );
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE resolution_cache ADD COLUMN target_file TEXT DEFAULT NULL",
-        );
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE resolution_cache ADD COLUMN target_name TEXT DEFAULT NULL",
-        );
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE resolution_cache ADD COLUMN provider TEXT DEFAULT NULL",
-        );
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE resolution_cache ADD COLUMN target_file TEXT DEFAULT NULL");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE resolution_cache ADD COLUMN target_name TEXT DEFAULT NULL");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE resolution_cache ADD COLUMN provider TEXT DEFAULT NULL");
         self.conn.execute(
             "UPDATE keel_meta SET value = '4' WHERE key = 'schema_version'",
             [],
@@ -319,10 +319,9 @@ impl SqliteGraphStore {
     }
 
     pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
-        let mut stmt = match self
-            .conn
-            .prepare("SELECT kind, method, path, direction FROM external_endpoints WHERE node_id = ?1")
-        {
+        let mut stmt = match self.conn.prepare(
+            "SELECT kind, method, path, direction FROM external_endpoints WHERE node_id = ?1",
+        ) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[keel] load_endpoints: prepare failed: {e}");
@@ -348,12 +347,9 @@ impl SqliteGraphStore {
     }
 
     pub(crate) fn load_previous_hashes(&self, node_id: u64) -> Vec<String> {
-        let mut stmt = match self
-            .conn
-            .prepare(
-                "SELECT hash FROM previous_hashes WHERE node_id = ?1 ORDER BY created_at DESC LIMIT 3",
-            )
-        {
+        let mut stmt = match self.conn.prepare(
+            "SELECT hash FROM previous_hashes WHERE node_id = ?1 ORDER BY created_at DESC LIMIT 3",
+        ) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[keel] load_previous_hashes: prepare failed: {e}");
@@ -406,18 +402,26 @@ impl SqliteGraphStore {
             for p in &profiles {
                 let prefixes_json = serde_json::to_string(&p.function_name_prefixes)
                     .unwrap_or_else(|_| "[]".to_string());
-                let types_json = serde_json::to_string(&p.primary_types)
-                    .unwrap_or_else(|_| "[]".to_string());
-                let imports_json = serde_json::to_string(&p.import_sources)
-                    .unwrap_or_else(|_| "[]".to_string());
-                let exports_json = serde_json::to_string(&p.export_targets)
-                    .unwrap_or_else(|_| "[]".to_string());
+                let types_json =
+                    serde_json::to_string(&p.primary_types).unwrap_or_else(|_| "[]".to_string());
+                let imports_json =
+                    serde_json::to_string(&p.import_sources).unwrap_or_else(|_| "[]".to_string());
+                let exports_json =
+                    serde_json::to_string(&p.export_targets).unwrap_or_else(|_| "[]".to_string());
                 let keywords_json = serde_json::to_string(&p.responsibility_keywords)
                     .unwrap_or_else(|_| "[]".to_string());
                 stmt.execute(params![
-                    p.module_id, p.path, p.function_count, p.class_count, p.line_count,
-                    prefixes_json, types_json, imports_json, exports_json,
-                    p.external_endpoint_count, keywords_json,
+                    p.module_id,
+                    p.path,
+                    p.function_count,
+                    p.class_count,
+                    p.line_count,
+                    prefixes_json,
+                    types_json,
+                    imports_json,
+                    exports_json,
+                    p.external_endpoint_count,
+                    keywords_json,
                 ])?;
             }
         }

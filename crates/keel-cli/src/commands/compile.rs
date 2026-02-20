@@ -55,9 +55,7 @@ pub fn run(
     };
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel compile: failed to open graph database: {}", e);
@@ -68,7 +66,8 @@ pub fn run(
     // Load persisted circuit breaker state
     let cb_state = store.load_circuit_breaker().unwrap_or_default();
 
-    let mut engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
+    let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
     engine.import_circuit_breaker(&cb_state);
 
     // Apply suppressions
@@ -162,13 +161,7 @@ pub fn run(
 
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
-        let content_hash = {
-            let mut h: u64 = 0;
-            for byte in content.as_bytes() {
-                h = h.wrapping_mul(31).wrapping_add(*byte as u64);
-            }
-            h
-        };
+        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
 
         file_indices.push(FileIndex {
             file_path: rel_path,
@@ -223,7 +216,11 @@ pub fn run(
             }
             let has_errors = !result.errors.is_empty();
             let has_warnings = !result.warnings.is_empty();
-            return if has_errors || (strict && has_warnings) { 1 } else { 0 };
+            return if has_errors || (strict && has_warnings) {
+                1
+            } else {
+                0
+            };
         }
         // No previous snapshot: fall through to normal output
         if verbose {
@@ -245,7 +242,10 @@ pub fn run(
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed > timeout_ms {
             if verbose {
-                eprintln!("keel compile: timed out ({}ms > {}ms limit)", elapsed, timeout_ms);
+                eprintln!(
+                    "keel compile: timed out ({}ms > {}ms limit)",
+                    elapsed, timeout_ms
+                );
             }
             return 0; // Don't block the agent
         }
@@ -288,7 +288,10 @@ fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
                         return None; // Still locked
                     }
                 } else if verbose {
-                    eprintln!("keel compile: removing stale lock from PID {}", existing_pid);
+                    eprintln!(
+                        "keel compile: removing stale lock from PID {}",
+                        existing_pid
+                    );
                 }
             }
         }
@@ -304,9 +307,21 @@ fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
     Some(CompileLock { path: lock_path })
 }
 
-/// Check if a process is still alive.
+/// Check if a process is still alive (cross-platform).
 fn is_process_alive(pid: u32) -> bool {
-    Path::new(&format!("/proc/{}", pid)).exists()
+    #[cfg(unix)]
+    {
+        // Signal 0 checks if the process exists without sending a signal.
+        // SAFETY: kill with signal 0 is a standard POSIX process existence check.
+        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        // Conservative fallback for Windows/other: assume the process is alive.
+        // The 2-second wait loop will handle the timeout regardless.
+        let _ = pid;
+        true
+    }
 }
 
 /// Get files changed according to git diff.

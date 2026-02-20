@@ -4,12 +4,7 @@ use keel_output::human::HumanFormatter;
 use keel_output::json::JsonFormatter;
 use keel_output::OutputFormatter;
 
-fn make_violation(
-    code: &str,
-    severity: &str,
-    category: &str,
-    fix_hint: Option<&str>,
-) -> Violation {
+fn make_violation(code: &str, severity: &str, category: &str, fix_hint: Option<&str>) -> Violation {
     Violation {
         code: code.into(),
         severity: severity.into(),
@@ -48,7 +43,7 @@ fn make_violation(
 fn wrap_in_compile(v: Violation) -> CompileResult {
     let is_error = v.severity == "ERROR";
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: if is_error { "error" } else { "warning" }.into(),
         files_analyzed: vec![v.file.clone()],
@@ -74,7 +69,12 @@ fn test_error_code_e001_format() {
 
 #[test]
 fn test_error_code_e002_format() {
-    let v = make_violation("E002", "ERROR", "missing_type_hints", Some("Add type hints"));
+    let v = make_violation(
+        "E002",
+        "ERROR",
+        "missing_type_hints",
+        Some("Add type hints"),
+    );
     let fmt = HumanFormatter;
     let out = fmt.format_compile(&wrap_in_compile(v));
 
@@ -106,12 +106,7 @@ fn test_error_code_e004_format() {
 
 #[test]
 fn test_error_code_e005_format() {
-    let v = make_violation(
-        "E005",
-        "ERROR",
-        "arity_mismatch",
-        Some("Update call site"),
-    );
+    let v = make_violation("E005", "ERROR", "arity_mismatch", Some("Update call site"));
     let fmt = HumanFormatter;
     let out = fmt.format_compile(&wrap_in_compile(v));
 
@@ -143,7 +138,7 @@ fn test_error_code_s001_format() {
     let v = make_violation("S001", "INFO", "suppressed", None);
     let fmt = HumanFormatter;
     let result = CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "ok".into(),
         files_analyzed: vec!["src/test.py".into()],

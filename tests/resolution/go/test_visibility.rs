@@ -17,7 +17,11 @@ func ProcessData(input string) string {
 }
 "#;
     let result = resolver.parse_file(Path::new("handlers.go"), source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     assert_eq!(defs.len(), 1);
     assert_eq!(defs[0].name, "ProcessData");
     assert!(
@@ -38,7 +42,11 @@ func helper(x int) int {
 }
 "#;
     let result = resolver.parse_file(Path::new("handlers.go"), source);
-    let defs: Vec<_> = result.definitions.iter().filter(|d| d.kind != NodeKind::Module).collect();
+    let defs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind != NodeKind::Module)
+        .collect();
     assert_eq!(defs.len(), 1);
     assert_eq!(defs[0].name, "helper");
     assert!(
@@ -105,10 +113,7 @@ type User struct {
         .iter()
         .filter(|d| d.name == "User")
         .collect();
-    assert!(
-        !type_defs.is_empty(),
-        "Should find User struct definition"
-    );
+    assert!(!type_defs.is_empty(), "Should find User struct definition");
     // User starts with uppercase = exported
     assert!(
         type_defs[0].is_public,
@@ -145,19 +150,13 @@ type config struct {
         .filter(|d| d.name == "config")
         .collect();
 
-    assert!(
-        !user_service.is_empty(),
-        "Should find UserService struct"
-    );
+    assert!(!user_service.is_empty(), "Should find UserService struct");
     assert!(
         user_service[0].is_public,
         "UserService should be exported (uppercase)"
     );
 
-    assert!(
-        !config_def.is_empty(),
-        "Should find config struct"
-    );
+    assert!(!config_def.is_empty(), "Should find config struct");
     assert!(
         !config_def[0].is_public,
         "config should be unexported (lowercase)"

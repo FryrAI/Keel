@@ -208,7 +208,10 @@ fn test_keelignore_default_ignores() {
     // The ignore crate respects .gitignore; without one, node_modules may be included.
     // The key thing: .git directory itself should be skipped.
     // We just verify our src file IS present.
-    assert!(!paths.is_empty(), "Should have at least the src/app.ts file");
+    assert!(
+        !paths.is_empty(),
+        "Should have at least the src/app.ts file"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

@@ -74,9 +74,7 @@ pub(super) fn extract_imports(
                 }
             }
             // 2. Use list: "crate::module::{A, B, self}"
-            else if let (Some(brace_start), Some(brace_end)) =
-                (src.find('{'), src.rfind('}'))
-            {
+            else if let (Some(brace_start), Some(brace_end)) = (src.find('{'), src.rfind('}')) {
                 let base = src[..brace_start].trim_end_matches("::").to_string();
                 let items_str = &src[brace_start + 1..brace_end];
                 for item in items_str.split(',') {
@@ -88,8 +86,7 @@ pub(super) fn extract_imports(
                         }
                     } else if item.contains(" as ") {
                         if let Some(as_pos) = item.rfind(" as ") {
-                            imported_names
-                                .push(item[as_pos + 4..].trim().to_string());
+                            imported_names.push(item[as_pos + 4..].trim().to_string());
                         }
                     } else if !item.is_empty() {
                         imported_names.push(item.to_string());

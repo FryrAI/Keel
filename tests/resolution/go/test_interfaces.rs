@@ -65,7 +65,10 @@ func main() {
         callee_name: "Repository.Find".into(),
         receiver: None,
     });
-    assert!(edge.is_some(), "should resolve Repository.Find through interface");
+    assert!(
+        edge.is_some(),
+        "should resolve Repository.Find through interface"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "Find");
     assert!(
@@ -105,7 +108,10 @@ func main() {
         callee_name: "Writer.Write".into(),
         receiver: None,
     });
-    assert!(edge.is_some(), "should resolve Writer.Write via structural typing");
+    assert!(
+        edge.is_some(),
+        "should resolve Writer.Write via structural typing"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "Write");
     assert!(

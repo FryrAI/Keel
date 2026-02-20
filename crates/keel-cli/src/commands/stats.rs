@@ -17,9 +17,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel stats: failed to open graph database: {}", e);
@@ -36,7 +34,10 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
     let mut all_node_ids = Vec::new();
     for module in &modules {
         let nodes = keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
-        function_count += nodes.iter().filter(|n| n.kind == keel_core::types::NodeKind::Function).count() as u32;
+        function_count += nodes
+            .iter()
+            .filter(|n| n.kind == keel_core::types::NodeKind::Function)
+            .count() as u32;
         file_set.insert(module.file_path.clone());
         for node in &nodes {
             all_node_ids.push(node.id);
@@ -79,7 +80,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
 
     if json {
         let mut stats = serde_json::json!({
-            "version": "0.1.0",
+            "version": env!("CARGO_PKG_VERSION"),
             "command": "stats",
             "modules": module_count,
             "functions": function_count,
@@ -95,7 +96,10 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
                 stats["schema_version"] = serde_json::Value::Number(v.into());
             }
         }
-        println!("{}", serde_json::to_string_pretty(&stats).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&stats).unwrap_or_default()
+        );
     } else {
         println!("keel stats");
         println!("  modules:   {}", module_count);
@@ -135,14 +139,21 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
             if !agg.command_counts.is_empty() {
                 let mut cmds: Vec<_> = agg.command_counts.iter().collect();
                 cmds.sort_by(|a, b| b.1.cmp(a.1));
-                let top: Vec<String> = cmds.iter().take(5).map(|(k, v)| format!("{} ({})", k, v)).collect();
+                let top: Vec<String> = cmds
+                    .iter()
+                    .take(5)
+                    .map(|(k, v)| format!("{} ({})", k, v))
+                    .collect();
                 println!("    top commands: {}", top.join(", "));
             }
 
             if !agg.language_percentages.is_empty() {
                 let mut langs: Vec<_> = agg.language_percentages.iter().collect();
                 langs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let lang_str: Vec<String> = langs.iter().map(|(k, v)| format!("{} {:.0}%", k, v)).collect();
+                let lang_str: Vec<String> = langs
+                    .iter()
+                    .map(|(k, v)| format!("{} {:.0}%", k, v))
+                    .collect();
                 println!("    languages:    {}", lang_str.join(", "));
             }
         }

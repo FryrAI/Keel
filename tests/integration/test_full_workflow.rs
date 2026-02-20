@@ -11,17 +11,24 @@ use tempfile::TempDir;
 /// Path to the keel binary built by cargo.
 fn keel_bin() -> std::path::PathBuf {
     let mut path = std::env::current_exe().unwrap();
-    path.pop(); // remove test binary name
-    path.pop(); // remove 'deps'
+    path.pop();
+    path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 /// Create a project with caller/callee relationships for testing.
@@ -69,12 +76,10 @@ fn init_and_map(dir: &TempDir) {
 /// Query the graph database to find a function node's hash by name.
 fn find_hash_by_name(dir: &TempDir, name: &str) -> Option<String> {
     let db_path = dir.path().join(".keel/graph.db");
-    let store =
-        keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).ok()?;
+    let store = keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).ok()?;
     let modules = keel_core::store::GraphStore::get_all_modules(&store);
     for module in &modules {
-        let nodes =
-            keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
+        let nodes = keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
         for node in &nodes {
             if node.name == name && node.kind == keel_core::types::NodeKind::Function {
                 return Some(node.hash.clone());
@@ -134,8 +139,8 @@ fn test_discover_returns_valid_adjacency_after_map() {
     let keel = keel_bin();
 
     // Find the hash for the "greet" function (which is called by "run")
-    let hash = find_hash_by_name(&dir, "greet")
-        .expect("greet function should be in graph after map");
+    let hash =
+        find_hash_by_name(&dir, "greet").expect("greet function should be in graph after map");
 
     // Discover
     let output = Command::new(&keel)
@@ -171,8 +176,8 @@ fn test_where_resolves_hash_to_file_and_line() {
     let keel = keel_bin();
 
     // Find the hash for "greet"
-    let hash = find_hash_by_name(&dir, "greet")
-        .expect("greet function should be in graph after map");
+    let hash =
+        find_hash_by_name(&dir, "greet").expect("greet function should be in graph after map");
 
     // Where
     let output = Command::new(&keel)
@@ -208,8 +213,8 @@ fn test_explain_shows_resolution_chain() {
     let keel = keel_bin();
 
     // Find the hash for "greet"
-    let hash = find_hash_by_name(&dir, "greet")
-        .expect("greet function should be in graph after map");
+    let hash =
+        find_hash_by_name(&dir, "greet").expect("greet function should be in graph after map");
 
     // Explain
     let output = Command::new(&keel)

@@ -43,6 +43,21 @@ impl DetectedTool {
             Self::GitHubActions => "GitHub Actions",
         }
     }
+
+    /// All supported interactive agent variants (excludes GitHubActions — that's CI, not an agent).
+    pub fn all_agents() -> &'static [DetectedTool] {
+        &[
+            Self::ClaudeCode,
+            Self::Cursor,
+            Self::GeminiCli,
+            Self::Windsurf,
+            Self::LettaCode,
+            Self::Codex,
+            Self::Antigravity,
+            Self::Aider,
+            Self::Copilot,
+        ]
+    }
 }
 
 /// Scan the repository root for AI coding tool directories and config files.
@@ -73,7 +88,7 @@ pub fn detect_tools(root: &Path) -> Vec<DetectedTool> {
     if root.join(".aider.conf.yml").exists() || root.join(".aider").is_dir() {
         tools.push(DetectedTool::Aider);
     }
-    if root.join(".github/copilot-instructions.md").exists() || root.join(".github").is_dir() {
+    if root.join(".github/copilot-instructions.md").exists() {
         tools.push(DetectedTool::Copilot);
     }
     if root.join(".github/workflows").is_dir() {
@@ -88,7 +103,7 @@ pub fn detect_tools(root: &Path) -> Vec<DetectedTool> {
 ///
 /// When `merge` is true and `.keel/` already exists, re-initialize while
 /// preserving existing configuration (deep-merged with new defaults).
-pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
+pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -129,8 +144,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
     if merge && config_path.exists() {
         // Merge mode: read existing config and deep-merge with new defaults
         let existing_json = fs::read_to_string(&config_path).unwrap_or_default();
-        let existing: serde_json::Value =
-            serde_json::from_str(&existing_json).unwrap_or(serde_json::Value::Object(Default::default()));
+        let existing: serde_json::Value = serde_json::from_str(&existing_json)
+            .unwrap_or(serde_json::Value::Object(Default::default()));
 
         let new_config = KeelConfig {
             version: "0.1.0".to_string(),
@@ -138,8 +153,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
             monorepo: monorepo_config.clone(),
             ..KeelConfig::default()
         };
-        let new_json: serde_json::Value =
-            serde_json::to_value(&new_config).unwrap_or(serde_json::Value::Object(Default::default()));
+        let new_json: serde_json::Value = serde_json::to_value(&new_config)
+            .unwrap_or(serde_json::Value::Object(Default::default()));
 
         // Deep merge: new values fill in missing keys, existing values preserved
         let merged = merge::json_deep_merge(&new_json, &existing);
@@ -179,7 +194,10 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
                 // Reset circuit breaker state on merge
                 if let Err(e) = store.save_circuit_breaker(&[]) {
                     if verbose {
-                        eprintln!("keel init --merge: warning: failed to reset circuit breaker: {}", e);
+                        eprintln!(
+                            "keel init --merge: warning: failed to reset circuit breaker: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -201,10 +219,45 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
     update_gitignore(&cwd, verbose);
 
     // Detect and generate tool configs
-    let tools = detect_tools(&cwd);
+    let detected_tools = detect_tools(&cwd);
     let mut tool_file_count = 0;
 
-    for tool in &tools {
+    // Build the list of agent tools to generate configs for
+    let selected_tools: Vec<&DetectedTool> = if yes {
+        // --yes: skip prompt, use detected agents only
+        detected_tools
+            .iter()
+            .filter(|t| **t != DetectedTool::GitHubActions)
+            .collect()
+    } else {
+        // Interactive multi-select: all agents listed, detected ones pre-checked
+        let all_agents = DetectedTool::all_agents();
+        let defaults: Vec<bool> = all_agents
+            .iter()
+            .map(|t| detected_tools.contains(t))
+            .collect();
+
+        let items: Vec<&str> = all_agents.iter().map(|t| t.name()).collect();
+
+        let selections = dialoguer::MultiSelect::new()
+            .with_prompt("Select agents to generate hook configs for")
+            .items(&items)
+            .defaults(&defaults)
+            .interact()
+            .unwrap_or_else(|_| {
+                // Non-interactive (piped stdin) — fall back to detected agents only
+                all_agents
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| detected_tools.contains(t))
+                    .map(|(i, _)| i)
+                    .collect()
+            });
+
+        selections.iter().map(|&i| &all_agents[i]).collect()
+    };
+
+    for tool in &selected_tools {
         let files = match tool {
             DetectedTool::ClaudeCode => generators::generate_claude_code(&cwd),
             DetectedTool::Cursor => generators::generate_cursor(&cwd),
@@ -214,9 +267,15 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
             DetectedTool::Antigravity => generators::generate_antigravity(&cwd),
             DetectedTool::Aider => generators::generate_aider(&cwd),
             DetectedTool::Copilot => generators::generate_copilot(&cwd),
-            DetectedTool::GitHubActions => generators::generate_github_actions(&cwd),
             DetectedTool::Codex => generators::generate_codex(&cwd),
+            DetectedTool::GitHubActions => generators::generate_github_actions(&cwd),
         };
+        tool_file_count += generators::write_files(&files, verbose);
+    }
+
+    // GitHub Actions is CI, not an interactive agent — generate if detected, regardless of prompt
+    if detected_tools.contains(&DetectedTool::GitHubActions) {
+        let files = generators::generate_github_actions(&cwd);
         tool_file_count += generators::write_files(&files, verbose);
     }
 
@@ -246,10 +305,10 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool) -> i32 {
         }
     }
 
-    if !tools.is_empty() {
-        let tool_names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
-        eprintln!("  tools detected: {}", tool_names.join(", "));
-        eprintln!("  {} config file(s) generated", tool_file_count);
+    if !selected_tools.is_empty() {
+        let names: Vec<&str> = selected_tools.iter().map(|t| t.name()).collect();
+        eprintln!("  agent configs generated: {}", names.join(", "));
+        eprintln!("  {} config file(s) written", tool_file_count);
     }
 
     if verbose {
@@ -297,6 +356,8 @@ fn update_gitignore(root: &Path, verbose: bool) {
         ".keel/graph.db",
         ".keel/telemetry.db",
         ".keel/session.json",
+        ".keel/last_compile.json",
+        ".keel/compile.lock",
         ".keel/cache/",
     ];
 
@@ -324,7 +385,10 @@ fn update_gitignore(root: &Path, verbose: bool) {
     match fs::write(&gitignore_path, content) {
         Ok(_) => {
             if verbose {
-                eprintln!("keel init: updated .gitignore with {} keel entries", missing.len());
+                eprintln!(
+                    "keel init: updated .gitignore with {} keel entries",
+                    missing.len()
+                );
             }
         }
         Err(e) => {

@@ -1,7 +1,7 @@
-use std::path::Path;
+use crate::types::{FixAction, FixPlan, Violation};
 use keel_core::store::GraphStore;
 use keel_core::types::EdgeDirection;
-use crate::types::{FixAction, FixPlan, Violation};
+use std::path::Path;
 
 /// Generate fix plans from a set of violations.
 ///
@@ -136,9 +136,13 @@ pub fn validate_fix_plan(plan: &FixPlan, base_dir: &Path) -> Vec<(usize, String)
             Ok(content) => {
                 let line_count = content.lines().count() as u32;
                 if action.line > line_count {
-                    errors.push((i, format!(
-                        "line {} exceeds file length ({} lines)", action.line, line_count
-                    )));
+                    errors.push((
+                        i,
+                        format!(
+                            "line {} exceeds file length ({} lines)",
+                            action.line, line_count
+                        ),
+                    ));
                 }
             }
             Err(e) => errors.push((i, format!("cannot read {}: {}", action.file, e))),
@@ -243,7 +247,10 @@ mod tests {
                 line: 30,
             },
         ];
-        let plan = generate_removed_function_fix(&v, &keel_core::sqlite::SqliteGraphStore::in_memory().unwrap());
+        let plan = generate_removed_function_fix(
+            &v,
+            &keel_core::sqlite::SqliteGraphStore::in_memory().unwrap(),
+        );
         assert!(plan.is_some());
         let plan = plan.unwrap();
         assert_eq!(plan.actions.len(), 2);

@@ -13,6 +13,10 @@ pub(crate) fn format_violation_human(v: &Violation) -> String {
         severity_label, v.code, v.message, v.file, v.line,
     );
 
+    if !v.hash.is_empty() {
+        out.push_str(&format!("   = hash: {}\n", v.hash));
+    }
+
     if let Some(fix) = &v.fix_hint {
         out.push_str(&format!("   = fix: {}\n", fix));
     }
@@ -54,7 +58,7 @@ mod tests {
 
     fn clean_compile() -> CompileResult {
         CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "ok".into(),
             files_analyzed: vec!["src/main.rs".into()],
@@ -79,7 +83,7 @@ mod tests {
     fn test_human_compile_error_format() {
         let fmt = HumanFormatter;
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "error".into(),
             files_analyzed: vec!["src/lib.rs".into()],
@@ -115,6 +119,7 @@ mod tests {
         let out = fmt.format_compile(&result);
         assert!(out.contains("error[E001]: Signature of `foo` changed"));
         assert!(out.contains("--> src/lib.rs:10"));
+        assert!(out.contains("= hash: abc12345678"));
         assert!(out.contains("= fix: Update callers of `foo`"));
         assert!(out.contains("= callers: src/bar.rs:20"));
         assert!(out.contains("1 error(s), 0 warning(s) in 1 file(s)"));
@@ -124,7 +129,7 @@ mod tests {
     fn test_human_warning_with_suggested_module() {
         let fmt = HumanFormatter;
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "warning".into(),
             files_analyzed: vec!["src/utils.rs".into()],
@@ -161,7 +166,7 @@ mod tests {
     fn test_human_duplicate_name_warning() {
         let fmt = HumanFormatter;
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "warning".into(),
             files_analyzed: vec!["src/a.rs".into()],
@@ -202,7 +207,7 @@ mod tests {
     fn test_human_discover() {
         let fmt = HumanFormatter;
         let result = DiscoverResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "discover".into(),
             target: NodeInfo {
                 hash: "abc12345678".into(),
@@ -249,7 +254,7 @@ mod tests {
     fn test_human_explain() {
         let fmt = HumanFormatter;
         let result = ExplainResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "explain".into(),
             error_code: "E001".into(),
             hash: "abc12345678".into(),
@@ -275,7 +280,7 @@ mod tests {
     fn test_human_suppressed_violation() {
         let fmt = HumanFormatter;
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "ok".into(),
             files_analyzed: vec!["src/lib.rs".into()],

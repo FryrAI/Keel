@@ -180,7 +180,13 @@ fn test_e003_missing_docstring() {
 fn test_e004_function_removed() {
     let store = SqliteGraphStore::in_memory().unwrap();
     // Store a function that will be "removed"
-    let node = make_node(1, "old11111111", "deprecated_fn", "fn deprecated_fn()", "src/lib.rs");
+    let node = make_node(
+        1,
+        "old11111111",
+        "deprecated_fn",
+        "fn deprecated_fn()",
+        "src/lib.rs",
+    );
     store.insert_node(&node).unwrap();
 
     // Store a caller
@@ -189,7 +195,12 @@ fn test_e004_function_removed() {
 
     let mut store_mut = store;
     store_mut
-        .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/main.rs"))])
+        .update_edges(vec![EdgeChange::Add(make_call_edge(
+            1,
+            2,
+            1,
+            "src/main.rs",
+        ))])
         .unwrap();
 
     let mut engine = EnforcementEngine::new(Box::new(store_mut));
@@ -219,7 +230,8 @@ fn test_e004_function_removed() {
 fn test_clean_compile_no_violations() {
     let store = SqliteGraphStore::in_memory().unwrap();
     // Compute hash matching the definition exactly
-    let hash = keel_core::hash::compute_hash("fn clean(x: i32) -> bool", "{ x > 0 }", "Doc for clean");
+    let hash =
+        keel_core::hash::compute_hash("fn clean(x: i32) -> bool", "{ x > 0 }", "Doc for clean");
     let mut node = make_node(1, &hash, "clean", "fn clean(x: i32) -> bool", "src/lib.rs");
     node.docstring = Some("Doc for clean".to_string());
     store.insert_node(&node).unwrap();
@@ -269,13 +281,23 @@ fn test_batch_defers_e002_e003() {
 
     // During batch mode, E002/E003 should be deferred
     let result = engine.compile(&[file]);
-    assert_eq!(result.status, "ok", "Deferred violations should not appear yet");
+    assert_eq!(
+        result.status, "ok",
+        "Deferred violations should not appear yet"
+    );
     assert!(result.errors.is_empty());
 
     // batch_end should fire the deferred violations
     let batch_result = engine.batch_end();
-    assert!(!batch_result.errors.is_empty(), "Deferred violations should fire on batch_end");
-    let codes: Vec<&str> = batch_result.errors.iter().map(|v| v.code.as_str()).collect();
+    assert!(
+        !batch_result.errors.is_empty(),
+        "Deferred violations should fire on batch_end"
+    );
+    let codes: Vec<&str> = batch_result
+        .errors
+        .iter()
+        .map(|v| v.code.as_str())
+        .collect();
     assert!(codes.contains(&"E002") || codes.contains(&"E003"));
 }
 
@@ -335,7 +357,10 @@ fn test_suppression_prevents_circuit_breaker_escalation() {
     for _ in 0..3 {
         let result = engine.compile(std::slice::from_ref(&file));
         let e002_errors = result.errors.iter().filter(|v| v.code == "E002").count();
-        assert_eq!(e002_errors, 0, "E002 should be suppressed in every iteration");
+        assert_eq!(
+            e002_errors, 0,
+            "E002 should be suppressed in every iteration"
+        );
 
         let s001 = result.warnings.iter().filter(|v| v.code == "S001").count();
         assert!(s001 > 0, "Suppressed E002 should appear as S001");
@@ -367,9 +392,15 @@ fn test_batch_expired_flushes_deferred() {
     let result = engine.compile(&[file]);
     assert_eq!(result.status, "error");
     let e002 = result.errors.iter().filter(|v| v.code == "E002").count();
-    assert!(e002 > 0, "E002 should fire immediately when batch is expired");
+    assert!(
+        e002 > 0,
+        "E002 should fire immediately when batch is expired"
+    );
     // Batch state should be consumed
-    assert!(engine.batch_state.is_none(), "Expired batch should be consumed");
+    assert!(
+        engine.batch_state.is_none(),
+        "Expired batch should be consumed"
+    );
 }
 
 #[test]
@@ -394,7 +425,125 @@ fn test_e003_and_e002_both_fire_for_same_function() {
     let result = engine.compile(&[file]);
     assert_eq!(result.status, "error");
     let codes: Vec<&str> = result.errors.iter().map(|v| v.code.as_str()).collect();
-    assert!(codes.contains(&"E002"), "E002 should fire for missing type hints");
-    assert!(codes.contains(&"E003"), "E003 should fire for missing docstring");
+    assert!(
+        codes.contains(&"E002"),
+        "E002 should fire for missing type hints"
+    );
+    assert!(
+        codes.contains(&"E003"),
+        "E003 should fire for missing docstring"
+    );
 }
 
+#[test]
+fn test_config_disables_type_hints() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.type_hints = false;
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let mut def = make_definition("process", "def process(x)", "pass", "app.py");
+    def.type_hints_present = false;
+
+    let file = FileIndex {
+        file_path: "app.py".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let e002 = result.errors.iter().find(|v| v.code == "E002");
+    assert!(
+        e002.is_none(),
+        "E002 should NOT fire when type_hints config is false"
+    );
+}
+
+#[test]
+fn test_config_disables_docstrings() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.docstrings = false;
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let mut def = make_definition("handle", "fn handle()", "{}", "src/h.rs");
+    def.docstring = None;
+
+    let file = FileIndex {
+        file_path: "src/h.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let e003 = result.errors.iter().find(|v| v.code == "E003");
+    assert!(
+        e003.is_none(),
+        "E003 should NOT fire when docstrings config is false"
+    );
+}
+
+#[test]
+fn test_config_disables_placement() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.placement = false;
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let file = FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![make_definition(
+            "db_connect",
+            "fn db_connect()",
+            "{}",
+            "src/lib.rs",
+        )],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let w001 = result.warnings.iter().find(|v| v.code == "W001");
+    assert!(
+        w001.is_none(),
+        "W001 should NOT fire when placement config is false"
+    );
+}
+
+#[test]
+fn test_config_defaults_enable_all() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let config = keel_core::config::KeelConfig::default();
+    let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+
+    let mut def = make_definition("process", "def process(x)", "pass", "app.py");
+    def.type_hints_present = false;
+
+    let file = FileIndex {
+        file_path: "app.py".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    let e002 = result.errors.iter().find(|v| v.code == "E002");
+    assert!(
+        e002.is_some(),
+        "E002 should fire with default config (backward compat)"
+    );
+}

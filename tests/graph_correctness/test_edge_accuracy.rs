@@ -266,7 +266,11 @@ fn test_dynamic_dispatch_edges_are_warnings_not_errors() {
         "low-confidence violations should be downgraded to WARNING"
     );
     assert!(
-        result[0].fix_hint.as_ref().unwrap().contains("dynamic dispatch"),
+        result[0]
+            .fix_hint
+            .as_ref()
+            .unwrap()
+            .contains("dynamic dispatch"),
         "fix_hint should mention dynamic dispatch"
     );
 

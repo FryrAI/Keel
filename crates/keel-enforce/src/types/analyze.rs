@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzeResult {
@@ -34,7 +34,7 @@ pub struct StructureEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSmell {
     pub kind: SmellKind,
-    pub severity: String,  // "INFO" | "WARNING"
+    pub severity: String, // "INFO" | "WARNING"
     pub message: String,
     pub target: Option<String>,
 }

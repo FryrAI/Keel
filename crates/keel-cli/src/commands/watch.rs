@@ -5,7 +5,15 @@ use std::time::Duration;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 const WATCHED_EXTENSIONS: &[&str] = &["ts", "tsx", "js", "jsx", "py", "go", "rs"];
-const IGNORED_DIRS: &[&str] = &[".keel", ".git", "node_modules", "__pycache__", "target", "dist", "build"];
+const IGNORED_DIRS: &[&str] = &[
+    ".keel",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    "target",
+    "dist",
+    "build",
+];
 const DEBOUNCE_MS: u64 = 200;
 
 fn is_watched(path: &Path) -> bool {

@@ -201,8 +201,5 @@ func main() {
         callee_name: "sql.Open".into(),
         receiver: None,
     });
-    assert!(
-        edge.is_none(),
-        "Blank import should not produce call edges"
-    );
+    assert!(edge.is_none(), "Blank import should not produce call edges");
 }

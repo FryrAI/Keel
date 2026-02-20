@@ -13,8 +13,8 @@ pub mod resolver;
 pub mod treesitter;
 pub mod walker;
 
+pub mod go;
+pub mod python;
+pub mod rust_lang;
 pub mod tier3;
 pub mod typescript;
-pub mod python;
-pub mod go;
-pub mod rust_lang;

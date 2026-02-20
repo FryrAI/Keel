@@ -9,7 +9,9 @@ fn test_schema_version_tracking() {
     let store = SqliteGraphStore::in_memory().expect("in-memory store");
 
     // WHEN schema_version is queried
-    let version = store.schema_version().expect("schema_version should succeed");
+    let version = store
+        .schema_version()
+        .expect("schema_version should succeed");
 
     // THEN it reports version 2
     assert_eq!(version, 4, "initial schema version should be 4");
@@ -143,13 +145,14 @@ fn test_migrated_data_accessible() {
 
     // AND original data is preserved
     let name: String = conn
-        .query_row(
-            "SELECT name FROM nodes WHERE hash = 'abc123'",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT name FROM nodes WHERE hash = 'abc123'", [], |row| {
+            row.get(0)
+        })
         .unwrap();
-    assert_eq!(name, "hello", "original data should be preserved after migration");
+    assert_eq!(
+        name, "hello",
+        "original data should be preserved after migration"
+    );
 }
 
 #[test]

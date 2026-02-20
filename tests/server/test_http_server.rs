@@ -100,9 +100,7 @@ async fn test_http_explain_endpoint() {
         .method(Method::POST)
         .uri("/explain")
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            r#"{"error_code":"E001","hash":"httpTestHash"}"#,
-        ))
+        .body(Body::from(r#"{"error_code":"E001","hash":"httpTestHash"}"#))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
 

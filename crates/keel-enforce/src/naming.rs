@@ -1,6 +1,6 @@
+use crate::types::{NameAlternative, NameResult, NameSuggestion};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, NodeKind};
-use crate::types::{NameAlternative, NameResult, NameSuggestion};
 
 /// Suggest a name and location for new code.
 ///
@@ -48,7 +48,7 @@ pub fn suggest_name(
     // No matches at all, or all scores below confidence threshold
     if scored.is_empty() || scored[0].0 < 0.3 {
         return NameResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "name".to_string(),
             description: description.to_string(),
             suggestions: vec![],
@@ -110,7 +110,7 @@ pub fn suggest_name(
         .unwrap_or_default();
 
     NameResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "name".to_string(),
         description: description.to_string(),
         suggestions: vec![NameSuggestion {
@@ -130,10 +130,16 @@ pub fn suggest_name(
 
 /// Extract keywords from a description string (lowercase, deduped).
 fn extract_keywords(description: &str) -> Vec<String> {
-    let stop_words = ["a", "an", "the", "and", "or", "for", "to", "in", "of", "with", "on"];
+    let stop_words = [
+        "a", "an", "the", "and", "or", "for", "to", "in", "of", "with", "on",
+    ];
     description
         .split_whitespace()
-        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .map(|w| {
+            w.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
         .filter(|w| w.len() > 1 && !stop_words.contains(&w.as_str()))
         .collect()
 }
@@ -172,7 +178,11 @@ fn compute_fallback_score(
     let fn_score = compute_function_name_score(desc_words, store, module_id);
     let combined = path_score * 0.65 + fn_score * 0.35;
     // Only return if there's a meaningful match
-    if combined > 0.05 { combined } else { 0.0 }
+    if combined > 0.05 {
+        combined
+    } else {
+        0.0
+    }
 }
 
 /// Match description words against file path segments.
@@ -193,7 +203,11 @@ fn compute_path_score(desc_words: &[String], file_path: &str) -> f64 {
     }
     let matches = desc_words
         .iter()
-        .filter(|w| segments.iter().any(|s| s.contains(w.as_str()) || w.contains(s.as_str())))
+        .filter(|w| {
+            segments
+                .iter()
+                .any(|s| s.contains(w.as_str()) || w.contains(s.as_str()))
+        })
         .count();
     matches as f64 / desc_words.len() as f64
 }
@@ -252,10 +266,7 @@ fn detect_common_prefix(names: &[&str]) -> Option<String> {
     }
 
     // For snake_case: find common prefix before first underscore
-    let prefixes: Vec<&str> = names
-        .iter()
-        .filter_map(|n| n.split('_').next())
-        .collect();
+    let prefixes: Vec<&str> = names.iter().filter_map(|n| n.split('_').next()).collect();
 
     if prefixes.is_empty() {
         return None;
@@ -357,9 +368,7 @@ fn generate_name(desc_words: &[String], convention: &NamingConvention) -> String
                         let mut c = w.chars();
                         match c.next() {
                             None => String::new(),
-                            Some(first) => {
-                                first.to_uppercase().to_string() + c.as_str()
-                            }
+                            Some(first) => first.to_uppercase().to_string() + c.as_str(),
                         }
                     }
                 })

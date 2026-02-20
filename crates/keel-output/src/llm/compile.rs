@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
-use keel_enforce::types::{CompileDelta, CompileResult, PressureLevel, Violation};
-use crate::token_budget;
 use super::violation::{format_violation_llm, violation_priority};
+use crate::token_budget;
+use keel_enforce::types::{CompileDelta, CompileResult, PressureLevel, Violation};
+use std::collections::BTreeMap;
 
 /// Format compile result at depth 0: counts only (1 line).
 pub fn format_compile_depth0(result: &CompileResult) -> String {
@@ -47,7 +47,10 @@ pub fn format_compile_depth1(result: &CompileResult, max_tokens: usize) -> Strin
         violations.sort_by_key(|v| violation_priority(&v.code));
         let error_count = violations.iter().filter(|v| v.severity == "ERROR").count();
         let warn_count = violations.len() - error_count;
-        let mut file_block = format!("\nFILE {} errors={} warnings={}", file, error_count, warn_count);
+        let mut file_block = format!(
+            "\nFILE {} errors={} warnings={}",
+            file, error_count, warn_count
+        );
         for v in &violations {
             file_block.push_str(&format!("\n  {} {} hash={}", v.code, v.category, v.hash));
             if let Some(fix) = &v.fix_hint {
@@ -121,7 +124,8 @@ pub fn format_compile_delta(delta: &CompileDelta) -> String {
         delta.net_warnings.to_string()
     };
 
-    let mut out = format!(
+    let mut out =
+        format!(
         "COMPILE DELTA errors={} warnings={} NET: {} errors, {} warnings PRESSURE={} BUDGET={}\n",
         delta.total_errors, delta.total_warnings,
         net_e, net_w,
@@ -129,20 +133,34 @@ pub fn format_compile_delta(delta: &CompileDelta) -> String {
     );
 
     for k in &delta.new_errors {
-        out.push_str(&format!("  +ERROR [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+        out.push_str(&format!(
+            "  +ERROR [{}] hash={} {}:{}\n",
+            k.code, k.hash, k.file, k.line
+        ));
     }
     for k in &delta.resolved_errors {
-        out.push_str(&format!("  -ERROR [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+        out.push_str(&format!(
+            "  -ERROR [{}] hash={} {}:{}\n",
+            k.code, k.hash, k.file, k.line
+        ));
     }
     for k in &delta.new_warnings {
-        out.push_str(&format!("  +WARN [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+        out.push_str(&format!(
+            "  +WARN [{}] hash={} {}:{}\n",
+            k.code, k.hash, k.file, k.line
+        ));
     }
     for k in &delta.resolved_warnings {
-        out.push_str(&format!("  -WARN [{}] hash={} {}:{}\n", k.code, k.hash, k.file, k.line));
+        out.push_str(&format!(
+            "  -WARN [{}] hash={} {}:{}\n",
+            k.code, k.hash, k.file, k.line
+        ));
     }
 
-    if delta.new_errors.is_empty() && delta.resolved_errors.is_empty()
-        && delta.new_warnings.is_empty() && delta.resolved_warnings.is_empty()
+    if delta.new_errors.is_empty()
+        && delta.resolved_errors.is_empty()
+        && delta.new_warnings.is_empty()
+        && delta.resolved_warnings.is_empty()
     {
         out.push_str("  (no changes)\n");
     }
@@ -157,7 +175,7 @@ mod tests {
 
     fn clean_compile() -> CompileResult {
         CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "ok".into(),
             files_analyzed: vec!["src/main.rs".into()],
@@ -174,7 +192,12 @@ mod tests {
     fn make_violation(code: &str, file: &str, hash: &str) -> Violation {
         Violation {
             code: code.into(),
-            severity: if code.starts_with('E') { "ERROR" } else { "WARNING" }.into(),
+            severity: if code.starts_with('E') {
+                "ERROR"
+            } else {
+                "WARNING"
+            }
+            .into(),
             category: "test_cat".into(),
             message: format!("Test violation {}", code),
             file: file.into(),

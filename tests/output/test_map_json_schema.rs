@@ -5,7 +5,7 @@ use keel_output::OutputFormatter;
 
 fn sample_map() -> MapResult {
     MapResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "map".into(),
         summary: MapSummary {
             total_nodes: 42,
@@ -107,6 +107,6 @@ fn test_map_json_roundtrip() {
     assert_eq!(deserialized.summary.total_edges, 65);
     assert_eq!(deserialized.modules.len(), 2);
     assert_eq!(deserialized.modules[0].path, "src/main.py");
-    assert_eq!(deserialized.version, "0.1.0");
+    assert_eq!(deserialized.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(deserialized.command, "map");
 }

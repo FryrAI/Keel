@@ -15,10 +15,7 @@ pub use crate::violations_extended::{
 /// then finds callers that reference the old hash.
 ///
 /// If `cached_nodes` is provided, uses them instead of querying the store.
-pub fn check_broken_callers(
-    file: &FileIndex,
-    store: &dyn GraphStore,
-) -> Vec<Violation> {
+pub fn check_broken_callers(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let nodes = store.get_nodes_in_file(&file.file_path);
     check_broken_callers_with_cache(file, store, &nodes)
 }
@@ -38,9 +35,20 @@ pub fn check_broken_callers_with_cache(
         let Some(existing) = existing else { continue };
 
         // Compute expected hash from current definition
-        let new_hash = keel_core::hash::compute_hash(&def.signature, &def.body_text, def.docstring.as_deref().unwrap_or(""));
+        let new_hash = keel_core::hash::compute_hash(
+            &def.signature,
+            &def.body_text,
+            def.docstring.as_deref().unwrap_or(""),
+        );
+        // Also check disambiguated hash (map may have used it for collisions)
+        let new_hash_disambiguated = keel_core::hash::compute_hash_disambiguated(
+            &def.signature,
+            &def.body_text,
+            def.docstring.as_deref().unwrap_or(""),
+            &file.file_path,
+        );
 
-        if existing.hash == new_hash {
+        if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
             continue; // No change
         }
 
@@ -170,10 +178,7 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
             code: "E002".to_string(),
             severity: "ERROR".to_string(),
             category: "missing_type_hints".to_string(),
-            message: format!(
-                "Public function `{}` lacks type annotations",
-                def.name
-            ),
+            message: format!("Public function `{}` lacks type annotations", def.name),
             file: file.file_path.clone(),
             line: def.line_start,
             hash: keel_core::hash::compute_hash(
@@ -189,10 +194,7 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
                     || file.file_path.ends_with(".mjs")
                     || file.file_path.ends_with(".cjs");
                 if is_js {
-                    format!(
-                        "Add JSDoc @param/@returns annotations to `{}`",
-                        def.name
-                    )
+                    format!("Add JSDoc @param/@returns annotations to `{}`", def.name)
                 } else {
                     format!(
                         "Add type annotations to all parameters and return type of `{}`",
@@ -240,10 +242,7 @@ pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
             ),
             confidence: 1.0,
             resolution_tier: "tree-sitter".to_string(),
-            fix_hint: Some(format!(
-                "Add a documentation comment to `{}`",
-                def.name
-            )),
+            fix_hint: Some(format!("Add a documentation comment to `{}`", def.name)),
             suppressed: false,
             suppress_hint: None,
             affected: vec![],

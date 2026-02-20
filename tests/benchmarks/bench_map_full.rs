@@ -29,7 +29,11 @@ fn setup_project(files: usize, fns_per_file: usize, lines_per_fn: usize) -> Temp
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -41,10 +45,18 @@ fn bench_map_10k_loc_under_1s() {
     let keel = keel_bin();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
-    assert!(output.status.success(), "map failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // Debug mode + parallel contention: allow 90s (release target: 1s)
     assert!(elapsed.as_secs() < 90, "10k LOC map took {:?}", elapsed);
 }
@@ -56,10 +68,18 @@ fn bench_map_50k_loc_under_3s() {
     let keel = keel_bin();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
-    assert!(output.status.success(), "map failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // Debug mode + parallel contention: allow 120s (release target: 3s; 200 files)
     assert!(elapsed.as_secs() < 120, "~10k LOC map took {:?}", elapsed);
 }
@@ -72,10 +92,18 @@ fn bench_map_100k_loc_under_5s() {
     let keel = keel_bin();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
-    assert!(output.status.success(), "map failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // Debug mode + parallel contention: allow 90s (release target: 5s)
     assert!(elapsed.as_secs() < 90, "map took {:?}", elapsed);
 }
@@ -87,7 +115,11 @@ fn bench_remap_after_single_file_change() {
     let keel = keel_bin();
 
     // Initial map
-    Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // Modify one file
     fs::write(
@@ -97,7 +129,11 @@ fn bench_remap_after_single_file_change() {
     .unwrap();
 
     let start = Instant::now();
-    let output = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     let elapsed = start.elapsed();
 
     assert!(output.status.success());

@@ -5,7 +5,7 @@ use keel_output::OutputFormatter;
 
 fn clean_compile() -> CompileResult {
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "ok".into(),
         files_analyzed: vec!["src/main.rs".into()],
@@ -21,7 +21,7 @@ fn clean_compile() -> CompileResult {
 
 fn compile_with_violations() -> CompileResult {
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: "error".into(),
         files_analyzed: vec!["src/lib.rs".into(), "src/utils.rs".into()],
@@ -127,7 +127,7 @@ fn test_compile_json_summary() {
     let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
 
     assert_eq!(parsed["status"], "error");
-    assert_eq!(parsed["version"], "0.1.0");
+    assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(parsed["command"], "compile");
     assert_eq!(parsed["files_analyzed"].as_array().unwrap().len(), 2);
 }

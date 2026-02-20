@@ -21,11 +21,16 @@ keel-output = { workspace = true }
 keel-server = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+dialoguer = { workspace = true }
 notify = { workspace = true }
 ureq = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+xxhash-rust = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 default = ["tier3"]

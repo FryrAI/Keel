@@ -18,9 +18,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: 
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel where: failed to open graph database: {}", e);
@@ -36,7 +34,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: 
                 println!(
                     "{}",
                     serde_json::json!({
-                        "version": "0.1.0",
+                        "version": env!("CARGO_PKG_VERSION"),
                         "command": "where",
                         "hash": hash,
                         "file": file,
@@ -53,7 +51,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, hash: String, json: 
                 println!(
                     "{}",
                     serde_json::json!({
-                        "version": "0.1.0",
+                        "version": env!("CARGO_PKG_VERSION"),
                         "command": "where",
                         "hash": hash,
                         "error": "hash not found"

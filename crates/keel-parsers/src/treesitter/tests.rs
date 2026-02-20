@@ -15,7 +15,11 @@ function greet(name: string): string {
     let result = parser
         .parse_file("typescript", Path::new("test.ts"), source)
         .unwrap();
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "greet");
 }
@@ -30,7 +34,11 @@ def greet(name: str) -> str:
     let result = parser
         .parse_file("python", Path::new("test.py"), source)
         .unwrap();
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "greet");
 }
@@ -48,7 +56,11 @@ func greet(name string) string {
     let result = parser
         .parse_file("go", Path::new("test.go"), source)
         .unwrap();
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "greet");
 }
@@ -64,7 +76,11 @@ fn greet(name: &str) -> String {
     let result = parser
         .parse_file("rust", Path::new("test.rs"), source)
         .unwrap();
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "greet");
 }
@@ -157,7 +173,11 @@ def plain_func():
         .parse_file("python", Path::new("views.py"), source)
         .unwrap();
     // Filter out auto-created Module node — only count functions
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(
         funcs.len(),
         2,
@@ -166,7 +186,10 @@ def plain_func():
     );
     let get_data = funcs.iter().find(|d| d.name == "get_data").unwrap();
     // line_start should be the `def` line (3), not the decorator line (2)
-    assert_eq!(get_data.line_start, 3, "line_start should be the def line, not the decorator");
+    assert_eq!(
+        get_data.line_start, 3,
+        "line_start should be the def line, not the decorator"
+    );
 }
 
 #[test]
@@ -181,7 +204,18 @@ class Config:
     let result = parser
         .parse_file("python", Path::new("models.py"), source)
         .unwrap();
-    let classes: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Class).collect();
-    assert_eq!(classes.len(), 1, "decorated class should not produce a duplicate");
-    assert_eq!(classes[0].line_start, 3, "line_start should be the class line, not the decorator");
+    let classes: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Class)
+        .collect();
+    assert_eq!(
+        classes.len(),
+        1,
+        "decorated class should not produce a duplicate"
+    );
+    assert_eq!(
+        classes[0].line_start, 3,
+        "line_start should be the class line, not the decorator"
+    );
 }

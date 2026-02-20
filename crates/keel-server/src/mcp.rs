@@ -108,6 +108,66 @@ fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/check".into(),
+            description: "Pre-edit risk assessment: callers, callees, risk level, suggestions"
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["hash"],
+                "properties": {
+                    "hash": { "type": "string" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/fix".into(),
+            description: "Compile files and generate fix plans for violations".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "files": { "type": "array", "items": { "type": "string" } }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/search".into(),
+            description: "Search graph nodes by name substring".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["function", "class", "module"] },
+                    "limit": { "type": "integer", "default": 20 }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/name".into(),
+            description: "Suggest name and location for new code based on description".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["description"],
+                "properties": {
+                    "description": { "type": "string" },
+                    "module": { "type": "string", "description": "Filter to modules matching this path substring" },
+                    "kind": { "type": "string", "enum": ["function", "class"] }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/analyze".into(),
+            description: "Analyze a file for structure, code smells, and refactoring opportunities"
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string" }
+                }
+            }),
+        },
     ]
 }
 
@@ -130,8 +190,13 @@ fn dispatch(
         "keel/compile" => crate::mcp_compile::handle_compile(engine, params),
         "keel/discover" => handle_discover(engine, params),
         "keel/where" => handle_where(store, params),
-        "keel/explain" => handle_explain(store, params),
+        "keel/explain" => handle_explain(store, engine, params),
         "keel/map" => handle_map(store, params),
+        "keel/check" => crate::mcp_check::handle_check(engine, params),
+        "keel/fix" => crate::mcp_fix::handle_fix(store, engine, params),
+        "keel/search" => crate::mcp_search::handle_search(store, params),
+        "keel/name" => crate::mcp_name::handle_name(store, params),
+        "keel/analyze" => crate::mcp_analyze::handle_analyze(store, params),
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Method not found: {}", method),
@@ -181,19 +246,33 @@ pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> S
 }
 
 pub(crate) fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
-    JsonRpcError { code: -32603, message: e.to_string() }
+    JsonRpcError {
+        code: -32603,
+        message: e.to_string(),
+    }
 }
 
 fn missing_param(name: &str) -> JsonRpcError {
-    JsonRpcError { code: -32602, message: format!("Missing '{}' parameter", name) }
+    JsonRpcError {
+        code: -32602,
+        message: format!("Missing '{}' parameter", name),
+    }
 }
 
 fn not_found(hash: &str) -> JsonRpcError {
-    JsonRpcError { code: -32602, message: format!("Node not found: {}", hash) }
+    JsonRpcError {
+        code: -32602,
+        message: format!("Node not found: {}", hash),
+    }
 }
 
-pub(crate) fn lock_store(store: &SharedStore) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
-    store.lock().map_err(|_| JsonRpcError { code: -32603, message: "Store lock poisoned".into() })
+pub(crate) fn lock_store(
+    store: &SharedStore,
+) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {
+    store.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Store lock poisoned".into(),
+    })
 }
 
 fn handle_discover(engine: &SharedEngine, params: Option<Value>) -> Result<Value, JsonRpcError> {
@@ -215,7 +294,9 @@ fn handle_discover(engine: &SharedEngine, params: Option<Value>) -> Result<Value
         message: "Engine lock poisoned".into(),
     })?;
 
-    let result = engine.discover(&hash, depth).ok_or_else(|| not_found(&hash))?;
+    let result = engine
+        .discover(&hash, depth)
+        .ok_or_else(|| not_found(&hash))?;
     serde_json::to_value(result).map_err(internal_err)
 }
 
@@ -239,7 +320,11 @@ fn handle_where(store: &SharedStore, params: Option<Value>) -> Result<Value, Jso
     .map_err(internal_err)
 }
 
-fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+fn handle_explain(
+    store: &SharedStore,
+    engine: &SharedEngine,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let error_code = params
         .as_ref()
         .and_then(|p| p.get("error_code"))
@@ -257,12 +342,24 @@ fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, J
     let store = lock_store(store)?;
     let node = store.get_node(&hash).ok_or_else(|| not_found(&hash))?;
 
+    // Check circuit breaker state for this error_code+hash to get real confidence
+    let eng = engine.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Engine lock poisoned".into(),
+    })?;
+    let cb_failures = eng.circuit_breaker_failures(&error_code, &hash, &node.file_path);
+    let confidence = if cb_failures > 0 {
+        (1.0 - (cb_failures as f64 * 0.2)).max(0.3)
+    } else {
+        1.0
+    };
+
     let result = ExplainResult {
         version: env!("CARGO_PKG_VERSION").into(),
         command: "explain".into(),
         error_code,
         hash: node.hash.clone(),
-        confidence: 1.0,
+        confidence,
         resolution_tier: "tree-sitter".into(),
         resolution_chain: vec![ResolutionStep {
             kind: "lookup".into(),
@@ -300,70 +397,132 @@ fn handle_map(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonR
     if let Some(ref path) = file_path {
         // File-scoped map: return nodes for a single file
         let nodes = store.get_nodes_in_file(path);
-        let node_entries: Vec<Value> = nodes
-            .iter()
-            .map(|n| {
-                serde_json::json!({
-                    "name": n.name,
-                    "hash": n.hash,
-                    "kind": n.kind.as_str(),
-                    "file": n.file_path,
-                    "line_start": n.line_start,
-                    "line_end": n.line_end,
-                    "signature": n.signature,
-                    "is_public": n.is_public,
-                })
-            })
-            .collect();
 
-        Ok(serde_json::json!({
-            "status": "ok",
-            "format": format,
-            "scope": scope,
-            "file_path": path,
-            "nodes": node_entries,
-        }))
+        if format == "llm" {
+            let mut text = format!("FILE {} ({} nodes):\n", path, nodes.len());
+            for n in &nodes {
+                text.push_str(&format!(
+                    "  {} [{}] hash={} pub={} L{}-L{}\n",
+                    n.name,
+                    n.kind.as_str(),
+                    n.hash,
+                    n.is_public,
+                    n.line_start,
+                    n.line_end,
+                ));
+            }
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "llm",
+                "text": text,
+            }))
+        } else {
+            let node_entries: Vec<Value> = nodes
+                .iter()
+                .map(|n| {
+                    serde_json::json!({
+                        "name": n.name,
+                        "hash": n.hash,
+                        "kind": n.kind.as_str(),
+                        "file": n.file_path,
+                        "line_start": n.line_start,
+                        "line_end": n.line_end,
+                        "signature": n.signature,
+                        "is_public": n.is_public,
+                    })
+                })
+                .collect();
+
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "json",
+                "scope": scope,
+                "file_path": path,
+                "nodes": node_entries,
+            }))
+        }
     } else {
         // Full-graph summary: enumerate all modules and their nodes
         let modules = store.get_all_modules();
         let mut total_nodes: usize = 0;
-        let module_entries: Vec<Value> = modules
-            .iter()
-            .map(|m| {
+
+        if format == "llm" {
+            let mut text = String::new();
+            for m in &modules {
                 let nodes = store.get_nodes_in_file(&m.file_path);
                 total_nodes += nodes.len();
-                serde_json::json!({
-                    "name": m.name,
-                    "file": m.file_path,
-                    "node_count": nodes.len(),
+                text.push_str(&format!("MODULE {} nodes={}\n", m.file_path, nodes.len(),));
+            }
+            let header = format!("MAP modules={} nodes={}\n", modules.len(), total_nodes,);
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "llm",
+                "text": format!("{}{}", header, text),
+            }))
+        } else {
+            let module_entries: Vec<Value> = modules
+                .iter()
+                .map(|m| {
+                    let nodes = store.get_nodes_in_file(&m.file_path);
+                    total_nodes += nodes.len();
+                    serde_json::json!({
+                        "name": m.name,
+                        "file": m.file_path,
+                        "node_count": nodes.len(),
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        Ok(serde_json::json!({
-            "status": "ok",
-            "format": format,
-            "scope": scope,
-            "module_count": modules.len(),
-            "total_nodes": total_nodes,
-            "modules": module_entries,
-        }))
+            Ok(serde_json::json!({
+                "status": "ok",
+                "format": "json",
+                "scope": scope,
+                "module_count": modules.len(),
+                "total_nodes": total_nodes,
+                "modules": module_entries,
+            }))
+        }
     }
 }
 
-/// Create a shared enforcement engine backed by an in-memory store.
+/// Create a shared enforcement engine backed by a disk store with project config.
+/// Falls back to in-memory store if db_path is None.
 /// Circuit breaker and batch state persist across MCP calls within a session.
-pub fn create_shared_engine() -> SharedEngine {
-    let engine_store = SqliteGraphStore::in_memory()
-        .expect("Failed to create in-memory store for enforcement engine");
-    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(engine_store))))
+pub fn create_shared_engine(db_path: Option<&str>) -> SharedEngine {
+    let engine_store: Box<dyn keel_core::store::GraphStore + Send> = match db_path {
+        Some(path) => match SqliteGraphStore::open(path) {
+            Ok(s) => Box::new(s),
+            Err(_) => Box::new(
+                SqliteGraphStore::in_memory()
+                    .expect("Failed to create in-memory store for enforcement engine"),
+            ),
+        },
+        None => Box::new(
+            SqliteGraphStore::in_memory()
+                .expect("Failed to create in-memory store for enforcement engine"),
+        ),
+    };
+
+    // Load project config for enforce settings
+    let config = db_path
+        .and_then(|p| {
+            std::path::Path::new(p)
+                .parent() // .keel/
+                .map(keel_core::config::KeelConfig::load)
+        })
+        .unwrap_or_default();
+
+    Arc::new(Mutex::new(EnforcementEngine::with_config(
+        engine_store,
+        &config,
+    )))
 }
 
 /// Run the MCP server loop, reading JSON-RPC from stdin and writing to stdout.
-pub fn run_stdio(store: SharedStore) -> io::Result<()> {
+pub fn run_stdio(store: SharedStore, db_path: Option<&str>) -> io::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let engine = create_shared_engine();
+    let engine = create_shared_engine(db_path);
 
     for line in stdin.lock().lines() {
         let line = line?;

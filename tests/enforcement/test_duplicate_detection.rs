@@ -76,12 +76,14 @@ fn test_w002_duplicate_name_across_modules() {
     let mod_b = make_module_node(3, "module_b.py");
     let fn_b = make_func_node(4, "process", "module_b.py", 1);
 
-    store.update_nodes(vec![
-        NodeChange::Add(mod_a),
-        NodeChange::Add(fn_a),
-        NodeChange::Add(mod_b),
-        NodeChange::Add(fn_b),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(mod_a),
+            NodeChange::Add(fn_a),
+            NodeChange::Add(mod_b),
+            NodeChange::Add(fn_b),
+        ])
+        .unwrap();
 
     // Check from module_a's perspective
     let def = make_func_def("process", "module_a.py", 1);
@@ -110,7 +112,9 @@ fn test_w002_no_duplicate_no_warning() {
 
     let mod_a = make_module_node(1, "module_a.py");
     let fn_a = make_func_node(2, "unique_name", "module_a.py", 1);
-    store.update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
 
     let def = make_func_def("different_name", "module_b.py", 1);
     let file = FileIndex {
@@ -135,10 +139,14 @@ fn test_w002_severity_is_warning() {
     let fn_a = make_func_node(2, "dupe", "a.py", 1);
     let mod_b = make_module_node(3, "b.py");
     let fn_b = make_func_node(4, "dupe", "b.py", 1);
-    store.update_nodes(vec![
-        NodeChange::Add(mod_a), NodeChange::Add(fn_a),
-        NodeChange::Add(mod_b), NodeChange::Add(fn_b),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(mod_a),
+            NodeChange::Add(fn_a),
+            NodeChange::Add(mod_b),
+            NodeChange::Add(fn_b),
+        ])
+        .unwrap();
 
     let def = make_func_def("dupe", "a.py", 1);
     let file = FileIndex {
@@ -164,10 +172,14 @@ fn test_w002_includes_all_locations() {
     let fn_a = make_func_node(2, "process", "a.py", 5);
     let mod_b = make_module_node(3, "b.py");
     let fn_b = make_func_node(4, "process", "b.py", 10);
-    store.update_nodes(vec![
-        NodeChange::Add(mod_a), NodeChange::Add(fn_a),
-        NodeChange::Add(mod_b), NodeChange::Add(fn_b),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(mod_a),
+            NodeChange::Add(fn_a),
+            NodeChange::Add(mod_b),
+            NodeChange::Add(fn_b),
+        ])
+        .unwrap();
 
     let def = make_func_def("process", "a.py", 5);
     let file = FileIndex {
@@ -197,10 +209,14 @@ fn test_w002_test_files_excluded() {
     // Test file also has process()
     let mod_b = make_module_node(3, "test_main.py");
     let fn_b = make_func_node(4, "process", "test_main.py", 1);
-    store.update_nodes(vec![
-        NodeChange::Add(mod_a), NodeChange::Add(fn_a),
-        NodeChange::Add(mod_b), NodeChange::Add(fn_b),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(mod_a),
+            NodeChange::Add(fn_a),
+            NodeChange::Add(mod_b),
+            NodeChange::Add(fn_b),
+        ])
+        .unwrap();
 
     // Check from test file — test files are skipped entirely
     let def = make_func_def("process", "test_main.py", 1);
@@ -226,10 +242,14 @@ fn test_w002_fix_hint_present() {
     let fn_a = make_func_node(2, "handler", "a.py", 1);
     let mod_b = make_module_node(3, "b.py");
     let fn_b = make_func_node(4, "handler", "b.py", 1);
-    store.update_nodes(vec![
-        NodeChange::Add(mod_a), NodeChange::Add(fn_a),
-        NodeChange::Add(mod_b), NodeChange::Add(fn_b),
-    ]).unwrap();
+    store
+        .update_nodes(vec![
+            NodeChange::Add(mod_a),
+            NodeChange::Add(fn_a),
+            NodeChange::Add(mod_b),
+            NodeChange::Add(fn_b),
+        ])
+        .unwrap();
 
     let def = make_func_def("handler", "a.py", 1);
     let file = FileIndex {
@@ -272,7 +292,9 @@ fn test_w002_class_not_reported() {
         module_id: 0,
         package: None,
     };
-    store.update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(class_a)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(class_a)])
+        .unwrap();
 
     // File with class definition (not function)
     let class_def = Definition {

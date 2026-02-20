@@ -156,7 +156,9 @@ pub enum GraphError {
     #[error("Database error: {0}")]
     Database(String),
 
-    #[error("Hash collision detected for hash {hash} between functions '{existing}' and '{new_fn}'")]
+    #[error(
+        "Hash collision detected for hash {hash} between functions '{existing}' and '{new_fn}'"
+    )]
     HashCollision {
         hash: String,
         existing: String,

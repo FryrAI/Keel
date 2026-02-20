@@ -5,7 +5,7 @@ use keel_output::OutputFormatter;
 
 fn sample_discover() -> DiscoverResult {
     DiscoverResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "discover".into(),
         target: NodeInfo {
             hash: "abc12345678".into(),
@@ -51,7 +51,7 @@ fn sample_discover() -> DiscoverResult {
 
 fn isolated_discover() -> DiscoverResult {
     DiscoverResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "discover".into(),
         target: NodeInfo {
             hash: "iso12345678".into(),
@@ -130,7 +130,9 @@ fn test_discover_json_edge_metadata() {
     let keywords = mc["responsibility_keywords"].as_array().unwrap();
     assert!(keywords.iter().any(|k| k == "http"));
     let endpoints = mc["external_endpoints"].as_array().unwrap();
-    assert!(endpoints.iter().any(|e| e.as_str().unwrap().contains("GET")));
+    assert!(endpoints
+        .iter()
+        .any(|e| e.as_str().unwrap().contains("GET")));
 }
 
 #[test]

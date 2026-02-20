@@ -4,15 +4,10 @@
 //! Ignores `.keel/`, `node_modules/`, `.git/`, and common build directories.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
-
-use keel_core::sqlite::SqliteGraphStore;
-
-type SharedStore = Arc<Mutex<SqliteGraphStore>>;
 
 /// Directories to ignore when watching for file changes.
 const IGNORED_DIRS: &[&str] = &[
@@ -35,7 +30,6 @@ const WATCHED_EXTENSIONS: &[&str] = &["ts", "tsx", "js", "jsx", "py", "go", "rs"
 /// (debounced at 100ms intervals).
 pub fn start_watching(
     root: &Path,
-    _store: SharedStore,
 ) -> Result<(RecommendedWatcher, mpsc::Receiver<Vec<PathBuf>>), notify::Error> {
     let (tx, rx) = mpsc::channel::<Vec<PathBuf>>(64);
     let root = root.to_path_buf();

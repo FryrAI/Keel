@@ -237,7 +237,10 @@ impl Store {
         callee_name: "insert".into(),
         receiver: Some("self".into()),
     });
-    assert!(edge.is_some(), "self.insert() should resolve from merged impl blocks");
+    assert!(
+        edge.is_some(),
+        "self.insert() should resolve from merged impl blocks"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "insert");
     assert!(
@@ -277,7 +280,10 @@ impl Display for Point {
         callee_name: "fmt".into(),
         receiver: Some("Point".into()),
     });
-    assert!(edge.is_some(), "Point.fmt() should resolve via impl Display for Point");
+    assert!(
+        edge.is_some(),
+        "Point.fmt() should resolve via impl Display for Point"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "fmt");
     assert!(
@@ -356,7 +362,10 @@ impl Parser {
         callee_name: "tokenize".into(),
         receiver: Some("self".into()),
     });
-    assert!(edge.is_some(), "self.tokenize() should resolve to Parser impl block");
+    assert!(
+        edge.is_some(),
+        "self.tokenize() should resolve to Parser impl block"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "tokenize");
     assert_eq!(edge.target_file, "parser.rs");

@@ -130,18 +130,12 @@ impl MockTyClient {
 
     /// Set a successful result for a given path.
     pub fn set_result(&self, path: PathBuf, result: TyResult) {
-        self.results
-            .lock()
-            .unwrap()
-            .insert(path, Ok(result));
+        self.results.lock().unwrap().insert(path, Ok(result));
     }
 
     /// Set an error result for a given path.
     pub fn set_error(&self, path: PathBuf, error: String) {
-        self.results
-            .lock()
-            .unwrap()
-            .insert(path, Err(error));
+        self.results.lock().unwrap().insert(path, Err(error));
     }
 
     /// Get the number of times check_file was called for a path.
@@ -209,8 +203,7 @@ pub fn parse_ty_json_output(json_str: &str) -> TyResult {
                     .and_then(|f| f.as_str())
                     .unwrap_or("")
                     .to_string();
-                let line =
-                    diag.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                let line = diag.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
 
                 // Check if this is a definition or an error
                 let severity = diag
@@ -219,9 +212,7 @@ pub fn parse_ty_json_output(json_str: &str) -> TyResult {
                     .unwrap_or("error");
 
                 if severity == "information" {
-                    if let Some(name) =
-                        diag.get("name").and_then(|n| n.as_str())
-                    {
+                    if let Some(name) = diag.get("name").and_then(|n| n.as_str()) {
                         let kind = diag
                             .get("kind")
                             .and_then(|k| k.as_str())

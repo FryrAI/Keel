@@ -3,16 +3,17 @@
 //! Uses a shared EnforcementEngine so circuit breaker, batch mode,
 //! and graph state persist across MCP calls within a session.
 
-use std::path::Path;
-
 use serde_json::Value;
 
 use keel_enforce::types::{CompileInfo, CompileResult};
-use keel_parsers::resolver::{FileIndex, LanguageResolver};
 
 use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
+use crate::parse_shared::parse_file_to_index;
 
-pub(crate) fn handle_compile(engine: &SharedEngine, params: Option<Value>) -> Result<Value, JsonRpcError> {
+pub(crate) fn handle_compile(
+    engine: &SharedEngine,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let files: Vec<String> = params
         .as_ref()
         .and_then(|p| p.get("files").cloned())
@@ -32,7 +33,7 @@ pub(crate) fn handle_compile(engine: &SharedEngine, params: Option<Value>) -> Re
         .unwrap_or(false);
 
     // Parse files that exist on disk into FileIndexes
-    let file_indexes: Vec<FileIndex> = files
+    let file_indexes: Vec<_> = files
         .iter()
         .filter_map(|path| parse_file_to_index(path))
         .collect();
@@ -84,42 +85,4 @@ pub(crate) fn handle_compile(engine: &SharedEngine, params: Option<Value>) -> Re
     };
 
     serde_json::to_value(result).map_err(internal_err)
-}
-
-/// Detect language from file extension.
-fn detect_language(path: &str) -> Option<&'static str> {
-    match Path::new(path).extension()?.to_str()? {
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => Some("typescript"),
-        "py" | "pyi" => Some("python"),
-        "go" => Some("go"),
-        "rs" => Some("rust"),
-        _ => None,
-    }
-}
-
-/// Parse a single file from disk into a FileIndex.
-fn parse_file_to_index(path: &str) -> Option<FileIndex> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let lang = detect_language(path)?;
-
-    let resolver: Box<dyn LanguageResolver> = match lang {
-        "typescript" => Box::new(keel_parsers::typescript::TsResolver::new()),
-        "python" => Box::new(keel_parsers::python::PyResolver::new()),
-        "go" => Box::new(keel_parsers::go::GoResolver::new()),
-        "rust" => Box::new(keel_parsers::rust_lang::RustLangResolver::new()),
-        _ => return None,
-    };
-
-    let parsed = resolver.parse_file(Path::new(path), &content);
-    let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
-
-    Some(FileIndex {
-        file_path: path.to_string(),
-        content_hash,
-        definitions: parsed.definitions,
-        references: parsed.references,
-        imports: parsed.imports,
-        external_endpoints: parsed.external_endpoints,
-        parse_duration_us: 0,
-    })
 }

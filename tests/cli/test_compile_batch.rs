@@ -10,14 +10,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn init_and_map(files: &[(&str, &str)]) -> TempDir {
@@ -30,9 +37,17 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -40,9 +55,10 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
 #[test]
 /// `keel compile --batch-start` should enter batch mode.
 fn test_compile_batch_start() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -62,9 +78,10 @@ fn test_compile_batch_start() {
 #[test]
 /// `keel compile --batch-end` should fire all deferred violations.
 fn test_compile_batch_end() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Start batch
@@ -93,9 +110,10 @@ fn test_compile_batch_end() {
 #[test]
 /// `keel compile --batch-end` without prior --batch-start should be a no-op.
 fn test_compile_batch_end_without_start() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // batch-end without batch-start should be a graceful no-op
@@ -117,9 +135,18 @@ fn test_compile_batch_end_without_start() {
 /// Multiple files compiled during batch mode should accumulate deferred violations.
 fn test_compile_batch_accumulates_violations() {
     let dir = init_and_map(&[
-        ("src/a.ts", "export function fa(x: number): number { return x; }\n"),
-        ("src/b.ts", "export function fb(x: number): number { return x; }\n"),
-        ("src/c.ts", "export function fc(x: number): number { return x; }\n"),
+        (
+            "src/a.ts",
+            "export function fa(x: number): number { return x; }\n",
+        ),
+        (
+            "src/b.ts",
+            "export function fb(x: number): number { return x; }\n",
+        ),
+        (
+            "src/c.ts",
+            "export function fc(x: number): number { return x; }\n",
+        ),
     ]);
     let keel = keel_bin();
 

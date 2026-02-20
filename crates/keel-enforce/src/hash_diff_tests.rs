@@ -71,7 +71,13 @@ fn test_discover_not_found() {
 fn test_where_hash_found() {
     let store = SqliteGraphStore::in_memory().unwrap();
     store
-        .insert_node(&make_node(1, "abc12345678", "foo", "fn foo()", "src/lib.rs"))
+        .insert_node(&make_node(
+            1,
+            "abc12345678",
+            "foo",
+            "fn foo()",
+            "src/lib.rs",
+        ))
         .unwrap();
     let engine = EnforcementEngine::new(Box::new(store));
 
@@ -88,7 +94,13 @@ fn test_discover_with_callers_and_callees() {
 
     // Create nodes: caller -> target -> callee
     let caller = make_node(1, "cal11111111", "caller_fn", "fn caller_fn()", "src/a.rs");
-    let target = make_node(2, "tgt11111111", "target_fn", "fn target_fn(x: i32)", "src/b.rs");
+    let target = make_node(
+        2,
+        "tgt11111111",
+        "target_fn",
+        "fn target_fn(x: i32)",
+        "src/b.rs",
+    );
     let callee = make_node(3, "cle11111111", "callee_fn", "fn callee_fn()", "src/c.rs");
 
     store.insert_node(&caller).unwrap();
@@ -141,8 +153,7 @@ fn test_explain_with_edges() {
 #[test]
 fn test_e001_and_e002_combined_on_same_file() {
     let store = SqliteGraphStore::in_memory().unwrap();
-    let old_hash =
-        keel_core::hash::compute_hash("fn foo(x: i32)", "{ x + 1 }", "Doc for foo");
+    let old_hash = keel_core::hash::compute_hash("fn foo(x: i32)", "{ x + 1 }", "Doc for foo");
     let mut node = make_node(1, &old_hash, "foo", "fn foo(x: i32)", "src/lib.py");
     node.docstring = Some("Doc for foo".to_string());
     store.insert_node(&node).unwrap();
@@ -219,9 +230,15 @@ fn test_circuit_breaker_downgrade() {
     };
 
     let r1 = engine.compile(std::slice::from_ref(&file));
-    assert!(r1.errors.iter().any(|v| v.code == "E001" && v.severity == "ERROR"));
+    assert!(r1
+        .errors
+        .iter()
+        .any(|v| v.code == "E001" && v.severity == "ERROR"));
 
     let r2 = engine.compile(std::slice::from_ref(&file));
     let e001_count = r2.errors.iter().filter(|v| v.code == "E001").count();
-    assert_eq!(e001_count, 0, "E001 should not fire after graph is persisted");
+    assert_eq!(
+        e001_count, 0,
+        "E001 should not fire after graph is persisted"
+    );
 }

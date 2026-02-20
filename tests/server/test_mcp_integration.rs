@@ -2,6 +2,9 @@
 //!
 //! Spawns the keel binary as a child process, sends JSON-RPC messages
 //! via stdin, and reads responses from stdout with timeouts.
+//!
+//! Each test uses its own temp directory to avoid SQLite races when
+//! multiple test processes try to create `.keel/graph.db` concurrently.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -15,12 +18,27 @@ fn keel_binary() -> std::path::PathBuf {
         .and_then(|p| p.parent()) // debug/ or release/
         .expect("cannot find target dir");
     let bin = target_dir.join("keel");
+    if bin.exists() {
+        return bin;
+    }
+    // Fallback: workspace target/debug/keel (handles cargo-llvm-cov)
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
     assert!(
-        bin.exists(),
-        "keel binary not found at {}. Run `cargo build` first.",
-        bin.display()
+        fallback.exists(),
+        "keel binary not found at {} or {}. Run `cargo build` first.",
+        bin.display(),
+        fallback.display()
     );
-    bin
+    fallback
+}
+
+/// Create a temp directory with `.keel/` inside it so the keel binary
+/// can open/create its own `graph.db` without racing other test processes.
+fn make_test_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    std::fs::create_dir_all(dir.path().join(".keel")).expect("failed to create .keel dir");
+    dir
 }
 
 /// Send a JSON-RPC request line and read one response line with timeout.
@@ -43,8 +61,10 @@ fn send_and_receive(
 
 #[test]
 fn test_mcp_stdin_stdout_initialize() {
+    let test_dir = make_test_dir();
     let mut child = Command::new(keel_binary())
         .args(["serve", "--mcp"])
+        .current_dir(test_dir.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -84,8 +104,10 @@ fn test_mcp_stdin_stdout_initialize() {
 
 #[test]
 fn test_mcp_stdin_stdout_tools_list() {
+    let test_dir = make_test_dir();
     let mut child = Command::new(keel_binary())
         .args(["serve", "--mcp"])
+        .current_dir(test_dir.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -134,10 +156,7 @@ fn test_mcp_stdin_stdout_tools_list() {
         .iter()
         .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
         .collect();
-    assert!(
-        !tool_names.is_empty(),
-        "tools list should not be empty"
-    );
+    assert!(!tool_names.is_empty(), "tools list should not be empty");
 
     // Clean up
     drop(stdin);
@@ -147,8 +166,10 @@ fn test_mcp_stdin_stdout_tools_list() {
 
 #[test]
 fn test_mcp_stdin_stdout_invalid_json() {
+    let test_dir = make_test_dir();
     let mut child = Command::new(keel_binary())
         .args(["serve", "--mcp"])
+        .current_dir(test_dir.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -193,11 +214,17 @@ fn test_mcp_stdin_stdout_invalid_json() {
 
 /// Helper trait for wait_timeout on Child.
 trait ChildExt {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
 }
 
 impl ChildExt for std::process::Child {
-    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+    fn wait_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
         let start = std::time::Instant::now();
         loop {
             match self.try_wait()? {

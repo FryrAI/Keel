@@ -110,9 +110,9 @@ pub fn extract_python_all(
 
 /// Find an import that brings `name` into scope.
 pub fn find_import_for_name<'a>(imports: &'a [Import], name: &str) -> Option<&'a Import> {
-    imports.iter().find(|imp| {
-        imp.imported_names.iter().any(|n| n == name || n == "*")
-    })
+    imports
+        .iter()
+        .find(|imp| imp.imported_names.iter().any(|n| n == name || n == "*"))
 }
 
 #[cfg(test)]

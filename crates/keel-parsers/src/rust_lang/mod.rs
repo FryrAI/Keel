@@ -115,10 +115,17 @@ impl RustLangResolver {
 
         // Tier 2: extract impl blocks, generic bounds, supertraits, assoc types
         let file_str = path.to_string_lossy().to_string();
-        self.trait_impls.lock().unwrap()
+        self.trait_impls
+            .lock()
+            .unwrap()
             .extend(helpers::extract_trait_impls(content, &file_str));
         for (tn, ms) in helpers::extract_impl_methods(content) {
-            self.impl_map.lock().unwrap().entry(tn).or_default().extend(ms);
+            self.impl_map
+                .lock()
+                .unwrap()
+                .entry(tn)
+                .or_default()
+                .extend(ms);
         }
         {
             let mut gb = self.generic_bounds.lock().unwrap();
@@ -130,22 +137,35 @@ impl RustLangResolver {
             }
         }
         for (k, v) in trait_resolution::extract_supertrait_bounds(content) {
-            self.supertrait_bounds.lock().unwrap().entry(k).or_default().extend(v);
+            self.supertrait_bounds
+                .lock()
+                .unwrap()
+                .entry(k)
+                .or_default()
+                .extend(v);
         }
-        self.associated_types.lock().unwrap()
+        self.associated_types
+            .lock()
+            .unwrap()
             .extend(trait_resolution::extract_associated_type_impls(content));
 
         // Tier 2: extract derive macros and attribute macros as references
         for (name, line) in helpers::extract_derive_attrs(content) {
             result.references.push(Reference {
-                name, file_path: file_str.clone(), line,
-                kind: ReferenceKind::TypeRef, resolved_to: None,
+                name,
+                file_path: file_str.clone(),
+                line,
+                kind: ReferenceKind::TypeRef,
+                resolved_to: None,
             });
         }
         for (name, line) in helpers::extract_attribute_macros(content) {
             result.references.push(Reference {
-                name, file_path: file_str.clone(), line,
-                kind: ReferenceKind::Call, resolved_to: None,
+                name,
+                file_path: file_str.clone(),
+                line,
+                kind: ReferenceKind::Call,
+                resolved_to: None,
             });
         }
 
@@ -298,7 +318,12 @@ impl LanguageResolver for RustLangResolver {
                 let sb = self.supertrait_bounds.lock().unwrap().clone();
                 let ti = self.trait_impls.lock().unwrap().clone();
                 if let Some(edge) = trait_resolution::resolve_generic_method_call(
-                    receiver, callee, &gb_clone, &HashMap::new(), &ti, &sb,
+                    receiver,
+                    callee,
+                    &gb_clone,
+                    &HashMap::new(),
+                    &ti,
+                    &sb,
                     &call_site.file_path,
                 ) {
                     return Some(edge);
@@ -315,9 +340,8 @@ impl LanguageResolver for RustLangResolver {
                 for (type_name, methods) in impl_map.iter() {
                     if methods.iter().any(|m| m == callee) {
                         let cc = self.content_cache.lock().unwrap();
-                        let is_generic = cc.values().any(|c| {
-                            helpers::is_generic_impl(c, type_name)
-                        });
+                        let is_generic =
+                            cc.values().any(|c| helpers::is_generic_impl(c, type_name));
                         let confidence = if is_generic { 0.60 } else { 0.85 };
                         return Some(ResolvedEdge {
                             target_file: call_site.file_path.clone(),
@@ -332,10 +356,10 @@ impl LanguageResolver for RustLangResolver {
             // Tier 2: trait method resolution via receiver type
             let trait_impls = self.trait_impls.lock().unwrap();
             // Concrete type: receiver matches a known impl type
-            if let Some(ti) = trait_impls.iter().find(|ti| {
-                ti.type_name == *receiver
-                    && ti.methods.iter().any(|m| m == callee)
-            }) {
+            if let Some(ti) = trait_impls
+                .iter()
+                .find(|ti| ti.type_name == *receiver && ti.methods.iter().any(|m| m == callee))
+            {
                 return Some(ResolvedEdge {
                     target_file: ti.file_path.clone(),
                     target_name: callee.clone(),
@@ -348,8 +372,7 @@ impl LanguageResolver for RustLangResolver {
                 let candidates: Vec<_> = trait_impls
                     .iter()
                     .filter(|ti| {
-                        ti.trait_name == trait_name
-                            && ti.methods.iter().any(|m| m == callee)
+                        ti.trait_name == trait_name && ti.methods.iter().any(|m| m == callee)
                     })
                     .collect();
                 if let Some(first) = candidates.first() {
@@ -367,8 +390,7 @@ impl LanguageResolver for RustLangResolver {
             if let Some(methods) = impl_map.get(receiver.as_str()) {
                 if methods.iter().any(|m| m == callee) {
                     let cc = self.content_cache.lock().unwrap();
-                    let is_generic =
-                        cc.values().any(|c| helpers::is_generic_impl(c, receiver));
+                    let is_generic = cc.values().any(|c| helpers::is_generic_impl(c, receiver));
                     let confidence = if is_generic { 0.60 } else { 0.80 };
                     return Some(ResolvedEdge {
                         target_file: call_site.file_path.clone(),

@@ -1,9 +1,9 @@
 // Tests for violation suppression (Spec 006 - Enforcement Engine)
+use keel_core::types::NodeKind;
 use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::suppress::SuppressionManager;
 use keel_enforce::types::Violation;
 use keel_parsers::resolver::{Definition, FileIndex};
-use keel_core::types::NodeKind;
 
 use crate::common::in_memory_store;
 

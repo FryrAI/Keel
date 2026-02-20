@@ -1,11 +1,7 @@
 use keel_output::OutputFormatter;
 
 /// Run `keel analyze <file>` — architectural observations from graph data.
-pub fn run(
-    formatter: &dyn OutputFormatter,
-    verbose: bool,
-    file: String,
-) -> i32 {
+pub fn run(formatter: &dyn OutputFormatter, verbose: bool, file: String) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -21,9 +17,7 @@ pub fn run(
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel analyze: failed to open graph database: {}", e);

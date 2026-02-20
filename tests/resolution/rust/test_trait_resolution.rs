@@ -28,10 +28,7 @@ pub trait LanguageResolver {
         .find(|d| d.name == "LanguageResolver");
     assert!(trait_def.is_some(), "should find LanguageResolver trait");
     assert_eq!(trait_def.unwrap().kind, NodeKind::Class);
-    assert!(
-        trait_def.unwrap().is_public,
-        "pub trait should be public"
-    );
+    assert!(trait_def.unwrap().is_public, "pub trait should be public");
 }
 
 #[test]
@@ -54,10 +51,7 @@ pub trait Validator {
 
     // tree-sitter should capture the default method implementation
     let is_valid = result.definitions.iter().find(|d| d.name == "is_valid");
-    assert!(
-        is_valid.is_some(),
-        "should find is_valid default method"
-    );
+    assert!(is_valid.is_some(), "should find is_valid default method");
 }
 
 #[test]
@@ -187,11 +181,17 @@ fn run<T: Processor>(p: &T) {
         callee_name: "process".into(),
         receiver: Some("T".into()),
     });
-    assert!(edge.is_some(), "should resolve process() via trait bound on T");
+    assert!(
+        edge.is_some(),
+        "should resolve process() via trait bound on T"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "process");
-    assert!((edge.confidence - 0.65).abs() < 0.01,
-        "trait bound resolution confidence should be 0.65, got {}", edge.confidence);
+    assert!(
+        (edge.confidence - 0.65).abs() < 0.01,
+        "trait bound resolution confidence should be 0.65, got {}",
+        edge.confidence
+    );
     assert_eq!(edge.resolution_tier, "tier2");
 }
 
@@ -225,7 +225,10 @@ fn run<T: Advanced>(w: &T) {
         callee_name: "base_method".into(),
         receiver: Some("T".into()),
     });
-    assert!(edge.is_some(), "should resolve base_method() via supertrait of Advanced");
+    assert!(
+        edge.is_some(),
+        "should resolve base_method() via supertrait of Advanced"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "base_method");
     assert_eq!(edge.resolution_tier, "tier2");
@@ -252,9 +255,11 @@ impl Converter for StringConverter {
     let found = assoc_types.iter().any(|(trait_name, type_name, concrete)| {
         trait_name == "Converter" && type_name == "Output" && concrete == "String"
     });
-    assert!(found,
+    assert!(
+        found,
         "should extract associated type Output = String from Converter impl, got: {:?}",
-        assoc_types);
+        assoc_types
+    );
 }
 
 #[test]
@@ -281,9 +286,15 @@ fn check<T>(v: &T) where T: Validator {
         callee_name: "validate".into(),
         receiver: Some("T".into()),
     });
-    assert!(edge.is_some(), "should resolve validate() via where clause on T");
+    assert!(
+        edge.is_some(),
+        "should resolve validate() via where clause on T"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "validate");
-    assert!((edge.confidence - 0.65).abs() < 0.01,
-        "where clause resolution confidence should be 0.65, got {}", edge.confidence);
+    assert!(
+        (edge.confidence - 0.65).abs() < 0.01,
+        "where clause resolution confidence should be 0.65, got {}",
+        edge.confidence
+    );
 }

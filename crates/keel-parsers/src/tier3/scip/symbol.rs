@@ -45,7 +45,14 @@ pub fn parse_symbol(symbol_str: &str) -> Option<ScipSymbol> {
         .map(|s| s.to_owned())
         .collect();
 
-    Some(ScipSymbol { scheme, manager, package_name, version, descriptors, descriptor_path })
+    Some(ScipSymbol {
+        scheme,
+        manager,
+        package_name,
+        version,
+        descriptors,
+        descriptor_path,
+    })
 }
 
 /// Extract the simple function/class name from a SCIP symbol.
@@ -131,8 +138,8 @@ mod tests {
 
     #[test]
     fn test_symbol_name_method() {
-        let sym = parse_symbol("scip-typescript npm pkg 1.0.0 src/index.ts/MyClass#render().")
-            .unwrap();
+        let sym =
+            parse_symbol("scip-typescript npm pkg 1.0.0 src/index.ts/MyClass#render().").unwrap();
         assert_eq!(symbol_name(&sym), "render");
     }
 
@@ -151,9 +158,12 @@ mod tests {
     #[test]
     fn test_symbol_name_empty_path() {
         let sym = ScipSymbol {
-            scheme: "s".into(), manager: "m".into(),
-            package_name: "p".into(), version: "v".into(),
-            descriptors: vec![], descriptor_path: String::new(),
+            scheme: "s".into(),
+            manager: "m".into(),
+            package_name: "p".into(),
+            version: "v".into(),
+            descriptors: vec![],
+            descriptor_path: String::new(),
         };
         assert_eq!(symbol_name(&sym), "");
     }

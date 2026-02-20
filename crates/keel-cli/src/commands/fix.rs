@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use keel_output::OutputFormatter;
 use keel_enforce::types::{FixApplyDetail, FixApplyResult, FixResult};
+use keel_output::OutputFormatter;
+use std::path::PathBuf;
 
 /// Run the `keel fix` command.
 ///
@@ -75,7 +75,7 @@ pub fn run(
         .collect();
 
     let result = FixResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "fix".to_string(),
         violations_addressed: plans.len() as u32,
         files_affected: files_affected.len() as u32,
@@ -98,7 +98,11 @@ pub fn run(
 
     // --apply mode: write fixes to disk, then re-compile
     let apply_result = apply_fix_plans(&result, &cwd, verbose);
-    let exit_code = if apply_result.actions_failed > 0 || !apply_result.recompile_clean { 1 } else { 0 };
+    let exit_code = if apply_result.actions_failed > 0 || !apply_result.recompile_clean {
+        1
+    } else {
+        0
+    };
 
     let output = keel_output::llm::fix::format_fix_apply(&apply_result);
     if !output.is_empty() {
@@ -108,11 +112,7 @@ pub fn run(
 }
 
 /// Apply fix plans by writing changes to files, then re-compile to verify.
-fn apply_fix_plans(
-    result: &FixResult,
-    cwd: &std::path::Path,
-    verbose: bool,
-) -> FixApplyResult {
+fn apply_fix_plans(result: &FixResult, cwd: &std::path::Path, verbose: bool) -> FixApplyResult {
     let mut details = Vec::new();
     let mut files_modified = std::collections::HashSet::new();
     let mut applied = 0u32;
@@ -163,7 +163,7 @@ fn apply_fix_plans(
 
     let files_vec: Vec<String> = files_modified.into_iter().collect();
     FixApplyResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "fix --apply".into(),
         actions_applied: applied,
         actions_failed: failed,
@@ -180,8 +180,7 @@ fn apply_single_action(
     cwd: &std::path::Path,
 ) -> Result<(), String> {
     let path = cwd.join(&action.file);
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read error: {}", e))?;
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("read error: {}", e))?;
 
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let idx = (action.line as usize).saturating_sub(1);
@@ -227,8 +226,7 @@ fn apply_single_action(
         new_content
     };
 
-    std::fs::write(&path, final_content)
-        .map_err(|e| format!("write error: {}", e))
+    std::fs::write(&path, final_content).map_err(|e| format!("write error: {}", e))
 }
 
 /// Re-compile after applying fixes and return (is_clean, error_count).

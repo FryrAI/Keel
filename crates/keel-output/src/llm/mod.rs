@@ -1,3 +1,4 @@
+pub mod analyze;
 pub mod check;
 pub mod compile;
 pub mod discover;
@@ -6,7 +7,6 @@ pub mod fix;
 pub mod map;
 pub mod name;
 pub mod violation;
-pub mod analyze;
 
 use crate::OutputFormatter;
 use keel_enforce::types::{
@@ -33,7 +33,11 @@ impl LlmFormatter {
     }
 
     pub fn with_depths(map_depth: u32, compile_depth: u32) -> Self {
-        Self { map_depth, compile_depth, max_tokens: 500 }
+        Self {
+            map_depth,
+            compile_depth,
+            max_tokens: 500,
+        }
     }
 
     pub fn with_max_tokens(mut self, max_tokens: Option<usize>) -> Self {
@@ -97,7 +101,7 @@ mod tests {
     fn test_llm_clean_compile_is_empty() {
         let fmt = LlmFormatter::new();
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "ok".into(),
             files_analyzed: vec!["src/main.rs".into()],
@@ -116,7 +120,7 @@ mod tests {
     fn test_llm_compile_with_violations() {
         let fmt = LlmFormatter::with_depths(1, 2); // depth 2 for full detail
         let result = CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "error".into(),
             files_analyzed: vec!["src/lib.rs".into()],
@@ -162,7 +166,7 @@ mod tests {
     fn test_llm_discover() {
         let fmt = LlmFormatter::new();
         let result = DiscoverResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "discover".into(),
             target: NodeInfo {
                 hash: "abc12345678".into(),
@@ -206,7 +210,7 @@ mod tests {
     fn test_llm_explain() {
         let fmt = LlmFormatter::new();
         let result = ExplainResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "explain".into(),
             error_code: "E001".into(),
             hash: "abc12345678".into(),

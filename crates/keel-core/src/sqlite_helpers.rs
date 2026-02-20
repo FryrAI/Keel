@@ -40,6 +40,55 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Search for nodes whose name contains the given substring (case-insensitive).
+    /// Single SQL query instead of iterating modules + per-file lookups (N+1).
+    pub fn search_nodes(
+        &self,
+        query: &str,
+        kind_filter: Option<&str>,
+        limit: usize,
+    ) -> Vec<GraphNode> {
+        let pattern = format!("%{}%", query);
+        let sql = match kind_filter {
+            Some(_) => {
+                "SELECT id, hash, kind, name, signature, file_path, line_start, line_end, \
+                 docstring, is_public, type_hints_present, has_docstring, module_id \
+                 FROM nodes WHERE LOWER(name) LIKE LOWER(?1) AND kind = ?2 \
+                 ORDER BY name LIMIT ?3"
+            }
+            None => {
+                "SELECT id, hash, kind, name, signature, file_path, line_start, line_end, \
+                 docstring, is_public, type_hints_present, has_docstring, module_id \
+                 FROM nodes WHERE LOWER(name) LIKE LOWER(?1) \
+                 ORDER BY name LIMIT ?2"
+            }
+        };
+
+        let result = match kind_filter {
+            Some(kind) => {
+                let mut stmt = match self.conn.prepare(sql) {
+                    Ok(s) => s,
+                    Err(_) => return vec![],
+                };
+                stmt.query_map(params![pattern, kind, limit as u32], Self::row_to_node)
+                    .ok()
+                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                    .unwrap_or_default()
+            }
+            None => {
+                let mut stmt = match self.conn.prepare(sql) {
+                    Ok(s) => s,
+                    Err(_) => return vec![],
+                };
+                stmt.query_map(params![pattern, limit as u32], Self::row_to_node)
+                    .ok()
+                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                    .unwrap_or_default()
+            }
+        };
+        result
+    }
+
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {
         self.conn.execute(
             "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
@@ -134,8 +183,10 @@ impl SqliteGraphStore {
         )?;
 
         // Re-insert endpoints
-        self.conn
-            .execute("DELETE FROM external_endpoints WHERE node_id = ?1", params![node.id])?;
+        self.conn.execute(
+            "DELETE FROM external_endpoints WHERE node_id = ?1",
+            params![node.id],
+        )?;
         for ep in &node.external_endpoints {
             self.conn.execute(
                 "INSERT INTO external_endpoints (node_id, kind, method, path, direction) VALUES (?1, ?2, ?3, ?4, ?5)",

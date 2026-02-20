@@ -20,9 +20,8 @@ use crate::resolver::CallSite;
 use crate::tier3::provider::{Tier3Provider, Tier3Result};
 
 use protocol::{
-    file_path_to_uri, uri_to_file_path, ClientCapabilities, InitializeParams,
-    InitializeResult, Location, TextDocumentIdentifier, TextDocumentPositionParams,
-    Position,
+    file_path_to_uri, uri_to_file_path, ClientCapabilities, InitializeParams, InitializeResult,
+    Location, Position, TextDocumentIdentifier, TextDocumentPositionParams,
 };
 
 // ---------------------------------------------------------------------------
@@ -61,12 +60,7 @@ pub struct LspProvider {
 
 impl LspProvider {
     /// Creates an `LspProvider` with an explicit server command and arguments.
-    pub fn new(
-        language: &str,
-        command: &str,
-        args: &[String],
-        root_path: PathBuf,
-    ) -> Self {
+    pub fn new(language: &str, command: &str, args: &[String], root_path: PathBuf) -> Self {
         Self {
             language: language.to_owned(),
             command: command.to_owned(),

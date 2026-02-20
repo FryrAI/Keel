@@ -139,8 +139,14 @@ mod tests {
         let loc = Location {
             uri: "file:///foo/bar.ts".into(),
             range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: 5 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 5,
+                },
             },
         };
         let json = serde_json::to_string(&loc).unwrap();

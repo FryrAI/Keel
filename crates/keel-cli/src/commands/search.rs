@@ -26,9 +26,7 @@ pub fn run(
     }
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(
-        db_path.to_str().unwrap_or(""),
-    ) {
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel search: failed to open graph database: {}", e);
@@ -87,10 +85,13 @@ pub fn run(
         .collect();
 
     if json {
-        println!("{}", serde_json::json!({
-            "version": "0.1.0", "command": "search",
-            "term": term, "results": entries,
-        }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"), "command": "search",
+                "term": term, "results": entries,
+            })
+        );
     } else {
         if llm {
             println!("SEARCH term={} results={}", term, entries.len());
@@ -98,11 +99,15 @@ pub fn run(
             println!("Search results for '{}' ({} found):", term, entries.len());
         }
         for e in &entries {
-            println!("  {} hash={} {}:{} callers={} callees={}",
+            println!(
+                "  {} hash={} {}:{} callers={} callees={}",
                 e["name"].as_str().unwrap_or(""),
                 e["hash"].as_str().unwrap_or(""),
                 e["file"].as_str().unwrap_or(""),
-                e["line"], e["callers"], e["callees"]);
+                e["line"],
+                e["callers"],
+                e["callees"]
+            );
         }
     }
 

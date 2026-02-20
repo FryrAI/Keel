@@ -49,7 +49,9 @@ mod tests {
 
     #[test]
     fn test_truncate_over_budget() {
-        let lines: Vec<String> = (0..20).map(|i| format!("violation {} with long description text here", i)).collect();
+        let lines: Vec<String> = (0..20)
+            .map(|i| format!("violation {} with long description text here", i))
+            .collect();
         let (kept, overflow) = truncate_to_budget(&lines, 50);
         assert!(kept.len() < 20);
         assert!(overflow > 0);
@@ -58,7 +60,10 @@ mod tests {
 
     #[test]
     fn test_truncate_keeps_at_least_one() {
-        let lines = vec!["a very long line that exceeds budget alone".into(), "second".into()];
+        let lines = vec![
+            "a very long line that exceeds budget alone".into(),
+            "second".into(),
+        ];
         let (kept, _overflow) = truncate_to_budget(&lines, 1);
         assert!(!kept.is_empty()); // Always keeps at least one
     }

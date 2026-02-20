@@ -40,7 +40,7 @@ fn compile_with_many_violations(error_count: usize, warning_count: usize) -> Com
         .collect();
 
     CompileResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "compile".into(),
         status: if error_count > 0 {
             "error"
@@ -96,7 +96,10 @@ fn test_llm_depth2_errors_before_warnings() {
     let out = fmt.format_compile(&result);
     let first_error = out.find("E001").unwrap();
     let first_warning = out.find("W001").unwrap();
-    assert!(first_error < first_warning, "Errors must appear before warnings");
+    assert!(
+        first_error < first_warning,
+        "Errors must appear before warnings"
+    );
 }
 
 #[test]

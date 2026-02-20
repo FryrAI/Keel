@@ -1,14 +1,12 @@
 /// Contract tests for compile output JSON schema compliance.
-use keel_enforce::types::{
-    AffectedNode, CompileInfo, CompileResult, ExistingNode, Violation,
-};
+use keel_enforce::types::{AffectedNode, CompileInfo, CompileResult, ExistingNode, Violation};
 
 use super::test_schema_helpers::validate_against_schema;
 
 #[test]
 fn compile_output_matches_schema() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "ok".to_string(),
         files_analyzed: vec!["src/main.rs".to_string()],
@@ -29,7 +27,7 @@ fn compile_output_matches_schema() {
 #[test]
 fn compile_output_with_errors_matches_schema() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "error".to_string(),
         files_analyzed: vec!["src/api.rs".to_string(), "src/auth.rs".to_string()],
@@ -90,7 +88,7 @@ fn compile_output_with_errors_matches_schema() {
 #[test]
 fn compile_output_with_warnings_matches_schema() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "warning".to_string(),
         files_analyzed: vec!["src/utils.rs".to_string(), "src/db.rs".to_string()],

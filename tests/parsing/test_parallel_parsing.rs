@@ -18,9 +18,7 @@ fn generate_ts_sources(count: usize) -> Vec<(String, String)> {
     (0..count)
         .map(|i| {
             let filename = format!("file_{i}.ts");
-            let source = format!(
-                "function func_{i}(x: number): number {{ return x + {i}; }}\n",
-            );
+            let source = format!("function func_{i}(x: number): number {{ return x + {i}; }}\n",);
             (filename, source)
         })
         .collect()
@@ -60,10 +58,16 @@ fn test_parallel_correctness() {
     // Both should produce same definition counts (2 per file: 1 module + 1 function)
     assert_eq!(seq_counts.len(), par_counts.len());
     for count in &seq_counts {
-        assert_eq!(*count, 2, "each file should have 2 definitions (module + function)");
+        assert_eq!(
+            *count, 2,
+            "each file should have 2 definitions (module + function)"
+        );
     }
     for count in &par_counts {
-        assert_eq!(*count, 2, "each file should have 2 definitions (module + function)");
+        assert_eq!(
+            *count, 2,
+            "each file should have 2 definitions (module + function)"
+        );
     }
 }
 

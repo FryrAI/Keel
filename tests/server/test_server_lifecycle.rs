@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{GraphNode, NodeKind};
-use keel_server::KeelServer;
 use keel_server::mcp::{create_shared_engine, process_line};
+use keel_server::KeelServer;
 
 #[test]
 fn test_server_starts_and_loads_graph() {
@@ -82,7 +82,7 @@ fn test_server_mcp_process_line_integration() {
         })
         .unwrap();
     let shared = Arc::new(Mutex::new(store));
-    let engine = create_shared_engine();
+    let engine = create_shared_engine(None);
 
     // Initialize
     let init_req = serde_json::json!({
@@ -133,7 +133,7 @@ fn test_server_handles_concurrent_requests() {
         })
         .unwrap();
     let shared: Arc<Mutex<SqliteGraphStore>> = Arc::new(Mutex::new(store));
-    let engine = create_shared_engine();
+    let engine = create_shared_engine(None);
 
     // Simulate 10 sequential requests without panics
     for i in 0..10 {

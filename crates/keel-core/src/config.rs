@@ -248,9 +248,9 @@ mod tests {
                 "rust".to_string(),
             ],
             enforce: EnforceConfig {
-                type_hints: false,   // default is true
-                docstrings: false,   // default is true
-                placement: false,    // default is true
+                type_hints: false, // default is true
+                docstrings: false, // default is true
+                placement: false,  // default is true
             },
             circuit_breaker: CircuitBreakerConfig {
                 max_failures: 42, // default is 3
@@ -288,7 +288,10 @@ mod tests {
                 },
                 lsp_commands: {
                     let mut m = std::collections::HashMap::new();
-                    m.insert("python".to_string(), vec!["pyright-langserver".to_string(), "--stdio".to_string()]);
+                    m.insert(
+                        "python".to_string(),
+                        vec!["pyright-langserver".to_string(), "--stdio".to_string()],
+                    );
                     m
                 },
                 prefer_scip: false,
@@ -296,20 +299,26 @@ mod tests {
         };
 
         // Serialize to JSON
-        let json = serde_json::to_string_pretty(&original)
-            .expect("KeelConfig should serialize to JSON");
+        let json =
+            serde_json::to_string_pretty(&original).expect("KeelConfig should serialize to JSON");
 
         // Deserialize back
-        let roundtripped: KeelConfig = serde_json::from_str(&json)
-            .expect("KeelConfig JSON should deserialize back");
+        let roundtripped: KeelConfig =
+            serde_json::from_str(&json).expect("KeelConfig JSON should deserialize back");
 
         // Whole-struct equality (enabled by PartialEq derive)
-        assert_eq!(original, roundtripped, "Round-tripped config must match original");
+        assert_eq!(
+            original, roundtripped,
+            "Round-tripped config must match original"
+        );
 
         // Belt-and-suspenders: also verify each field individually so failures
         // are easy to diagnose if the PartialEq impl ever changes.
         assert_eq!(roundtripped.version, "99.88.77");
-        assert_eq!(roundtripped.languages, vec!["typescript", "python", "go", "rust"]);
+        assert_eq!(
+            roundtripped.languages,
+            vec!["typescript", "python", "go", "rust"]
+        );
         assert!(!roundtripped.enforce.type_hints);
         assert!(!roundtripped.enforce.docstrings);
         assert!(!roundtripped.enforce.placement);
@@ -327,14 +336,29 @@ mod tests {
             roundtripped.telemetry.endpoint,
             Some("https://custom.example.com/telemetry".to_string())
         );
-        assert_eq!(roundtripped.naming_conventions.style, Some("snake_case".to_string()));
-        assert_eq!(roundtripped.naming_conventions.prefixes, vec!["keel_", "test_"]);
+        assert_eq!(
+            roundtripped.naming_conventions.style,
+            Some("snake_case".to_string())
+        );
+        assert_eq!(
+            roundtripped.naming_conventions.prefixes,
+            vec!["keel_", "test_"]
+        );
         assert!(roundtripped.monorepo.enabled);
-        assert_eq!(roundtripped.monorepo.kind, Some("CargoWorkspace".to_string()));
+        assert_eq!(
+            roundtripped.monorepo.kind,
+            Some("CargoWorkspace".to_string())
+        );
         assert_eq!(roundtripped.monorepo.packages, vec!["core", "cli"]);
         assert!(roundtripped.tier3.enabled);
-        assert_eq!(roundtripped.tier3.scip_paths.get("typescript").unwrap(), ".scip/index.scip");
-        assert_eq!(roundtripped.tier3.lsp_commands.get("python").unwrap(), &vec!["pyright-langserver", "--stdio"]);
+        assert_eq!(
+            roundtripped.tier3.scip_paths.get("typescript").unwrap(),
+            ".scip/index.scip"
+        );
+        assert_eq!(
+            roundtripped.tier3.lsp_commands.get("python").unwrap(),
+            &vec!["pyright-langserver", "--stdio"]
+        );
         assert!(!roundtripped.tier3.prefer_scip);
     }
 
@@ -396,7 +420,10 @@ mod tests {
         assert!(!cfg.detailed);
         assert!(cfg.remote);
         assert!(cfg.endpoint.is_none());
-        assert_eq!(cfg.effective_endpoint(), "https://api.keel.engineer/telemetry");
+        assert_eq!(
+            cfg.effective_endpoint(),
+            "https://api.keel.engineer/telemetry"
+        );
     }
 
     #[test]

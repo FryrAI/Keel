@@ -10,14 +10,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn init_and_map(files: &[(&str, &str)]) -> TempDir {
@@ -30,9 +37,17 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -40,9 +55,10 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
 #[test]
 /// Exit code 0 on successful compile with no violations.
 fn test_exit_code_0_clean_compile() {
-    let dir = init_and_map(&[
-        ("src/clean.ts", "export function clean(x: number): number { return x; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/clean.ts",
+        "export function clean(x: number): number { return x; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -71,7 +87,10 @@ fn test_exit_code_0_clean_compile() {
 /// Exit code 1 when violations are found.
 fn test_exit_code_1_violations_found() {
     let dir = init_and_map(&[
-        ("src/caller.ts", "import { target } from './target';\nexport function caller(): void { target(); }\n"),
+        (
+            "src/caller.ts",
+            "import { target } from './target';\nexport function caller(): void { target(); }\n",
+        ),
         ("src/target.ts", "export function target(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -101,9 +120,10 @@ fn test_exit_code_1_violations_found() {
 #[test]
 /// Exit code 2 on internal keel error.
 fn test_exit_code_2_internal_error() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Corrupt the database to trigger internal error
@@ -127,9 +147,10 @@ fn test_exit_code_2_internal_error() {
 /// Exit code 0 when only warnings are found (no errors).
 fn test_exit_code_0_warnings_only() {
     // A project with well-typed functions and docstrings should produce at most warnings
-    let dir = init_and_map(&[
-        ("src/clean.ts", "/** Adds one to x. */\nexport function clean(x: number): number { return x + 1; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/clean.ts",
+        "/** Adds one to x. */\nexport function clean(x: number): number { return x + 1; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -162,15 +183,27 @@ fn test_exit_code_0_non_compile_commands() {
     let keel = keel_bin();
 
     // init should exit 0
-    let init_out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let init_out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert_eq!(init_out.status.code(), Some(0), "init should exit 0");
 
     // map should exit 0
-    let map_out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let map_out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert_eq!(map_out.status.code(), Some(0), "map should exit 0");
 
     // stats should exit 0
-    let stats_out = Command::new(&keel).arg("stats").current_dir(dir.path()).output().unwrap();
+    let stats_out = Command::new(&keel)
+        .arg("stats")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert_eq!(stats_out.status.code(), Some(0), "stats should exit 0");
 }
 

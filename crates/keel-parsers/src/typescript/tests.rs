@@ -18,7 +18,11 @@ export function greet(name: string): string {
 }
 "#;
     let result = resolver.parse_file(Path::new("test.ts"), source);
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == keel_core::types::NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "greet");
     assert!(funcs[0].type_hints_present);
@@ -52,7 +56,10 @@ fn test_ts_resolver_caches_results() {
     let path = Path::new("cached.ts");
     resolver.parse_file(path, source);
     let defs = resolver.resolve_definitions(path);
-    let funcs: Vec<_> = defs.iter().filter(|d| d.kind == keel_core::types::NodeKind::Function).collect();
+    let funcs: Vec<_> = defs
+        .iter()
+        .filter(|d| d.kind == keel_core::types::NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "hello");
 }
@@ -260,7 +267,10 @@ export function add(a, b) {
         .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "add");
-    assert!(funcs[0].type_hints_present, "JSDoc @param should set type_hints_present");
+    assert!(
+        funcs[0].type_hints_present,
+        "JSDoc @param should set type_hints_present"
+    );
 }
 
 #[test]
@@ -279,5 +289,8 @@ export function add(a, b) {
         .collect();
     assert_eq!(funcs.len(), 1);
     assert_eq!(funcs[0].name, "add");
-    assert!(!funcs[0].type_hints_present, "No JSDoc should mean type_hints_present is false");
+    assert!(
+        !funcs[0].type_hints_present,
+        "No JSDoc should mean type_hints_present is false"
+    );
 }

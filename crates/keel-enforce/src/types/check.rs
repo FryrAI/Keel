@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
-use super::{NodeInfo, Violation, ModuleContext};
+use super::{ModuleContext, NodeInfo, Violation};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckResult {
@@ -47,7 +47,7 @@ pub struct CheckCalleeRef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckSuggestion {
-    pub kind: String,  // "inline_candidate" | "high_fan_in" | "cross_module_impact"
+    pub kind: String, // "inline_candidate" | "high_fan_in" | "cross_module_impact"
     pub message: String,
     pub related_hash: Option<String>,
 }

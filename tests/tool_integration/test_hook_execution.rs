@@ -13,14 +13,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn init_and_map(files: &[(&str, &str)]) -> TempDir {
@@ -33,9 +40,17 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -43,9 +58,10 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
 #[test]
 /// Simulates hook behavior: keel compile fires for a specific edited file.
 fn test_hook_fires_on_file_edit_event() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Simulate file edit event by calling keel compile on the specific file
@@ -65,9 +81,10 @@ fn test_hook_fires_on_file_edit_event() {
 #[test]
 /// Simulates hook JSON input: keel compile --json receives structured output.
 fn test_hook_receives_json_input() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -93,9 +110,10 @@ fn test_hook_receives_json_input() {
 #[test]
 /// Exit code 0 means clean compile — stdout should be empty.
 fn test_hook_exit_code_0_means_clean() {
-    let dir = init_and_map(&[
-        ("src/clean.ts", "/** Clean function. */\nexport function clean(x: number): number { return x; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/clean.ts",
+        "/** Clean function. */\nexport function clean(x: number): number { return x; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -120,7 +138,10 @@ fn test_hook_exit_code_0_means_clean() {
 /// Exit code 1 means violations found — stdout should contain details.
 fn test_hook_exit_code_1_means_violations() {
     let dir = init_and_map(&[
-        ("src/caller.ts", "import { target } from './target';\nexport function caller(): void { target(); }\n"),
+        (
+            "src/caller.ts",
+            "import { target } from './target';\nexport function caller(): void { target(); }\n",
+        ),
         ("src/target.ts", "export function target(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -152,9 +173,10 @@ fn test_hook_exit_code_1_means_violations() {
 #[test]
 /// Exit code 2 means internal error — stderr should contain the error.
 fn test_hook_exit_code_2_means_internal_error() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Corrupt the database
@@ -166,16 +188,24 @@ fn test_hook_exit_code_2_means_internal_error() {
         .output()
         .expect("Failed to run keel compile");
 
-    assert_eq!(output.status.code(), Some(2), "corrupted DB should cause exit 2");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "corrupted DB should cause exit 2"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!stderr.trim().is_empty(), "exit 2 should have stderr output");
+    assert!(
+        !stderr.trim().is_empty(),
+        "exit 2 should have stderr output"
+    );
 }
 
 #[test]
 fn test_hook_timeout_does_not_block_agent() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Run compile with a generous timeout — should complete normally
@@ -195,9 +225,10 @@ fn test_hook_timeout_does_not_block_agent() {
 #[test]
 /// Hook output goes to stdout for agent context injection.
 fn test_hook_output_goes_to_agent_context() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -220,9 +251,10 @@ fn test_hook_output_goes_to_agent_context() {
 
 #[test]
 fn test_hook_handles_concurrent_invocations() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
     let keel2 = keel.clone();
     let dir_path = dir.path().to_path_buf();
@@ -250,6 +282,12 @@ fn test_hook_handles_concurrent_invocations() {
     // Both should complete without crashing (exit 0 or 1, never 2)
     let c1 = out1.status.code().unwrap_or(-1);
     let c2 = out2.status.code().unwrap_or(-1);
-    assert!(c1 == 0 || c1 == 1, "first compile should not crash, got {c1}");
-    assert!(c2 == 0 || c2 == 1, "second compile should not crash, got {c2}");
+    assert!(
+        c1 == 0 || c1 == 1,
+        "first compile should not crash, got {c1}"
+    );
+    assert!(
+        c2 == 0 || c2 == 1,
+        "second compile should not crash, got {c2}"
+    );
 }

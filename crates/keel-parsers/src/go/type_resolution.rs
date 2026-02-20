@@ -37,7 +37,11 @@ pub fn extract_receiver_from_params(
     } else {
         (parts[1].to_string(), false)
     };
-    Some(ReceiverInfo { type_name, is_pointer, method_name: method_name.to_string() })
+    Some(ReceiverInfo {
+        type_name,
+        is_pointer,
+        method_name: method_name.to_string(),
+    })
 }
 
 /// Build type_name -> vec of (method_name, is_pointer_receiver) from content.
@@ -51,7 +55,9 @@ pub fn build_type_methods(
             continue;
         }
         if let Some(info) = extract_receiver_from_content(content, &def.name, def.line_start) {
-            map.entry(info.type_name).or_default().push((info.method_name, info.is_pointer));
+            map.entry(info.type_name)
+                .or_default()
+                .push((info.method_name, info.is_pointer));
         }
     }
     map
@@ -81,7 +87,11 @@ fn extract_receiver_from_content(
     } else {
         (parts[1].to_string(), false)
     };
-    Some(ReceiverInfo { type_name, is_pointer, method_name: method_name.to_string() })
+    Some(ReceiverInfo {
+        type_name,
+        is_pointer,
+        method_name: method_name.to_string(),
+    })
 }
 
 /// Extract struct embeddings. Returns outer_type -> vec of embedded_type_names.
@@ -113,7 +123,10 @@ pub fn extract_embeddings(content: &str) -> HashMap<String, Vec<String>> {
             if is_embedded_field(trimmed) {
                 if let Some(embedded_type) = parse_embedded_type(trimmed) {
                     if let Some(ref struct_name) = current_struct {
-                        embeddings.entry(struct_name.clone()).or_default().push(embedded_type);
+                        embeddings
+                            .entry(struct_name.clone())
+                            .or_default()
+                            .push(embedded_type);
                     }
                 }
             }
@@ -134,7 +147,9 @@ fn is_embedded_field(trimmed: &str) -> bool {
 
 fn parse_embedded_type(trimmed: &str) -> Option<String> {
     let t = trimmed.trim_start_matches('*');
-    if t.is_empty() { return None; }
+    if t.is_empty() {
+        return None;
+    }
     if t.chars().next()?.is_uppercase() && t.chars().all(|c| c.is_alphanumeric() || c == '_') {
         Some(t.to_string())
     } else {
@@ -151,10 +166,16 @@ pub fn extract_interfaces(
     let mut interfaces = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
     for def in &result.definitions {
-        if def.kind != NodeKind::Class { continue; }
+        if def.kind != NodeKind::Class {
+            continue;
+        }
         let idx = (def.line_start as usize).saturating_sub(1);
-        if idx >= lines.len() { continue; }
-        if !lines[idx].contains("interface") { continue; }
+        if idx >= lines.len() {
+            continue;
+        }
+        if !lines[idx].contains("interface") {
+            continue;
+        }
         let methods = extract_interface_methods(content, def.line_start, def.line_end);
         interfaces.push(InterfaceInfo {
             name: def.name.clone(),
@@ -226,7 +247,12 @@ pub fn resolve_receiver_method(
 
     // 2. Struct embedding: check promoted methods (outer wins on collision)
     if let Some(edge) = resolve_embedded_method(
-        receiver, method_name, file_path, type_methods, embeddings, &mut Vec::new(),
+        receiver,
+        method_name,
+        file_path,
+        type_methods,
+        embeddings,
+        &mut Vec::new(),
     ) {
         return Some(edge);
     }
@@ -262,7 +288,9 @@ fn resolve_embedded_method(
     embeddings: &HashMap<String, Vec<String>>,
     visited: &mut Vec<String>,
 ) -> Option<ResolvedEdge> {
-    if visited.contains(&type_name.to_string()) { return None; }
+    if visited.contains(&type_name.to_string()) {
+        return None;
+    }
     visited.push(type_name.to_string());
     if let Some(embedded_types) = embeddings.get(type_name) {
         for embedded in embedded_types {
@@ -277,7 +305,12 @@ fn resolve_embedded_method(
                 }
             }
             if let Some(edge) = resolve_embedded_method(
-                embedded, method_name, file_path, type_methods, embeddings, visited,
+                embedded,
+                method_name,
+                file_path,
+                type_methods,
+                embeddings,
+                visited,
             ) {
                 return Some(edge);
             }

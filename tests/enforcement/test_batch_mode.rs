@@ -1,16 +1,21 @@
 // Tests for batch mode (--batch-start/--batch-end) (Spec 006 - Enforcement Engine)
+use keel_core::types::NodeKind;
 use keel_enforce::batch::BatchState;
 use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::Violation;
 use keel_parsers::resolver::{Definition, FileIndex};
-use keel_core::types::NodeKind;
 
 use crate::common::in_memory_store;
 
 fn make_violation(code: &str) -> Violation {
     Violation {
         code: code.to_string(),
-        severity: if code.starts_with('E') { "ERROR" } else { "WARNING" }.to_string(),
+        severity: if code.starts_with('E') {
+            "ERROR"
+        } else {
+            "WARNING"
+        }
+        .to_string(),
         category: "test".to_string(),
         message: format!("test {code}"),
         file: "a.py".to_string(),
@@ -99,7 +104,10 @@ fn test_batch_engine_defers_and_fires() {
     let result = engine.compile(&[file]);
 
     // E002 should be deferred, so no errors in this result
-    assert!(result.errors.is_empty(), "E002 should be deferred in batch mode");
+    assert!(
+        result.errors.is_empty(),
+        "E002 should be deferred in batch mode"
+    );
 
     // End batch mode — deferred violations fire
     let batch_result = engine.batch_end();

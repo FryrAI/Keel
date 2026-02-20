@@ -107,7 +107,10 @@ fn test_watch_handles_file_deletion() {
 #[test]
 fn test_watch_respects_gitignore_patterns() {
     let root = "/project";
-    assert!(is_in_ignored_dir(root, "/project/node_modules/dep/index.ts"));
+    assert!(is_in_ignored_dir(
+        root,
+        "/project/node_modules/dep/index.ts"
+    ));
     assert!(is_in_ignored_dir(root, "/project/.git/hooks/pre-commit.py"));
     assert!(is_in_ignored_dir(root, "/project/target/debug/main.rs"));
     assert!(is_in_ignored_dir(root, "/project/__pycache__/cache.py"));

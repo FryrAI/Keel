@@ -10,14 +10,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 /// Initialize a project with .claude/ directory so keel init detects Claude Code.
@@ -150,7 +157,10 @@ fn test_claude_code_hook_skips_non_source_files() {
     let dir = init_project();
     let settings = dir.path().join(".claude/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
-    assert!(!contents.is_empty(), "settings should exist with file filtering");
+    assert!(
+        !contents.is_empty(),
+        "settings should exist with file filtering"
+    );
 }
 
 #[test]

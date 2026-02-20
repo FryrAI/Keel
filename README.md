@@ -326,7 +326,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **Ready for release** |
 
-**Current:** 1071+ tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
+**Current:** 762+ tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
 
 ## Roadmap
 

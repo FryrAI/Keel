@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lazy resolver creation in compile CLI (only allocate resolver for target language)
 - `keel upgrade` — self-update from GitHub releases (auto-detects Homebrew/cargo installs)
 - `keel completion <shell>` — generate shell completions for bash, zsh, fish, elvish, powershell
-- 1071 tests passing, 0 ignored, 0 clippy warnings, 15 real-world repos validated
+- 762 tests passing, 0 ignored, 0 clippy warnings, 15 real-world repos validated
 
 ### Performance
 - `keel compile` single file: <200ms

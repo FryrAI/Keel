@@ -61,8 +61,8 @@ fn array_contains_command(arr: &[serde_json::Value], item: &serde_json::Value) -
 /// Merge a JSON template into an existing file, or write it fresh.
 /// Returns the final content string.
 pub fn merge_json_file(target: &Path, template: &str) -> Result<String, String> {
-    let template_val: serde_json::Value = serde_json::from_str(template)
-        .map_err(|e| format!("invalid template JSON: {}", e))?;
+    let template_val: serde_json::Value =
+        serde_json::from_str(template).map_err(|e| format!("invalid template JSON: {}", e))?;
 
     if target.exists() {
         let existing = fs::read_to_string(target)

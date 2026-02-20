@@ -10,14 +10,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn setup_git_project() -> TempDir {
@@ -82,7 +89,11 @@ fn test_pre_commit_hook_is_executable() {
     let dir = setup_git_project();
     let keel = keel_bin();
 
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     let hook_path = dir.path().join(".git/hooks/pre-commit");
     assert!(hook_path.exists());
@@ -105,7 +116,11 @@ fn test_pre_commit_hook_compiles_staged_files() {
     let dir = setup_git_project();
     let keel = keel_bin();
 
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // Stage a source file
     Command::new("git")
@@ -129,10 +144,18 @@ fn test_pre_commit_hook_allows_clean_commits() {
     let dir = setup_git_project();
     let keel = keel_bin();
 
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // Stage and commit the initial files — hook should pass for clean code
-    Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // Attempt a commit — the hook runs keel compile
     let commit = Command::new("git")
@@ -182,7 +205,11 @@ fn test_pre_commit_hook_only_checks_source_files() {
     let dir = setup_git_project();
     let keel = keel_bin();
 
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // The hook script should contain keel compile (which only processes source files)
     let hook_path = dir.path().join(".git/hooks/pre-commit");
@@ -201,7 +228,11 @@ fn test_pre_commit_hook_exit_code_1_blocks_commit() {
     let dir = setup_git_project();
     let keel = keel_bin();
 
-    Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
 
     // The hook should propagate keel compile's exit code
     let hook_path = dir.path().join(".git/hooks/pre-commit");

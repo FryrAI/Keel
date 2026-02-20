@@ -28,9 +28,7 @@ impl GraphStore for SqliteGraphStore {
                  LIMIT 1",
             )
             .ok()?;
-        let node = prev_stmt
-            .query_row(params![hash], Self::row_to_node)
-            .ok()?;
+        let node = prev_stmt.query_row(params![hash], Self::row_to_node).ok()?;
         Some(self.node_with_relations(node))
     }
 
@@ -39,9 +37,7 @@ impl GraphStore for SqliteGraphStore {
             .conn
             .prepare("SELECT * FROM nodes WHERE id = ?1")
             .ok()?;
-        let node = stmt
-            .query_row(params![id], Self::row_to_node)
-            .ok()?;
+        let node = stmt.query_row(params![id], Self::row_to_node).ok()?;
         Some(self.node_with_relations(node))
     }
 
@@ -49,9 +45,7 @@ impl GraphStore for SqliteGraphStore {
         let query = match direction {
             EdgeDirection::Incoming => "SELECT * FROM edges WHERE target_id = ?1",
             EdgeDirection::Outgoing => "SELECT * FROM edges WHERE source_id = ?1",
-            EdgeDirection::Both => {
-                "SELECT * FROM edges WHERE source_id = ?1 OR target_id = ?1"
-            }
+            EdgeDirection::Both => "SELECT * FROM edges WHERE source_id = ?1 OR target_id = ?1",
         };
 
         let mut stmt = match self.conn.prepare(query) {
@@ -303,7 +297,7 @@ impl GraphStore for SqliteGraphStore {
     fn find_modules_by_prefix(&self, prefix: &str, exclude_file: &str) -> Vec<ModuleProfile> {
         // Search module_profiles whose function_name_prefixes JSON array contains the prefix.
         // The LIKE pattern matches the prefix as a quoted JSON string element.
-        let pattern = format!("%\"{}\"%" , prefix);
+        let pattern = format!("%\"{}\"%", prefix);
         let mut stmt = match self.conn.prepare(
             "SELECT mp.* FROM module_profiles mp
              JOIN nodes n ON n.id = mp.module_id

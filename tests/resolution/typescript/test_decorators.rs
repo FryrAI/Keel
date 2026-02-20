@@ -25,7 +25,10 @@ class UserService {
     let result = resolver.parse_file(Path::new("service.ts"), source);
 
     // The class should still be captured despite the decorator
-    let class = result.definitions.iter().find(|d| d.kind == NodeKind::Class);
+    let class = result
+        .definitions
+        .iter()
+        .find(|d| d.kind == NodeKind::Class);
     assert!(
         class.is_some(),
         "decorated class should still be captured as a Class definition"
@@ -89,7 +92,10 @@ class Service {
     let result = resolver.parse_file(Path::new("service.ts"), source);
 
     // Class should be captured
-    let class = result.definitions.iter().find(|d| d.kind == NodeKind::Class);
+    let class = result
+        .definitions
+        .iter()
+        .find(|d| d.kind == NodeKind::Class);
     assert!(
         class.is_some(),
         "class with parameter decorator should still be captured"

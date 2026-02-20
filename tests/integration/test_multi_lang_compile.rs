@@ -46,10 +46,7 @@ fn test_compile_typescript_in_mixed_project() {
         .output()
         .expect("compile failed");
 
-    assert!(
-        output.status.code().is_some(),
-        "compile should not crash"
-    );
+    assert!(output.status.code().is_some(), "compile should not crash");
 
     assert_ne!(
         output.status.code(),
@@ -82,10 +79,7 @@ fn test_compile_python_in_mixed_project() {
         .output()
         .expect("compile failed");
 
-    assert!(
-        output.status.code().is_some(),
-        "compile should not crash"
-    );
+    assert!(output.status.code().is_some(), "compile should not crash");
 
     assert_ne!(
         output.status.code(),
@@ -131,10 +125,7 @@ func multiply(a int, b int, c int) int {
         .output()
         .expect("compile failed");
 
-    assert!(
-        output.status.code().is_some(),
-        "compile should not crash"
-    );
+    assert!(output.status.code().is_some(), "compile should not crash");
 
     assert_ne!(
         output.status.code(),
@@ -168,10 +159,7 @@ fn test_compile_rust_in_mixed_project() {
         .output()
         .expect("compile failed");
 
-    assert!(
-        output.status.code().is_some(),
-        "compile should not crash"
-    );
+    assert!(output.status.code().is_some(), "compile should not crash");
 
     assert_ne!(
         output.status.code(),

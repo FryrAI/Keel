@@ -13,6 +13,7 @@ pub struct EnforcementEngine {
     pub(crate) circuit_breaker: CircuitBreaker,
     pub(crate) batch_state: Option<BatchState>,
     pub(crate) suppressions: SuppressionManager,
+    pub(crate) enforce_config: keel_core::config::EnforceConfig,
 }
 
 impl EnforcementEngine {
@@ -22,6 +23,7 @@ impl EnforcementEngine {
             circuit_breaker: CircuitBreaker::new(),
             batch_state: None,
             suppressions: SuppressionManager::new(),
+            enforce_config: keel_core::config::EnforceConfig::default(),
         }
     }
 
@@ -35,6 +37,7 @@ impl EnforcementEngine {
             circuit_breaker: CircuitBreaker::with_max_failures(config.circuit_breaker.max_failures),
             batch_state: None,
             suppressions: SuppressionManager::new(),
+            enforce_config: config.enforce.clone(),
         }
     }
 
@@ -54,19 +57,45 @@ impl EnforcementEngine {
             let mut file_violations = Vec::new();
 
             // E001: broken callers (uses cached nodes)
-            file_violations.extend(violations::check_broken_callers_with_cache(file, &*self.store, &existing_nodes));
-            // E002: missing type hints
-            file_violations.extend(violations::check_missing_type_hints(file));
-            // E003: missing docstring
-            file_violations.extend(violations::check_missing_docstring(file));
+            file_violations.extend(violations::check_broken_callers_with_cache(
+                file,
+                &*self.store,
+                &existing_nodes,
+            ));
+            // E002: missing type hints (gated by config)
+            if self.enforce_config.type_hints {
+                file_violations.extend(violations::check_missing_type_hints(file));
+            }
+            // E003: missing docstring (gated by config)
+            if self.enforce_config.docstrings {
+                file_violations.extend(violations::check_missing_docstring(file));
+            }
             // E004: function removed (uses cached nodes)
-            file_violations.extend(violations::check_removed_functions_with_cache(file, &*self.store, &existing_nodes));
+            file_violations.extend(violations::check_removed_functions_with_cache(
+                file,
+                &*self.store,
+                &existing_nodes,
+            ));
             // E005: arity mismatch
             file_violations.extend(violations::check_arity_mismatch(file, &*self.store));
-            // W001: placement
-            file_violations.extend(violations::check_placement(file, &*self.store));
+            // W001: placement (gated by config)
+            if self.enforce_config.placement {
+                file_violations.extend(violations::check_placement(file, &*self.store));
+            }
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
+
+            // Fixup: use graph-stored hashes so `keel explain <hash>` works.
+            // Some checks (E002, E003, W001, W002) compute hashes freshly, which
+            // may differ from the graph when map used disambiguation for collisions.
+            for v in &mut file_violations {
+                if let Some(node) = existing_nodes
+                    .iter()
+                    .find(|n| n.file_path == v.file && n.line_start == v.line)
+                {
+                    v.hash = node.hash.clone();
+                }
+            }
 
             // Downgrade low-confidence violations (dynamic dispatch) to WARNING
             file_violations = Self::apply_dynamic_dispatch_threshold(file_violations);
@@ -87,8 +116,15 @@ impl EnforcementEngine {
                     &def.body_text,
                     def.docstring.as_deref().unwrap_or(""),
                 );
+                // Also check disambiguated hash (map may have used it for collisions)
+                let new_hash_disambiguated = keel_core::hash::compute_hash_disambiguated(
+                    &def.signature,
+                    &def.body_text,
+                    def.docstring.as_deref().unwrap_or(""),
+                    &file.file_path,
+                );
                 if let Some(node) = existing_nodes.iter().find(|n| n.name == def.name) {
-                    if node.hash != new_hash {
+                    if node.hash != new_hash && node.hash != new_hash_disambiguated {
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
                         // Persist updated hash
@@ -112,16 +148,10 @@ impl EnforcementEngine {
             if let Some(batch) = &mut self.batch_state {
                 if batch.is_expired() {
                     // Auto-expire: flush deferred
-                    let deferred = self.batch_state.take()
-                        .unwrap()
-                        .drain();
+                    let deferred = self.batch_state.take().unwrap().drain();
                     Self::partition_violations(deferred, &mut all_errors, &mut all_warnings);
                     // Non-deferred violations from this file
-                    Self::partition_violations(
-                        file_violations,
-                        &mut all_errors,
-                        &mut all_warnings,
-                    );
+                    Self::partition_violations(file_violations, &mut all_errors, &mut all_warnings);
                 } else {
                     batch.touch();
                     let (immediate, deferred): (Vec<_>, Vec<_>) = file_violations
@@ -153,7 +183,7 @@ impl EnforcementEngine {
         };
 
         CompileResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "compile".to_string(),
             status: status.to_string(),
             files_analyzed: file_paths,
@@ -192,7 +222,7 @@ impl EnforcementEngine {
         };
 
         CompileResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "compile".to_string(),
             status: status.to_string(),
             files_analyzed: vec![],
@@ -214,6 +244,12 @@ impl EnforcementEngine {
     /// Export circuit breaker state for persistence.
     pub fn export_circuit_breaker(&self) -> Vec<(String, String, u32, bool)> {
         self.circuit_breaker.export_state()
+    }
+
+    /// Get circuit breaker failure count for a specific error+hash+file combination.
+    pub fn circuit_breaker_failures(&self, error_code: &str, hash: &str, file_path: &str) -> u32 {
+        self.circuit_breaker
+            .failure_count(error_code, hash, file_path)
     }
 
     /// Suppress a specific error/warning code.
@@ -249,7 +285,9 @@ impl EnforcementEngine {
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
-                    let action = self.circuit_breaker.record_failure(&v.code, &v.hash, &v.file);
+                    let action = self
+                        .circuit_breaker
+                        .record_failure(&v.code, &v.hash, &v.file);
                     match action {
                         BreakerAction::FixHint => {} // fix_hint already set
                         BreakerAction::WiderContext => {

@@ -36,7 +36,12 @@ def report(analysis: dict) -> None:
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert_eq!(funcs.len(), 4, "expected 4 Function definitions, got {}", funcs.len());
+    assert_eq!(
+        funcs.len(),
+        4,
+        "expected 4 Function definitions, got {}",
+        funcs.len()
+    );
 }
 
 #[test]
@@ -65,7 +70,12 @@ class Circle(Shape):
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(classes.len(), 2, "expected 2 Class definitions, got {}", classes.len());
+    assert_eq!(
+        classes.len(),
+        2,
+        "expected 2 Class definitions, got {}",
+        classes.len()
+    );
     assert!(classes.iter().any(|c| c.name == "Shape"), "missing Shape");
     assert!(classes.iter().any(|c| c.name == "Circle"), "missing Circle");
 }
@@ -88,7 +98,12 @@ def greet() -> str:
         .iter()
         .filter(|d| d.kind == NodeKind::Module)
         .collect();
-    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(
+        modules.len(),
+        1,
+        "expected 1 Module node per file, got {}",
+        modules.len()
+    );
     assert_eq!(modules[0].name, "greet", "module name should be file stem");
     assert_eq!(modules[0].file_path, "greet.py");
 }
@@ -153,9 +168,15 @@ def list_files(directory: str) -> List[str]:
         result.imports.iter().map(|i| &i.source).collect::<Vec<_>>()
     );
     let pathlib_import = result.imports.iter().find(|i| i.source.contains("pathlib"));
-    assert!(pathlib_import.is_some(), "should detect 'from pathlib import Path'");
+    assert!(
+        pathlib_import.is_some(),
+        "should detect 'from pathlib import Path'"
+    );
     let typing_import = result.imports.iter().find(|i| i.source.contains("typing"));
-    assert!(typing_import.is_some(), "should detect 'from typing import List, Dict'");
+    assert!(
+        typing_import.is_some(),
+        "should detect 'from typing import List, Dict'"
+    );
 }
 
 #[test]

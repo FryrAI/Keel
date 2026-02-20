@@ -11,14 +11,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
@@ -37,14 +44,22 @@ fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
         .current_dir(dir.path())
         .output()
         .expect("Failed to run keel init");
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let out = Command::new(&keel)
         .arg("map")
         .current_dir(dir.path())
         .output()
         .expect("Failed to run keel map");
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     dir
 }
@@ -102,9 +117,10 @@ fn extract_hash_from_json(val: &serde_json::Value) -> Option<String> {
 #[test]
 /// `keel discover <hash>` should return adjacency information for the node.
 fn test_discover_returns_adjacency() {
-    let dir = init_and_map_project(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Try discover with a hash — if we can extract one from stats
@@ -140,9 +156,10 @@ fn test_discover_returns_adjacency() {
 #[test]
 /// `keel discover` should complete in under 50ms.
 fn test_discover_performance_target() {
-    let dir = init_and_map_project(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Even with an invalid hash, discover should be fast
@@ -165,9 +182,10 @@ fn test_discover_performance_target() {
 #[test]
 /// `keel discover` with an invalid hash should return a clear error.
 fn test_discover_invalid_hash() {
-    let dir = init_and_map_project(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -192,8 +210,14 @@ fn test_discover_invalid_hash() {
 /// `keel discover` should show both incoming and outgoing edges.
 fn test_discover_shows_both_directions() {
     let dir = init_and_map_project(&[
-        ("src/caller.ts", "import { middle } from './middle';\nexport function caller(): void { middle(); }\n"),
-        ("src/middle.ts", "import { callee } from './callee';\nexport function middle(): void { callee(); }\n"),
+        (
+            "src/caller.ts",
+            "import { middle } from './middle';\nexport function caller(): void { middle(); }\n",
+        ),
+        (
+            "src/middle.ts",
+            "import { callee } from './callee';\nexport function middle(): void { callee(); }\n",
+        ),
         ("src/callee.ts", "export function callee(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -206,10 +230,7 @@ fn test_discover_shows_both_directions() {
             .output()
             .expect("Failed to run keel discover");
 
-        assert!(
-            output.status.success(),
-            "discover should succeed"
-        );
+        assert!(output.status.success(), "discover should succeed");
         // Output should contain some content about the node
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
@@ -230,9 +251,10 @@ fn test_discover_shows_both_directions() {
 #[test]
 /// `keel discover` should include edge confidence and resolution tier.
 fn test_discover_includes_edge_metadata() {
-    let dir = init_and_map_project(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     if let Some(hash) = get_any_hash(dir.path()) {
@@ -250,7 +272,10 @@ fn test_discover_includes_edge_metadata() {
             });
 
         let code = output.status.code().unwrap_or(-1);
-        assert!(code == 0 || code == 2, "discover should exit 0 or 2, got {code}");
+        assert!(
+            code == 0 || code == 2,
+            "discover should exit 0 or 2, got {code}"
+        );
     } else {
         // Verify command works at all
         let output = Command::new(&keel)

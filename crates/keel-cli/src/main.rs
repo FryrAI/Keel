@@ -38,27 +38,68 @@ fn main() {
     let start = Instant::now();
 
     let exit_code = match cli.command {
-        Commands::Init { merge } => commands::init::run(&*formatter, cli.verbose, merge),
-        Commands::Map { llm_verbose, scope, strict, depth, tier3 } => {
-            commands::map::run(&*formatter, cli.verbose, llm_verbose, scope, strict, depth, tier3)
-        }
-        Commands::Discover { query, depth, suggest_placement, name, context } => {
-            commands::discover::run(
-                &*formatter, cli.verbose, query, depth, suggest_placement, name, context,
-            )
-        }
+        Commands::Init { merge, yes } => commands::init::run(&*formatter, cli.verbose, merge, yes),
+        Commands::Map {
+            llm_verbose,
+            scope,
+            strict,
+            depth,
+            tier3,
+        } => commands::map::run(
+            &*formatter,
+            cli.verbose,
+            llm_verbose,
+            scope,
+            strict,
+            depth,
+            tier3,
+        ),
+        Commands::Discover {
+            query,
+            depth,
+            suggest_placement,
+            name,
+            context,
+        } => commands::discover::run(
+            &*formatter,
+            cli.verbose,
+            query,
+            depth,
+            suggest_placement,
+            name,
+            context,
+        ),
         Commands::Search { term, kind } => {
             commands::search::run(&*formatter, cli.verbose, cli.json, cli.llm, term, kind)
         }
         Commands::Compile {
-            files, batch_start, batch_end, strict, tier3, suppress, depth,
-            changed, since, delta, timeout,
+            files,
+            batch_start,
+            batch_end,
+            strict,
+            tier3,
+            suppress,
+            depth,
+            changed,
+            since,
+            delta,
+            timeout,
         } => {
             // tier3 flag is accepted but not yet wired into compile
             let _ = tier3;
             commands::compile::run(
-                &*formatter, cli.verbose, files, batch_start, batch_end, strict,
-                suppress, depth, changed, since, delta, timeout,
+                &*formatter,
+                cli.verbose,
+                files,
+                batch_start,
+                batch_end,
+                strict,
+                suppress,
+                depth,
+                changed,
+                since,
+                delta,
+                timeout,
             )
         }
         Commands::Check { query, name } => {
@@ -67,18 +108,23 @@ fn main() {
         Commands::Where { hash } => {
             commands::where_cmd::run(&*formatter, cli.verbose, hash, cli.json)
         }
-        Commands::Explain { error_code, hash, tree, depth } => {
-            commands::explain::run(&*formatter, cli.verbose, error_code, hash, tree, depth)
-        }
-        Commands::Fix { hashes, file, apply } => {
-            commands::fix::run(&*formatter, cli.verbose, hashes, file, apply)
-        }
-        Commands::Name { description, module, kind } => {
-            commands::name::run(&*formatter, cli.verbose, description, module, kind)
-        }
-        Commands::Analyze { file } => {
-            commands::analyze::run(&*formatter, cli.verbose, file)
-        }
+        Commands::Explain {
+            error_code,
+            hash,
+            tree,
+            depth,
+        } => commands::explain::run(&*formatter, cli.verbose, error_code, hash, tree, depth),
+        Commands::Fix {
+            hashes,
+            file,
+            apply,
+        } => commands::fix::run(&*formatter, cli.verbose, hashes, file, apply),
+        Commands::Name {
+            description,
+            module,
+            kind,
+        } => commands::name::run(&*formatter, cli.verbose, description, module, kind),
+        Commands::Analyze { file } => commands::analyze::run(&*formatter, cli.verbose, file),
         Commands::Serve { mcp, http, watch } => {
             commands::serve::run(&*formatter, cli.verbose, mcp, http, watch)
         }

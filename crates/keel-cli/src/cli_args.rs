@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "keel", version, about = "Structural code enforcement for LLM agents")]
+#[command(
+    name = "keel",
+    version,
+    about = "Structural code enforcement for LLM agents"
+)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -30,6 +34,9 @@ pub(crate) enum Commands {
         /// Merge with existing .keel/ configuration instead of failing
         #[arg(long)]
         merge: bool,
+        /// Skip interactive prompt (use detected agents only)
+        #[arg(long, short)]
+        yes: bool,
     },
 
     /// Full re-map of the codebase

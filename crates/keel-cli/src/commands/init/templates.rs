@@ -7,8 +7,7 @@
 // are embedded now but only used when their tool detection is implemented.
 
 // --- Claude Code ---
-pub const CLAUDE_CODE_SETTINGS: &str =
-    include_str!("../../../templates/claude-code/settings.json");
+pub const CLAUDE_CODE_SETTINGS: &str = include_str!("../../../templates/claude-code/settings.json");
 pub const CLAUDE_CODE_INSTRUCTIONS: &str =
     include_str!("../../../templates/claude-code/keel-instructions.md");
 
@@ -30,8 +29,7 @@ pub const COPILOT_INSTRUCTIONS: &str =
 
 // --- Aider ---
 pub const AIDER_CONF: &str = include_str!("../../../templates/aider/aider.conf.yml");
-pub const AIDER_INSTRUCTIONS: &str =
-    include_str!("../../../templates/aider/keel-instructions.md");
+pub const AIDER_INSTRUCTIONS: &str = include_str!("../../../templates/aider/keel-instructions.md");
 
 // --- Letta Code ---
 pub const LETTA_SETTINGS: &str = include_str!("../../../templates/letta-code/settings.json");

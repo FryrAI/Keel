@@ -98,7 +98,10 @@ func main() {
         callee_name: "Service.String".into(),
         receiver: None,
     });
-    assert!(edge.is_some(), "should resolve Service.String via type methods");
+    assert!(
+        edge.is_some(),
+        "should resolve Service.String via type methods"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "String");
     assert!(
@@ -139,7 +142,10 @@ func main() {
         callee_name: "Server.Log".into(),
         receiver: None,
     });
-    assert!(edge.is_some(), "should resolve Server.Log via embedding promotion");
+    assert!(
+        edge.is_some(),
+        "should resolve Server.Log via embedding promotion"
+    );
     let edge = edge.unwrap();
     assert_eq!(edge.target_name, "Log");
     assert!(

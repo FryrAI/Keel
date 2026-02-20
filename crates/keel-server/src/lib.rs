@@ -8,7 +8,13 @@
 
 pub mod http;
 pub mod mcp;
+mod mcp_analyze;
+mod mcp_check;
 mod mcp_compile;
+mod mcp_fix;
+mod mcp_name;
+mod mcp_search;
+mod parse_shared;
 pub mod watcher;
 
 use std::path::PathBuf;
@@ -32,7 +38,9 @@ impl KeelServer {
     /// Create a new server instance from an existing database path.
     pub fn open(db_path: &str, root_dir: PathBuf) -> Result<Self, keel_core::types::GraphError> {
         let store = SqliteGraphStore::open(db_path)?;
-        let engine = EnforcementEngine::new(Box::new(store));
+        let keel_dir = root_dir.join(".keel");
+        let config = keel_core::config::KeelConfig::load(&keel_dir);
+        let engine = EnforcementEngine::with_config(Box::new(store), &config);
         Ok(Self {
             engine: Arc::new(Mutex::new(engine)),
             root_dir,

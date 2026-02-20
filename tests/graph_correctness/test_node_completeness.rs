@@ -31,7 +31,11 @@ function gamma(): void { console.log("hi"); }
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert!(funcs.len() >= 3, "expected >= 3 functions, got {}", funcs.len());
+    assert!(
+        funcs.len() >= 3,
+        "expected >= 3 functions, got {}",
+        funcs.len()
+    );
     for name in &["alpha", "beta", "gamma"] {
         assert!(
             funcs.iter().any(|f| f.name == *name),
@@ -103,7 +107,11 @@ def save_results(results: list) -> None:
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert!(funcs.len() >= 3, "expected >= 3 functions, got {}", funcs.len());
+    assert!(
+        funcs.len() >= 3,
+        "expected >= 3 functions, got {}",
+        funcs.len()
+    );
     for name in &["fetch_data", "process_data", "save_results"] {
         assert!(
             funcs.iter().any(|f| f.name == *name),
@@ -183,15 +191,28 @@ func Validate(input string) bool {
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert!(funcs.len() >= 3, "expected >= 3 functions, got {}", funcs.len());
+    assert!(
+        funcs.len() >= 3,
+        "expected >= 3 functions, got {}",
+        funcs.len()
+    );
 
     let exported = funcs.iter().find(|f| f.name == "ProcessData");
-    assert!(exported.is_some(), "should find exported function ProcessData");
+    assert!(
+        exported.is_some(),
+        "should find exported function ProcessData"
+    );
     assert!(exported.unwrap().is_public, "ProcessData should be public");
 
     let unexported = funcs.iter().find(|f| f.name == "handleInternal");
-    assert!(unexported.is_some(), "should find unexported function handleInternal");
-    assert!(!unexported.unwrap().is_public, "handleInternal should not be public");
+    assert!(
+        unexported.is_some(),
+        "should find unexported function handleInternal"
+    );
+    assert!(
+        !unexported.unwrap().is_public,
+        "handleInternal should not be public"
+    );
 
     let validate = funcs.iter().find(|f| f.name == "Validate");
     assert!(validate.is_some(), "should find exported function Validate");

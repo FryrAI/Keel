@@ -38,7 +38,12 @@ func WriteOutput(output string) error {
         .iter()
         .filter(|d| d.kind == NodeKind::Function)
         .collect();
-    assert_eq!(funcs.len(), 3, "expected 3 Function definitions, got {}", funcs.len());
+    assert_eq!(
+        funcs.len(),
+        3,
+        "expected 3 Function definitions, got {}",
+        funcs.len()
+    );
     for name in &["ReadData", "ProcessData", "WriteOutput"] {
         assert!(
             funcs.iter().any(|f| f.name == *name),
@@ -75,9 +80,20 @@ type Session struct {
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(structs.len(), 2, "expected 2 struct definitions, got {}", structs.len());
-    assert!(structs.iter().any(|s| s.name == "User"), "missing struct User");
-    assert!(structs.iter().any(|s| s.name == "Session"), "missing struct Session");
+    assert_eq!(
+        structs.len(),
+        2,
+        "expected 2 struct definitions, got {}",
+        structs.len()
+    );
+    assert!(
+        structs.iter().any(|s| s.name == "User"),
+        "missing struct User"
+    );
+    assert!(
+        structs.iter().any(|s| s.name == "Session"),
+        "missing struct Session"
+    );
 }
 
 #[test]
@@ -99,7 +115,12 @@ func noop() {}
         .iter()
         .filter(|d| d.kind == NodeKind::Module)
         .collect();
-    assert_eq!(modules.len(), 1, "expected 1 Module node per file, got {}", modules.len());
+    assert_eq!(
+        modules.len(),
+        1,
+        "expected 1 Module node per file, got {}",
+        modules.len()
+    );
     assert_eq!(modules[0].name, "main", "module name should be file stem");
     assert_eq!(modules[0].file_path, "main.go");
 }

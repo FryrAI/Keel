@@ -10,14 +10,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn setup_initialized_project() -> TempDir {
@@ -31,8 +38,16 @@ fn setup_initialized_project() -> TempDir {
     .unwrap();
 
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     dir
 }
 
@@ -42,7 +57,10 @@ fn test_deinit_removes_keel_directory() {
     let dir = setup_initialized_project();
     let keel = keel_bin();
 
-    assert!(dir.path().join(".keel").exists(), ".keel/ should exist before deinit");
+    assert!(
+        dir.path().join(".keel").exists(),
+        ".keel/ should exist before deinit"
+    );
 
     let output = Command::new(&keel)
         .arg("deinit")
@@ -79,7 +97,10 @@ fn test_deinit_preserves_source_files() {
     assert!(output.status.success());
 
     // Source file should still exist with same content
-    assert!(source_path.exists(), "source file should still exist after deinit");
+    assert!(
+        source_path.exists(),
+        "source file should still exist after deinit"
+    );
     let after_content = fs::read_to_string(&source_path).unwrap();
     assert_eq!(
         original_content, after_content,

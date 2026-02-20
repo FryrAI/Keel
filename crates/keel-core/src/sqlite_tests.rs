@@ -27,7 +27,9 @@ fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
 fn test_create_and_read_node() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let node = test_node(1, "abc12345678", "test_fn");
-    store.update_nodes(vec![NodeChange::Add(node.clone())]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(node.clone())])
+        .unwrap();
 
     let retrieved = store.get_node("abc12345678").unwrap();
     assert_eq!(retrieved.name, "test_fn");
@@ -52,7 +54,9 @@ fn test_update_node() {
 
     let mut updated = test_node(1, "xyz12345678", "new_name");
     updated.signature = "fn new_name() -> i32".to_string();
-    store.update_nodes(vec![NodeChange::Update(updated)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Update(updated)])
+        .unwrap();
 
     let retrieved = store.get_node_by_id(1).unwrap();
     assert_eq!(retrieved.name, "new_name");
@@ -74,7 +78,9 @@ fn test_edges() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "aaa12345678", "caller");
     let n2 = test_node(2, "bbb12345678", "callee");
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
 
     let edge = GraphEdge {
         id: 1,
@@ -106,7 +112,9 @@ fn test_schema_version() {
 fn test_readd_same_node_no_unique_constraint_error() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let node = test_node(1, "abc12345678", "test_fn");
-    store.update_nodes(vec![NodeChange::Add(node.clone())]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(node.clone())])
+        .unwrap();
     store
         .update_nodes(vec![NodeChange::Add(node)])
         .expect("Re-adding same node should not fail with UNIQUE constraint");
@@ -119,12 +127,21 @@ fn test_readd_same_edge_no_unique_constraint_error() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "aaa12345678", "caller");
     let n2 = test_node(2, "bbb12345678", "callee");
-    store.update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)]).unwrap();
+    store
+        .update_nodes(vec![NodeChange::Add(n1), NodeChange::Add(n2)])
+        .unwrap();
     let edge = GraphEdge {
-        id: 1, source_id: 1, target_id: 2, kind: EdgeKind::Calls,
-        confidence: 1.0, file_path: "src/test.rs".to_string(), line: 5,
+        id: 1,
+        source_id: 1,
+        target_id: 2,
+        kind: EdgeKind::Calls,
+        confidence: 1.0,
+        file_path: "src/test.rs".to_string(),
+        line: 5,
     };
-    store.update_edges(vec![EdgeChange::Add(edge.clone())]).unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(edge.clone())])
+        .unwrap();
     store
         .update_edges(vec![EdgeChange::Add(edge)])
         .expect("Re-adding same edge should not fail with UNIQUE constraint");
@@ -144,11 +161,19 @@ fn test_circuit_breaker_save_and_load() {
     assert_eq!(loaded.len(), 2);
     let mut sorted = loaded;
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(sorted[0], ("E001".to_string(), "abc123".to_string(), 2, false));
-    assert_eq!(sorted[1], ("E002".to_string(), "def456".to_string(), 3, true));
+    assert_eq!(
+        sorted[0],
+        ("E001".to_string(), "abc123".to_string(), 2, false)
+    );
+    assert_eq!(
+        sorted[1],
+        ("E002".to_string(), "def456".to_string(), 3, true)
+    );
 
     // Save again — should fully replace
-    store.save_circuit_breaker(&[("E003".to_string(), "ghi789".to_string(), 1, false)]).unwrap();
+    store
+        .save_circuit_breaker(&[("E003".to_string(), "ghi789".to_string(), 1, false)])
+        .unwrap();
     let reloaded = store.load_circuit_breaker().unwrap();
     assert_eq!(reloaded.len(), 1);
     assert_eq!(reloaded[0].0, "E003");
@@ -218,16 +243,28 @@ fn test_batch_loaded_nodes_match_individual() {
 
     // Load individually (the old N+1 path)
     let ind1 = store.node_with_relations(
-        store.conn.prepare("SELECT * FROM nodes WHERE id = 1").unwrap()
-            .query_row([], SqliteGraphStore::row_to_node).unwrap(),
+        store
+            .conn
+            .prepare("SELECT * FROM nodes WHERE id = 1")
+            .unwrap()
+            .query_row([], SqliteGraphStore::row_to_node)
+            .unwrap(),
     );
     let ind2 = store.node_with_relations(
-        store.conn.prepare("SELECT * FROM nodes WHERE id = 2").unwrap()
-            .query_row([], SqliteGraphStore::row_to_node).unwrap(),
+        store
+            .conn
+            .prepare("SELECT * FROM nodes WHERE id = 2")
+            .unwrap()
+            .query_row([], SqliteGraphStore::row_to_node)
+            .unwrap(),
     );
     let ind3 = store.node_with_relations(
-        store.conn.prepare("SELECT * FROM nodes WHERE id = 3").unwrap()
-            .query_row([], SqliteGraphStore::row_to_node).unwrap(),
+        store
+            .conn
+            .prepare("SELECT * FROM nodes WHERE id = 3")
+            .unwrap()
+            .query_row([], SqliteGraphStore::row_to_node)
+            .unwrap(),
     );
 
     // Load via batch (the new optimized path)
@@ -236,7 +273,9 @@ fn test_batch_loaded_nodes_match_individual() {
 
     // Compare each node's relations
     for ind in &[&ind1, &ind2, &ind3] {
-        let batch_node = batch.iter().find(|b| b.id == ind.id)
+        let batch_node = batch
+            .iter()
+            .find(|b| b.id == ind.id)
             .unwrap_or_else(|| panic!("batch missing node {}", ind.id));
         assert_eq!(
             batch_node.external_endpoints.len(),
@@ -244,7 +283,9 @@ fn test_batch_loaded_nodes_match_individual() {
             "endpoint count mismatch for node {}",
             ind.id
         );
-        for (be, ie) in batch_node.external_endpoints.iter()
+        for (be, ie) in batch_node
+            .external_endpoints
+            .iter()
             .zip(ind.external_endpoints.iter())
         {
             assert_eq!(be.kind, ie.kind);
@@ -271,7 +312,10 @@ fn test_find_nodes_by_name_empty_kind_wildcard() {
     class_node.kind = NodeKind::Class;
     class_node.file_path = "src/models.rs".to_string();
     store
-        .update_nodes(vec![NodeChange::Add(func_node), NodeChange::Add(class_node)])
+        .update_nodes(vec![
+            NodeChange::Add(func_node),
+            NodeChange::Add(class_node),
+        ])
         .unwrap();
 
     // Empty kind + empty exclude_file: should find both

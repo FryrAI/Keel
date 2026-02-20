@@ -7,10 +7,7 @@ use crate::violations_util::{count_call_args, count_params, extract_prefix, is_t
 
 /// Check E004: function_removed — a function was removed but callers still exist.
 /// Compares existing nodes in the store against current file definitions.
-pub fn check_removed_functions(
-    file: &FileIndex,
-    store: &dyn GraphStore,
-) -> Vec<Violation> {
+pub fn check_removed_functions(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let nodes = store.get_nodes_in_file(&file.file_path);
     check_removed_functions_with_cache(file, store, &nodes)
 }
@@ -86,19 +83,20 @@ pub fn check_removed_functions_with_cache(
 
 /// Check E005: arity_mismatch — caller passes wrong number of arguments.
 /// Compares reference argument counts against definition parameter counts.
-pub fn check_arity_mismatch(
-    file: &FileIndex,
-    store: &dyn GraphStore,
-) -> Vec<Violation> {
+pub fn check_arity_mismatch(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     for reference in &file.references {
         if reference.kind != keel_parsers::resolver::ReferenceKind::Call {
             continue;
         }
-        let Some(target_hash) = &reference.resolved_to else { continue };
+        let Some(target_hash) = &reference.resolved_to else {
+            continue;
+        };
 
-        let Some(target_node) = store.get_node(target_hash) else { continue };
+        let Some(target_node) = store.get_node(target_hash) else {
+            continue;
+        };
 
         // Count params from signature (rough heuristic: count commas + 1)
         let expected_arity = count_params(&target_node.signature);
@@ -140,10 +138,7 @@ pub fn check_arity_mismatch(
 
 /// Check W001: placement — function may be in wrong module.
 /// Uses indexed SQL query instead of scanning all modules. O(F) not O(F*M).
-pub fn check_placement(
-    file: &FileIndex,
-    store: &dyn GraphStore,
-) -> Vec<Violation> {
+pub fn check_placement(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     for def in &file.definitions {
@@ -194,10 +189,7 @@ pub fn check_placement(
 
 /// Check W002: duplicate_name — same function name in multiple modules.
 /// Uses indexed SQL query instead of triple-nested loop. O(F) not O(F*M*N).
-pub fn check_duplicate_names(
-    file: &FileIndex,
-    store: &dyn GraphStore,
-) -> Vec<Violation> {
+pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
 
     // Skip W002 entirely if the current file is a test file
@@ -254,4 +246,3 @@ pub fn check_duplicate_names(
 
     violations
 }
-

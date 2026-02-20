@@ -35,15 +35,18 @@ pub fn format_discover(result: &DiscoverResult) -> String {
     if !result.module_context.module.is_empty() {
         out.push_str(&format!(
             "MODULE {} fns={}\n",
-            result.module_context.module,
-            result.module_context.function_count,
+            result.module_context.module, result.module_context.function_count,
         ));
     }
 
     // Append body context if present
     if let Some(ref ctx) = result.body_context {
         let header = if ctx.truncated {
-            format!("BODY (first {} of {} lines):", ctx.lines.lines().count(), ctx.line_count)
+            format!(
+                "BODY (first {} of {} lines):",
+                ctx.lines.lines().count(),
+                ctx.line_count
+            )
         } else {
             format!("BODY ({} lines):", ctx.line_count)
         };

@@ -74,11 +74,7 @@ impl LspTransport {
     /// the child's stdin, then reads and decodes the next message from stdout.
     ///
     /// Returns an error string on any I/O or parse failure.
-    pub fn send_request(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<JsonRpcResponse, String> {
+    pub fn send_request(&self, method: &str, params: Value) -> Result<JsonRpcResponse, String> {
         let id = self.next_id();
         let request = JsonRpcRequest {
             jsonrpc: "2.0".into(),
@@ -86,13 +82,14 @@ impl LspTransport {
             method: method.into(),
             params,
         };
-        let body = serde_json::to_vec(&request)
-            .map_err(|e| format!("serialize error: {e}"))?;
+        let body = serde_json::to_vec(&request).map_err(|e| format!("serialize error: {e}"))?;
         let frame = encode_message(&body);
 
         {
             let mut stdin = self.stdin.lock().map_err(|_| "stdin lock poisoned")?;
-            stdin.write_all(&frame).map_err(|e| format!("write error: {e}"))?;
+            stdin
+                .write_all(&frame)
+                .map_err(|e| format!("write error: {e}"))?;
             stdin.flush().map_err(|e| format!("flush error: {e}"))?;
         }
 
@@ -106,23 +103,21 @@ impl LspTransport {
     }
 
     /// Sends a JSON-RPC notification (no id, no response expected).
-    pub fn send_notification(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<(), String> {
+    pub fn send_notification(&self, method: &str, params: Value) -> Result<(), String> {
         // Notifications omit the `id` field entirely per the JSON-RPC spec.
         let notification = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method,
             "params": params,
         });
-        let body = serde_json::to_vec(&notification)
-            .map_err(|e| format!("serialize error: {e}"))?;
+        let body =
+            serde_json::to_vec(&notification).map_err(|e| format!("serialize error: {e}"))?;
         let frame = encode_message(&body);
 
         let mut stdin = self.stdin.lock().map_err(|_| "stdin lock poisoned")?;
-        stdin.write_all(&frame).map_err(|e| format!("write error: {e}"))?;
+        stdin
+            .write_all(&frame)
+            .map_err(|e| format!("write error: {e}"))?;
         stdin.flush().map_err(|e| format!("flush error: {e}"))?;
         Ok(())
     }
@@ -206,9 +201,7 @@ mod tests {
     fn test_decode_message_reads_body() {
         let payload = br#"{"jsonrpc":"2.0","id":1,"result":null}"#;
         let mut raw = Vec::new();
-        raw.extend_from_slice(
-            format!("Content-Length: {}\r\n\r\n", payload.len()).as_bytes(),
-        );
+        raw.extend_from_slice(format!("Content-Length: {}\r\n\r\n", payload.len()).as_bytes());
         raw.extend_from_slice(payload);
         let mut cursor = Cursor::new(raw);
         let body = decode_message(&mut cursor).unwrap();
@@ -220,9 +213,7 @@ mod tests {
         let payload = b"hello";
         let mut raw = Vec::new();
         raw.extend_from_slice(b"Content-Type: application/json\r\n");
-        raw.extend_from_slice(
-            format!("Content-Length: {}\r\n\r\n", payload.len()).as_bytes(),
-        );
+        raw.extend_from_slice(format!("Content-Length: {}\r\n\r\n", payload.len()).as_bytes());
         raw.extend_from_slice(payload);
         let mut cursor = Cursor::new(raw);
         let body = decode_message(&mut cursor).unwrap();

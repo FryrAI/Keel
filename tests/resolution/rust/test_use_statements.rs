@@ -20,7 +20,10 @@ pub fn process(node: &GraphNode) -> bool {
 }
 "#;
     let result = resolver.parse_file(Path::new("processor.rs"), source);
-    assert!(!result.imports.is_empty(), "should have at least one import");
+    assert!(
+        !result.imports.is_empty(),
+        "should have at least one import"
+    );
     let import = &result.imports[0];
     // After cross-file resolution, crate:: paths resolve to file paths (e.g. src/graph.rs)
     // or remain as the original path if no Cargo.toml is found
@@ -221,7 +224,11 @@ fn main() {
     assert!(
         has_alias,
         "alias 'calc' should be tracked in imported_names, got: {:?}",
-        result.imports.iter().map(|i| &i.imported_names).collect::<Vec<_>>()
+        result
+            .imports
+            .iter()
+            .map(|i| &i.imported_names)
+            .collect::<Vec<_>>()
     );
 
     // Call to calc() should resolve via the aliased import

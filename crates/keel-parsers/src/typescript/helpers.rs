@@ -104,7 +104,7 @@ pub(crate) fn extract_triple_slash_references(
             };
             imports.push(Import {
                 source: resolved_source,
-                imported_names: vec![], // namespace-level import
+                imported_names: vec![],   // namespace-level import
                 file_path: String::new(), // filled by caller
                 line: (i + 1) as u32,
                 is_relative: path_val.starts_with('.'),

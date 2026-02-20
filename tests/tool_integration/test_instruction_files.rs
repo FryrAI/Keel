@@ -6,18 +6,30 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn keel_bin() -> std::path::PathBuf {
+    // Try relative to test executable (standard cargo test layout)
     let mut path = std::env::current_exe().unwrap();
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+
+    // Fallback: workspace target/debug/keel (handles cargo-llvm-cov)
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+
+    // Last resort: build the binary
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 /// Initialize a project with .claude/ directory so Claude Code is detected.
@@ -82,6 +94,7 @@ fn init_project_with_copilot() -> TempDir {
     )
     .unwrap();
     fs::create_dir_all(dir.path().join(".github")).unwrap();
+    fs::write(dir.path().join(".github/copilot-instructions.md"), "").unwrap();
     let keel = keel_bin();
     let out = Command::new(&keel)
         .arg("init")
@@ -158,7 +171,10 @@ fn test_claude_md_generation() {
     let md = dir.path().join("CLAUDE.md");
     assert!(md.exists(), "CLAUDE.md should be generated");
     let contents = fs::read_to_string(&md).unwrap();
-    assert!(contents.contains("keel"), "should contain keel instructions");
+    assert!(
+        contents.contains("keel"),
+        "should contain keel instructions"
+    );
 }
 
 #[test]
@@ -226,4 +242,61 @@ fn test_instruction_files_idempotent() {
     assert!(md.exists(), "CLAUDE.md should exist");
     let first = fs::read_to_string(&md).unwrap();
     assert!(!first.is_empty(), "file should have content");
+}
+
+#[test]
+fn test_init_yes_flag_skips_prompt() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
+    // Create .claude/ so Claude Code is detected
+    fs::create_dir_all(dir.path().join(".claude")).unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel)
+        .args(["init", "--yes"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init --yes failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        dir.path().join(".claude/settings.json").exists(),
+        "Claude Code settings.json should be generated with --yes"
+    );
+}
+
+#[test]
+fn test_init_yes_short_flag() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("index.ts"),
+        "export function hello(name: string): string { return name; }\n",
+    )
+    .unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel)
+        .args(["init", "-y"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "keel init -y failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Bare project with -y should still succeed (no agents detected, only AGENTS.md)
+    assert!(
+        dir.path().join("AGENTS.md").exists(),
+        "AGENTS.md should always be generated"
+    );
 }

@@ -208,5 +208,8 @@ fn test_sqlite_delete_node_cascades_edges() {
     assert!(n2_in.is_empty(), "incoming edge to node 2 should be gone");
     // Node 3's outgoing edge to node 1 is gone
     let n3_out = store.get_edges(3, EdgeDirection::Outgoing);
-    assert!(n3_out.is_empty(), "outgoing edge from node 3 should be gone");
+    assert!(
+        n3_out.is_empty(),
+        "outgoing edge from node 3 should be gone"
+    );
 }

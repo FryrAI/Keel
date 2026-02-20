@@ -78,15 +78,13 @@ impl Tier3Cache {
 
     /// Invalidate all cached entries for a given file path.
     pub fn invalidate_file(&mut self, file_path: &str) {
-        self.entries
-            .retain(|key, _| key.file_path != file_path);
+        self.entries.retain(|key, _| key.file_path != file_path);
     }
 
     /// Invalidate entries whose content hash no longer matches.
     pub fn invalidate_stale(&mut self, file_path: &str, current_hash: u64) {
-        self.entries.retain(|key, _| {
-            key.file_path != file_path || key.file_content_hash == current_hash
-        });
+        self.entries
+            .retain(|key, _| key.file_path != file_path || key.file_content_hash == current_hash);
     }
 
     /// Clear all cached entries.
@@ -203,14 +201,8 @@ mod tests {
     #[test]
     fn test_invalidate_file() {
         let mut cache = Tier3Cache::new();
-        cache.put(
-            make_key("a.ts", 1, "x", 100),
-            &Tier3Result::Unresolved,
-        );
-        cache.put(
-            make_key("b.ts", 2, "y", 200),
-            &Tier3Result::Unresolved,
-        );
+        cache.put(make_key("a.ts", 1, "x", 100), &Tier3Result::Unresolved);
+        cache.put(make_key("b.ts", 2, "y", 200), &Tier3Result::Unresolved);
         assert_eq!(cache.len(), 2);
         cache.invalidate_file("a.ts");
         assert_eq!(cache.len(), 1);
@@ -221,14 +213,8 @@ mod tests {
     #[test]
     fn test_invalidate_stale() {
         let mut cache = Tier3Cache::new();
-        cache.put(
-            make_key("a.ts", 1, "x", 100),
-            &Tier3Result::Unresolved,
-        );
-        cache.put(
-            make_key("a.ts", 2, "y", 100),
-            &Tier3Result::Unresolved,
-        );
+        cache.put(make_key("a.ts", 1, "x", 100), &Tier3Result::Unresolved);
+        cache.put(make_key("a.ts", 2, "y", 100), &Tier3Result::Unresolved);
         // Hash changed from 100 to 200 — both entries should be purged
         cache.invalidate_stale("a.ts", 200);
         assert!(cache.is_empty());

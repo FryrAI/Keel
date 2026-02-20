@@ -12,17 +12,15 @@ fn test_map_detects_all_four_languages() {
 
     // Open the graph DB and check for nodes from each language
     let db_path = dir.path().join(".keel/graph.db");
-    let store =
-        keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap())
-            .expect("should open graph.db");
+    let store = keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap())
+        .expect("should open graph.db");
 
     let modules = keel_core::store::GraphStore::get_all_modules(&store);
 
     // Collect all nodes across all modules
     let mut all_nodes = Vec::new();
     for module in &modules {
-        let nodes =
-            keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
+        let nodes = keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
         all_nodes.extend(nodes);
     }
 
@@ -57,10 +55,16 @@ fn test_map_detects_all_four_languages() {
     // Verify specific function names from each language
     let names: Vec<&str> = all_nodes.iter().map(|n| n.name.as_str()).collect();
     assert!(names.contains(&"add"), "should find TS add function");
-    assert!(names.contains(&"greet"), "should find Python greet function");
+    assert!(
+        names.contains(&"greet"),
+        "should find Python greet function"
+    );
     assert!(
         names.contains(&"multiply"),
         "should find Go multiply function"
     );
-    assert!(names.contains(&"divide"), "should find Rust divide function");
+    assert!(
+        names.contains(&"divide"),
+        "should find Rust divide function"
+    );
 }

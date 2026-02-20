@@ -29,7 +29,10 @@ fn main() {
 
     // tree-sitter should capture the function inside the inline mod block
     let helper = result.definitions.iter().find(|d| d.name == "helper");
-    assert!(helper.is_some(), "should find helper() inside inline mod block");
+    assert!(
+        helper.is_some(),
+        "should find helper() inside inline mod block"
+    );
 
     let main_fn = result.definitions.iter().find(|d| d.name == "main");
     assert!(main_fn.is_some(), "should find main() function");
@@ -72,7 +75,10 @@ fn test_mod_declaration_resolves_to_file() {
 
     // Verify mod_paths are populated
     let mod_paths = resolver.get_mod_paths();
-    assert!(mod_paths.contains_key("parser"), "mod_paths should have 'parser'");
+    assert!(
+        mod_paths.contains_key("parser"),
+        "mod_paths should have 'parser'"
+    );
     assert!(
         mod_paths["parser"].ends_with("parser.rs"),
         "parser mod path should end with parser.rs"
@@ -115,7 +121,10 @@ fn test_mod_declaration_prefers_file_over_dir() {
     resolver.parse_file(&dir.join("src/lib.rs"), lib_content);
 
     let mod_paths = resolver.get_mod_paths();
-    assert!(mod_paths.contains_key("parser"), "should have parser in mod_paths");
+    assert!(
+        mod_paths.contains_key("parser"),
+        "should have parser in mod_paths"
+    );
 
     // Rust 2018+ prefers parser.rs over parser/mod.rs
     let resolved = &mod_paths["parser"];
@@ -180,11 +189,7 @@ fn test_mod_path_attribute() {
 
     let lib_content = "#[path = \"custom/my_module.rs\"]\nmod mymod;";
     fs::write(dir.join("src/lib.rs"), lib_content).unwrap();
-    fs::write(
-        dir.join("src/custom/my_module.rs"),
-        "pub fn custom_fn() {}",
-    )
-    .unwrap();
+    fs::write(dir.join("src/custom/my_module.rs"), "pub fn custom_fn() {}").unwrap();
 
     let resolver = RustLangResolver::new();
     resolver.parse_file(&dir.join("src/lib.rs"), lib_content);

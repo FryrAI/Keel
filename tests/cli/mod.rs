@@ -9,3 +9,8 @@ mod test_explain;
 mod test_deinit;
 mod test_stats;
 mod test_exit_codes;
+mod test_check;
+mod test_search;
+mod test_fix;
+mod test_name;
+mod test_analyze;

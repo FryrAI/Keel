@@ -43,7 +43,7 @@ mod tests {
 
     fn clean_compile() -> CompileResult {
         CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "ok".into(),
             files_analyzed: vec!["src/main.rs".into()],
@@ -59,7 +59,7 @@ mod tests {
 
     fn compile_with_error() -> CompileResult {
         CompileResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "compile".into(),
             status: "error".into(),
             files_analyzed: vec!["src/lib.rs".into()],
@@ -96,7 +96,7 @@ mod tests {
 
     fn sample_discover() -> DiscoverResult {
         DiscoverResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "discover".into(),
             target: NodeInfo {
                 hash: "abc12345678".into(),
@@ -142,7 +142,7 @@ mod tests {
 
     fn sample_explain() -> ExplainResult {
         ExplainResult {
-            version: "0.1.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: "explain".into(),
             error_code: "E001".into(),
             hash: "abc12345678".into(),

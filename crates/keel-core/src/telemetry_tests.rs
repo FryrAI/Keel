@@ -69,11 +69,14 @@ fn test_aggregate_with_data() {
 fn test_prune_old_events() {
     let store = TelemetryStore::in_memory().unwrap();
     // Insert event with old timestamp
-    store.conn.execute(
-        "INSERT INTO events (timestamp, command, duration_ms, exit_code)
+    store
+        .conn
+        .execute(
+            "INSERT INTO events (timestamp, command, duration_ms, exit_code)
          VALUES ('2020-01-01T00:00:00Z', 'compile', 100, 0)",
-        [],
-    ).unwrap();
+            [],
+        )
+        .unwrap();
     // Insert recent event
     store.record(&make_event("compile", 100, 0)).unwrap();
 

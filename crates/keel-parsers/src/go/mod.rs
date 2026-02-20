@@ -53,11 +53,7 @@ impl GoResolver {
 
         // Tier 2: enhance definitions with Go-specific analysis
         for def in &mut result.definitions {
-            def.is_public = def
-                .name
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_uppercase());
+            def.is_public = def.name.chars().next().is_some_and(|c| c.is_uppercase());
             def.type_hints_present = go_has_type_hints(&def.signature);
         }
 
@@ -109,7 +105,12 @@ impl GoResolver {
         let emb = self.embeddings.lock().unwrap();
         let ifaces = self.interfaces.lock().unwrap();
         type_resolution::resolve_receiver_method(
-            receiver, method_name, file_path, &tm, &emb, &ifaces,
+            receiver,
+            method_name,
+            file_path,
+            &tm,
+            &emb,
+            &ifaces,
         )
     }
 }
@@ -178,11 +179,7 @@ impl LanguageResolver for GoResolver {
             });
 
             if let Some(imp) = import {
-                let confidence = if func_name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_lowercase())
-                {
+                let confidence = if func_name.chars().next().is_some_and(|c| c.is_lowercase()) {
                     0.40
                 } else {
                     0.75

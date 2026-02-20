@@ -4,9 +4,8 @@
 /// and deserialized back without loss, which is critical since the JSON
 /// output schemas in tests/schemas/ depend on these shapes.
 use keel_enforce::types::{
-    AffectedNode, CalleeInfo, CallerInfo, CompileInfo, CompileResult,
-    DiscoverResult, ExistingNode, ExplainResult, ModuleContext, NodeInfo,
-    ResolutionStep, Violation,
+    AffectedNode, CalleeInfo, CallerInfo, CompileInfo, CompileResult, DiscoverResult, ExistingNode,
+    ExplainResult, ModuleContext, NodeInfo, ResolutionStep, Violation,
 };
 
 // ---------------------------------------------------------------------------
@@ -16,7 +15,7 @@ use keel_enforce::types::{
 #[test]
 fn compile_result_serializes_to_json() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "ok".to_string(),
         files_analyzed: vec!["src/main.rs".to_string()],
@@ -36,7 +35,7 @@ fn compile_result_serializes_to_json() {
 #[test]
 fn compile_result_round_trips() {
     let original = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "error".to_string(),
         files_analyzed: vec!["src/lib.rs".to_string(), "src/main.rs".to_string()],
@@ -92,12 +91,18 @@ fn compile_result_round_trips() {
     assert_eq!(deserialized.version, original.version);
     assert_eq!(deserialized.command, original.command);
     assert_eq!(deserialized.status, original.status);
-    assert_eq!(deserialized.files_analyzed.len(), original.files_analyzed.len());
+    assert_eq!(
+        deserialized.files_analyzed.len(),
+        original.files_analyzed.len()
+    );
     assert_eq!(deserialized.errors.len(), original.errors.len());
     assert_eq!(deserialized.warnings.len(), original.warnings.len());
     assert_eq!(deserialized.errors[0].code, "E001");
     assert_eq!(deserialized.errors[0].confidence, 0.95);
-    assert_eq!(deserialized.warnings[0].suggested_module, Some("src/auth.rs".to_string()));
+    assert_eq!(
+        deserialized.warnings[0].suggested_module,
+        Some("src/auth.rs".to_string())
+    );
 }
 
 #[test]
@@ -137,7 +142,7 @@ fn compile_result_violation_with_existing_node() {
 #[test]
 fn discover_result_serializes_to_json() {
     let result = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "target_hash1".to_string(),
@@ -169,7 +174,7 @@ fn discover_result_serializes_to_json() {
 #[test]
 fn discover_result_round_trips() {
     let original = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "target_hash2".to_string(),
@@ -230,7 +235,7 @@ fn discover_result_round_trips() {
 #[test]
 fn explain_result_serializes_to_json() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "explain_hash1".to_string(),
@@ -247,7 +252,7 @@ fn explain_result_serializes_to_json() {
 #[test]
 fn explain_result_round_trips() {
     let original = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "explain_hash2".to_string(),
@@ -288,7 +293,7 @@ fn explain_result_round_trips() {
 #[test]
 fn compile_result_json_has_required_fields() {
     let result = CompileResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "compile".to_string(),
         status: "ok".to_string(),
         files_analyzed: vec![],
@@ -314,7 +319,7 @@ fn compile_result_json_has_required_fields() {
 #[test]
 fn discover_result_json_has_required_fields() {
     let result = DiscoverResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "discover".to_string(),
         target: NodeInfo {
             hash: "test".to_string(),
@@ -351,7 +356,7 @@ fn discover_result_json_has_required_fields() {
 #[test]
 fn explain_result_json_has_required_fields() {
     let result = ExplainResult {
-        version: "0.1.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         command: "explain".to_string(),
         error_code: "E001".to_string(),
         hash: "test".to_string(),

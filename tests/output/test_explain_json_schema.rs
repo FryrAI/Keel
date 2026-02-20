@@ -5,7 +5,7 @@ use keel_output::OutputFormatter;
 
 fn sample_explain() -> ExplainResult {
     ExplainResult {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         command: "explain".into(),
         error_code: "E001".into(),
         hash: "abc12345678".into(),
@@ -37,7 +37,7 @@ fn test_explain_json_includes_query() {
 
     assert_eq!(parsed["error_code"], "E001");
     assert_eq!(parsed["hash"], "abc12345678");
-    assert_eq!(parsed["version"], "0.1.0");
+    assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(parsed["command"], "explain");
 }
 

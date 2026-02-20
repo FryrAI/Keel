@@ -10,14 +10,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn init_and_map(files: &[(&str, &str)]) -> TempDir {
@@ -30,9 +37,17 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
         fs::write(&full, content).unwrap();
     }
     let keel = keel_bin();
-    let out = Command::new(&keel).arg("init").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
-    let out = Command::new(&keel).arg("map").current_dir(dir.path()).output().unwrap();
+    let out = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
     assert!(out.status.success());
     dir
 }
@@ -41,8 +56,14 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
 /// `keel stats` should display node count, edge count, and file count.
 fn test_stats_displays_counts() {
     let dir = init_and_map(&[
-        ("src/a.ts", "export function foo(x: number): number { return x; }\n"),
-        ("src/b.ts", "export function bar(y: string): string { return y; }\n"),
+        (
+            "src/a.ts",
+            "export function foo(x: number): number { return x; }\n",
+        ),
+        (
+            "src/b.ts",
+            "export function bar(y: string): string { return y; }\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -69,18 +90,21 @@ fn test_stats_displays_counts() {
         || combined.contains("node")
         || combined.contains("edge")
         || combined.contains("file");
-    assert!(
-        has_counts,
-        "stats should display counts, got: {combined}"
-    );
+    assert!(has_counts, "stats should display counts, got: {combined}");
 }
 
 #[test]
 /// `keel stats` should display per-language breakdown.
 fn test_stats_per_language_breakdown() {
     let dir = init_and_map(&[
-        ("src/app.ts", "export function greet(name: string): string { return name; }\n"),
-        ("src/main.py", "def greet(name: str) -> str:\n    return name\n"),
+        (
+            "src/app.ts",
+            "export function greet(name: string): string { return name; }\n",
+        ),
+        (
+            "src/main.py",
+            "def greet(name: str) -> str:\n    return name\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -106,9 +130,10 @@ fn test_stats_per_language_breakdown() {
 #[test]
 /// `keel stats` should display circuit breaker state summary.
 fn test_stats_circuit_breaker_summary() {
-    let dir = init_and_map(&[
-        ("src/index.ts", "export function hello(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     // Run stats — circuit breaker info should be included (even if empty)
@@ -129,7 +154,10 @@ fn test_stats_circuit_breaker_summary() {
 /// `keel stats` should display resolution tier distribution.
 fn test_stats_resolution_tier_distribution() {
     let dir = init_and_map(&[
-        ("src/caller.ts", "import { helper } from './helper';\nexport function main(): void { helper(); }\n"),
+        (
+            "src/caller.ts",
+            "import { helper } from './helper';\nexport function main(): void { helper(); }\n",
+        ),
         ("src/helper.ts", "export function helper(): void {}\n"),
     ]);
     let keel = keel_bin();

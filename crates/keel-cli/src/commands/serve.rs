@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use keel_core::sqlite::SqliteGraphStore;
-use keel_enforce::engine::EnforcementEngine;
 use keel_output::OutputFormatter;
 
 use crate::commands::parse_util;
@@ -22,9 +21,15 @@ pub fn run(
 
     if verbose {
         let mut modes = Vec::new();
-        if mcp { modes.push("MCP"); }
-        if http { modes.push("HTTP"); }
-        if watch { modes.push("watch"); }
+        if mcp {
+            modes.push("MCP");
+        }
+        if http {
+            modes.push("HTTP");
+        }
+        if watch {
+            modes.push("watch");
+        }
         eprintln!("keel serve: starting with modes: {}", modes.join(", "));
     }
 
@@ -42,7 +47,8 @@ pub fn run(
             }
         };
         let shared_store = Arc::new(Mutex::new(store));
-        if let Err(e) = keel_server::mcp::run_stdio(shared_store) {
+        let db_str = db_path.to_string_lossy().to_string();
+        if let Err(e) = keel_server::mcp::run_stdio(shared_store, Some(&db_str)) {
             eprintln!("keel serve: MCP error: {}", e);
             return 2;
         }
@@ -71,44 +77,20 @@ pub fn run(
         };
 
         if watch {
-            // Watcher needs a raw store — open a separate connection
-            let watch_store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("keel serve: failed to open watch store: {}", e);
-                    return 2;
-                }
-            };
-            let shared_watch = Arc::new(Mutex::new(watch_store));
             let watch_root = root_dir.clone();
+            let shared_engine = server.engine.clone();
 
-            // Create enforcement engine for watch mode
-            let watch_engine_store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("keel serve: failed to open engine store: {}", e);
-                    return 2;
-                }
-            };
-            let shared_engine: Arc<Mutex<EnforcementEngine>> =
-                Arc::new(Mutex::new(EnforcementEngine::new(Box::new(watch_engine_store))));
-
-            match keel_server::watcher::start_watching(&root_dir, shared_watch) {
+            match keel_server::watcher::start_watching(&root_dir) {
                 Ok((_watcher, mut rx)) => {
                     if verbose {
                         eprintln!("keel serve: file watcher started on {:?}", root_dir);
                     }
                     tokio::spawn(async move {
                         while let Some(changed) = rx.recv().await {
-                            eprintln!(
-                                "keel: {} file(s) changed, recompiling...",
-                                changed.len()
-                            );
+                            eprintln!("keel: {} file(s) changed, recompiling...", changed.len());
                             // Parse changed files and run incremental compile
-                            let file_indices = parse_util::parse_files_to_indices(
-                                &changed,
-                                &watch_root,
-                            );
+                            let file_indices =
+                                parse_util::parse_files_to_indices(&changed, &watch_root);
                             if !file_indices.is_empty() {
                                 let mut engine = shared_engine.lock().unwrap();
                                 let result = engine.compile(&file_indices);

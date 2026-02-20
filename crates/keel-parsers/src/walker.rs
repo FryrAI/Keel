@@ -163,15 +163,15 @@ mod tests {
         let entries = walker.walk_with_packages(&layout);
 
         // Find the web and api entries
-        let web_entry = entries.iter().find(|e| {
-            e.path.to_str().unwrap().contains("packages/web")
-        });
-        let api_entry = entries.iter().find(|e| {
-            e.path.to_str().unwrap().contains("packages/api")
-        });
-        let root_entry = entries.iter().find(|e| {
-            e.path.file_name().and_then(|n| n.to_str()) == Some("root.ts")
-        });
+        let web_entry = entries
+            .iter()
+            .find(|e| e.path.to_str().unwrap().contains("packages/web"));
+        let api_entry = entries
+            .iter()
+            .find(|e| e.path.to_str().unwrap().contains("packages/api"));
+        let root_entry = entries
+            .iter()
+            .find(|e| e.path.file_name().and_then(|n| n.to_str()) == Some("root.ts"));
 
         assert_eq!(web_entry.unwrap().package.as_deref(), Some("web"));
         assert_eq!(api_entry.unwrap().package.as_deref(), Some("api"));

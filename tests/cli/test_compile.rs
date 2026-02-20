@@ -11,14 +11,21 @@ fn keel_bin() -> std::path::PathBuf {
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
@@ -37,14 +44,22 @@ fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
         .current_dir(dir.path())
         .output()
         .expect("Failed to run keel init");
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let out = Command::new(&keel)
         .arg("map")
         .current_dir(dir.path())
         .output()
         .expect("Failed to run keel map");
-    assert!(out.status.success(), "map failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     dir
 }
@@ -53,9 +68,18 @@ fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
 /// `keel compile` with no arguments should validate all changed files.
 fn test_compile_all_changed() {
     let dir = init_and_map_project(&[
-        ("src/a.ts", "export function foo(x: number): number { return x; }\n"),
-        ("src/b.ts", "export function bar(y: string): string { return y; }\n"),
-        ("src/c.ts", "export function baz(z: boolean): boolean { return z; }\n"),
+        (
+            "src/a.ts",
+            "export function foo(x: number): number { return x; }\n",
+        ),
+        (
+            "src/b.ts",
+            "export function bar(y: string): string { return y; }\n",
+        ),
+        (
+            "src/c.ts",
+            "export function baz(z: boolean): boolean { return z; }\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -95,8 +119,14 @@ fn test_compile_all_changed() {
 /// `keel compile <file>` should validate a specific file incrementally.
 fn test_compile_single_file() {
     let dir = init_and_map_project(&[
-        ("src/parser.ts", "export function parse(input: string): string { return input; }\n"),
-        ("src/utils.ts", "export function helper(x: number): number { return x; }\n"),
+        (
+            "src/parser.ts",
+            "export function parse(input: string): string { return input; }\n",
+        ),
+        (
+            "src/utils.ts",
+            "export function helper(x: number): number { return x; }\n",
+        ),
     ]);
     let keel = keel_bin();
 
@@ -124,9 +154,10 @@ fn test_compile_single_file() {
 #[test]
 /// `keel compile` on a single file should complete in under 200ms.
 fn test_compile_single_file_performance() {
-    let dir = init_and_map_project(&[
-        ("src/fast.ts", "export function quick(x: number): number { return x; }\n"),
-    ]);
+    let dir = init_and_map_project(&[(
+        "src/fast.ts",
+        "export function quick(x: number): number { return x; }\n",
+    )]);
     let keel = keel_bin();
 
     let start = Instant::now();
@@ -152,7 +183,10 @@ fn test_compile_single_file_performance() {
 /// `keel compile` should output violations in the configured format.
 fn test_compile_outputs_violations() {
     let dir = init_and_map_project(&[
-        ("src/caller.ts", "import { target } from './target';\nexport function caller(): void { target(); }\n"),
+        (
+            "src/caller.ts",
+            "import { target } from './target';\nexport function caller(): void { target(); }\n",
+        ),
         ("src/target.ts", "export function target(): void {}\n"),
     ]);
     let keel = keel_bin();
@@ -187,9 +221,10 @@ fn test_compile_outputs_violations() {
 #[test]
 /// `keel compile --llm` should output in LLM-friendly format.
 fn test_compile_llm_format() {
-    let dir = init_and_map_project(&[
-        ("src/mod.ts", "export function greet(name: string): string { return name; }\n"),
-    ]);
+    let dir = init_and_map_project(&[(
+        "src/mod.ts",
+        "export function greet(name: string): string { return name; }\n",
+    )]);
     let keel = keel_bin();
 
     let output = Command::new(&keel)
@@ -210,9 +245,18 @@ fn test_compile_llm_format() {
 /// `keel compile` multiple specific files should validate each.
 fn test_compile_multiple_files() {
     let dir = init_and_map_project(&[
-        ("src/file1.ts", "export function f1(x: number): number { return x; }\n"),
-        ("src/file2.ts", "export function f2(y: string): string { return y; }\n"),
-        ("src/file3.ts", "export function f3(z: boolean): boolean { return z; }\n"),
+        (
+            "src/file1.ts",
+            "export function f1(x: number): number { return x; }\n",
+        ),
+        (
+            "src/file2.ts",
+            "export function f2(y: string): string { return y; }\n",
+        ),
+        (
+            "src/file3.ts",
+            "export function f3(z: boolean): boolean { return z; }\n",
+        ),
     ]);
     let keel = keel_bin();
 

@@ -57,21 +57,43 @@ pub fn setup_test_project(lang: &str) -> (TempDir, PathBuf) {
 
 /// Get path to compiled keel binary.
 ///
-/// Builds the binary if it doesn't exist yet.
+/// Searches relative to the test executable first (standard `cargo test` layout),
+/// then falls back to `target/debug/keel` in the workspace root (handles
+/// `cargo llvm-cov` which uses a different `--target-dir`). Builds the binary
+/// as a last resort.
 #[allow(dead_code)]
 pub fn keel_bin() -> PathBuf {
+    // Try relative to test executable (works for normal cargo test)
     let mut path = std::env::current_exe().unwrap();
     path.pop(); // remove test binary name
     path.pop(); // remove 'deps'
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+
+    // Fallback: workspace target/debug/keel (handles cargo-llvm-cov
+    // which builds tests into target/llvm-cov-target/ while the pre-built
+    // binary lives in target/debug/)
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+
+    // Last resort: build the binary
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    assert!(
+        fallback.exists(),
+        "keel binary not found at {}",
+        fallback.display()
+    );
+    fallback
 }
 
 /// Create a mapped project from a set of source files.

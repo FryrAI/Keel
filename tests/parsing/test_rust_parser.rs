@@ -41,7 +41,11 @@ pub struct GraphStore {
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(classes.len(), 1, "expected exactly 1 class (struct) definition");
+    assert_eq!(
+        classes.len(),
+        1,
+        "expected exactly 1 class (struct) definition"
+    );
     assert_eq!(classes[0].name, "GraphStore");
     assert_eq!(classes[0].kind, NodeKind::Class);
 }
@@ -99,7 +103,11 @@ pub trait LanguageResolver {
         .iter()
         .filter(|d| d.kind == NodeKind::Class && d.name == "LanguageResolver")
         .collect();
-    assert_eq!(traits.len(), 1, "expected trait to be captured as Class node");
+    assert_eq!(
+        traits.len(),
+        1,
+        "expected trait to be captured as Class node"
+    );
     assert_eq!(traits[0].name, "LanguageResolver");
     assert_eq!(traits[0].kind, NodeKind::Class);
 }
@@ -121,10 +129,7 @@ fn main() {}
         result.imports.len()
     );
     // Check that the crate import is marked as relative
-    let crate_import = result
-        .imports
-        .iter()
-        .find(|i| i.source.contains("graph"));
+    let crate_import = result.imports.iter().find(|i| i.source.contains("graph"));
     assert!(crate_import.is_some(), "should have crate::graph import");
     assert!(
         crate_import.unwrap().is_relative,

@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 // --- Fix command types ---
 
@@ -48,7 +48,7 @@ pub struct FixApplyResult {
 pub struct FixApplyDetail {
     pub file: String,
     pub line: u32,
-    pub status: String,  // "applied" | "failed"
+    pub status: String, // "applied" | "failed"
     pub error: Option<String>,
 }
 

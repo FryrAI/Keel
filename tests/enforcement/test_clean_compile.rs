@@ -1,7 +1,7 @@
 // Tests for clean compile behavior (Spec 006 - Enforcement Engine)
+use keel_core::types::NodeKind;
 use keel_enforce::engine::EnforcementEngine;
 use keel_parsers::resolver::{Definition, FileIndex};
-use keel_core::types::NodeKind;
 
 use crate::common::in_memory_store;
 
@@ -99,6 +99,6 @@ fn test_compile_result_version_and_command() {
     let mut engine = EnforcementEngine::new(Box::new(store));
     let result = engine.compile(&[make_clean_file()]);
 
-    assert_eq!(result.version, "0.1.0");
+    assert_eq!(result.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(result.command, "compile");
 }

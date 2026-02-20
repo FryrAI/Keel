@@ -77,8 +77,7 @@ pub fn resolve_rust_use_path(dir: &Path, source: &str) -> Option<String> {
 /// Find an import that brings `name` into scope.
 pub fn find_import_for_name<'a>(imports: &'a [Import], name: &str) -> Option<&'a Import> {
     imports.iter().find(|imp| {
-        imp.imported_names.iter().any(|n| n == name)
-            || imp.source.ends_with(&format!("::{name}"))
+        imp.imported_names.iter().any(|n| n == name) || imp.source.ends_with(&format!("::{name}"))
     })
 }
 
@@ -173,11 +172,8 @@ fn extract_fn_name_from_line(line: &str) -> Option<String> {
 ///
 /// Returns a map: type_name -> vec of method_names. Only captures inherent
 /// impls (NOT `impl Trait for Type`).
-pub fn extract_impl_methods(
-    content: &str,
-) -> std::collections::HashMap<String, Vec<String>> {
-    let mut map: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+pub fn extract_impl_methods(content: &str) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     let lines: Vec<&str> = content.lines().collect();
     let mut i = 0;
 
@@ -237,9 +233,7 @@ fn parse_inherent_impl_line(line: &str) -> Option<String> {
         return None;
     }
     // Strip generic args from type name (e.g. `Wrapper<T>` -> `Wrapper`)
-    let base_name = type_part
-        .find('<')
-        .map_or(type_part, |i| &type_part[..i]);
+    let base_name = type_part.find('<').map_or(type_part, |i| &type_part[..i]);
     Some(base_name.to_string())
 }
 
@@ -287,9 +281,25 @@ pub fn extract_derive_attrs(content: &str) -> Vec<(String, u32)> {
 
 /// Built-in attributes that should NOT be captured as macro references.
 const BUILTIN_ATTRS: &[&str] = &[
-    "cfg", "test", "allow", "deny", "warn", "doc", "must_use",
-    "inline", "repr", "ignore", "derive", "cfg_attr", "cfg_test",
-    "feature", "link", "no_mangle", "export_name", "cold", "track_caller",
+    "cfg",
+    "test",
+    "allow",
+    "deny",
+    "warn",
+    "doc",
+    "must_use",
+    "inline",
+    "repr",
+    "ignore",
+    "derive",
+    "cfg_attr",
+    "cfg_test",
+    "feature",
+    "link",
+    "no_mangle",
+    "export_name",
+    "cold",
+    "track_caller",
 ];
 
 /// Extract attribute macros from `#[path::name]` or `#[path::name(...)]`.

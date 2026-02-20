@@ -45,7 +45,11 @@ type UserService struct {
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(classes.len(), 1, "expected exactly 1 class (struct) definition");
+    assert_eq!(
+        classes.len(),
+        1,
+        "expected exactly 1 class (struct) definition"
+    );
     assert_eq!(classes[0].name, "UserService");
     assert_eq!(classes[0].kind, NodeKind::Class);
 }
@@ -93,7 +97,11 @@ type Repository interface {
         .iter()
         .filter(|d| d.kind == NodeKind::Class)
         .collect();
-    assert_eq!(classes.len(), 1, "expected exactly 1 class (interface) definition");
+    assert_eq!(
+        classes.len(),
+        1,
+        "expected exactly 1 class (interface) definition"
+    );
     assert_eq!(classes[0].name, "Repository");
     assert_eq!(classes[0].kind, NodeKind::Class);
 }
@@ -124,10 +132,7 @@ func main() {
     let fmt_import = result.imports.iter().find(|i| i.source.contains("fmt"));
     assert!(fmt_import.is_some(), "should have fmt import");
     // Check that the github import is captured
-    let errors_import = result
-        .imports
-        .iter()
-        .find(|i| i.source.contains("errors"));
+    let errors_import = result.imports.iter().find(|i| i.source.contains("errors"));
     assert!(errors_import.is_some(), "should have errors import");
 }
 
@@ -181,13 +186,24 @@ func helper() string {
 }
 "#;
     let result = resolver.parse_file(Path::new("test.go"), source);
-    let funcs: Vec<_> = result.definitions.iter().filter(|d| d.kind == NodeKind::Function).collect();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
     assert_eq!(funcs.len(), 2, "expected 2 function definitions");
-    let exported = funcs.iter().find(|d| d.name == "ProcessData")
+    let exported = funcs
+        .iter()
+        .find(|d| d.name == "ProcessData")
         .expect("should find ProcessData");
-    let unexported = funcs.iter().find(|d| d.name == "helper")
+    let unexported = funcs
+        .iter()
+        .find(|d| d.name == "helper")
         .expect("should find helper");
-    assert!(exported.is_public, "ProcessData should be public (exported)");
+    assert!(
+        exported.is_public,
+        "ProcessData should be public (exported)"
+    );
     assert!(
         !unexported.is_public,
         "helper should be private (unexported)"
