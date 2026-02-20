@@ -29,6 +29,9 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 xxhash-rust = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 default = ["tier3"]
 tier3 = ["keel-parsers/tier3"]

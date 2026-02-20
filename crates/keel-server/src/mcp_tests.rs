@@ -3,7 +3,7 @@ use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeKind};
 use keel_enforce::engine::EnforcementEngine;
 
 fn test_engine() -> SharedEngine {
-    create_shared_engine()
+    create_shared_engine(None)
 }
 
 fn test_store() -> SharedStore {

@@ -1167,6 +1167,7 @@ dependencies = [
  "keel-output",
  "keel-parsers",
  "keel-server",
+ "libc",
  "notify",
  "serde",
  "serde_json",

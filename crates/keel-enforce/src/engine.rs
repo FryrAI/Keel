@@ -183,7 +183,7 @@ impl EnforcementEngine {
         };
 
         CompileResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "compile".to_string(),
             status: status.to_string(),
             files_analyzed: file_paths,
@@ -222,7 +222,7 @@ impl EnforcementEngine {
         };
 
         CompileResult {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             command: "compile".to_string(),
             status: status.to_string(),
             files_analyzed: vec![],
@@ -244,6 +244,12 @@ impl EnforcementEngine {
     /// Export circuit breaker state for persistence.
     pub fn export_circuit_breaker(&self) -> Vec<(String, String, u32, bool)> {
         self.circuit_breaker.export_state()
+    }
+
+    /// Get circuit breaker failure count for a specific error+hash+file combination.
+    pub fn circuit_breaker_failures(&self, error_code: &str, hash: &str, file_path: &str) -> u32 {
+        self.circuit_breaker
+            .failure_count(error_code, hash, file_path)
     }
 
     /// Suppress a specific error/warning code.

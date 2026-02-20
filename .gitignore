@@ -5,6 +5,9 @@
 .keel/graph.db
 .keel/telemetry.db
 .keel/session.json
+.keel/last_compile.json
+.keel/compile.lock
+.keel/cache/
 
 # Test corpus (cloned repos)
 /test-corpus/

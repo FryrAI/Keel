@@ -10,7 +10,7 @@ use keel_server::mcp::{create_shared_engine, process_line, SharedEngine};
 type SharedStore = Arc<Mutex<SqliteGraphStore>>;
 
 fn test_engine() -> SharedEngine {
-    create_shared_engine()
+    create_shared_engine(None)
 }
 
 fn test_store() -> SharedStore {

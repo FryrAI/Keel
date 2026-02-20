@@ -190,7 +190,7 @@ fn dispatch(
         "keel/compile" => crate::mcp_compile::handle_compile(engine, params),
         "keel/discover" => handle_discover(engine, params),
         "keel/where" => handle_where(store, params),
-        "keel/explain" => handle_explain(store, params),
+        "keel/explain" => handle_explain(store, engine, params),
         "keel/map" => handle_map(store, params),
         "keel/check" => crate::mcp_check::handle_check(engine, params),
         "keel/fix" => crate::mcp_fix::handle_fix(store, engine, params),
@@ -320,7 +320,11 @@ fn handle_where(store: &SharedStore, params: Option<Value>) -> Result<Value, Jso
     .map_err(internal_err)
 }
 
-fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonRpcError> {
+fn handle_explain(
+    store: &SharedStore,
+    engine: &SharedEngine,
+    params: Option<Value>,
+) -> Result<Value, JsonRpcError> {
     let error_code = params
         .as_ref()
         .and_then(|p| p.get("error_code"))
@@ -338,12 +342,24 @@ fn handle_explain(store: &SharedStore, params: Option<Value>) -> Result<Value, J
     let store = lock_store(store)?;
     let node = store.get_node(&hash).ok_or_else(|| not_found(&hash))?;
 
+    // Check circuit breaker state for this error_code+hash to get real confidence
+    let eng = engine.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Engine lock poisoned".into(),
+    })?;
+    let cb_failures = eng.circuit_breaker_failures(&error_code, &hash, &node.file_path);
+    let confidence = if cb_failures > 0 {
+        (1.0 - (cb_failures as f64 * 0.2)).max(0.3)
+    } else {
+        1.0
+    };
+
     let result = ExplainResult {
         version: env!("CARGO_PKG_VERSION").into(),
         command: "explain".into(),
         error_code,
         hash: node.hash.clone(),
-        confidence: 1.0,
+        confidence,
         resolution_tier: "tree-sitter".into(),
         resolution_chain: vec![ResolutionStep {
             kind: "lookup".into(),
@@ -432,19 +448,44 @@ fn handle_map(store: &SharedStore, params: Option<Value>) -> Result<Value, JsonR
     }
 }
 
-/// Create a shared enforcement engine backed by an in-memory store.
+/// Create a shared enforcement engine backed by a disk store with project config.
+/// Falls back to in-memory store if db_path is None.
 /// Circuit breaker and batch state persist across MCP calls within a session.
-pub fn create_shared_engine() -> SharedEngine {
-    let engine_store = SqliteGraphStore::in_memory()
-        .expect("Failed to create in-memory store for enforcement engine");
-    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(engine_store))))
+pub fn create_shared_engine(db_path: Option<&str>) -> SharedEngine {
+    let engine_store: Box<dyn keel_core::store::GraphStore + Send> = match db_path {
+        Some(path) => match SqliteGraphStore::open(path) {
+            Ok(s) => Box::new(s),
+            Err(_) => Box::new(
+                SqliteGraphStore::in_memory()
+                    .expect("Failed to create in-memory store for enforcement engine"),
+            ),
+        },
+        None => Box::new(
+            SqliteGraphStore::in_memory()
+                .expect("Failed to create in-memory store for enforcement engine"),
+        ),
+    };
+
+    // Load project config for enforce settings
+    let config = db_path
+        .and_then(|p| {
+            std::path::Path::new(p)
+                .parent() // .keel/
+                .map(keel_core::config::KeelConfig::load)
+        })
+        .unwrap_or_default();
+
+    Arc::new(Mutex::new(EnforcementEngine::with_config(
+        engine_store,
+        &config,
+    )))
 }
 
 /// Run the MCP server loop, reading JSON-RPC from stdin and writing to stdout.
-pub fn run_stdio(store: SharedStore) -> io::Result<()> {
+pub fn run_stdio(store: SharedStore, db_path: Option<&str>) -> io::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let engine = create_shared_engine();
+    let engine = create_shared_engine(db_path);
 
     for line in stdin.lock().lines() {
         let line = line?;

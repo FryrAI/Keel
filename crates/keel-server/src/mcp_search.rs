@@ -2,8 +2,6 @@
 
 use serde_json::Value;
 
-use keel_core::store::GraphStore;
-
 use crate::mcp::{lock_store, JsonRpcError, SharedStore};
 
 pub(crate) fn handle_search(
@@ -18,7 +16,7 @@ pub(crate) fn handle_search(
             code: -32602,
             message: "Missing 'query' parameter".into(),
         })?
-        .to_lowercase();
+        .to_string();
 
     let kind_filter = params
         .as_ref()
@@ -33,37 +31,25 @@ pub(crate) fn handle_search(
         .unwrap_or(20) as usize;
 
     let store = lock_store(store)?;
-    let modules = store.get_all_modules();
 
-    let mut results = Vec::new();
-    for module in &modules {
-        let nodes = store.get_nodes_in_file(&module.file_path);
-        for node in &nodes {
-            if node.name.to_lowercase().contains(&query) {
-                if let Some(ref kind) = kind_filter {
-                    if node.kind.as_str() != kind {
-                        continue;
-                    }
-                }
-                results.push(serde_json::json!({
-                    "hash": node.hash,
-                    "name": node.name,
-                    "kind": node.kind.as_str(),
-                    "file": node.file_path,
-                    "line_start": node.line_start,
-                    "line_end": node.line_end,
-                    "signature": node.signature,
-                    "is_public": node.is_public,
-                }));
-                if results.len() >= limit {
-                    break;
-                }
-            }
-        }
-        if results.len() >= limit {
-            break;
-        }
-    }
+    // Single SQL query instead of N+1 (iterate modules + get_nodes_in_file per module)
+    let nodes = store.search_nodes(&query, kind_filter.as_deref(), limit);
+
+    let results: Vec<Value> = nodes
+        .iter()
+        .map(|node| {
+            serde_json::json!({
+                "hash": node.hash,
+                "name": node.name,
+                "kind": node.kind.as_str(),
+                "file": node.file_path,
+                "line_start": node.line_start,
+                "line_end": node.line_end,
+                "signature": node.signature,
+                "is_public": node.is_public,
+            })
+        })
+        .collect();
 
     Ok(serde_json::json!({
         "query": query,

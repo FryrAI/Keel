@@ -48,7 +48,8 @@ pub fn run(
             }
         };
         let shared_store = Arc::new(Mutex::new(store));
-        if let Err(e) = keel_server::mcp::run_stdio(shared_store) {
+        let db_str = db_path.to_string_lossy().to_string();
+        if let Err(e) = keel_server::mcp::run_stdio(shared_store, Some(&db_str)) {
             eprintln!("keel serve: MCP error: {}", e);
             return 2;
         }
@@ -89,7 +90,7 @@ pub fn run(
             let shared_watch = Arc::new(Mutex::new(watch_store));
             let watch_root = root_dir.clone();
 
-            // Create enforcement engine for watch mode
+            // Create enforcement engine for watch mode (with project config)
             let watch_engine_store =
                 match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
                     Ok(s) => s,
@@ -98,8 +99,10 @@ pub fn run(
                         return 2;
                     }
                 };
+            let keel_dir = root_dir.join(".keel");
+            let config = keel_core::config::KeelConfig::load(&keel_dir);
             let shared_engine: Arc<Mutex<EnforcementEngine>> = Arc::new(Mutex::new(
-                EnforcementEngine::new(Box::new(watch_engine_store)),
+                EnforcementEngine::with_config(Box::new(watch_engine_store), &config),
             ));
 
             match keel_server::watcher::start_watching(&root_dir, shared_watch) {

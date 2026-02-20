@@ -88,7 +88,7 @@ pub fn detect_tools(root: &Path) -> Vec<DetectedTool> {
     if root.join(".aider.conf.yml").exists() || root.join(".aider").is_dir() {
         tools.push(DetectedTool::Aider);
     }
-    if root.join(".github/copilot-instructions.md").exists() || root.join(".github").is_dir() {
+    if root.join(".github/copilot-instructions.md").exists() {
         tools.push(DetectedTool::Copilot);
     }
     if root.join(".github/workflows").is_dir() {
@@ -356,6 +356,8 @@ fn update_gitignore(root: &Path, verbose: bool) {
         ".keel/graph.db",
         ".keel/telemetry.db",
         ".keel/session.json",
+        ".keel/last_compile.json",
+        ".keel/compile.lock",
         ".keel/cache/",
     ];
 

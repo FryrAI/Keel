@@ -99,6 +99,6 @@ fn test_compile_result_version_and_command() {
     let mut engine = EnforcementEngine::new(Box::new(store));
     let result = engine.compile(&[make_clean_file()]);
 
-    assert_eq!(result.version, "0.1.0");
+    assert_eq!(result.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(result.command, "compile");
 }

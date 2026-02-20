@@ -307,9 +307,21 @@ fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
     Some(CompileLock { path: lock_path })
 }
 
-/// Check if a process is still alive.
+/// Check if a process is still alive (cross-platform).
 fn is_process_alive(pid: u32) -> bool {
-    Path::new(&format!("/proc/{}", pid)).exists()
+    #[cfg(unix)]
+    {
+        // Signal 0 checks if the process exists without sending a signal.
+        // SAFETY: kill with signal 0 is a standard POSIX process existence check.
+        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        // Conservative fallback for Windows/other: assume the process is alive.
+        // The 2-second wait loop will handle the timeout regardless.
+        let _ = pid;
+        true
+    }
 }
 
 /// Get files changed according to git diff.
