@@ -18,12 +18,19 @@ fn keel_binary() -> std::path::PathBuf {
         .and_then(|p| p.parent()) // debug/ or release/
         .expect("cannot find target dir");
     let bin = target_dir.join("keel");
+    if bin.exists() {
+        return bin;
+    }
+    // Fallback: workspace target/debug/keel (handles cargo-llvm-cov)
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
     assert!(
-        bin.exists(),
-        "keel binary not found at {}. Run `cargo build` first.",
-        bin.display()
+        fallback.exists(),
+        "keel binary not found at {} or {}. Run `cargo build` first.",
+        bin.display(),
+        fallback.display()
     );
-    bin
+    fallback
 }
 
 /// Create a temp directory with `.keel/` inside it so the keel binary
