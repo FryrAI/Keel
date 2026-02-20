@@ -194,6 +194,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-cov-
 
+      - name: Pre-build keel binary for integration tests
+        run: cargo build -p keel-cli
+
       - name: Generate coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info -- --skip benchmark_tests
 

@@ -6,18 +6,30 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn keel_bin() -> std::path::PathBuf {
+    // Try relative to test executable (standard cargo test layout)
     let mut path = std::env::current_exe().unwrap();
     path.pop();
     path.pop();
     path.push("keel");
-    if !path.exists() {
-        let status = Command::new("cargo")
-            .args(["build", "-p", "keel-cli"])
-            .status()
-            .expect("Failed to build keel");
-        assert!(status.success(), "Failed to build keel binary");
+    if path.exists() {
+        return path;
     }
-    path
+
+    // Fallback: workspace target/debug/keel (handles cargo-llvm-cov)
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+
+    // Last resort: build the binary
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
 }
 
 /// Initialize a project with .claude/ directory so Claude Code is detected.
