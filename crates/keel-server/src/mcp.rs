@@ -168,6 +168,17 @@ fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/context".into(),
+            description: "Minimal structural context for safely editing a file: symbols, external callers, and external callees".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string" }
+                }
+            }),
+        },
     ]
 }
 
@@ -197,6 +208,7 @@ fn dispatch(
         "keel/search" => crate::mcp_search::handle_search(store, params),
         "keel/name" => crate::mcp_name::handle_name(store, params),
         "keel/analyze" => crate::mcp_analyze::handle_analyze(store, params),
+        "keel/context" => crate::mcp_context::handle_context(store, params),
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Method not found: {}", method),

@@ -196,6 +196,12 @@ pub(crate) enum Commands {
         file: String,
     },
 
+    /// Minimal structural context for safely editing a file
+    Context {
+        /// File path to get context for
+        file: String,
+    },
+
     /// Remove all keel-generated files
     Deinit,
 
