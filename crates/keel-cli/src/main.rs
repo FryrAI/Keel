@@ -36,9 +36,12 @@ fn main() {
 
     let cmd_name = telemetry_recorder::command_name(&cli.command);
     let start = Instant::now();
+    let client_name = telemetry_recorder::detect_client();
 
-    let exit_code = match cli.command {
-        Commands::Init { merge, yes } => commands::init::run(&*formatter, cli.verbose, merge, yes),
+    let (exit_code, metrics) = match cli.command {
+        Commands::Init { merge, yes } => {
+            (commands::init::run(&*formatter, cli.verbose, merge, yes), Default::default())
+        }
         Commands::Map {
             llm_verbose,
             scope,
@@ -60,7 +63,7 @@ fn main() {
             suggest_placement,
             name,
             context,
-        } => commands::discover::run(
+        } => (commands::discover::run(
             &*formatter,
             cli.verbose,
             query,
@@ -68,9 +71,9 @@ fn main() {
             suggest_placement,
             name,
             context,
-        ),
+        ), Default::default()),
         Commands::Search { term, kind } => {
-            commands::search::run(&*formatter, cli.verbose, cli.json, cli.llm, term, kind)
+            (commands::search::run(&*formatter, cli.verbose, cli.json, cli.llm, term, kind), Default::default())
         }
         Commands::Compile {
             files,
@@ -103,42 +106,42 @@ fn main() {
             )
         }
         Commands::Check { query, name } => {
-            commands::check::run(&*formatter, cli.verbose, query, name)
+            (commands::check::run(&*formatter, cli.verbose, query, name), Default::default())
         }
         Commands::Where { hash } => {
-            commands::where_cmd::run(&*formatter, cli.verbose, hash, cli.json)
+            (commands::where_cmd::run(&*formatter, cli.verbose, hash, cli.json), Default::default())
         }
         Commands::Explain {
             error_code,
             hash,
             tree,
             depth,
-        } => commands::explain::run(&*formatter, cli.verbose, error_code, hash, tree, depth),
+        } => (commands::explain::run(&*formatter, cli.verbose, error_code, hash, tree, depth), Default::default()),
         Commands::Fix {
             hashes,
             file,
             apply,
-        } => commands::fix::run(&*formatter, cli.verbose, hashes, file, apply),
+        } => (commands::fix::run(&*formatter, cli.verbose, hashes, file, apply), Default::default()),
         Commands::Name {
             description,
             module,
             kind,
-        } => commands::name::run(&*formatter, cli.verbose, description, module, kind),
-        Commands::Analyze { file } => commands::analyze::run(&*formatter, cli.verbose, file),
+        } => (commands::name::run(&*formatter, cli.verbose, description, module, kind), Default::default()),
+        Commands::Analyze { file } => (commands::analyze::run(&*formatter, cli.verbose, file), Default::default()),
         Commands::Context { file } => {
-            commands::context::run(&*formatter, cli.verbose, file, cli.json, cli.llm)
+            (commands::context::run(&*formatter, cli.verbose, file, cli.json, cli.llm), Default::default())
         }
         Commands::Serve { mcp, http, watch } => {
-            commands::serve::run(&*formatter, cli.verbose, mcp, http, watch)
+            (commands::serve::run(&*formatter, cli.verbose, mcp, http, watch), Default::default())
         }
-        Commands::Watch => commands::watch::run(cli.verbose),
-        Commands::Deinit => commands::deinit::run(&*formatter, cli.verbose),
-        Commands::Stats => commands::stats::run(&*formatter, cli.verbose, cli.json),
+        Commands::Watch => (commands::watch::run(cli.verbose), Default::default()),
+        Commands::Deinit => (commands::deinit::run(&*formatter, cli.verbose), Default::default()),
+        Commands::Stats => (commands::stats::run(&*formatter, cli.verbose, cli.json), Default::default()),
         Commands::Config { key, value } => {
-            commands::config::run(&*formatter, cli.verbose, key, value)
+            (commands::config::run(&*formatter, cli.verbose, key, value), Default::default())
         }
-        Commands::Upgrade { version, yes } => commands::upgrade::run(version, yes),
-        Commands::Completion { shell } => commands::completion::run(&shell),
+        Commands::Upgrade { version, yes } => (commands::upgrade::run(version, yes), Default::default()),
+        Commands::Completion { shell } => (commands::completion::run(&shell), Default::default()),
     };
 
     // Record telemetry (silently fails — never blocks CLI)
@@ -146,13 +149,15 @@ fn main() {
         let keel_dir = cwd.join(".keel");
         if keel_dir.exists() {
             let config = keel_core::config::KeelConfig::load(&keel_dir);
+            let mut metrics = metrics;
+            metrics.client_name = client_name;
             telemetry_recorder::record_event(
                 &keel_dir,
                 &config,
                 cmd_name,
                 start.elapsed(),
                 exit_code,
-                telemetry_recorder::EventMetrics::default(),
+                metrics,
             );
         }
     }

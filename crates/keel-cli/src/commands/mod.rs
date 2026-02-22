@@ -1,6 +1,8 @@
 pub mod analyze;
 pub mod check;
 pub mod compile;
+pub mod compile_lock;
+pub mod compile_metrics;
 pub mod completion;
 pub mod config;
 pub mod context;

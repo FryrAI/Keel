@@ -18,6 +18,8 @@ pub struct EventMetrics {
     pub language_mix: std::collections::HashMap<String, u32>,
     pub resolution_tiers: std::collections::HashMap<String, u32>,
     pub circuit_breaker_events: u32,
+    pub error_codes: std::collections::HashMap<String, u32>,
+    pub client_name: Option<String>,
 }
 
 /// Record a telemetry event after a command completes.
@@ -48,6 +50,8 @@ pub fn record_event(
     event.language_mix = metrics.language_mix;
     event.resolution_tiers = metrics.resolution_tiers;
     event.circuit_breaker_events = metrics.circuit_breaker_events;
+    event.error_codes = metrics.error_codes;
+    event.client_name = metrics.client_name;
 
     let _ = store.record(&event);
 
@@ -78,6 +82,27 @@ fn try_send_remote(config: &KeelConfig, event: &telemetry::TelemetryEvent) {
             .header("Content-Type", "application/json")
             .send(body.as_bytes());
     });
+}
+
+/// Detect the calling agent/client from environment variables.
+/// Returns `None` for direct human use.
+pub fn detect_client() -> Option<String> {
+    if std::env::var("CLAUDECODE").is_ok() {
+        return Some("claude-code".into());
+    }
+    if std::env::var("CURSOR_CLI").is_ok() {
+        return Some("cursor".into());
+    }
+    if std::env::var("VSCODE_PID").is_ok() {
+        return Some("vscode".into());
+    }
+    if std::env::var("WINDSURF_SESSION").is_ok() {
+        return Some("windsurf".into());
+    }
+    if std::env::var("CI").is_ok() {
+        return Some("ci".into());
+    }
+    None
 }
 
 /// Extract a static command name string from the CLI command variant.

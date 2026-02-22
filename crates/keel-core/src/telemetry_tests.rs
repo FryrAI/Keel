@@ -8,6 +8,8 @@ fn make_event(command: &str, duration_ms: u64, exit_code: i32) -> TelemetryEvent
     event.edge_count = 200;
     event.language_mix.insert("typescript".to_string(), 60);
     event.language_mix.insert("python".to_string(), 40);
+    event.error_codes.insert("E001".to_string(), 1);
+    event.error_codes.insert("W001".to_string(), 1);
     event
 }
 
@@ -34,6 +36,9 @@ fn test_record_and_retrieve() {
     assert_eq!(events[0].node_count, 100);
     assert_eq!(events[0].edge_count, 200);
     assert_eq!(events[0].language_mix.get("typescript"), Some(&60));
+    assert_eq!(events[0].error_codes.get("E001"), Some(&1));
+    assert_eq!(events[0].error_codes.get("W001"), Some(&1));
+    assert!(events[0].client_name.is_none());
 }
 
 #[test]
@@ -63,6 +68,48 @@ fn test_aggregate_with_data() {
     assert_eq!(agg.total_warnings, 15); // 5 per event * 3
     assert_eq!(agg.command_counts.get("compile"), Some(&2));
     assert_eq!(agg.command_counts.get("map"), Some(&1));
+    // error_codes: E001=1 per event * 3, W001=1 per event * 3
+    assert_eq!(agg.top_error_codes.get("E001"), Some(&3));
+    assert_eq!(agg.top_error_codes.get("W001"), Some(&3));
+}
+
+#[test]
+fn test_client_name_roundtrip() {
+    let store = TelemetryStore::in_memory().unwrap();
+    let mut event = make_event("compile", 100, 0);
+    event.client_name = Some("claude-code".to_string());
+    store.record(&event).unwrap();
+
+    let events = store.recent_events(10).unwrap();
+    assert_eq!(events[0].client_name, Some("claude-code".to_string()));
+}
+
+#[test]
+fn test_agent_stats_aggregation() {
+    let store = TelemetryStore::in_memory().unwrap();
+
+    // Simulate MCP tool call events
+    let mut e1 = new_event("mcp:compile", 50, 0);
+    e1.client_name = Some("claude-code".to_string());
+    store.record(&e1).unwrap();
+
+    let mut e2 = new_event("mcp:discover", 30, 0);
+    e2.client_name = Some("claude-code".to_string());
+    store.record(&e2).unwrap();
+
+    // Session summary event: node_count = tool_call_count
+    let mut session = new_event("mcp:session", 60000, 0);
+    session.client_name = Some("claude-code".to_string());
+    session.node_count = 2;
+    store.record(&session).unwrap();
+
+    let agg = store.aggregate(30).unwrap();
+    let stats = agg.agent_stats.get("claude-code").unwrap();
+    assert_eq!(stats.sessions, 1);
+    assert_eq!(stats.total_tool_calls, 2);
+    assert!((stats.avg_tool_calls_per_session - 2.0).abs() < 0.01);
+    assert_eq!(stats.tool_usage.get("mcp:compile"), Some(&1));
+    assert_eq!(stats.tool_usage.get("mcp:discover"), Some(&1));
 }
 
 #[test]

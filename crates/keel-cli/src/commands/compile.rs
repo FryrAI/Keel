@@ -10,6 +10,10 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::treesitter::detect_language;
 use keel_parsers::typescript::TsResolver;
 
+use super::compile_lock::acquire_compile_lock;
+use super::compile_metrics::build_compile_metrics;
+use crate::telemetry_recorder::EventMetrics;
+
 /// Supported file extensions for --changed filtering.
 const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "py", "ts", "tsx", "js", "jsx", "go"];
 
@@ -28,21 +32,21 @@ pub fn run(
     since: Option<String>,
     delta: bool,
     timeout: Option<u64>,
-) -> i32 {
+) -> (i32, EventMetrics) {
     let start = Instant::now();
 
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("keel compile: failed to get current directory: {}", e);
-            return 2;
+            return (2, EventMetrics::default());
         }
     };
 
     let keel_dir = cwd.join(".keel");
     if !keel_dir.exists() {
         eprintln!("keel compile: not initialized. Run `keel init` first.");
-        return 2;
+        return (2, EventMetrics::default());
     }
 
     // Acquire compile lock to prevent concurrent corruption
@@ -50,7 +54,7 @@ pub fn run(
         Some(lock) => lock,
         None => {
             eprintln!("keel compile: another compile is running, skipping");
-            return 0;
+            return (0, EventMetrics::default());
         }
     };
 
@@ -59,7 +63,7 @@ pub fn run(
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel compile: failed to open graph database: {}", e);
-            return 2;
+            return (2, EventMetrics::default());
         }
     };
 
@@ -81,12 +85,14 @@ pub fn run(
         if verbose {
             eprintln!("keel compile: batch mode started");
         }
-        return 0;
+        return (0, EventMetrics::default());
     }
 
     if batch_end {
         let result = engine.batch_end();
-        return output_result(formatter, &result, strict, verbose);
+        let exit = output_result(formatter, &result, strict, verbose);
+        let metrics = build_compile_metrics(&result, &[]);
+        return (exit, metrics);
     }
 
     // Resolve target files: --changed, --since, explicit list, or all
@@ -101,7 +107,7 @@ pub fn run(
             }
             Err(e) => {
                 eprintln!("keel compile: git diff failed: {}", e);
-                return 2;
+                return (2, EventMetrics::default());
             }
         }
     }
@@ -182,6 +188,7 @@ pub fn run(
 
     // Persist circuit breaker state back to SQLite
     let cb_out = engine.export_circuit_breaker();
+    let cb_events = cb_out.len() as u32;
     if !cb_out.is_empty() {
         if let Ok(cb_store) =
             keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
@@ -193,6 +200,10 @@ pub fn run(
             }
         }
     }
+
+    // Build metrics before delta processing may consume result
+    let mut metrics = build_compile_metrics(&result, &target_files);
+    metrics.circuit_breaker_events = cb_events;
 
     // Delta mode: diff against previous snapshot
     if delta {
@@ -216,11 +227,12 @@ pub fn run(
             }
             let has_errors = !result.errors.is_empty();
             let has_warnings = !result.warnings.is_empty();
-            return if has_errors || (strict && has_warnings) {
+            let exit = if has_errors || (strict && has_warnings) {
                 1
             } else {
                 0
             };
+            return (exit, metrics);
         }
         // No previous snapshot: fall through to normal output
         if verbose {
@@ -247,81 +259,12 @@ pub fn run(
                     elapsed, timeout_ms
                 );
             }
-            return 0; // Don't block the agent
+            return (0, metrics); // Don't block the agent
         }
     }
 
-    output_result(formatter, &result, strict, verbose)
-}
-
-/// Advisory lock guard for compile serialization.
-/// Dropped automatically when the guard goes out of scope.
-struct CompileLock {
-    path: std::path::PathBuf,
-}
-
-impl Drop for CompileLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-/// Try to acquire a compile lock. Returns None if another compile holds the lock.
-/// Uses a PID-based lockfile with stale lock detection.
-fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
-    let lock_path = keel_dir.join("compile.lock");
-    let pid = std::process::id();
-
-    // Check for existing lock
-    if lock_path.exists() {
-        if let Ok(contents) = fs::read_to_string(&lock_path) {
-            if let Ok(existing_pid) = contents.trim().parse::<u32>() {
-                if is_process_alive(existing_pid) {
-                    // Wait briefly (up to 2s) for the lock to release
-                    for _ in 0..20 {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        if !lock_path.exists() {
-                            break;
-                        }
-                    }
-                    if lock_path.exists() {
-                        return None; // Still locked
-                    }
-                } else if verbose {
-                    eprintln!(
-                        "keel compile: removing stale lock from PID {}",
-                        existing_pid
-                    );
-                }
-            }
-        }
-        // Stale lock or unreadable — remove it
-        let _ = fs::remove_file(&lock_path);
-    }
-
-    // Write our PID
-    if fs::write(&lock_path, pid.to_string()).is_err() {
-        return None;
-    }
-
-    Some(CompileLock { path: lock_path })
-}
-
-/// Check if a process is still alive (cross-platform).
-fn is_process_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        // Signal 0 checks if the process exists without sending a signal.
-        // SAFETY: kill with signal 0 is a standard POSIX process existence check.
-        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        // Conservative fallback for Windows/other: assume the process is alive.
-        // The 2-second wait loop will handle the timeout regardless.
-        let _ = pid;
-        true
-    }
+    let exit = output_result(formatter, &result, strict, verbose);
+    (exit, metrics)
 }
 
 /// Get files changed according to git diff.

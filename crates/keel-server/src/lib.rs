@@ -15,6 +15,7 @@ mod mcp_context;
 mod mcp_fix;
 mod mcp_name;
 mod mcp_search;
+pub mod mcp_stdio;
 mod parse_shared;
 pub mod watcher;
 
