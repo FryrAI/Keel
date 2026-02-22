@@ -72,6 +72,9 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | `keel where <hash>` | Hash to file:line | <50ms |
 | `keel explain <code> <hash>` | Resolution chain | <50ms |
 | `keel serve` | MCP/HTTP/watch server | ~50-100MB memory |
+| `keel login` | Authenticate with keel cloud | — |
+| `keel logout` | Remove stored credentials | — |
+| `keel push` | Upload graph to keel cloud | — |
 | `keel upgrade` | Self-update from GitHub releases | — |
 | `keel completion <shell>` | Generate shell completions | — |
 | `keel deinit` | Clean removal | N/A |

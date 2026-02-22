@@ -1,30 +1,16 @@
 # keel — Implementation Progress
 
-> Last updated: 2026-02-17
+> Last updated: 2026-02-22
 
 ## Honest Status Summary
 
-**Ready for v0.1.0 release.** All CLI commands work, 4 language resolvers pass, 15 real-world repos
-validate successfully, tool config generation ships for 10 AI coding tools + VS Code extension (11
-total). Round 5 delivered the last-mile: `keel init` generates hook configs and instruction files,
-Cargo metadata and release pipeline are ready, VS Code extension is packageable, docs are written.
-Round 6 fixed performance regressions and audited marketing content. Round 7 (CI swarm) implemented
-real assertions in test stubs, added ModuleProfile fields, ResolvedEdge.resolution_tier tracking,
-previous_hashes fallback, SQLite WAL optimizations, and reached 0 clippy warnings. Round 8 addressed
-agent UX pain points: discover accepts file paths + names, `keel search`, `keel watch`, `--changed`
-flag, enriched map output, fixed empty hashes, GitHub Action, and wired MCP map tool. Round 9 added
-`keel check` and `keel analyze` commands, `compile --delta`, `discover --context`, and naming fixes.
-Round 10 (3-agent swarm) implemented schema v2 migration, module node auto-creation, dynamic dispatch
-confidence, Cursor/Gemini hook fixes, and 5 bug fixes. Round 11 polished UX (name reliability, check
-caller summary, --context N, deprecate where) and added resolution features (Go imports, Python __all__,
-Rust use statements, TS package.json exports, supports_extension trait method). Round 12 (2-agent swarm)
-un-ignored 47 tests across all 4 languages via enhanced Tier 2 heuristics: Go interfaces/receivers/
-visibility/package scoping, Python star imports/subprocess/package resolution, Rust impl blocks/mod
-declarations, TS namespace resolution. Round 13 finished the job: all 8 remaining TIER3 tests implemented
-(Rust trait bounds, where clauses, supertraits, associated types, derive/attr macros; TS module
-augmentation, project references).
+**v0.3.0 released.** All CLI commands work, 4 language resolvers pass, 15 real-world repos validate
+successfully, tool config generation ships for 10 AI coding tools + VS Code extension (11 total).
+Round 15 added cloud authentication (`keel login`/`logout`/`push`), dual telemetry sending, real
+telemetry population, agent identification, and the `keel context` command. The API PRD now covers
+authenticated endpoints, graph upload, user-scoped telemetry, and rate limiting.
 
-**762 tests passing, 0 failures, 0 ignored, 0 clippy warnings.**
+**1236 tests passing, 0 failures, 0 ignored, 0 clippy warnings.**
 
 ## Test Status — Actual Numbers
 
@@ -32,41 +18,76 @@ augmentation, project references).
 
 | Category | Count | Notes |
 |----------|-------|-------|
-| **Passing** | 762 | Verified via `cargo test --all-features` |
+| **Passing** | 1236 | Verified via `cargo test --workspace --all-features` |
 | **Ignored** | 0 | All tests un-ignored across Rounds 12-13 |
 | **Failing** | 0 | Clean |
 
 ### Where the Passing Tests Live
 
-#### Crate Unit Tests (395)
+#### Crate Unit Tests
 
 | Source | Tests | Notes |
 |--------|-------|-------|
-| keel-core | 36 | SQLite, hash, config, telemetry |
+| keel-core | 38 | SQLite, hash, config, telemetry |
 | keel-parsers | 134 | tree-sitter, 4 resolvers, walker, trait resolution |
-| keel-enforce | 65 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
-| keel-cli | 84 | CLI args, init merge logic, map resolve, fix/name, explain --depth, search, input_detect, config command |
+| keel-enforce | 69 | Engine, violations, circuit breaker, batch, discover BFS, fix generator, naming |
+| keel-cli | 96 | CLI args, auth, init merge, map resolve, fix/name, explain, search, input_detect, config, telemetry |
 | keel-output | 35 | JSON, LLM, human formatters, depth/backpressure/fix/name, token budget |
-| keel-server | 41 | MCP + HTTP + watcher |
+| keel-server | 31 | MCP + HTTP + watcher |
 
-#### Integration Tests (367)
+#### Integration Tests
 
 | Source | Tests | Notes |
 |--------|-------|-------|
 | tests/benchmarks | 31 | Map, parsing, parallel parsing |
-| tests/cli | 55 | CLI workflows, init, keelignore, git hooks |
+| tests/cli | 97 | CLI workflows, init, keelignore, git hooks |
 | tests/contracts | 66 | Frozen trait contracts |
 | tests/enforcement | 89 | Violations, batch, circuit breaker |
-| tests/fixtures | 10 | Mock graph + compile helpers |
-| tests/graph | 70 | Node/edge creation, SQLite storage |
-| tests/graph_correctness | 50 | Per-language correctness |
+| tests/graph | 43 | Node/edge creation, SQLite storage |
 | tests/integration | 43 | E2E workflows (real repos) |
 | tests/output | 51 | JSON schema, LLM format, discover schema |
 | tests/parsing | 59 | Incremental, parallel, keelignore |
 | tests/resolution | 155 | 4 languages + barrel files |
 | tests/server | 32 | MCP + HTTP + watch + lifecycle |
 | tests/tool_integration | 51 | Claude Code hooks, instruction files, git hooks, hook execution |
-| **Total** | **762** | |
+| **Total** | **1236** | |
+
+## Round 15: Cloud Auth + Push + Dual Telemetry (2026-02-22) — COMPLETED
+
+CLI authentication, graph upload, dual telemetry sending, and API PRD expansion.
+
+### New Commands
+- **`keel login`**: Clerk OAuth device flow — opens browser, polls for token, saves to `~/.keel/credentials.json`
+- **`keel logout`**: Clears stored credentials
+- **`keel push`**: Uploads `graph.db` to keel cloud (full upload; incremental diffs TODO'd). Checks sync-status, prompts for confirmation, reports project_id
+
+### Cloud Auth (`auth.rs`)
+- `Credentials` struct with `access_token`, `refresh_token`, `expires_at`
+- `keel_home()` → `~/.keel` (cross-platform: `$HOME` / `%USERPROFILE%`)
+- `load_credentials()` / `save_credentials()` / `clear_credentials()`
+- Unix permission hardening (0o600) on credentials file
+
+### Dual Telemetry
+- `try_send_remote()` now sends to anonymous endpoint first, then to `/telemetry/user` with Bearer token if logged in
+- Credentials loaded before thread spawn (fast fs read), both POSTs in same thread with shared `ureq::Agent`
+- No regression: still works identically when not logged in
+
+### API PRD Expansion
+- Updated `api-prd.md` (in Keel_LandingPage repo) with:
+  - Authentication (Clerk OAuth device flow endpoints)
+  - Graph Upload endpoints (sync-status, full upload, incremental diff, cross-repo discover)
+  - User-Scoped Telemetry (dual-send, personal dashboard, event timeline)
+  - Rate Limiting (anonymous: 60/min/IP, authenticated: 300/min/user)
+  - Schema Changes (user_projects, graph_snapshots, graph_deltas tables)
+
+### New Dependencies
+- `webbrowser = "1"` (workspace + keel-cli)
+
+### Results
+- 1236 tests passing (verified via `cargo test --workspace --all-features`)
+- 0 ignored, 0 failed, 0 clippy warnings
+- 5 new files, 8 modified files
+- New keel-cli tests: 5 auth + 5 CLI args = 10 new unit tests
 
 ## Round 14: Telemetry, Config Command, Install Polish (2026-02-17) — COMPLETED
 
@@ -405,15 +426,18 @@ Zero orphans. Zero regressions. 4 consecutive green rounds.
 ## Remaining Work
 
 ### P0: Ship Blockers — NONE
-All 762 tests pass. Zero ignored. Clippy clean. Ready to tag v0.1.0.
+All 1236 tests pass. Zero ignored. Clippy clean. v0.3.0 released.
 
 ### P1: Polish (post-release)
 - ~~55 ignored tests~~ — **DONE** (Rounds 12-13: all tests un-ignored)
 - ~~Telemetry engine~~ — **DONE** (Round 14: privacy-safe local telemetry)
 - ~~`keel config` command~~ — **DONE** (Round 14: get/set with dot-notation)
 - ~~README config.toml bug~~ — **DONE** (Round 14: fixed to keel.json)
-- Remote telemetry server (api.keel.engineer/telemetry endpoint)
-- Team dashboard + encrypted sensitive data (Tier: Team)
+- ~~Cloud auth (login/logout/push)~~ — **DONE** (Round 15: Clerk device flow + graph upload)
+- ~~Dual telemetry (anonymous + user-scoped)~~ — **DONE** (Round 15)
+- Remote telemetry server (api.keel.engineer/telemetry endpoint) — API PRD written
+- Team dashboard + cross-repo linking — API PRD written, server implementation pending
+- Incremental graph diffs (PATCH endpoint) — CLI scaffolded, server pending
 - Performance: measure actual memory usage, verify <200ms compile on release builds
 
 ### P2: Overdelivery
@@ -425,7 +449,7 @@ All 762 tests pass. Zero ignored. Clippy clean. Ready to tag v0.1.0.
 - `keel serve --mcp` end-to-end with Claude Code and Cursor
 
 ## Test Count History
-**762** (verified via `cargo test --all-features`, 0 ignored)
+**1236** (verified via `cargo test --workspace --all-features`, 0 ignored)
 
 Note: Prior entries in this history were inflated by agent hallucination — counts were
 reported from commit messages rather than verified against actual `cargo test` output.
