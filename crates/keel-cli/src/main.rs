@@ -35,6 +35,7 @@ fn main() {
         Box::new(keel_output::human::HumanFormatter)
     };
 
+    let no_telemetry = cli.no_telemetry;
     let cmd_name = telemetry_recorder::command_name(&cli.command);
     let start = Instant::now();
     let client_name = telemetry_recorder::detect_client();
@@ -151,20 +152,22 @@ fn main() {
     };
 
     // Record telemetry (silently fails — never blocks CLI)
-    if let Ok(cwd) = std::env::current_dir() {
-        let keel_dir = cwd.join(".keel");
-        if keel_dir.exists() {
-            let config = keel_core::config::KeelConfig::load(&keel_dir);
-            let mut metrics = metrics;
-            metrics.client_name = client_name;
-            telemetry_recorder::record_event(
-                &keel_dir,
-                &config,
-                cmd_name,
-                start.elapsed(),
-                exit_code,
-                metrics,
-            );
+    if !no_telemetry {
+        if let Ok(cwd) = std::env::current_dir() {
+            let keel_dir = cwd.join(".keel");
+            if keel_dir.exists() {
+                let config = keel_core::config::KeelConfig::load(&keel_dir);
+                let mut metrics = metrics;
+                metrics.client_name = client_name;
+                telemetry_recorder::record_event(
+                    &keel_dir,
+                    &config,
+                    cmd_name,
+                    start.elapsed(),
+                    exit_code,
+                    metrics,
+                );
+            }
         }
     }
 

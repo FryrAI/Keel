@@ -1,3 +1,4 @@
+pub(crate) mod json_helpers;
 pub mod analyze;
 pub mod check;
 pub mod compile;

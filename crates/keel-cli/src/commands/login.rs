@@ -3,6 +3,7 @@
 use std::io::Read;
 
 use crate::auth;
+use super::json_helpers::{extract_json_string, extract_json_number};
 
 const API_BASE: &str = "https://api.keel.engineer";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -148,25 +149,3 @@ pub fn run(verbose: bool) -> i32 {
     }
 }
 
-fn extract_json_string(json: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let start = json.find(&needle)? + needle.len();
-    let rest = &json[start..];
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix(':')?;
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-fn extract_json_number(json: &str, key: &str) -> Option<u64> {
-    let needle = format!("\"{key}\"");
-    let start = json.find(&needle)? + needle.len();
-    let rest = &json[start..];
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix(':')?;
-    let rest = rest.trim_start();
-    let num_end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
-    rest[..num_end].parse().ok()
-}

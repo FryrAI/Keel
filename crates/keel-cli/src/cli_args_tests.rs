@@ -694,6 +694,26 @@ fn unknown_flag_is_error() {
     parse_err(&["keel", "--not-a-flag", "init"]);
 }
 
+// --- --no-telemetry flag ---
+
+#[test]
+fn no_telemetry_default_is_false() {
+    let cli = parse(&["keel", "compile"]);
+    assert!(!cli.no_telemetry);
+}
+
+#[test]
+fn no_telemetry_flag_before_subcommand() {
+    let cli = parse(&["keel", "--no-telemetry", "compile"]);
+    assert!(cli.no_telemetry);
+}
+
+#[test]
+fn no_telemetry_flag_after_subcommand() {
+    let cli = parse(&["keel", "compile", "--no-telemetry"]);
+    assert!(cli.no_telemetry);
+}
+
 // --- Login / Logout / Push ---
 
 #[test]

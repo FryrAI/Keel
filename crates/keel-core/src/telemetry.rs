@@ -234,31 +234,39 @@ impl TelemetryStore {
             command_counts.insert(cmd, count);
         }
 
-        // Language percentages — average across all events
-        let mut lang_stmt = self.conn.prepare(&format!(
-            "SELECT language_mix FROM events WHERE timestamp >= {cutoff}"
-        ))?;
-        let mut lang_totals: HashMap<String, f64> = HashMap::new();
-        let mut lang_count = 0u64;
-        let lang_rows = lang_stmt.query_map([], |row| row.get::<_, String>(0))?;
-        for row in lang_rows {
-            let json_str = row?;
-            if let Ok(map) = serde_json::from_str::<HashMap<String, u32>>(&json_str) {
-                if !map.is_empty() {
-                    lang_count += 1;
-                    for (lang, pct) in map {
-                        *lang_totals.entry(lang).or_default() += pct as f64;
-                    }
+        // Language percentages — use the latest `map` event's language_mix
+        // (most accurate snapshot since map scans all files).
+        // Falls back to latest event with any language_mix if no map events exist.
+        let language_percentages: HashMap<String, f64> = {
+            let mut lang_stmt = self.conn.prepare(&format!(
+                "SELECT language_mix FROM events \
+                 WHERE timestamp >= {cutoff} AND command = 'map' AND language_mix != '{{}}' \
+                 ORDER BY id DESC LIMIT 1"
+            ))?;
+            let result: Option<String> = lang_stmt
+                .query_row([], |row| row.get::<_, String>(0))
+                .ok();
+
+            // Fallback: any event with a non-empty language_mix
+            let json_str = match result {
+                Some(s) => s,
+                None => {
+                    let mut fallback = self.conn.prepare(&format!(
+                        "SELECT language_mix FROM events \
+                         WHERE timestamp >= {cutoff} AND language_mix != '{{}}' \
+                         ORDER BY id DESC LIMIT 1"
+                    ))?;
+                    fallback
+                        .query_row([], |row| row.get::<_, String>(0))
+                        .unwrap_or_default()
                 }
+            };
+
+            if let Ok(map) = serde_json::from_str::<HashMap<String, u32>>(&json_str) {
+                map.into_iter().map(|(k, v)| (k, v as f64)).collect()
+            } else {
+                HashMap::new()
             }
-        }
-        let language_percentages: HashMap<String, f64> = if lang_count > 0 {
-            lang_totals
-                .into_iter()
-                .map(|(k, v)| (k, v / lang_count as f64))
-                .collect()
-        } else {
-            HashMap::new()
         };
 
         // Error code aggregation

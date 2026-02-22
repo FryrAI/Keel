@@ -29,8 +29,7 @@ fn test_resolve_dot_path() {
         "tier": "free",
         "telemetry": {
             "enabled": true,
-            "remote": true,
-            "detailed": false,
+            "remote": true
         }
     });
     assert_eq!(

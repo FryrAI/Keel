@@ -25,6 +25,10 @@ pub(crate) struct Cli {
     /// Max token budget for LLM output (default: 500)
     #[arg(long, global = true)]
     pub max_tokens: Option<usize>,
+
+    /// Disable telemetry for this invocation (also: KEEL_NO_TELEMETRY=1)
+    #[arg(long, global = true, env = "KEEL_NO_TELEMETRY")]
+    pub no_telemetry: bool,
 }
 
 #[derive(Subcommand, Debug)]

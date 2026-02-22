@@ -66,17 +66,11 @@ fn fetch_latest_version() -> Result<(String, String), String> {
     Ok((version, tag))
 }
 
-fn extract_json_string(json: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let start = json.find(&needle)? + needle.len();
-    let rest = &json[start..];
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix(':')?;
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
+use super::json_helpers::extract_json_string;
+
+#[cfg(test)]
+#[path = "upgrade_tests.rs"]
+mod tests;
 
 fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();

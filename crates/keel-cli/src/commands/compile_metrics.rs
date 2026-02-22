@@ -41,3 +41,7 @@ pub fn build_language_mix(files: &[String]) -> HashMap<String, u32> {
         .map(|(lang, count)| (lang, (count * 100) / total))
         .collect()
 }
+
+#[cfg(test)]
+#[path = "compile_metrics_tests.rs"]
+mod tests;

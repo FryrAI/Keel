@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::auth;
+use super::json_helpers::extract_json_string;
 
 const API_BASE: &str = "https://api.keel.engineer";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -226,14 +227,7 @@ fn save_project_id(keel_dir: &Path, project_id: &str) {
     let _ = std::fs::write(config_path, content);
 }
 
-fn extract_json_string(json: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let start = json.find(&needle)? + needle.len();
-    let rest = &json[start..];
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix(':')?;
-    let rest = rest.trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
+
+#[cfg(test)]
+#[path = "push_tests.rs"]
+mod tests;
