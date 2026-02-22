@@ -65,6 +65,7 @@ dialoguer = "0.11"
 
 # Self-update
 ureq = "3"
+webbrowser = "1"
 
 # Server
 axum = "0.8"

@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use clap::Parser;
 
+mod auth;
 mod cli_args;
 mod commands;
 mod telemetry_recorder;
@@ -142,6 +143,11 @@ fn main() {
         }
         Commands::Upgrade { version, yes } => (commands::upgrade::run(version, yes), Default::default()),
         Commands::Completion { shell } => (commands::completion::run(&shell), Default::default()),
+        Commands::Login => (commands::login::run(cli.verbose), Default::default()),
+        Commands::Logout => (commands::logout::run(cli.verbose), Default::default()),
+        Commands::Push { yes } => {
+            (commands::push::run(&*formatter, cli.verbose, yes), Default::default())
+        }
     };
 
     // Record telemetry (silently fails — never blocks CLI)

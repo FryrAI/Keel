@@ -61,6 +61,10 @@ pub fn record_event(
 /// Fire-and-forget remote telemetry send.
 /// Spawns a background thread so the CLI never blocks on network I/O.
 /// Silently swallows all errors — telemetry must never degrade UX.
+///
+/// When the user is logged in, dual-sends: anonymous aggregate first,
+/// then authenticated user-scoped telemetry. Both use the same thread
+/// and ureq Agent (connection pooling).
 fn try_send_remote(config: &KeelConfig, event: &telemetry::TelemetryEvent) {
     if !config.telemetry.remote {
         return;
@@ -72,15 +76,32 @@ fn try_send_remote(config: &KeelConfig, event: &telemetry::TelemetryEvent) {
         Err(_) => return,
     };
 
+    // Load credentials before spawning thread (fast fs read, ~1ms)
+    let creds_token = crate::auth::load_credentials()
+        .filter(|c| !c.is_expired())
+        .map(|c| c.access_token);
+
     std::thread::spawn(move || {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(std::time::Duration::from_secs(5)))
             .build()
             .new_agent();
+
+        // 1. Anonymous aggregate (always)
         let _ = agent
             .post(&endpoint)
             .header("Content-Type", "application/json")
             .send(body.as_bytes());
+
+        // 2. User-scoped (only when logged in)
+        if let Some(token) = creds_token {
+            let user_endpoint = endpoint.replace("/telemetry", "/telemetry/user");
+            let _ = agent
+                .post(&user_endpoint)
+                .header("Content-Type", "application/json")
+                .header("Authorization", &format!("Bearer {token}"))
+                .send(body.as_bytes());
+        }
     });
 }
 
@@ -128,6 +149,9 @@ pub fn command_name(command: &crate::cli_args::Commands) -> &'static str {
         Commands::Config { .. } => "config",
         Commands::Upgrade { .. } => "upgrade",
         Commands::Completion { .. } => "completion",
+        Commands::Login => "login",
+        Commands::Logout => "logout",
+        Commands::Push { .. } => "push",
     }
 }
 

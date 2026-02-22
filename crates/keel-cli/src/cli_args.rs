@@ -230,6 +230,19 @@ pub(crate) enum Commands {
         /// Shell to generate completions for (bash, zsh, fish, elvish, powershell)
         shell: String,
     },
+
+    /// Authenticate with keel cloud (opens browser)
+    Login,
+
+    /// Log out and remove stored credentials
+    Logout,
+
+    /// Push graph database to keel cloud
+    Push {
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        yes: bool,
+    },
 }
 
 #[cfg(test)]

@@ -693,3 +693,35 @@ fn unknown_subcommand_is_error() {
 fn unknown_flag_is_error() {
     parse_err(&["keel", "--not-a-flag", "init"]);
 }
+
+// --- Login / Logout / Push ---
+
+#[test]
+fn parse_login() {
+    let cli = parse(&["keel", "login"]);
+    assert!(matches!(cli.command, Commands::Login));
+}
+
+#[test]
+fn parse_logout() {
+    let cli = parse(&["keel", "logout"]);
+    assert!(matches!(cli.command, Commands::Logout));
+}
+
+#[test]
+fn parse_push_defaults() {
+    let cli = parse(&["keel", "push"]);
+    assert!(matches!(cli.command, Commands::Push { yes: false }));
+}
+
+#[test]
+fn parse_push_yes_long() {
+    let cli = parse(&["keel", "push", "--yes"]);
+    assert!(matches!(cli.command, Commands::Push { yes: true }));
+}
+
+#[test]
+fn parse_push_yes_short() {
+    let cli = parse(&["keel", "push", "-y"]);
+    assert!(matches!(cli.command, Commands::Push { yes: true }));
+}
