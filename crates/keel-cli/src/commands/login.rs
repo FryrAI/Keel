@@ -2,8 +2,8 @@
 
 use std::io::Read;
 
+use super::json_helpers::{extract_json_number, extract_json_string};
 use crate::auth;
-use super::json_helpers::{extract_json_string, extract_json_number};
 
 const API_BASE: &str = "https://api.keel.engineer";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -43,7 +43,12 @@ pub fn run(verbose: bool) -> i32 {
     };
 
     let mut body = String::new();
-    if resp.into_body().into_reader().read_to_string(&mut body).is_err() {
+    if resp
+        .into_body()
+        .into_reader()
+        .read_to_string(&mut body)
+        .is_err()
+    {
         eprintln!("error: failed to read login response");
         return 2;
     }
@@ -81,8 +86,7 @@ pub fn run(verbose: bool) -> i32 {
     // Step 3: Poll for token
     let poll_url = format!("{API_BASE}/auth/device/token");
     let poll_body = format!(r#"{{"device_code":"{device_code}"}}"#);
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(expires_in);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(expires_in);
 
     loop {
         std::thread::sleep(std::time::Duration::from_secs(interval));
@@ -103,7 +107,12 @@ pub fn run(verbose: bool) -> i32 {
         };
 
         let mut resp_body = String::new();
-        if resp.into_body().into_reader().read_to_string(&mut resp_body).is_err() {
+        if resp
+            .into_body()
+            .into_reader()
+            .read_to_string(&mut resp_body)
+            .is_err()
+        {
             continue;
         }
 
@@ -116,15 +125,14 @@ pub fn run(verbose: bool) -> i32 {
         if let Some(access_token) = extract_json_string(&resp_body, "access_token") {
             let refresh_token =
                 extract_json_string(&resp_body, "refresh_token").unwrap_or_default();
-            let expires_at =
-                extract_json_number(&resp_body, "expires_at").unwrap_or_else(|| {
-                    // Fallback: current time + 1 hour
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                        + 3600
-                });
+            let expires_at = extract_json_number(&resp_body, "expires_at").unwrap_or_else(|| {
+                // Fallback: current time + 1 hour
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    + 3600
+            });
 
             let creds = auth::Credentials {
                 access_token,
@@ -148,4 +156,3 @@ pub fn run(verbose: bool) -> i32 {
         }
     }
 }
-

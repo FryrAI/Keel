@@ -55,13 +55,11 @@ pub fn load_credentials() -> Option<Credentials> {
 /// Creates the directory if it doesn't exist.
 pub fn save_credentials(creds: &Credentials) -> Result<(), String> {
     let dir = keel_home().ok_or("cannot determine home directory")?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     let path = dir.join(CREDENTIALS_FILE);
     let json = serde_json::to_string_pretty(creds)
         .map_err(|e| format!("failed to serialize credentials: {e}"))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    std::fs::write(&path, json).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     // Restrict permissions on Unix
     #[cfg(unix)]
     {

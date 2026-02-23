@@ -49,10 +49,7 @@ fn build_language_mix_unknown_extensions_ignored() {
 
 #[test]
 fn build_language_mix_all_unknown() {
-    let files = vec![
-        "README.md".to_string(),
-        "config.yaml".to_string(),
-    ];
+    let files = vec!["README.md".to_string(), "config.yaml".to_string()];
     let mix = build_language_mix(&files);
     assert!(mix.is_empty());
 }

@@ -61,21 +61,13 @@ fn read_project_id_missing_file() {
 #[test]
 fn read_project_id_valid() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("keel.json"),
-        r#"{"project_id":"proj_789"}"#,
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("keel.json"), r#"{"project_id":"proj_789"}"#).unwrap();
     assert_eq!(read_project_id(dir.path()), Some("proj_789".into()));
 }
 
 #[test]
 fn read_project_id_missing_key() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("keel.json"),
-        r#"{"version":"0.1.0"}"#,
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("keel.json"), r#"{"version":"0.1.0"}"#).unwrap();
     assert_eq!(read_project_id(dir.path()), None);
 }

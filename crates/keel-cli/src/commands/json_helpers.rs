@@ -26,7 +26,9 @@ pub(crate) fn extract_json_number(json: &str, key: &str) -> Option<u64> {
     let rest = rest.trim_start();
     let rest = rest.strip_prefix(':')?;
     let rest = rest.trim_start();
-    let num_end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let num_end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..num_end].parse().ok()
 }
 

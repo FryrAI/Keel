@@ -22,9 +22,7 @@ struct McpSession {
 
 impl McpSession {
     fn new(keel_dir: Option<&Path>) -> Self {
-        let config = keel_dir
-            .map(|d| KeelConfig::load(d))
-            .unwrap_or_default();
+        let config = keel_dir.map(KeelConfig::load).unwrap_or_default();
         Self {
             keel_dir: keel_dir.map(|d| d.to_path_buf()),
             config,
@@ -154,17 +152,13 @@ pub fn run_stdio(
         if method.starts_with("keel/") {
             session.tool_call_count += 1;
 
-            let result_value: Value =
-                serde_json::from_str(&response).unwrap_or(Value::Null);
+            let result_value: Value = serde_json::from_str(&response).unwrap_or(Value::Null);
             let exit_code = if result_value.get("error").is_some() {
                 1
             } else {
                 0
             };
-            let inner_result = result_value
-                .get("result")
-                .cloned()
-                .unwrap_or(Value::Null);
+            let inner_result = result_value.get("result").cloned().unwrap_or(Value::Null);
 
             let command = format!("mcp:{}", method.strip_prefix("keel/").unwrap_or(&method));
             session.record_tool_event(&command, call_duration, exit_code, &inner_result);

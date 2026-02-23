@@ -3,19 +3,15 @@
 use std::io::Read;
 use std::path::Path;
 
-use crate::auth;
 use super::json_helpers::extract_json_string;
+use crate::auth;
 
 const API_BASE: &str = "https://api.keel.engineer";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_UPLOAD_SIZE: u64 = 100 * 1024 * 1024; // 100MB
 
 /// Run the push command.
-pub fn run(
-    formatter: &dyn keel_output::OutputFormatter,
-    verbose: bool,
-    yes: bool,
-) -> i32 {
+pub fn run(formatter: &dyn keel_output::OutputFormatter, verbose: bool, yes: bool) -> i32 {
     let _ = formatter; // reserved for future structured output
 
     // Require authentication
@@ -70,9 +66,7 @@ pub fn run(
 
     // Confirmation prompt
     if !yes {
-        let target = project_id
-            .as_deref()
-            .unwrap_or("new project");
+        let target = project_id.as_deref().unwrap_or("new project");
         eprintln!(
             "push graph.db ({:.1}MB) to {target}? [y/N] ",
             file_size as f64 / (1024.0 * 1024.0)
@@ -102,14 +96,22 @@ pub fn run(
             // TODO: implement incremental diff via PATCH
             // For now, always do full upload
             if verbose {
-                eprintln!("server has previous push, doing full upload (incremental not yet implemented)");
+                eprintln!(
+                    "server has previous push, doing full upload (incremental not yet implemented)"
+                );
             }
         }
     }
 
     // Full upload
     eprintln!("uploading graph.db...");
-    match upload_full(&agent, &creds, &graph_path, project_id.as_deref(), &commit_sha) {
+    match upload_full(
+        &agent,
+        &creds,
+        &graph_path,
+        project_id.as_deref(),
+        &commit_sha,
+    ) {
         Ok(new_project_id) => {
             // Store project_id if we got a new one
             if project_id.is_none() {
@@ -142,7 +144,10 @@ fn check_sync_status(
         .ok()?;
 
     let mut body = String::new();
-    resp.into_body().into_reader().read_to_string(&mut body).ok()?;
+    resp.into_body()
+        .into_reader()
+        .read_to_string(&mut body)
+        .ok()?;
 
     if verbose {
         eprintln!("sync-status: {body}");
@@ -172,10 +177,7 @@ fn upload_full(
         .header("User-Agent", &format!("keel/{CURRENT_VERSION}"))
         .header("Content-Type", "application/octet-stream")
         .header("X-Keel-Version", CURRENT_VERSION)
-        .header(
-            "X-Commit-SHA",
-            commit_sha.as_deref().unwrap_or("unknown"),
-        )
+        .header("X-Commit-SHA", commit_sha.as_deref().unwrap_or("unknown"))
         .send(graph_bytes.as_slice())
         .map_err(|e| format!("upload failed: {e}"))?
         .into_body()
@@ -226,7 +228,6 @@ fn save_project_id(keel_dir: &Path, project_id: &str) {
 
     let _ = std::fs::write(config_path, content);
 }
-
 
 #[cfg(test)]
 #[path = "push_tests.rs"]

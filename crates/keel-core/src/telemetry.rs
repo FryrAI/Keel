@@ -243,9 +243,8 @@ impl TelemetryStore {
                  WHERE timestamp >= {cutoff} AND command = 'map' AND language_mix != '{{}}' \
                  ORDER BY id DESC LIMIT 1"
             ))?;
-            let result: Option<String> = lang_stmt
-                .query_row([], |row| row.get::<_, String>(0))
-                .ok();
+            let result: Option<String> =
+                lang_stmt.query_row([], |row| row.get::<_, String>(0)).ok();
 
             // Fallback: any event with a non-empty language_mix
             let json_str = match result {
