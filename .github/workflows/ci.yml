@@ -296,3 +296,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
           gh gist edit fe93164768d13aaa8dcdf68ad1ce6439 scripts/install.sh
+
+  release-check:
+    name: Release Tag Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for matching release tag
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG="v${VERSION}"
+          if git tag -l "$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG exists — release is up to date"
+          else
+            echo "::warning::Version $VERSION in Cargo.toml has no matching release tag. Run: git tag $TAG && git push origin $TAG"
+          fi
