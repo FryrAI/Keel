@@ -154,7 +154,7 @@ fn main() {
             Default::default(),
         ),
         Commands::Serve { mcp, http, watch } => (
-            commands::serve::run(&*formatter, cli.verbose, mcp, http, watch),
+            commands::serve::run(&*formatter, cli.verbose, mcp, http, watch, no_telemetry),
             Default::default(),
         ),
         Commands::Watch => (commands::watch::run(cli.verbose), Default::default()),

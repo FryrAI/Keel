@@ -120,7 +120,7 @@ fn test_prune_old_events() {
         .conn
         .execute(
             "INSERT INTO events (timestamp, command, duration_ms, exit_code)
-         VALUES ('2020-01-01T00:00:00Z', 'compile', 100, 0)",
+         VALUES ('2020-01-01 00:00:00', 'compile', 100, 0)",
             [],
         )
         .unwrap();
@@ -136,12 +136,11 @@ fn test_prune_old_events() {
 #[test]
 fn test_chrono_utc_now_format() {
     let ts = chrono_utc_now();
-    // Should match ISO 8601: YYYY-MM-DDTHH:MM:SSZ
-    assert!(ts.ends_with('Z'));
-    assert_eq!(ts.len(), 20);
+    // Should match SQLite native format: YYYY-MM-DD HH:MM:SS
+    assert_eq!(ts.len(), 19);
     assert_eq!(&ts[4..5], "-");
     assert_eq!(&ts[7..8], "-");
-    assert_eq!(&ts[10..11], "T");
+    assert_eq!(&ts[10..11], " ");
 }
 
 #[test]

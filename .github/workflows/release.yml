@@ -99,6 +99,13 @@ jobs:
         if: runner.os == 'Windows'
         run: copy target\${{ matrix.target }}\release\keel.exe ${{ matrix.artifact }}
 
+      - name: Smoke test binary
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-apple-darwin'
+        shell: bash
+        run: |
+          chmod +x ${{ matrix.artifact }} 2>/dev/null || true
+          ./${{ matrix.artifact }} --version
+
       - name: Generate SHA-256 checksum
         shell: bash
         run: |
@@ -130,10 +137,17 @@ jobs:
         run: |
           mkdir -p release
           for dir in artifacts/*/; do
-            cp "$dir"* release/ 2>/dev/null || true
+            # Copy only the binary artifacts, not per-artifact .sha256 files
+            for f in "$dir"*; do
+              case "$f" in
+                *.sha256) ;; # skip individual checksum files
+                *) cp "$f" release/ 2>/dev/null || true ;;
+              esac
+            done
           done
-          # Generate combined checksums file
-          cat release/*.sha256 > release/checksums-sha256.txt
+          # Generate combined checksums from the actual binaries
+          cd release
+          sha256sum keel-* > checksums-sha256.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

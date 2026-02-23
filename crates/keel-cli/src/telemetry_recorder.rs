@@ -80,11 +80,11 @@ struct RemotePayload {
     client_name: Option<String>,
 }
 
-/// Truncate an ISO 8601 timestamp to the hour: `2026-02-23T14:35:00Z` → `2026-02-23T14:00:00Z`.
+/// Truncate a timestamp to the hour: `2026-02-23 14:35:00` → `2026-02-23 14:00:00`.
 fn truncate_to_hour(ts: &str) -> String {
-    // Timestamp format: YYYY-MM-DDTHH:MM:SSZ
+    // Timestamp format: YYYY-MM-DD HH:MM:SS (SQLite native)
     if ts.len() >= 13 {
-        format!("{}:00:00Z", &ts[..13])
+        format!("{}:00:00", &ts[..13])
     } else {
         ts.to_string()
     }
@@ -175,19 +175,24 @@ fn try_send_remote(config: &KeelConfig, event: &telemetry::TelemetryEvent) {
 /// Detect the calling agent/client from environment variables.
 /// Returns `None` for direct human use.
 pub fn detect_client() -> Option<String> {
-    if std::env::var("CLAUDECODE").is_ok() {
+    detect_client_with(|k| std::env::var(k).ok())
+}
+
+/// Testable version of `detect_client` that takes an env lookup function.
+fn detect_client_with<F: Fn(&str) -> Option<String>>(env_var: F) -> Option<String> {
+    if env_var("CLAUDECODE").is_some() {
         return Some("claude-code".into());
     }
-    if std::env::var("CURSOR_CLI").is_ok() {
+    if env_var("CURSOR_CLI").is_some() {
         return Some("cursor".into());
     }
-    if std::env::var("VSCODE_PID").is_ok() {
+    if env_var("VSCODE_PID").is_some() {
         return Some("vscode".into());
     }
-    if std::env::var("WINDSURF_SESSION").is_ok() {
+    if env_var("WINDSURF_SESSION").is_some() {
         return Some("windsurf".into());
     }
-    if std::env::var("CI").is_ok() {
+    if env_var("CI").is_some() {
         return Some("ci".into());
     }
     None

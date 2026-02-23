@@ -21,6 +21,7 @@ pub struct TelemetryEvent {
     pub exit_code: i32,
     pub error_count: u32,
     pub warning_count: u32,
+    /// Graph node count for CLI commands; repurposed as tool_call_count for MCP session events.
     pub node_count: u32,
     pub edge_count: u32,
     pub language_mix: HashMap<String, u32>,
@@ -360,7 +361,7 @@ pub fn new_event(command: &str, duration_ms: u64, exit_code: i32) -> TelemetryEv
     }
 }
 
-/// ISO 8601 UTC timestamp without pulling in chrono.
+/// UTC timestamp in SQLite native format (`YYYY-MM-DD HH:MM:SS`).
 fn chrono_utc_now() -> String {
     // Use SystemTime for a dependency-free UTC timestamp
     let now = std::time::SystemTime::now();
@@ -368,7 +369,6 @@ fn chrono_utc_now() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = duration.as_secs();
-    // Convert to rough ISO 8601 — good enough for SQLite datetime comparisons
     let days_since_epoch = secs / 86400;
     let time_of_day = secs % 86400;
     let hours = time_of_day / 3600;
@@ -378,7 +378,7 @@ fn chrono_utc_now() -> String {
     // Calculate date from days since epoch (1970-01-01)
     let (year, month, day) = days_to_ymd(days_since_epoch);
     format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         year, month, day, hours, minutes, seconds
     )
 }

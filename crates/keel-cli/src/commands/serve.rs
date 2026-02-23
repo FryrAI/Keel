@@ -13,6 +13,7 @@ pub fn run(
     mcp: bool,
     http: bool,
     watch: bool,
+    no_telemetry: bool,
 ) -> i32 {
     if !mcp && !http && !watch {
         eprintln!("keel serve: at least one of --mcp, --http, or --watch required");
@@ -49,9 +50,12 @@ pub fn run(
         let shared_store = Arc::new(Mutex::new(store));
         let db_str = db_path.to_string_lossy().to_string();
         let keel_dir = root_dir.join(".keel");
-        if let Err(e) =
-            keel_server::mcp_stdio::run_stdio(shared_store, Some(&db_str), Some(&keel_dir))
-        {
+        if let Err(e) = keel_server::mcp_stdio::run_stdio(
+            shared_store,
+            Some(&db_str),
+            Some(&keel_dir),
+            no_telemetry,
+        ) {
             eprintln!("keel serve: MCP error: {}", e);
             return 2;
         }
