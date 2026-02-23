@@ -36,7 +36,7 @@
       name: (identifier) @def.method.name
       parameters: (parameters) @def.method.params
       return_type: (_)? @def.method.return_type
-      body: (block) @def.method.body))) @def.method.parent
+      body: (block) @def.method.body) @def.method)) @def.method.parent
 
 ; --- Function calls ---
 (call_expression

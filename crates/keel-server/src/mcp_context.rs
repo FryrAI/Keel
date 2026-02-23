@@ -7,6 +7,7 @@ use keel_core::types::{EdgeDirection, NodeKind};
 
 use crate::mcp::{lock_store, JsonRpcError, SharedStore};
 
+/// Handle the `keel/context` MCP tool call to return symbols and their external callers/callees.
 pub(crate) fn handle_context(
     store: &SharedStore,
     params: Option<Value>,

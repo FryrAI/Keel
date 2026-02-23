@@ -6,6 +6,7 @@ use keel_enforce::naming::suggest_name;
 
 use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedStore};
 
+/// Handle the `keel/name` MCP tool call to suggest a name and location for new code.
 pub(crate) fn handle_name(
     store: &SharedStore,
     params: Option<Value>,

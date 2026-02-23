@@ -24,6 +24,7 @@ impl Default for BatchState {
 }
 
 impl BatchState {
+    /// Create a new batch state with an active timeout.
     pub fn new() -> Self {
         Self {
             deferred: Vec::new(),

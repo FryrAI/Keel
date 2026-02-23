@@ -27,6 +27,7 @@ pub struct PyResolver {
 }
 
 impl PyResolver {
+    /// Creates a new `PyResolver` with empty caches and no ty client.
     pub fn new() -> Self {
         PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
@@ -35,7 +36,7 @@ impl PyResolver {
         }
     }
 
-    /// Create a PyResolver with a ty client for Tier 2 resolution.
+    /// Creates a `PyResolver` with a ty subprocess client for Tier 2 resolution.
     pub fn with_ty(ty_client: Box<dyn ty::TyClient>) -> Self {
         PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
@@ -44,7 +45,7 @@ impl PyResolver {
         }
     }
 
-    /// Returns whether a ty client is configured and available.
+    /// Returns whether a ty subprocess client is configured and available.
     pub fn has_ty(&self) -> bool {
         self.ty_client.as_ref().is_some_and(|c| c.is_available())
     }

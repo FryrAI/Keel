@@ -12,6 +12,7 @@ use std::path::Path;
 use keel_core::config::KeelConfig;
 use keel_output::OutputFormatter;
 
+/// Run `keel config` -- get, set, or dump configuration values using dot-notation keys.
 pub fn run(
     _formatter: &dyn OutputFormatter,
     _verbose: bool,

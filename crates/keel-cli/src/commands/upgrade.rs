@@ -149,6 +149,7 @@ fn sha256_simple(data: &[u8]) -> Result<String, String> {
     Ok(stdout.split_whitespace().next().unwrap_or("").to_string())
 }
 
+/// Run `keel upgrade` -- download and install the latest (or specified) keel release binary.
 pub fn run(version: Option<String>, yes: bool) -> i32 {
     match detect_install_method() {
         InstallMethod::Homebrew => {

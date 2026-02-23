@@ -171,6 +171,7 @@ impl EnforcementEngine {
         }
     }
 
+    /// Build module context (sibling functions, keywords, endpoints) for a given module ID.
     pub(crate) fn build_module_context(&self, module_id: u64) -> ModuleContext {
         let profile = self.store.get_module_profile(module_id);
         match profile {

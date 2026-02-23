@@ -36,6 +36,7 @@ pub struct TsResolver {
 }
 
 impl TsResolver {
+    /// Creates a new `TsResolver` with oxc_resolver and empty caches.
     pub fn new() -> Self {
         let options = ResolveOptions {
             extensions: vec![
@@ -60,11 +61,7 @@ impl TsResolver {
         }
     }
 
-    /// Load tsconfig.json path aliases from a project root.
-    ///
-    /// Also loads path aliases from any `"references"` entries, merging
-    /// referenced project aliases into the current resolver (without
-    /// following transitive references to avoid infinite recursion).
+    /// Loads tsconfig.json path aliases from a project root, including referenced projects.
     pub fn load_tsconfig_paths(&self, project_root: &Path) {
         self.load_tsconfig_paths_inner(project_root, false);
     }

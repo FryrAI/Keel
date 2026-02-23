@@ -1,5 +1,6 @@
 use keel_enforce::types::NameResult;
 
+/// Formats naming suggestions showing location, convention, imports, and sibling functions.
 pub fn format_name(result: &NameResult) -> String {
     if result.suggestions.is_empty() {
         return format!("NAME no suggestions for \"{}\"\n", result.description,);

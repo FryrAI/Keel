@@ -225,15 +225,17 @@ def calculate(x: int, y: int) -> int:
         .expect("should find a definition named 'calculate'");
     assert_eq!(func.kind, NodeKind::Function);
 
-    // NOTE: The tree-sitter layer does not currently extract docstrings into the
-    // docstring field (it is always set to None in treesitter/mod.rs). This is
-    // expected behavior -- docstring extraction would be a Tier 2 enhancement.
+    // Tree-sitter layer now extracts docstrings from Python triple-quoted strings.
     assert!(
-        func.docstring.is_none(),
-        "tree-sitter layer does not extract docstrings; expected None"
+        func.docstring.is_some(),
+        "docstring should be extracted from triple-quoted string"
+    );
+    assert!(
+        func.docstring.as_deref().unwrap().contains("Calculate the sum"),
+        "docstring should contain the docstring text"
     );
 
-    // The docstring text is still present inside the body_text since it is part
+    // The docstring text is also present inside the body_text since it is part
     // of the function body block.
     assert!(
         func.body_text.contains("Calculate the sum"),

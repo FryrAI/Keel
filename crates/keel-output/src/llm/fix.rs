@@ -1,5 +1,6 @@
 use keel_enforce::types::{FixApplyResult, FixResult};
 
+/// Formats fix plans showing violations, causes, and suggested code changes for each call site.
 pub fn format_fix(result: &FixResult) -> String {
     if result.plans.is_empty() {
         return "FIX 0 violations — nothing to fix\n".to_string();

@@ -3,6 +3,24 @@ use std::path::Path;
 use super::*;
 
 #[test]
+fn test_rust_resolver_docstring_extraction() {
+    let resolver = RustLangResolver::new();
+    let source = "/// Says hello.\npub fn greet(name: &str) -> String {\n    format!(\"Hello, {}!\", name)\n}\n";
+    let result = resolver.parse_file(Path::new("test.rs"), source);
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == keel_core::types::NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Says hello."),
+        "RustLangResolver should preserve docstrings from tree-sitter"
+    );
+}
+
+#[test]
 fn test_rust_resolver_parse_function() {
     let resolver = RustLangResolver::new();
     let source = r#"

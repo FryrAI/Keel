@@ -1,5 +1,6 @@
 use keel_enforce::types::AnalyzeResult;
 
+/// Formats a file analysis result showing structure, code smells, and refactor opportunities.
 pub fn format_analyze(result: &AnalyzeResult) -> String {
     let s = &result.structure;
     let mut out = format!(

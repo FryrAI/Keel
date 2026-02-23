@@ -1,5 +1,6 @@
 use keel_enforce::types::ExplainResult;
 
+/// Formats an explain result showing the resolution chain and summary for an error code.
 pub fn format_explain(result: &ExplainResult) -> String {
     let mut out = String::new();
 

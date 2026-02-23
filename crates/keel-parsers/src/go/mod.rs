@@ -26,6 +26,7 @@ pub struct GoResolver {
 }
 
 impl GoResolver {
+    /// Creates a new `GoResolver` with empty caches.
     pub fn new() -> Self {
         GoResolver {
             parser: Mutex::new(TreeSitterParser::new()),

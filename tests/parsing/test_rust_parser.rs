@@ -226,10 +226,10 @@ fn process() -> i32 {
         .filter(|d| d.name == "process")
         .collect();
     assert_eq!(funcs.len(), 1, "expected function 'process' to be captured");
-    // The tree-sitter layer sets docstring to None (line 180 of treesitter/mod.rs).
-    // A higher-level pass may populate it later, but at this level it is None.
-    assert!(
-        funcs[0].docstring.is_none(),
-        "tree-sitter layer does not extract doc comments; docstring should be None"
+    // Tree-sitter layer now extracts doc comments from /// lines.
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Processes input data and returns the result."),
+        "docstring should be extracted from /// comment"
     );
 }

@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use crate::mcp::{lock_store, JsonRpcError, SharedStore};
 
+/// Handle the `keel/search` MCP tool call to search graph nodes by name substring.
 pub(crate) fn handle_search(
     store: &SharedStore,
     params: Option<Value>,

@@ -17,6 +17,7 @@ pub struct EnforcementEngine {
 }
 
 impl EnforcementEngine {
+    /// Create an enforcement engine with default configuration.
     pub fn new(store: Box<dyn GraphStore + Send>) -> Self {
         Self {
             store,
@@ -263,6 +264,7 @@ impl EnforcementEngine {
     /// are downgraded from ERROR to WARNING (trait dispatch, interface methods).
     const DYNAMIC_DISPATCH_THRESHOLD: f64 = 0.7;
 
+    /// Downgrade low-confidence violations (below 0.7) from ERROR to WARNING.
     pub fn apply_dynamic_dispatch_threshold(violations: Vec<Violation>) -> Vec<Violation> {
         violations
             .into_iter()
@@ -280,6 +282,7 @@ impl EnforcementEngine {
             .collect()
     }
 
+    /// Apply circuit breaker escalation (fix hint, wider context, or downgrade) to ERROR violations.
     pub(crate) fn apply_circuit_breaker(&mut self, violations: Vec<Violation>) -> Vec<Violation> {
         violations
             .into_iter()
@@ -311,6 +314,7 @@ impl EnforcementEngine {
             .collect()
     }
 
+    /// Split violations into errors and warnings based on severity.
     pub(crate) fn partition_violations(
         violations: Vec<Violation>,
         errors: &mut Vec<Violation>,
@@ -325,7 +329,7 @@ impl EnforcementEngine {
     }
 }
 
-/// Convert a GraphNode to a NodeInfo for output.
+/// Convert a `GraphNode` into a `NodeInfo` struct for serialized output.
 pub(crate) fn node_to_info(node: &keel_core::types::GraphNode) -> crate::types::NodeInfo {
     crate::types::NodeInfo {
         hash: node.hash.clone(),

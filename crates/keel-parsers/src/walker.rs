@@ -16,12 +16,14 @@ pub struct FileWalker {
 }
 
 impl FileWalker {
+    /// Creates a new file walker rooted at the given directory.
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
         }
     }
 
+    /// Walks the root directory and returns all recognized source files, respecting gitignore and `.keelignore`.
     pub fn walk(&self) -> Vec<WalkEntry> {
         let mut entries = Vec::new();
 
@@ -56,7 +58,7 @@ impl FileWalker {
         entries
     }
 
-    /// Walk files and annotate each with its monorepo package using longest-prefix match.
+    /// Walks files and annotates each with its monorepo package using longest-prefix match.
     pub fn walk_with_packages(&self, layout: &MonorepoLayout) -> Vec<WalkEntry> {
         let mut entries = self.walk();
         for entry in &mut entries {

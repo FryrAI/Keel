@@ -27,6 +27,7 @@ pub struct CachedResolution {
 }
 
 impl Tier3Cache {
+    /// Creates a new empty Tier 3 resolution cache.
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
@@ -97,6 +98,7 @@ impl Tier3Cache {
         self.entries.len()
     }
 
+    /// Returns true if no entries are cached.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

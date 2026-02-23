@@ -3,6 +3,7 @@ use clap_complete::{generate, Shell};
 
 use crate::cli_args::Cli;
 
+/// Run `keel completion <shell>` -- generate shell completion scripts for the given shell.
 pub fn run(shell: &str) -> i32 {
     let shell = match shell.to_lowercase().as_str() {
         "bash" => Shell::Bash,

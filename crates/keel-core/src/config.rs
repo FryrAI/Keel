@@ -64,6 +64,7 @@ impl Default for TelemetryConfig {
 }
 
 impl TelemetryConfig {
+    /// Returns the configured telemetry endpoint URL, falling back to the default keel API.
     pub fn effective_endpoint(&self) -> &str {
         self.endpoint
             .as_deref()
