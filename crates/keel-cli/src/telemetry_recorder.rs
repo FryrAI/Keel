@@ -18,6 +18,8 @@ pub struct EventMetrics {
     pub language_mix: std::collections::HashMap<String, u32>,
     pub resolution_tiers: std::collections::HashMap<String, u32>,
     pub circuit_breaker_events: u32,
+    pub error_codes: std::collections::HashMap<String, u32>,
+    pub client_name: Option<String>,
 }
 
 /// Record a telemetry event after a command completes.
@@ -48,36 +50,147 @@ pub fn record_event(
     event.language_mix = metrics.language_mix;
     event.resolution_tiers = metrics.resolution_tiers;
     event.circuit_breaker_events = metrics.circuit_breaker_events;
+    event.error_codes = metrics.error_codes;
+    event.client_name = metrics.client_name;
 
     let _ = store.record(&event);
 
+    // Enforce 90-day retention — silently prune old events
+    let _ = store.prune(90);
+
     try_send_remote(config, &event);
+}
+
+/// Sanitized payload for remote telemetry. Strips `id`, truncates timestamp
+/// to hour, and buckets node/edge counts to prevent fingerprinting.
+#[derive(Debug, serde::Serialize)]
+struct RemotePayload {
+    timestamp_hour: String,
+    command: String,
+    duration_ms: u64,
+    exit_code: i32,
+    error_count: u32,
+    warning_count: u32,
+    node_count_bucket: String,
+    edge_count_bucket: String,
+    language_mix: std::collections::HashMap<String, u32>,
+    resolution_tiers: std::collections::HashMap<String, u32>,
+    circuit_breaker_events: u32,
+    error_codes: std::collections::HashMap<String, u32>,
+    client_name: Option<String>,
+}
+
+/// Truncate an ISO 8601 timestamp to the hour: `2026-02-23T14:35:00Z` → `2026-02-23T14:00:00Z`.
+fn truncate_to_hour(ts: &str) -> String {
+    // Timestamp format: YYYY-MM-DDTHH:MM:SSZ
+    if ts.len() >= 13 {
+        format!("{}:00:00Z", &ts[..13])
+    } else {
+        ts.to_string()
+    }
+}
+
+/// Bucket a count into a human-readable range to prevent fingerprinting.
+fn bucket_count(n: u32) -> String {
+    match n {
+        0 => "0".into(),
+        1..=10 => "1-10".into(),
+        11..=50 => "11-50".into(),
+        51..=100 => "51-100".into(),
+        101..=500 => "101-500".into(),
+        501..=1000 => "501-1k".into(),
+        1001..=5000 => "1k-5k".into(),
+        5001..=10000 => "5k-10k".into(),
+        _ => "10k+".into(),
+    }
+}
+
+/// Build a sanitized remote payload from a telemetry event.
+fn sanitize_for_remote(event: &telemetry::TelemetryEvent) -> RemotePayload {
+    RemotePayload {
+        timestamp_hour: truncate_to_hour(&event.timestamp),
+        command: event.command.clone(),
+        duration_ms: event.duration_ms,
+        exit_code: event.exit_code,
+        error_count: event.error_count,
+        warning_count: event.warning_count,
+        node_count_bucket: bucket_count(event.node_count),
+        edge_count_bucket: bucket_count(event.edge_count),
+        language_mix: event.language_mix.clone(),
+        resolution_tiers: event.resolution_tiers.clone(),
+        circuit_breaker_events: event.circuit_breaker_events,
+        error_codes: event.error_codes.clone(),
+        client_name: event.client_name.clone(),
+    }
 }
 
 /// Fire-and-forget remote telemetry send.
 /// Spawns a background thread so the CLI never blocks on network I/O.
 /// Silently swallows all errors — telemetry must never degrade UX.
+///
+/// When the user is logged in, dual-sends: anonymous aggregate first,
+/// then authenticated user-scoped telemetry. Both use the same thread
+/// and ureq Agent (connection pooling).
 fn try_send_remote(config: &KeelConfig, event: &telemetry::TelemetryEvent) {
     if !config.telemetry.remote {
         return;
     }
 
     let endpoint = config.telemetry.effective_endpoint().to_string();
-    let body = match serde_json::to_string(event) {
+    let payload = sanitize_for_remote(event);
+    let body = match serde_json::to_string(&payload) {
         Ok(b) => b,
         Err(_) => return,
     };
+
+    // Load credentials before spawning thread (fast fs read, ~1ms)
+    let creds_token = crate::auth::load_credentials()
+        .filter(|c| !c.is_expired())
+        .map(|c| c.access_token);
 
     std::thread::spawn(move || {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(std::time::Duration::from_secs(5)))
             .build()
             .new_agent();
+
+        // 1. Anonymous aggregate (always)
         let _ = agent
             .post(&endpoint)
             .header("Content-Type", "application/json")
             .send(body.as_bytes());
+
+        // 2. User-scoped (only when logged in)
+        if let Some(token) = creds_token {
+            let user_endpoint = endpoint.replace("/telemetry", "/telemetry/user");
+            let _ = agent
+                .post(&user_endpoint)
+                .header("Content-Type", "application/json")
+                .header("Authorization", &format!("Bearer {token}"))
+                .send(body.as_bytes());
+        }
     });
+}
+
+/// Detect the calling agent/client from environment variables.
+/// Returns `None` for direct human use.
+pub fn detect_client() -> Option<String> {
+    if std::env::var("CLAUDECODE").is_ok() {
+        return Some("claude-code".into());
+    }
+    if std::env::var("CURSOR_CLI").is_ok() {
+        return Some("cursor".into());
+    }
+    if std::env::var("VSCODE_PID").is_ok() {
+        return Some("vscode".into());
+    }
+    if std::env::var("WINDSURF_SESSION").is_ok() {
+        return Some("windsurf".into());
+    }
+    if std::env::var("CI").is_ok() {
+        return Some("ci".into());
+    }
+    None
 }
 
 /// Extract a static command name string from the CLI command variant.
@@ -103,43 +216,12 @@ pub fn command_name(command: &crate::cli_args::Commands) -> &'static str {
         Commands::Config { .. } => "config",
         Commands::Upgrade { .. } => "upgrade",
         Commands::Completion { .. } => "completion",
+        Commands::Login => "login",
+        Commands::Logout => "logout",
+        Commands::Push { .. } => "push",
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use keel_core::config::{KeelConfig, TelemetryConfig};
-    use keel_core::telemetry;
-
-    #[test]
-    fn test_try_send_remote_skips_when_disabled() {
-        let config = KeelConfig {
-            telemetry: TelemetryConfig {
-                enabled: true,
-                remote: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let event = telemetry::new_event("compile", 100, 0);
-        // Should return immediately without attempting network I/O
-        try_send_remote(&config, &event);
-    }
-
-    #[test]
-    fn test_telemetry_event_serializes() {
-        let mut event = telemetry::new_event("compile", 150, 0);
-        event.error_count = 2;
-        event.warning_count = 5;
-        event.node_count = 100;
-        event.edge_count = 200;
-        event.language_mix.insert("typescript".to_string(), 60);
-
-        let json = serde_json::to_string(&event).expect("TelemetryEvent should serialize");
-        assert!(json.contains("\"command\":\"compile\""));
-        assert!(json.contains("\"duration_ms\":150"));
-        assert!(json.contains("\"error_count\":2"));
-        assert!(json.contains("\"typescript\":60"));
-    }
-}
+#[path = "telemetry_recorder_tests.rs"]
+mod tests;

@@ -323,7 +323,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     eprintln!("  keel compile   Validate contracts");
     eprintln!();
     eprintln!("Telemetry is enabled by default (privacy-safe, no code/paths collected).");
-    eprintln!("  Opt out: keel config telemetry.remote false");
+    eprintln!("  Opt out: keel --no-telemetry <command>, KEEL_NO_TELEMETRY=1, or");
+    eprintln!("           keel config telemetry.remote false");
     eprintln!();
     eprintln!("Tip: If keel saves you time \u{2192}  gh star FryrAI/Keel");
 

@@ -32,6 +32,7 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Circuit breaker** — auto-downgrades repeated false positives to warnings
 - **Batch mode** — defers non-critical checks during rapid agent iteration
 - **Backpressure signals** — `PRESSURE=LOW/MED/HIGH` with `BUDGET=` directives for token-aware agents
+- **Cloud sync** — `keel login` + `keel push` uploads graph to keel cloud for team dashboards and cross-repo linking
 - **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
 - **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
@@ -151,6 +152,9 @@ keel where a7Bx3kM9f2Q
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
+| `keel login` | Authenticate with keel cloud | — |
+| `keel logout` | Remove stored credentials | — |
+| `keel push [--yes]` | Upload graph to keel cloud | — |
 | `keel upgrade` | Self-update to latest version | — |
 | `keel completion <shell>` | Generate shell completions | — |
 | `keel deinit` | Clean removal of keel data | — |
@@ -326,7 +330,7 @@ See [PROGRESS.md](PROGRESS.md) for detailed implementation status.
 | Phase 3 | Server, integrations, VS Code | Complete |
 | Phase 4 | Polish, cross-platform, distribution | **Ready for release** |
 
-**Current:** 762+ tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
+**Current:** 1236 tests passing, 0 failures, 0 ignored, 0 clippy warnings. 15 real-world repos validated.
 
 ## Roadmap
 

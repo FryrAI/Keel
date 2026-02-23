@@ -1,6 +1,6 @@
 //! MCP (Model Context Protocol) JSON-RPC server over stdin/stdout.
 
-use std::io::{self, BufRead, Write};
+use std::io;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -531,23 +531,10 @@ pub fn create_shared_engine(db_path: Option<&str>) -> SharedEngine {
 }
 
 /// Run the MCP server loop, reading JSON-RPC from stdin and writing to stdout.
+/// **Deprecated**: Use `mcp_stdio::run_stdio` for telemetry-instrumented version.
 pub fn run_stdio(store: SharedStore, db_path: Option<&str>) -> io::Result<()> {
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let engine = create_shared_engine(db_path);
-
-    for line in stdin.lock().lines() {
-        let line = line?;
-        let response = process_line(&store, &engine, &line);
-        if response.is_empty() {
-            continue;
-        }
-        let mut out = stdout.lock();
-        writeln!(out, "{}", response)?;
-        out.flush()?;
-    }
-
-    Ok(())
+    // Delegate to the instrumented version with no keel_dir (backwards compat)
+    crate::mcp_stdio::run_stdio(store, db_path, None)
 }
 
 #[cfg(test)]

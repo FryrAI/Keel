@@ -119,47 +119,87 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
 
         // Telemetry section
         if let Some(agg) = telemetry_agg {
-            println!();
-            println!("  telemetry (last 30 days):");
-            println!("    invocations: {}", agg.total_invocations);
-            if let Some(avg) = agg.avg_compile_ms {
-                println!("    avg compile:  {}ms", avg as u64);
-            }
-            if let Some(avg) = agg.avg_map_ms {
-                let formatted = if avg >= 1000.0 {
-                    format!("{:.1}s", avg / 1000.0)
-                } else {
-                    format!("{}ms", avg as u64)
-                };
-                println!("    avg map:      {}", formatted);
-            }
-            println!("    errors:       {}", agg.total_errors);
-            println!("    warnings:     {}", agg.total_warnings);
-
-            if !agg.command_counts.is_empty() {
-                let mut cmds: Vec<_> = agg.command_counts.iter().collect();
-                cmds.sort_by(|a, b| b.1.cmp(a.1));
-                let top: Vec<String> = cmds
-                    .iter()
-                    .take(5)
-                    .map(|(k, v)| format!("{} ({})", k, v))
-                    .collect();
-                println!("    top commands: {}", top.join(", "));
-            }
-
-            if !agg.language_percentages.is_empty() {
-                let mut langs: Vec<_> = agg.language_percentages.iter().collect();
-                langs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let lang_str: Vec<String> = langs
-                    .iter()
-                    .map(|(k, v)| format!("{} {:.0}%", k, v))
-                    .collect();
-                println!("    languages:    {}", lang_str.join(", "));
-            }
+            print_telemetry_human(&agg);
         }
     }
 
     0
+}
+
+fn print_telemetry_human(agg: &keel_core::telemetry::TelemetryAggregate) {
+    println!();
+    println!("  telemetry (last 30 days):");
+    println!("    invocations: {}", agg.total_invocations);
+    if let Some(avg) = agg.avg_compile_ms {
+        println!("    avg compile:  {}ms", avg as u64);
+    }
+    if let Some(avg) = agg.avg_map_ms {
+        let formatted = if avg >= 1000.0 {
+            format!("{:.1}s", avg / 1000.0)
+        } else {
+            format!("{}ms", avg as u64)
+        };
+        println!("    avg map:      {}", formatted);
+    }
+    println!("    errors:       {}", agg.total_errors);
+    println!("    warnings:     {}", agg.total_warnings);
+
+    if !agg.command_counts.is_empty() {
+        let mut cmds: Vec<_> = agg.command_counts.iter().collect();
+        cmds.sort_by(|a, b| b.1.cmp(a.1));
+        let top: Vec<String> = cmds
+            .iter()
+            .take(5)
+            .map(|(k, v)| format!("{} ({})", k, v))
+            .collect();
+        println!("    top commands: {}", top.join(", "));
+    }
+
+    if !agg.language_percentages.is_empty() {
+        let mut langs: Vec<_> = agg.language_percentages.iter().collect();
+        langs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let lang_str: Vec<String> = langs
+            .iter()
+            .map(|(k, v)| format!("{} {:.0}%", k, v))
+            .collect();
+        println!("    languages:    {}", lang_str.join(", "));
+    }
+
+    // Top error codes
+    if !agg.top_error_codes.is_empty() {
+        let mut codes: Vec<_> = agg.top_error_codes.iter().collect();
+        codes.sort_by(|a, b| b.1.cmp(a.1));
+        let top: Vec<String> = codes
+            .iter()
+            .take(5)
+            .map(|(k, v)| format!("{} ({})", k, v))
+            .collect();
+        println!("    top errors:   {}", top.join(", "));
+    }
+
+    // Agent adoption stats
+    if !agg.agent_stats.is_empty() {
+        println!();
+        println!("    agent adoption:");
+        let mut agents: Vec<_> = agg.agent_stats.iter().collect();
+        agents.sort_by(|a, b| b.1.sessions.cmp(&a.1.sessions));
+        for (name, stats) in agents {
+            println!(
+                "      {}: {} sessions, avg {:.0} tool calls/session",
+                name, stats.sessions, stats.avg_tool_calls_per_session
+            );
+            if !stats.tool_usage.is_empty() {
+                let mut tools: Vec<_> = stats.tool_usage.iter().collect();
+                tools.sort_by(|a, b| b.1.cmp(a.1));
+                let tool_str: Vec<String> = tools
+                    .iter()
+                    .take(5)
+                    .map(|(k, v)| format!("{} ({})", k, v))
+                    .collect();
+                println!("        top tools: {}", tool_str.join(", "));
+            }
+        }
+    }
 }
 
 fn load_telemetry_aggregate(

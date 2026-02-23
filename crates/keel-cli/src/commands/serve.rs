@@ -48,7 +48,10 @@ pub fn run(
         };
         let shared_store = Arc::new(Mutex::new(store));
         let db_str = db_path.to_string_lossy().to_string();
-        if let Err(e) = keel_server::mcp::run_stdio(shared_store, Some(&db_str)) {
+        let keel_dir = root_dir.join(".keel");
+        if let Err(e) =
+            keel_server::mcp_stdio::run_stdio(shared_store, Some(&db_str), Some(&keel_dir))
+        {
             eprintln!("keel serve: MCP error: {}", e);
             return 2;
         }

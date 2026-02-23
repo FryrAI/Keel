@@ -5,6 +5,28 @@ All notable changes to keel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-22
+
+### Added
+- `keel login` — authenticate with keel cloud via Clerk OAuth device flow (browser-based)
+- `keel logout` — remove stored credentials
+- `keel push` — upload graph.db to keel cloud (full upload; incremental diffs planned)
+- `keel context` — minimal structural context for safely editing a file
+- Dual telemetry sending: anonymous aggregate + user-scoped when logged in
+- Global credential storage at `~/.keel/credentials.json` with Unix permission hardening
+- Agent identification via environment variable detection (`client_name` field)
+- Real telemetry population from compile/map commands with error code breakdown
+- MCP `context` tool for file-scoped structural context
+
+### Changed
+- `try_send_remote()` now dual-sends (anonymous + authenticated) when logged in
+- Telemetry events include `error_codes` and `client_name` fields
+
+### Dependencies
+- Added `webbrowser = "1"` for browser-based OAuth flow
+
+[0.3.0]: https://github.com/FryrAI/Keel/compare/v0.1.0...v0.3.0
+
 ## [0.1.0] - 2026-02-16
 
 ### Added

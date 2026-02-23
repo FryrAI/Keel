@@ -19,6 +19,7 @@ use super::map_resolve::{
     build_package_node_index, find_containing_def, resolve_cross_file_call,
     resolve_import_to_module, resolve_package_import, resolve_same_directory_call,
 };
+use crate::telemetry_recorder::EventMetrics;
 
 /// Run `keel map` — full re-parse of the codebase.
 pub fn run(
@@ -29,19 +30,19 @@ pub fn run(
     _strict: bool,
     _depth: u32,
     tier3_enabled: bool,
-) -> i32 {
+) -> (i32, EventMetrics) {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("keel map: failed to get current directory: {}", e);
-            return 2;
+            return (2, EventMetrics::default());
         }
     };
 
     let keel_dir = cwd.join(".keel");
     if !keel_dir.exists() {
         eprintln!("keel map: not initialized. Run `keel init` first.");
-        return 2;
+        return (2, EventMetrics::default());
     }
 
     // Open graph store
@@ -51,7 +52,7 @@ pub fn run(
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel map: failed to open graph database: {}", e);
-            return 2;
+            return (2, EventMetrics::default());
         }
     };
 
@@ -83,7 +84,7 @@ pub fn run(
     // Full re-map: clear existing graph data so IDs start fresh
     if let Err(e) = store.clear_all() {
         eprintln!("keel map: failed to clear graph database: {}", e);
-        return 2;
+        return (2, EventMetrics::default());
     }
 
     let mut node_changes = Vec::new();
@@ -426,6 +427,22 @@ pub fn run(
         .iter()
         .filter(|e| matches!(e, EdgeChange::Add(_)))
         .count() as u32;
+
+    // Resolution tier distribution from edge confidence (collected before edges are consumed)
+    let mut resolution_tiers: HashMap<String, u32> = HashMap::new();
+    for edge in &valid_edges {
+        if let EdgeChange::Add(e) = edge {
+            let tier = if e.confidence >= 0.95 {
+                "tier1"
+            } else if e.confidence >= 0.80 {
+                "tier2"
+            } else {
+                "tier3"
+            };
+            *resolution_tiers.entry(tier.to_string()).or_default() += 1;
+        }
+    }
+
     let mut map_result = build_map_result(&node_changes, &valid_edges, &entries);
     map_result.depth = _depth;
 
@@ -443,13 +460,13 @@ pub fn run(
     // Apply node changes (modules sorted first to satisfy module_id FK)
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
-        return 2;
+        return (2, EventMetrics::default());
     }
 
     // Apply edge changes (using valid_edges filtered above; FK still OFF from line 72)
     if let Err(e) = store.update_edges(valid_edges) {
         eprintln!("keel map: failed to update edges: {}", e);
-        return 2;
+        return (2, EventMetrics::default());
     }
 
     // Populate module profiles
@@ -481,9 +498,32 @@ pub fn run(
         );
     }
 
+    // Build language mix from entries
+    let mut lang_counts: HashMap<String, u32> = HashMap::new();
+    for entry in &entries {
+        *lang_counts.entry(entry.language.clone()).or_default() += 1;
+    }
+    let lang_total = lang_counts.values().sum::<u32>();
+    let language_mix: HashMap<String, u32> = if lang_total > 0 {
+        lang_counts
+            .into_iter()
+            .map(|(k, v)| (k, (v * 100) / lang_total))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    let metrics = EventMetrics {
+        node_count: map_result.summary.total_nodes,
+        edge_count: total_edges,
+        language_mix,
+        resolution_tiers,
+        ..Default::default()
+    };
+
     let output = formatter.format_map(&map_result);
     if !output.is_empty() {
         println!("{}", output);
     }
-    0
+    (0, metrics)
 }

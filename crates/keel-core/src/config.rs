@@ -47,8 +47,6 @@ pub enum Tier {
 pub struct TelemetryConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default)]
-    pub detailed: bool,
     #[serde(default = "default_true")]
     pub remote: bool,
     #[serde(default)]
@@ -59,7 +57,6 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            detailed: false,
             remote: true,
             endpoint: None,
         }
@@ -266,7 +263,6 @@ mod tests {
             tier: Tier::Enterprise,
             telemetry: TelemetryConfig {
                 enabled: false,
-                detailed: true,
                 remote: false,
                 endpoint: Some("https://custom.example.com/telemetry".to_string()),
             },
@@ -330,7 +326,6 @@ mod tests {
         );
         assert_eq!(roundtripped.tier, Tier::Enterprise);
         assert!(!roundtripped.telemetry.enabled);
-        assert!(roundtripped.telemetry.detailed);
         assert!(!roundtripped.telemetry.remote);
         assert_eq!(
             roundtripped.telemetry.endpoint,
@@ -417,7 +412,6 @@ mod tests {
     fn test_telemetry_defaults() {
         let cfg = TelemetryConfig::default();
         assert!(cfg.enabled);
-        assert!(!cfg.detailed);
         assert!(cfg.remote);
         assert!(cfg.endpoint.is_none());
         assert_eq!(
