@@ -28,6 +28,7 @@ pub struct Tier3Registry {
 }
 
 impl Tier3Registry {
+    /// Creates a new empty Tier 3 provider registry.
     pub fn new() -> Self {
         Self {
             providers: Vec::new(),

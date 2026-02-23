@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
 
+/// Handle the `keel/check` MCP tool call to perform pre-edit risk assessment on a node.
 pub(crate) fn handle_check(
     engine: &SharedEngine,
     params: Option<Value>,

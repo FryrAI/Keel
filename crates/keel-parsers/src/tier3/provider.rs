@@ -25,6 +25,7 @@ pub enum Tier3Result {
 }
 
 impl Tier3Result {
+    /// Returns true if this result represents a successfully resolved definition.
     pub fn is_resolved(&self) -> bool {
         matches!(self, Tier3Result::Resolved { .. })
     }
@@ -67,6 +68,7 @@ pub struct Tier3CacheKey {
 }
 
 impl Tier3CacheKey {
+    /// Creates a cache key from a call site and the file's content hash.
     pub fn from_call_site(call_site: &CallSite, content_hash: u64) -> Self {
         Self {
             file_path: call_site.file_path.clone(),

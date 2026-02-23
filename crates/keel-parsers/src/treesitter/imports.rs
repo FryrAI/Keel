@@ -7,6 +7,7 @@ use crate::resolver::Import;
 
 use super::node_text;
 
+/// Extracts import declarations from tree-sitter query matches for all supported languages.
 pub(super) fn extract_imports(
     query: &Query,
     root: tree_sitter::Node<'_>,

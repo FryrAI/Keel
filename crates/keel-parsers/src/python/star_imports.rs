@@ -3,13 +3,7 @@ use std::path::PathBuf;
 
 use crate::resolver::{Import, ParseResult, ResolvedEdge};
 
-/// Resolve a star import by looking up the target module in the cache.
-///
-/// Confidence levels:
-/// - 0.65: callee found in target's `__all__`
-/// - 0.50: callee is public in target but not in `__all__`
-/// - 0.40: callee found in multiple star import sources (ambiguous)
-/// - 0.40: target module itself has star imports (chain)
+/// Resolves a callee name through `from X import *` by searching cached target modules.
 pub fn resolve_star_import(
     cache: &HashMap<PathBuf, ParseResult>,
     caller_imports: &[Import],

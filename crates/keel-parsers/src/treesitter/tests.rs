@@ -193,6 +193,146 @@ def plain_func():
 }
 
 #[test]
+fn test_rust_docstring_extraction() {
+    let mut parser = TreeSitterParser::new();
+    let source = "/// This is a doc comment.\npub fn foo() -> i32 {\n    42\n}\n";
+    let result = parser
+        .parse_file("rust", Path::new("test.rs"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(funcs[0].name, "foo");
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("This is a doc comment."),
+        "docstring should be extracted from /// comment"
+    );
+}
+
+#[test]
+fn test_rust_docstring_with_attribute() {
+    let mut parser = TreeSitterParser::new();
+    let source = "/// Doc before attr.\n#[allow(dead_code)]\npub fn bar() {}\n";
+    let result = parser
+        .parse_file("rust", Path::new("test.rs"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Doc before attr."),
+        "docstring should be found even with attribute between doc and fn"
+    );
+}
+
+#[test]
+fn test_rust_method_docstring_in_impl() {
+    let mut parser = TreeSitterParser::new();
+    let source = "struct Foo;\n\nimpl Foo {\n    /// Method doc.\n    pub fn do_thing(&self) -> bool {\n        true\n    }\n}\n";
+    let result = parser
+        .parse_file("rust", Path::new("test.rs"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function && d.name == "do_thing")
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Method doc."),
+        "docstring on method inside impl block should be extracted"
+    );
+}
+
+#[test]
+fn test_no_docstring() {
+    let mut parser = TreeSitterParser::new();
+    let source = "pub fn no_doc() {}\n";
+    let result = parser
+        .parse_file("rust", Path::new("test.rs"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert!(
+        funcs[0].docstring.is_none(),
+        "function without doc comment should have None docstring"
+    );
+}
+
+#[test]
+fn test_python_docstring_extraction() {
+    let mut parser = TreeSitterParser::new();
+    let source = "def greet(name: str) -> str:\n    \"\"\"Greet someone.\"\"\"\n    return f\"Hello, {name}!\"\n";
+    let result = parser
+        .parse_file("python", Path::new("test.py"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Greet someone."),
+        "Python triple-quoted docstring should be extracted"
+    );
+}
+
+#[test]
+fn test_typescript_jsdoc_extraction() {
+    let mut parser = TreeSitterParser::new();
+    let source = "/** Greets a user. */\nfunction greet(name: string): string {\n    return `Hello, ${name}!`;\n}\n";
+    let result = parser
+        .parse_file("typescript", Path::new("test.ts"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Greets a user."),
+        "JSDoc comment should be extracted"
+    );
+}
+
+#[test]
+fn test_typescript_exported_function_jsdoc() {
+    let mut parser = TreeSitterParser::new();
+    let source = "/** Activates the extension. */\nexport function activate(ctx: ExtensionContext) {\n    console.log('active');\n}\n";
+    let result = parser
+        .parse_file("typescript", Path::new("ext.ts"), source)
+        .unwrap();
+    let funcs: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+        .collect();
+    assert_eq!(funcs.len(), 1);
+    assert_eq!(
+        funcs[0].docstring.as_deref(),
+        Some("Activates the extension."),
+        "JSDoc on exported function should be extracted via parent export_statement"
+    );
+}
+
+#[test]
 fn test_python_decorated_class_no_duplicate() {
     let mut parser = TreeSitterParser::new();
     let source = r#"

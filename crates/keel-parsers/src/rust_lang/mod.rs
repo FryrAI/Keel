@@ -36,6 +36,7 @@ pub struct RustLangResolver {
 }
 
 impl RustLangResolver {
+    /// Creates a new `RustLangResolver` with empty caches.
     pub fn new() -> Self {
         RustLangResolver {
             parser: Mutex::new(TreeSitterParser::new()),
@@ -50,12 +51,12 @@ impl RustLangResolver {
         }
     }
 
-    /// Returns the resolved mod paths from `mod foo;` declarations.
+    /// Returns a snapshot of the resolved `mod foo;` declaration paths.
     pub fn get_mod_paths(&self) -> HashMap<String, PathBuf> {
         self.mod_paths.lock().unwrap().clone()
     }
 
-    /// Returns extracted associated type implementations.
+    /// Returns extracted associated type implementations as `(trait, type_name, concrete_type)` triples.
     pub fn get_associated_types(&self) -> Vec<(String, String, String)> {
         self.associated_types.lock().unwrap().clone()
     }

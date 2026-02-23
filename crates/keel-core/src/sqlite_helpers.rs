@@ -89,6 +89,7 @@ impl SqliteGraphStore {
         result
     }
 
+    /// Insert a node into the database, or update it on hash conflict (upsert).
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {
         self.conn.execute(
             "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, module_id)
@@ -147,6 +148,7 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Update an existing node by ID, preserving the old hash in previous_hashes.
     pub fn update_node_in_db(&self, node: &GraphNode) -> Result<(), GraphError> {
         // Store old hash as previous hash
         if let Some(old) = self.get_node_by_id(node.id) {

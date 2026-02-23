@@ -20,10 +20,7 @@ pub struct ScipSymbol {
     pub(crate) descriptor_path: String,
 }
 
-/// Parse a SCIP symbol string into a `ScipSymbol`.
-///
-/// Returns `None` for empty strings or strings missing any of the four
-/// required header tokens or a non-empty descriptor path.
+/// Parses a SCIP symbol string into its structured components.
 pub fn parse_symbol(symbol_str: &str) -> Option<ScipSymbol> {
     if symbol_str.is_empty() {
         return None;
@@ -55,16 +52,7 @@ pub fn parse_symbol(symbol_str: &str) -> Option<ScipSymbol> {
     })
 }
 
-/// Extract the simple function/class name from a SCIP symbol.
-///
-/// Scans the descriptor path from the right: skips trailing suffix/separator
-/// characters (`# . ) ( ] [`), then collects name characters until the next
-/// suffix or path separator (`/`).
-///
-/// Examples:
-///   `src/index.ts/myFunc#`           -> `myFunc`
-///   `src/index.ts/MyClass#render().` -> `render`
-///   `src/foo.ts/Container#T[]`       -> `T`
+/// Extracts the simple name from a SCIP symbol's descriptor path (e.g. `myFunc` from `src/index.ts/myFunc#`).
 pub fn symbol_name(symbol: &ScipSymbol) -> String {
     let path = &symbol.descriptor_path;
     if path.is_empty() {
@@ -100,7 +88,7 @@ fn is_suffix_or_sep(c: char) -> bool {
     matches!(c, '#' | '.' | ')' | '(' | ']' | '[')
 }
 
-/// Return `true` if the symbol's simple name matches `name` (case-sensitive).
+/// Returns true if the symbol's extracted simple name matches `name` exactly.
 pub fn symbol_matches_name(symbol: &ScipSymbol, name: &str) -> bool {
     symbol_name(symbol) == name
 }

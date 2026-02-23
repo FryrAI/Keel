@@ -24,6 +24,7 @@ pub struct LlmFormatter {
 }
 
 impl LlmFormatter {
+    /// Creates a new LlmFormatter with default depths (map=1, compile=1) and token budget (500).
     pub fn new() -> Self {
         Self {
             map_depth: 1,
@@ -32,6 +33,7 @@ impl LlmFormatter {
         }
     }
 
+    /// Creates a new LlmFormatter with the specified map and compile output depths.
     pub fn with_depths(map_depth: u32, compile_depth: u32) -> Self {
         Self {
             map_depth,
@@ -40,6 +42,7 @@ impl LlmFormatter {
         }
     }
 
+    /// Sets the maximum token budget for output truncation, if provided.
     pub fn with_max_tokens(mut self, max_tokens: Option<usize>) -> Self {
         if let Some(t) = max_tokens {
             self.max_tokens = t;

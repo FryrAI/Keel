@@ -1,5 +1,6 @@
 use keel_enforce::types::CheckResult;
 
+/// Formats a check result showing risk assessment, callers, callees, and violations for a node.
 pub fn format_check(result: &CheckResult) -> String {
     let r = &result.risk;
     let mut out = format!(

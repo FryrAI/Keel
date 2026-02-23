@@ -103,6 +103,7 @@ impl std::fmt::Display for PressureLevel {
 }
 
 impl PressureLevel {
+    /// Determine the pressure level based on the number of active errors.
     pub fn from_error_count(errors: usize) -> Self {
         match errors {
             0..=2 => PressureLevel::Low,
@@ -111,6 +112,7 @@ impl PressureLevel {
         }
     }
 
+    /// Return the LLM budget directive string for this pressure level.
     pub fn budget_directive(&self) -> &'static str {
         match self {
             PressureLevel::Low => "keep_going",

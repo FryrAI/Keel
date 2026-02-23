@@ -62,10 +62,12 @@ impl ScipProvider {
         }
     }
 
+    /// Returns a reference to the loaded SCIP index, if available.
     pub fn index(&self) -> Option<&reader::ScipIndex> {
         self.index.as_ref()
     }
 
+    /// Returns the filesystem path to the SCIP index file.
     pub fn index_path(&self) -> &Path {
         &self.index_path
     }

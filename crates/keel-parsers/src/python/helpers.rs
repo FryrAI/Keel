@@ -7,17 +7,36 @@ use crate::resolver::Import;
 /// Check if a Python function signature has type annotations.
 /// Python type hints: parameters have `: type` and return type after `->`.
 pub fn py_has_type_hints(signature: &str) -> bool {
-    let has_param_hints = {
-        let params_part = signature.split("->").next().unwrap_or(signature);
-        // Must have `:` in params (not just the function name portion)
-        if let Some(paren_start) = params_part.find('(') {
-            params_part[paren_start..].contains(':')
-        } else {
-            false
-        }
-    };
+    let params_part = signature.split("->").next().unwrap_or(signature);
     let has_return_hint = signature.contains("->");
-    has_param_hints && has_return_hint
+
+    // Check if there are any parameters that need type hints
+    let params_inner = if let Some(paren_start) = params_part.find('(') {
+        let parens = params_part[paren_start..].trim();
+        let inner = parens
+            .strip_prefix('(')
+            .and_then(|s| s.strip_suffix(')'))
+            .unwrap_or("")
+            .trim();
+        // Filter out self/cls which don't need annotations
+        let meaningful: Vec<&str> = inner
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty() && *s != "self" && *s != "cls")
+            .collect();
+        meaningful
+    } else {
+        vec![]
+    };
+
+    if params_inner.is_empty() {
+        // No parameters to annotate — return hint alone is sufficient
+        has_return_hint
+    } else {
+        // Has parameters — require both param hints and return hint
+        let has_param_hints = params_inner.iter().any(|p| p.contains(':'));
+        has_param_hints && has_return_hint
+    }
 }
 
 /// Resolve a Python relative import to a file path.
@@ -124,6 +143,9 @@ mod tests {
         assert!(py_has_type_hints("greet(name: str) -> str"));
         assert!(!py_has_type_hints("greet(name)"));
         assert!(!py_has_type_hints("greet(name: str)")); // no return hint
+        assert!(py_has_type_hints("main() -> None")); // no params, return hint only
+        assert!(!py_has_type_hints("main()")); // no params, no return hint
+        assert!(py_has_type_hints("method(self) -> int")); // self doesn't need annotation
     }
 
     #[test]

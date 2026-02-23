@@ -10,6 +10,7 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Returns the lowercase string representation of this node kind.
     pub fn as_str(&self) -> &'static str {
         match self {
             NodeKind::Module => "module",
@@ -36,6 +37,7 @@ pub enum EdgeKind {
 }
 
 impl EdgeKind {
+    /// Returns the lowercase string representation of this edge kind.
     pub fn as_str(&self) -> &'static str {
         match self {
             EdgeKind::Calls => "calls",

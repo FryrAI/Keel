@@ -290,6 +290,7 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Convert a SQLite row into a `GraphNode` (without relations loaded).
     pub(crate) fn row_to_node(row: &rusqlite::Row) -> SqlResult<GraphNode> {
         let kind_str: String = row.get("kind")?;
         let kind = match kind_str.as_str() {
@@ -318,6 +319,7 @@ impl SqliteGraphStore {
         })
     }
 
+    /// Load all external endpoints associated with a given node.
     pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
         let mut stmt = match self.conn.prepare(
             "SELECT kind, method, path, direction FROM external_endpoints WHERE node_id = ?1",
@@ -346,6 +348,7 @@ impl SqliteGraphStore {
         result
     }
 
+    /// Load the most recent previous hashes for a node (up to 3, newest first).
     pub(crate) fn load_previous_hashes(&self, node_id: u64) -> Vec<String> {
         let mut stmt = match self.conn.prepare(
             "SELECT hash FROM previous_hashes WHERE node_id = ?1 ORDER BY created_at DESC LIMIT 3",
@@ -367,6 +370,7 @@ impl SqliteGraphStore {
         result
     }
 
+    /// Attach endpoints and previous hashes to a node, returning the enriched node.
     pub(crate) fn node_with_relations(&self, mut node: GraphNode) -> GraphNode {
         node.external_endpoints = self.load_endpoints(node.id);
         node.previous_hashes = self.load_previous_hashes(node.id);

@@ -13,7 +13,8 @@ import subprocess
 import sys
 
 
-def main():
+def main() -> None:
+    """Run keel compile on agent-turn-complete events and print violations to stderr."""
     event = json.load(sys.stdin)
     if event.get("type") != "agent-turn-complete":
         return

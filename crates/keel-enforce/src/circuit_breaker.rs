@@ -39,6 +39,7 @@ impl Default for CircuitBreaker {
 }
 
 impl CircuitBreaker {
+    /// Create a new circuit breaker with the default max failures threshold (3).
     pub fn new() -> Self {
         Self {
             state: HashMap::new(),

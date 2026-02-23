@@ -60,7 +60,7 @@ impl GraphStore {
 }
 
 #[test]
-/// Impl block methods have a known visibility detection limitation.
+/// Impl block methods should have correct visibility detection.
 fn test_impl_method_visibility_known_limitation() {
     let resolver = RustLangResolver::new();
     let source = r#"
@@ -87,14 +87,14 @@ impl Parser {
     assert!(internal.is_some(), "should find internal_parse method");
     assert!(
         !internal.unwrap().is_public,
-        "impl methods appear private (line_start points to impl block)"
+        "non-pub impl method should be private"
     );
 
     let public = result.definitions.iter().find(|d| d.name == "parse");
     assert!(public.is_some(), "should find parse method");
     assert!(
-        !public.unwrap().is_public,
-        "known limitation: impl methods line_start points to impl block"
+        public.unwrap().is_public,
+        "pub impl method should be public"
     );
 }
 

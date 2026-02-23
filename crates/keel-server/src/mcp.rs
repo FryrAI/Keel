@@ -257,6 +257,7 @@ pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> S
     serde_json::to_string(&response).unwrap_or_default()
 }
 
+/// Convert any `Display`-able error into a JSON-RPC internal error response.
 pub(crate) fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
     JsonRpcError {
         code: -32603,
@@ -278,6 +279,7 @@ fn not_found(hash: &str) -> JsonRpcError {
     }
 }
 
+/// Acquire the shared graph store mutex, returning a JSON-RPC error if poisoned.
 pub(crate) fn lock_store(
     store: &SharedStore,
 ) -> Result<std::sync::MutexGuard<'_, SqliteGraphStore>, JsonRpcError> {

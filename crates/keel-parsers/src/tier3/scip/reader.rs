@@ -38,7 +38,7 @@ pub struct ScipIndex {
 const SYMBOL_ROLE_DEFINITION: i32 = 1;
 
 impl ScipIndex {
-    /// Build an empty index (useful for testing).
+    /// Creates an empty index with no definitions or occurrences.
     pub fn empty() -> Self {
         Self {
             definitions: HashMap::new(),
@@ -144,6 +144,7 @@ impl ScipIndex {
 // Test helpers — construct index data without protobuf I/O.
 #[cfg(test)]
 impl ScipIndex {
+    /// Inserts a definition into the index (test helper).
     pub fn insert_definition(&mut self, def: ScipDefinition) {
         self.definitions
             .insert((def.file_path.clone(), def.line, def.column), def.clone());
@@ -153,6 +154,7 @@ impl ScipIndex {
             .push(def);
     }
 
+    /// Inserts an occurrence into the index for a given file (test helper).
     pub fn insert_occurrence(&mut self, file: &str, occ: ScipOccurrence) {
         self.file_occurrences
             .entry(file.to_owned())

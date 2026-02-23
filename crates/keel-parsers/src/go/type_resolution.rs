@@ -21,7 +21,7 @@ pub struct InterfaceInfo {
     pub file_path: String,
 }
 
-/// Extract receiver from `(varname *Type)` or `(varname Type)` param text.
+/// Parses a Go receiver parameter like `(s *Type)` into a `ReceiverInfo`.
 pub fn extract_receiver_from_params(
     receiver_text: &str,
     method_name: &str,
@@ -44,7 +44,7 @@ pub fn extract_receiver_from_params(
     })
 }
 
-/// Build type_name -> vec of (method_name, is_pointer_receiver) from content.
+/// Builds a map from type name to its methods by scanning receiver patterns in definitions.
 pub fn build_type_methods(
     result: &ParseResult,
     content: &str,
@@ -94,7 +94,7 @@ fn extract_receiver_from_content(
     })
 }
 
-/// Extract struct embeddings. Returns outer_type -> vec of embedded_type_names.
+/// Extracts struct embedding relationships, returning a map of outer type to embedded type names.
 pub fn extract_embeddings(content: &str) -> HashMap<String, Vec<String>> {
     let mut embeddings: HashMap<String, Vec<String>> = HashMap::new();
     let lines: Vec<&str> = content.lines().collect();
@@ -157,7 +157,7 @@ fn parse_embedded_type(trimmed: &str) -> Option<String> {
     }
 }
 
-/// Extract interface definitions and their method signatures from Go source.
+/// Extracts Go interface definitions and their required method signatures from source.
 pub fn extract_interfaces(
     result: &ParseResult,
     content: &str,
@@ -206,7 +206,7 @@ fn extract_interface_methods(content: &str, line_start: u32, line_end: u32) -> V
     methods
 }
 
-/// Find types satisfying an interface through structural typing.
+/// Finds concrete types that satisfy an interface via structural method-set matching.
 pub fn find_interface_satisfiers(
     iface: &InterfaceInfo,
     type_methods: &HashMap<String, Vec<(String, bool)>>,
@@ -224,7 +224,7 @@ pub fn find_interface_satisfiers(
     satisfiers
 }
 
-/// Resolve a method call on a receiver using type-aware heuristics.
+/// Resolves a receiver method call using direct lookup, embedding promotion, and interface dispatch.
 pub fn resolve_receiver_method(
     receiver: &str,
     method_name: &str,

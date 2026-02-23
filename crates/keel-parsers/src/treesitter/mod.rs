@@ -14,12 +14,14 @@ pub struct TreeSitterParser {
 }
 
 impl TreeSitterParser {
+    /// Creates a new tree-sitter parser instance.
     pub fn new() -> Self {
         Self {
             parser: Parser::new(),
         }
     }
 
+    /// Parses raw source bytes into a tree-sitter syntax tree for the given language.
     pub fn parse(&mut self, lang_name: &str, source: &[u8]) -> Result<Tree, ParseError> {
         let lang = language_for_name(lang_name)?;
         self.parser
@@ -30,6 +32,7 @@ impl TreeSitterParser {
             .ok_or(ParseError::ParseFailed)
     }
 
+    /// Parses a source file and extracts definitions, references, and imports.
     pub fn parse_file(
         &mut self,
         lang_name: &str,
@@ -137,6 +140,8 @@ fn extract_definitions(
         let mut body_text = String::new();
         let mut line_start = 0u32;
         let mut line_end = 0u32;
+        let mut def_node = None;
+        let mut body_node = None;
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize];
@@ -167,17 +172,17 @@ fn extract_definitions(
                 "def.func.body" | "def.method.body" | "def.class.body" | "def.type.body"
                 | "def.struct.body" | "def.enum.body" | "def.trait.body" | "def.impl.body" => {
                     body_text = node_text(cap.node, source).to_string();
+                    body_node = Some(cap.node);
                 }
-                "def.func"
-                | "def.method"
-                | "def.class"
-                | "def.type"
-                | "def.struct"
-                | "def.enum"
-                | "def.trait"
-                | "def.impl"
-                | "def.mod"
-                | "def.macro"
+                // Primary definition nodes — use for docstring extraction
+                "def.func" | "def.method" | "def.class" | "def.type" | "def.struct"
+                | "def.enum" | "def.trait" | "def.mod" | "def.macro" => {
+                    line_start = cap.node.start_position().row as u32 + 1;
+                    line_end = cap.node.end_position().row as u32 + 1;
+                    def_node = Some(cap.node);
+                }
+                // Secondary/parent nodes — only set lines if primary didn't
+                "def.impl"
                 | "def.trait_impl"
                 | "def.method.parent"
                 | "def.export"
@@ -186,8 +191,11 @@ fn extract_definitions(
                 | "def.trait_impl.trait_name"
                 | "def.trait_impl.type_name"
                 | "def.trait_impl.body" => {
-                    line_start = cap.node.start_position().row as u32 + 1;
-                    line_end = cap.node.end_position().row as u32 + 1;
+                    if def_node.is_none() {
+                        line_start = cap.node.start_position().row as u32 + 1;
+                        line_end = cap.node.end_position().row as u32 + 1;
+                        def_node = Some(cap.node);
+                    }
                 }
                 _ => {}
             }
@@ -199,11 +207,14 @@ fn extract_definitions(
             } else {
                 format!("{n}{params_text} -> {return_type_text}")
             };
-            let has_type_hints = !params_text.is_empty()
-                && (params_text.contains(':')
-                    || params_text.contains(" int")
-                    || params_text.contains(" string")
-                    || params_text.contains(" bool"));
+            let has_type_hints = !return_type_text.is_empty()
+                || (!params_text.is_empty()
+                    && (params_text.contains(':')
+                        || params_text.contains(" int")
+                        || params_text.contains(" string")
+                        || params_text.contains(" bool")));
+
+            let docstring = def_node.and_then(|node| extract_docstring(node, body_node, source));
 
             defs.push(Definition {
                 name: n,
@@ -212,7 +223,7 @@ fn extract_definitions(
                 file_path: file_path.to_string(),
                 line_start,
                 line_end,
-                docstring: None,
+                docstring,
                 is_public: true,
                 type_hints_present: has_type_hints,
                 body_text,
@@ -223,6 +234,144 @@ fn extract_definitions(
     // the same inner node, producing identical entries.
     defs.dedup_by(|a, b| a.name == b.name && a.line_start == b.line_start);
     defs
+}
+
+/// Extract a doc comment from the preceding siblings of a definition node.
+///
+/// Handles:
+/// - Rust: `///` line comments and `/** */` block comments
+/// - TypeScript/JS: `/** */` JSDoc comments
+/// - Go: `//` comment blocks immediately preceding the definition
+/// - Python: triple-quoted string as the first statement in the function body
+fn extract_docstring(
+    def_node: tree_sitter::Node<'_>,
+    body_node: Option<tree_sitter::Node<'_>>,
+    source: &[u8],
+) -> Option<String> {
+    // Strategy 1: Check preceding siblings for comment nodes (Rust, TS, Go)
+    if let Some(doc) = extract_preceding_doc_comment(def_node, source) {
+        return Some(doc);
+    }
+
+    // Strategy 1b: For exported/decorated definitions, the doc comment may be a
+    // sibling of the parent wrapper node (e.g. export_statement, decorated_definition)
+    if let Some(parent) = def_node.parent() {
+        let pk = parent.kind();
+        if pk == "export_statement" || pk == "decorated_definition" || pk == "declaration_list" {
+            if let Some(doc) = extract_preceding_doc_comment(parent, source) {
+                return Some(doc);
+            }
+        }
+    }
+
+    // Strategy 2: Python docstrings — first expression_statement > string in body
+    if let Some(body) = body_node {
+        if let Some(doc) = extract_python_docstring(body, source) {
+            return Some(doc);
+        }
+    }
+
+    None
+}
+
+/// Walk backwards from a node through preceding siblings (skipping attributes)
+/// to collect doc comment lines.
+fn extract_preceding_doc_comment(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut doc_lines = Vec::new();
+    let mut sibling = node.prev_sibling();
+
+    // Walk backwards, collecting comment nodes, skipping attribute nodes
+    while let Some(sib) = sibling {
+        let kind = sib.kind();
+        match kind {
+            // Rust: /// or //! doc comments
+            "line_comment" => {
+                let text = node_text(sib, source).trim_end();
+                if text.starts_with("///") {
+                    let content = text
+                        .strip_prefix("/// ")
+                        .unwrap_or(text.strip_prefix("///").unwrap_or(text));
+                    doc_lines.push(content.to_string());
+                } else {
+                    // Regular // comment — stop
+                    break;
+                }
+            }
+            // Rust: /** */ doc block comments
+            "block_comment" => {
+                let text = node_text(sib, source);
+                if text.starts_with("/**") {
+                    let cleaned = text
+                        .strip_prefix("/**")
+                        .and_then(|s| s.strip_suffix("*/"))
+                        .unwrap_or(text)
+                        .trim();
+                    if !cleaned.is_empty() {
+                        doc_lines.push(cleaned.to_string());
+                    }
+                }
+                break;
+            }
+            // TypeScript/JS/Go: comment node
+            "comment" => {
+                let text = node_text(sib, source).trim_end();
+                if text.starts_with("/**") {
+                    // JSDoc block comment
+                    let cleaned = text
+                        .strip_prefix("/**")
+                        .and_then(|s| s.strip_suffix("*/"))
+                        .unwrap_or(text)
+                        .trim();
+                    if !cleaned.is_empty() {
+                        doc_lines.push(cleaned.to_string());
+                    }
+                    break;
+                } else if text.starts_with("//") {
+                    // Go-style // comment blocks
+                    let content = text
+                        .strip_prefix("// ")
+                        .unwrap_or(text.strip_prefix("//").unwrap_or(text));
+                    doc_lines.push(content.to_string());
+                } else {
+                    break;
+                }
+            }
+            // Skip attributes (#[...]) and decorators (@...) between doc and def
+            "attribute_item" | "attribute" | "decorator" | "inner_attribute_item" => {}
+            _ => break,
+        }
+        sibling = sib.prev_sibling();
+    }
+
+    if doc_lines.is_empty() {
+        return None;
+    }
+    // Reverse because we walked backwards
+    doc_lines.reverse();
+    Some(doc_lines.join("\n"))
+}
+
+/// Extract a Python docstring from the first statement of a function body.
+fn extract_python_docstring(body_node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let first_child = body_node.named_child(0)?;
+    if first_child.kind() != "expression_statement" {
+        return None;
+    }
+    let string_node = first_child.named_child(0)?;
+    if string_node.kind() != "string" {
+        return None;
+    }
+    let text = node_text(string_node, source);
+    // Strip triple-quote delimiters
+    let content = text
+        .strip_prefix("\"\"\"")
+        .and_then(|s| s.strip_suffix("\"\"\""))
+        .or_else(|| text.strip_prefix("'''").and_then(|s| s.strip_suffix("'''")))?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
 }
 
 fn extract_references(
@@ -294,6 +443,7 @@ fn extract_references(
     refs
 }
 
+/// Detects the programming language from a file's extension.
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()? {
         "ts" => Some("typescript"),

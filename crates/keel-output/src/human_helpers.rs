@@ -1,5 +1,6 @@
 use keel_enforce::types::Violation;
 
+/// Formats a single violation in human-readable rustc-style diagnostic output.
 pub(crate) fn format_violation_human(v: &Violation) -> String {
     let severity_label = match v.severity.as_str() {
         "ERROR" => "error",

@@ -18,6 +18,7 @@ impl Default for SuppressionManager {
 }
 
 impl SuppressionManager {
+    /// Create a new suppression manager with no suppressed codes.
     pub fn new() -> Self {
         Self {
             suppressed_codes: HashSet::new(),

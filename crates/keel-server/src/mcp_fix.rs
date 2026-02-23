@@ -8,6 +8,7 @@ use keel_enforce::types::FixResult;
 use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedEngine, SharedStore};
 use crate::parse_shared::parse_file_to_index;
 
+/// Handle the `keel/fix` MCP tool call to compile files and generate fix plans for violations.
 pub(crate) fn handle_fix(
     store: &SharedStore,
     engine: &SharedEngine,

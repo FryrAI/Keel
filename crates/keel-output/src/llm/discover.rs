@@ -1,5 +1,6 @@
 use keel_enforce::types::DiscoverResult;
 
+/// Formats a discover result showing a node's callers, callees, module context, and body.
 pub fn format_discover(result: &DiscoverResult) -> String {
     let mut out = String::new();
 

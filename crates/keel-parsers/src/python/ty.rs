@@ -42,6 +42,7 @@ pub struct RealTyClient {
 }
 
 impl RealTyClient {
+    /// Creates a new `RealTyClient` with a default 5-second timeout and empty cache.
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(5),
@@ -49,7 +50,7 @@ impl RealTyClient {
         }
     }
 
-    /// Detect if ty binary is available on PATH.
+    /// Detects if the `ty` binary is available on PATH and returns a client if found.
     pub fn detect() -> Option<Self> {
         match Command::new("ty").arg("--version").output() {
             Ok(output) if output.status.success() => Some(Self::new()),
@@ -120,6 +121,7 @@ pub struct MockTyClient {
 }
 
 impl MockTyClient {
+    /// Creates a mock ty client with the given availability status.
     pub fn new(available: bool) -> Self {
         Self {
             available,
@@ -128,17 +130,17 @@ impl MockTyClient {
         }
     }
 
-    /// Set a successful result for a given path.
+    /// Sets a successful result to return when `check_file` is called for the given path.
     pub fn set_result(&self, path: PathBuf, result: TyResult) {
         self.results.lock().unwrap().insert(path, Ok(result));
     }
 
-    /// Set an error result for a given path.
+    /// Sets an error result to return when `check_file` is called for the given path.
     pub fn set_error(&self, path: PathBuf, error: String) {
         self.results.lock().unwrap().insert(path, Err(error));
     }
 
-    /// Get the number of times check_file was called for a path.
+    /// Returns the number of times `check_file` was called for the given path.
     pub fn call_count(&self, path: &Path) -> usize {
         self.call_counts
             .lock()
@@ -179,7 +181,7 @@ impl TyClient for MockTyClient {
     }
 }
 
-/// Parse ty JSON output into TyResult.
+/// Parses ty subprocess JSON output into definitions and diagnostic errors.
 pub fn parse_ty_json_output(json_str: &str) -> TyResult {
     // ty outputs JSON with diagnostic information
     let value: serde_json::Value = match serde_json::from_str(json_str) {

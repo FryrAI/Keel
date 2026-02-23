@@ -6,6 +6,7 @@ use keel_enforce::analyze::analyze_file;
 
 use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedStore};
 
+/// Handle the `keel/analyze` MCP tool call to return file structure and code smells.
 pub(crate) fn handle_analyze(
     store: &SharedStore,
     params: Option<Value>,

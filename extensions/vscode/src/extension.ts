@@ -25,6 +25,7 @@ let serverAvailable = false;
 
 // --- Activation ---
 
+/** Activate the Keel VS Code extension, registering commands, providers, and the background server. */
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('Keel');
     diagnosticCollection = vscode.languages.createDiagnosticCollection('keel');
@@ -79,6 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push({ dispose: () => clearInterval(healthTimer!) });
 }
 
+/** Deactivate the extension by stopping health polling and shutting down the server. */
 export function deactivate() {
     clearInterval(healthTimer!);
     stopServer();
