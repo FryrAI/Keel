@@ -107,7 +107,7 @@ fn verify_checksum(
 
     let binary_bytes = fs::read(binary_path).map_err(|e| format!("failed to read binary: {e}"))?;
 
-    let actual = sha256_simple(&binary_bytes);
+    let actual = sha256_simple(&binary_bytes)?;
 
     if expected != actual {
         return Err(format!(
@@ -118,8 +118,8 @@ fn verify_checksum(
     Ok(())
 }
 
-/// SHA-256 using command-line tool (avoids adding a crypto dependency)
-fn sha256_simple(data: &[u8]) -> String {
+/// SHA-256 using command-line tool (avoids adding a crypto dependency).
+fn sha256_simple(data: &[u8]) -> Result<String, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -136,7 +136,7 @@ fn sha256_simple(data: &[u8]) -> String {
                 .stderr(Stdio::null())
                 .spawn()
         })
-        .unwrap_or_else(|_| panic!("neither sha256sum nor shasum found"));
+        .map_err(|_| "neither sha256sum nor shasum found".to_string())?;
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(data).ok();
@@ -144,9 +144,9 @@ fn sha256_simple(data: &[u8]) -> String {
 
     let output = child
         .wait_with_output()
-        .expect("failed to wait for sha256sum");
+        .map_err(|e| format!("failed to wait for sha256sum: {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout.split_whitespace().next().unwrap_or("").to_string()
+    Ok(stdout.split_whitespace().next().unwrap_or("").to_string())
 }
 
 pub fn run(version: Option<String>, yes: bool) -> i32 {

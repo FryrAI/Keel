@@ -15,17 +15,19 @@ use crate::mcp::{self, SharedStore};
 struct McpSession {
     keel_dir: Option<PathBuf>,
     config: KeelConfig,
+    no_telemetry: bool,
     client_name: Option<String>,
     tool_call_count: u32,
     session_start: Instant,
 }
 
 impl McpSession {
-    fn new(keel_dir: Option<&Path>) -> Self {
+    fn new(keel_dir: Option<&Path>, no_telemetry: bool) -> Self {
         let config = keel_dir.map(KeelConfig::load).unwrap_or_default();
         Self {
             keel_dir: keel_dir.map(|d| d.to_path_buf()),
             config,
+            no_telemetry,
             client_name: None,
             tool_call_count: 0,
             session_start: Instant::now(),
@@ -34,7 +36,7 @@ impl McpSession {
 
     /// Record a telemetry event for an MCP tool call.
     fn record_tool_event(&self, command: &str, duration_ms: u64, exit_code: i32, result: &Value) {
-        if !self.config.telemetry.enabled {
+        if self.no_telemetry || !self.config.telemetry.enabled {
             return;
         }
         let keel_dir = match &self.keel_dir {
@@ -75,7 +77,7 @@ impl McpSession {
 
     /// Record a session summary event when the MCP connection closes.
     fn record_session_end(&self) {
-        if !self.config.telemetry.enabled {
+        if self.no_telemetry || !self.config.telemetry.enabled {
             return;
         }
         let keel_dir = match &self.keel_dir {
@@ -91,7 +93,9 @@ impl McpSession {
         let duration = self.session_start.elapsed().as_millis() as u64;
         let mut event = telemetry::new_event("mcp:session", duration, 0);
         event.client_name.clone_from(&self.client_name);
-        event.node_count = self.tool_call_count; // repurposed for session summary
+        // Convention: node_count is repurposed as tool_call_count for MCP session events.
+        // See TelemetryEvent::node_count doc comment.
+        event.node_count = self.tool_call_count;
 
         let _ = store.record(&event);
     }
@@ -113,11 +117,12 @@ pub fn run_stdio(
     store: SharedStore,
     db_path: Option<&str>,
     keel_dir: Option<&Path>,
+    no_telemetry: bool,
 ) -> io::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let engine = mcp::create_shared_engine(db_path);
-    let mut session = McpSession::new(keel_dir);
+    let mut session = McpSession::new(keel_dir, no_telemetry);
 
     for line in stdin.lock().lines() {
         let line = line?;

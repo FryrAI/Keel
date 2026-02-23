@@ -28,7 +28,7 @@ fn verify_checksum_match() {
     std::fs::write(&binary_path, binary_content).unwrap();
 
     // Compute the actual checksum
-    let actual_hash = sha256_simple(binary_content);
+    let actual_hash = sha256_simple(binary_content).unwrap();
 
     // Write checksum file with the correct hash
     let checksum_content = format!("{actual_hash}  keel-test\n");
@@ -73,7 +73,7 @@ fn verify_checksum_missing_artifact() {
 #[test]
 fn sha256_simple_known_hash() {
     // SHA-256 of empty string is well-known
-    let hash = sha256_simple(b"");
+    let hash = sha256_simple(b"").unwrap();
     assert_eq!(
         hash,
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

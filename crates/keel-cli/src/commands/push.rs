@@ -210,23 +210,28 @@ fn save_project_id(keel_dir: &Path, project_id: &str) {
     let config_path = keel_dir.join("keel.json");
 
     // Read existing config or start fresh
-    let mut content = std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".into());
+    let content = std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".into());
+    let mut json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({}),
+    };
 
-    // Simple JSON injection — insert project_id
-    if content.contains("\"project_id\"") {
-        // Already has one, leave it
+    // Don't overwrite an existing project_id
+    if json.get("project_id").is_some() {
         return;
     }
-    if content.trim() == "{}" {
-        content = format!(r#"{{"project_id":"{project_id}"}}"#);
-    } else {
-        // Insert after opening brace
-        content = content.replacen('{', &format!(r#"{{"project_id":"{project_id}","#), 1);
-        // Fix double opening brace
-        content = content.replace("{{", "{");
+
+    if let Some(obj) = json.as_object_mut() {
+        obj.insert(
+            "project_id".to_string(),
+            serde_json::Value::String(project_id.to_string()),
+        );
     }
 
-    let _ = std::fs::write(config_path, content);
+    let _ = std::fs::write(
+        config_path,
+        serde_json::to_string_pretty(&json).unwrap_or_default(),
+    );
 }
 
 #[cfg(test)]

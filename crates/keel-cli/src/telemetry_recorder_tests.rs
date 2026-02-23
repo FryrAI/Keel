@@ -39,20 +39,32 @@ fn telemetry_event_serializes() {
 
 #[test]
 fn detect_client_claude_code() {
-    std::env::set_var("CLAUDECODE", "1");
-    assert_eq!(detect_client(), Some("claude-code".into()));
-    std::env::remove_var("CLAUDECODE");
+    let result = detect_client_with(|k| {
+        if k == "CLAUDECODE" {
+            Some("1".into())
+        } else {
+            None
+        }
+    });
+    assert_eq!(result, Some("claude-code".into()));
+}
+
+#[test]
+fn detect_client_cursor() {
+    let result = detect_client_with(|k| {
+        if k == "CURSOR_CLI" {
+            Some("1".into())
+        } else {
+            None
+        }
+    });
+    assert_eq!(result, Some("cursor".into()));
 }
 
 #[test]
 fn detect_client_none_when_clean() {
-    // Clear all known env vars to test fallback
-    std::env::remove_var("CLAUDECODE");
-    std::env::remove_var("CURSOR_CLI");
-    // Note: we can't safely remove VSCODE_PID or CI in test since
-    // they may be set by the real environment. Just test that the
-    // function returns *something* without panicking.
-    let _ = detect_client();
+    let result = detect_client_with(|_| None);
+    assert_eq!(result, None);
 }
 
 // --- command_name tests ---
@@ -107,16 +119,16 @@ fn command_name_logout() {
 #[test]
 fn truncate_to_hour_standard() {
     assert_eq!(
-        truncate_to_hour("2026-02-23T14:35:22Z"),
-        "2026-02-23T14:00:00Z"
+        truncate_to_hour("2026-02-23 14:35:22"),
+        "2026-02-23 14:00:00"
     );
 }
 
 #[test]
 fn truncate_to_hour_already_on_hour() {
     assert_eq!(
-        truncate_to_hour("2026-02-23T14:00:00Z"),
-        "2026-02-23T14:00:00Z"
+        truncate_to_hour("2026-02-23 14:00:00"),
+        "2026-02-23 14:00:00"
     );
 }
 
@@ -162,7 +174,7 @@ fn bucket_count_large() {
 fn sanitize_strips_id_and_truncates_timestamp() {
     let mut event = telemetry::new_event("map", 500, 0);
     event.id = Some(42);
-    event.timestamp = "2026-02-23T14:35:22Z".into();
+    event.timestamp = "2026-02-23 14:35:22".into();
     event.node_count = 150;
     event.edge_count = 3000;
 
@@ -172,7 +184,7 @@ fn sanitize_strips_id_and_truncates_timestamp() {
     let json = serde_json::to_string(&payload).unwrap();
     assert!(!json.contains("\"id\""));
 
-    assert_eq!(payload.timestamp_hour, "2026-02-23T14:00:00Z");
+    assert_eq!(payload.timestamp_hour, "2026-02-23 14:00:00");
     assert_eq!(payload.node_count_bucket, "101-500");
     assert_eq!(payload.edge_count_bucket, "1k-5k");
     assert_eq!(payload.command, "map");

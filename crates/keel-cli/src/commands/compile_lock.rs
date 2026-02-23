@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 
 /// Advisory lock guard for compile serialization.
@@ -14,44 +15,74 @@ impl Drop for CompileLock {
 }
 
 /// Try to acquire a compile lock. Returns None if another compile holds the lock.
-/// Uses a PID-based lockfile with stale lock detection.
+/// Uses a PID-based lockfile with atomic creation to avoid TOCTOU races.
 pub fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
     let lock_path = keel_dir.join("compile.lock");
     let pid = std::process::id();
 
-    // Check for existing lock
-    if lock_path.exists() {
-        if let Ok(contents) = fs::read_to_string(&lock_path) {
-            if let Ok(existing_pid) = contents.trim().parse::<u32>() {
-                if is_process_alive(existing_pid) {
-                    // Wait briefly (up to 2s) for the lock to release
-                    for _ in 0..20 {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        if !lock_path.exists() {
-                            break;
-                        }
+    // Try atomic create — fails if file already exists
+    match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+    {
+        Ok(mut file) => {
+            let _ = write!(file, "{}", pid);
+            return Some(CompileLock { path: lock_path });
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Lock file exists — check if holder is still alive
+        }
+        Err(_) => return None,
+    }
+
+    // Read the existing lock's PID
+    let existing_pid = fs::read_to_string(&lock_path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok());
+
+    if let Some(existing_pid) = existing_pid {
+        if is_process_alive(existing_pid) {
+            // Wait up to 2s for the lock to release, then retry once
+            for _ in 0..20 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                match OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&lock_path)
+                {
+                    Ok(mut file) => {
+                        let _ = write!(file, "{}", pid);
+                        return Some(CompileLock { path: lock_path });
                     }
-                    if lock_path.exists() {
-                        return None; // Still locked
-                    }
-                } else if verbose {
-                    eprintln!(
-                        "keel compile: removing stale lock from PID {}",
-                        existing_pid
-                    );
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(_) => return None,
                 }
             }
+            return None; // Still locked after 2s
         }
-        // Stale lock or unreadable — remove it
-        let _ = fs::remove_file(&lock_path);
+        // Stale lock — process is dead
+        if verbose {
+            eprintln!(
+                "keel compile: removing stale lock from PID {}",
+                existing_pid
+            );
+        }
     }
 
-    // Write our PID
-    if fs::write(&lock_path, pid.to_string()).is_err() {
-        return None;
+    // Stale or unreadable lock — remove and retry once
+    let _ = fs::remove_file(&lock_path);
+    match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+    {
+        Ok(mut file) => {
+            let _ = write!(file, "{}", pid);
+            Some(CompileLock { path: lock_path })
+        }
+        Err(_) => None,
     }
-
-    Some(CompileLock { path: lock_path })
 }
 
 /// Check if a process is still alive (cross-platform).

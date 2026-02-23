@@ -534,7 +534,7 @@ pub fn create_shared_engine(db_path: Option<&str>) -> SharedEngine {
 /// **Deprecated**: Use `mcp_stdio::run_stdio` for telemetry-instrumented version.
 pub fn run_stdio(store: SharedStore, db_path: Option<&str>) -> io::Result<()> {
     // Delegate to the instrumented version with no keel_dir (backwards compat)
-    crate::mcp_stdio::run_stdio(store, db_path, None)
+    crate::mcp_stdio::run_stdio(store, db_path, None, false)
 }
 
 #[cfg(test)]

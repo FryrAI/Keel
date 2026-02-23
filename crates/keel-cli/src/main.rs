@@ -11,6 +11,7 @@ mod auth;
 mod cli_args;
 mod commands;
 mod telemetry_recorder;
+mod update_check;
 
 use cli_args::{Cli, Commands};
 
@@ -36,6 +37,10 @@ fn main() {
     };
 
     let no_telemetry = cli.no_telemetry;
+
+    // Show update notification if a newer version was found by a previous check.
+    update_check::maybe_notify();
+
     let cmd_name = telemetry_recorder::command_name(&cli.command);
     let start = Instant::now();
     let client_name = telemetry_recorder::detect_client();
@@ -154,7 +159,7 @@ fn main() {
             Default::default(),
         ),
         Commands::Serve { mcp, http, watch } => (
-            commands::serve::run(&*formatter, cli.verbose, mcp, http, watch),
+            commands::serve::run(&*formatter, cli.verbose, mcp, http, watch, no_telemetry),
             Default::default(),
         ),
         Commands::Watch => (commands::watch::run(cli.verbose), Default::default()),
@@ -181,6 +186,9 @@ fn main() {
             Default::default(),
         ),
     };
+
+    // Check for updates in the background (at most once per 24h).
+    update_check::maybe_check_async(no_telemetry);
 
     // Record telemetry (silently fails — never blocks CLI)
     if !no_telemetry {

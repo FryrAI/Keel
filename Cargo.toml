@@ -1,6 +1,6 @@
 [package]
 name = "keel-tests"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 publish = false
 
@@ -16,7 +16,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license-file = "LICENSE"
 rust-version = "1.75"
@@ -84,12 +84,12 @@ walkdir = "2"
 globset = "0.4"
 
 # Internal crates
-keel-core = { version = "0.3.1", path = "crates/keel-core" }
-keel-parsers = { version = "0.3.1", path = "crates/keel-parsers" }
-keel-enforce = { version = "0.3.1", path = "crates/keel-enforce" }
-keel-cli = { version = "0.3.1", path = "crates/keel-cli" }
-keel-server = { version = "0.3.1", path = "crates/keel-server" }
-keel-output = { version = "0.3.1", path = "crates/keel-output" }
+keel-core = { version = "0.3.2", path = "crates/keel-core" }
+keel-parsers = { version = "0.3.2", path = "crates/keel-parsers" }
+keel-enforce = { version = "0.3.2", path = "crates/keel-enforce" }
+keel-cli = { version = "0.3.2", path = "crates/keel-cli" }
+keel-server = { version = "0.3.2", path = "crates/keel-server" }
+keel-output = { version = "0.3.2", path = "crates/keel-output" }
 
 [dependencies]
 keel-core = { path = "crates/keel-core" }
