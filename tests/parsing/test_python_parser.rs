@@ -231,7 +231,10 @@ def calculate(x: int, y: int) -> int:
         "docstring should be extracted from triple-quoted string"
     );
     assert!(
-        func.docstring.as_deref().unwrap().contains("Calculate the sum"),
+        func.docstring
+            .as_deref()
+            .unwrap()
+            .contains("Calculate the sum"),
         "docstring should contain the docstring text"
     );
 

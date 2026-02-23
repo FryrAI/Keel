@@ -175,17 +175,21 @@ fn extract_definitions(
                     body_node = Some(cap.node);
                 }
                 // Primary definition nodes — use for docstring extraction
-                "def.func" | "def.method" | "def.class" | "def.type"
-                | "def.struct" | "def.enum" | "def.trait" | "def.mod"
-                | "def.macro" => {
+                "def.func" | "def.method" | "def.class" | "def.type" | "def.struct"
+                | "def.enum" | "def.trait" | "def.mod" | "def.macro" => {
                     line_start = cap.node.start_position().row as u32 + 1;
                     line_end = cap.node.end_position().row as u32 + 1;
                     def_node = Some(cap.node);
                 }
                 // Secondary/parent nodes — only set lines if primary didn't
-                "def.impl" | "def.trait_impl" | "def.method.parent"
-                | "def.export" | "def.method.receiver" | "def.impl.type"
-                | "def.trait_impl.trait_name" | "def.trait_impl.type_name"
+                "def.impl"
+                | "def.trait_impl"
+                | "def.method.parent"
+                | "def.export"
+                | "def.method.receiver"
+                | "def.impl.type"
+                | "def.trait_impl.trait_name"
+                | "def.trait_impl.type_name"
                 | "def.trait_impl.body" => {
                     if def_node.is_none() {
                         line_start = cap.node.start_position().row as u32 + 1;
@@ -210,8 +214,7 @@ fn extract_definitions(
                         || params_text.contains(" string")
                         || params_text.contains(" bool")));
 
-            let docstring = def_node
-                .and_then(|node| extract_docstring(node, body_node, source));
+            let docstring = def_node.and_then(|node| extract_docstring(node, body_node, source));
 
             defs.push(Definition {
                 name: n,
@@ -254,10 +257,7 @@ fn extract_docstring(
     // sibling of the parent wrapper node (e.g. export_statement, decorated_definition)
     if let Some(parent) = def_node.parent() {
         let pk = parent.kind();
-        if pk == "export_statement"
-            || pk == "decorated_definition"
-            || pk == "declaration_list"
-        {
+        if pk == "export_statement" || pk == "decorated_definition" || pk == "declaration_list" {
             if let Some(doc) = extract_preceding_doc_comment(parent, source) {
                 return Some(doc);
             }
@@ -276,10 +276,7 @@ fn extract_docstring(
 
 /// Walk backwards from a node through preceding siblings (skipping attributes)
 /// to collect doc comment lines.
-fn extract_preceding_doc_comment(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<String> {
+fn extract_preceding_doc_comment(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut doc_lines = Vec::new();
     let mut sibling = node.prev_sibling();
 
@@ -291,9 +288,9 @@ fn extract_preceding_doc_comment(
             "line_comment" => {
                 let text = node_text(sib, source).trim_end();
                 if text.starts_with("///") {
-                    let content = text.strip_prefix("/// ").unwrap_or(
-                        text.strip_prefix("///").unwrap_or(text),
-                    );
+                    let content = text
+                        .strip_prefix("/// ")
+                        .unwrap_or(text.strip_prefix("///").unwrap_or(text));
                     doc_lines.push(content.to_string());
                 } else {
                     // Regular // comment — stop
@@ -331,9 +328,9 @@ fn extract_preceding_doc_comment(
                     break;
                 } else if text.starts_with("//") {
                     // Go-style // comment blocks
-                    let content = text.strip_prefix("// ").unwrap_or(
-                        text.strip_prefix("//").unwrap_or(text),
-                    );
+                    let content = text
+                        .strip_prefix("// ")
+                        .unwrap_or(text.strip_prefix("//").unwrap_or(text));
                     doc_lines.push(content.to_string());
                 } else {
                     break;
@@ -355,10 +352,7 @@ fn extract_preceding_doc_comment(
 }
 
 /// Extract a Python docstring from the first statement of a function body.
-fn extract_python_docstring(
-    body_node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<String> {
+fn extract_python_docstring(body_node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let first_child = body_node.named_child(0)?;
     if first_child.kind() != "expression_statement" {
         return None;
@@ -372,10 +366,7 @@ fn extract_python_docstring(
     let content = text
         .strip_prefix("\"\"\"")
         .and_then(|s| s.strip_suffix("\"\"\""))
-        .or_else(|| {
-            text.strip_prefix("'''")
-                .and_then(|s| s.strip_suffix("'''"))
-        })?;
+        .or_else(|| text.strip_prefix("'''").and_then(|s| s.strip_suffix("'''")))?;
     let trimmed = content.trim();
     if trimmed.is_empty() {
         return None;

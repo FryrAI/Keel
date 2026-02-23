@@ -13,7 +13,11 @@ pub fn py_has_type_hints(signature: &str) -> bool {
     // Check if there are any parameters that need type hints
     let params_inner = if let Some(paren_start) = params_part.find('(') {
         let parens = params_part[paren_start..].trim();
-        let inner = parens.strip_prefix('(').and_then(|s| s.strip_suffix(')')).unwrap_or("").trim();
+        let inner = parens
+            .strip_prefix('(')
+            .and_then(|s| s.strip_suffix(')'))
+            .unwrap_or("")
+            .trim();
         // Filter out self/cls which don't need annotations
         let meaningful: Vec<&str> = inner
             .split(',')

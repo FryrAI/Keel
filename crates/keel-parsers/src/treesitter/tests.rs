@@ -216,8 +216,7 @@ fn test_rust_docstring_extraction() {
 #[test]
 fn test_rust_docstring_with_attribute() {
     let mut parser = TreeSitterParser::new();
-    let source =
-        "/// Doc before attr.\n#[allow(dead_code)]\npub fn bar() {}\n";
+    let source = "/// Doc before attr.\n#[allow(dead_code)]\npub fn bar() {}\n";
     let result = parser
         .parse_file("rust", Path::new("test.rs"), source)
         .unwrap();
