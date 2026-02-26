@@ -1,26 +1,24 @@
-#!/usr/bin/env bash
-# keel post-edit hook — runs after file edits to catch violations early.
-#
-# Install: copy to .keel/hooks/post-edit.sh in your project root
-# Usage: called automatically by keel-aware editors/agents after saving a file
-#
-# Arguments:
-#   $1 — path to the edited file (relative to project root)
-
+#!/bin/bash
 set -euo pipefail
+# .keel/hooks/post-edit.sh
+# Shared post-edit hook for all Tier 1 tools (Claude Code, Cursor, Gemini CLI, Windsurf, Letta).
+# Reads tool_input from stdin, extracts file_path, runs keel compile.
+# Exit code 2 = blocking (stderr shown to LLM, must fix before proceeding).
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+[ -z "$FILE_PATH" ] && exit 0
 
-FILE="${1:-}"
-
-if [ -z "$FILE" ]; then
-    echo "Usage: post-edit.sh <file>" >&2
-    exit 2
+# Validate file path — reject metacharacters that could enable argument injection
+if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
+  echo "keel: rejected file path with unexpected characters: $FILE_PATH" >&2
+  exit 2
 fi
 
-# Only run for supported file types
-case "$FILE" in
-    *.ts|*.tsx|*.js|*.jsx|*.py|*.go|*.rs) ;;
-    *) exit 0 ;;
-esac
+RESULT=$(keel compile --delta --llm -- "$FILE_PATH" 2>&1)
+EXIT_CODE=$?
 
-# Run incremental compile on the changed file
-exec keel compile "$FILE"
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "$RESULT" >&2
+  exit 2  # Blocking: stderr shown to LLM, must fix before proceeding
+fi
+exit 0

@@ -148,7 +148,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
             .unwrap_or(serde_json::Value::Object(Default::default()));
 
         let new_config = KeelConfig {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             languages: languages.clone(),
             monorepo: monorepo_config.clone(),
             ..KeelConfig::default()
@@ -171,7 +171,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     } else {
         // Fresh init: write new config
         let config = KeelConfig {
-            version: "0.1.0".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             languages: languages.clone(),
             monorepo: monorepo_config.clone(),
             ..KeelConfig::default()

@@ -9,7 +9,7 @@
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "\"$PROJECT_DIR\"/.keel/hooks/post-edit.sh",
+        "command": ".keel/hooks/post-edit.sh",
         "type": "command"
       }
     ]

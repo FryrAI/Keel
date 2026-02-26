@@ -29,6 +29,12 @@ pub struct TelemetryEvent {
     pub circuit_breaker_events: u32,
     pub error_codes: HashMap<String, u32>,
     pub client_name: Option<String>,
+    /// Violations from previous compile that are now gone (agent acted on keel advice).
+    pub violations_resolved: u32,
+    /// Violations from previous compile that persist (agent ignored keel).
+    pub violations_persisted: u32,
+    /// New violations not present in previous compile.
+    pub violations_new: u32,
 }
 
 /// Per-agent adoption metrics.
@@ -108,6 +114,15 @@ impl TelemetryStore {
         let _ = self
             .conn
             .execute_batch("ALTER TABLE events ADD COLUMN client_name TEXT");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE events ADD COLUMN violations_resolved INTEGER DEFAULT 0");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE events ADD COLUMN violations_persisted INTEGER DEFAULT 0");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE events ADD COLUMN violations_new INTEGER DEFAULT 0");
         Ok(())
     }
 
@@ -120,8 +135,9 @@ impl TelemetryStore {
             "INSERT INTO events (timestamp, command, duration_ms, exit_code,
              error_count, warning_count, node_count, edge_count,
              language_mix, resolution_tiers, circuit_breaker_events,
-             error_codes, client_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             error_codes, client_name,
+             violations_resolved, violations_persisted, violations_new)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 event.timestamp,
                 event.command,
@@ -136,6 +152,9 @@ impl TelemetryStore {
                 event.circuit_breaker_events,
                 codes_json,
                 event.client_name,
+                event.violations_resolved,
+                event.violations_persisted,
+                event.violations_new,
             ],
         )?;
         Ok(())
@@ -147,7 +166,8 @@ impl TelemetryStore {
             "SELECT id, timestamp, command, duration_ms, exit_code,
                     error_count, warning_count, node_count, edge_count,
                     language_mix, resolution_tiers, circuit_breaker_events,
-                    error_codes, client_name
+                    error_codes, client_name,
+                    violations_resolved, violations_persisted, violations_new
              FROM events ORDER BY id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |row| {
@@ -169,6 +189,9 @@ impl TelemetryStore {
                 circuit_breaker_events: row.get(11)?,
                 error_codes: serde_json::from_str(&codes_str).unwrap_or_default(),
                 client_name: row.get(13)?,
+                violations_resolved: row.get(14)?,
+                violations_persisted: row.get(15)?,
+                violations_new: row.get(16)?,
             })
         })?;
         let mut events = Vec::new();
@@ -358,6 +381,9 @@ pub fn new_event(command: &str, duration_ms: u64, exit_code: i32) -> TelemetryEv
         circuit_breaker_events: 0,
         error_codes: HashMap::new(),
         client_name: None,
+        violations_resolved: 0,
+        violations_persisted: 0,
+        violations_new: 0,
     }
 }
 

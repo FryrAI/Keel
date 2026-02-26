@@ -148,6 +148,132 @@ fn test_explain_with_edges() {
     assert_eq!(result.resolution_chain[0].kind, "call");
 }
 
+// --- E001 false-positive regression tests ---
+
+#[test]
+fn test_e001_body_only_change_no_violation() {
+    // Same signature, different body, has callers → no E001
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let sig = "fn foo(x: i32)";
+    let old_hash = keel_core::hash::compute_hash(sig, "{ x + 1 }", "Doc for foo");
+    let mut node = make_node(1, &old_hash, "foo", sig, "src/lib.rs");
+    node.docstring = Some("Doc for foo".to_string());
+    store.insert_node(&node).unwrap();
+
+    let caller = make_node(2, "cal11111111", "bar", "fn bar()", "src/bar.rs");
+    store.insert_node(&caller).unwrap();
+
+    let mut store_mut = store;
+    store_mut
+        .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/bar.rs"))])
+        .unwrap();
+
+    let mut engine = EnforcementEngine::new(Box::new(store_mut));
+
+    // Change only the body, keep signature identical
+    let file = FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![make_definition("foo", sig, "{ x + 2 }", "src/lib.rs")],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(std::slice::from_ref(&file));
+    let e001_count = result.errors.iter().filter(|v| v.code == "E001").count();
+    assert_eq!(
+        e001_count, 0,
+        "E001 should NOT fire on body-only change"
+    );
+}
+
+#[test]
+fn test_e001_docstring_only_change_no_violation() {
+    // Same signature+body, different docstring → no E001
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let sig = "fn foo(x: i32)";
+    let body = "{ x + 1 }";
+    let old_hash = keel_core::hash::compute_hash(sig, body, "Old doc");
+    let mut node = make_node(1, &old_hash, "foo", sig, "src/lib.rs");
+    node.docstring = Some("Old doc".to_string());
+    store.insert_node(&node).unwrap();
+
+    let caller = make_node(2, "cal11111111", "bar", "fn bar()", "src/bar.rs");
+    store.insert_node(&caller).unwrap();
+
+    let mut store_mut = store;
+    store_mut
+        .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/bar.rs"))])
+        .unwrap();
+
+    let mut engine = EnforcementEngine::new(Box::new(store_mut));
+
+    // Change only the docstring
+    let mut def = make_definition("foo", sig, body, "src/lib.rs");
+    def.docstring = Some("New doc".to_string());
+
+    let file = FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(std::slice::from_ref(&file));
+    let e001_count = result.errors.iter().filter(|v| v.code == "E001").count();
+    assert_eq!(
+        e001_count, 0,
+        "E001 should NOT fire on docstring-only change"
+    );
+}
+
+#[test]
+fn test_e001_signature_and_body_change_fires() {
+    // Both signature and body change → E001 must still fire (regression guard)
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let old_hash = keel_core::hash::compute_hash("fn foo()", "{ 1 }", "Doc for foo");
+    let mut node = make_node(1, &old_hash, "foo", "fn foo()", "src/lib.rs");
+    node.docstring = Some("Doc for foo".to_string());
+    store.insert_node(&node).unwrap();
+
+    let caller = make_node(2, "cal11111111", "bar", "fn bar()", "src/bar.rs");
+    store.insert_node(&caller).unwrap();
+
+    let mut store_mut = store;
+    store_mut
+        .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/bar.rs"))])
+        .unwrap();
+
+    let mut engine = EnforcementEngine::new(Box::new(store_mut));
+
+    // Change both signature AND body
+    let file = FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![make_definition(
+            "foo",
+            "fn foo(x: i32)",
+            "{ x + 1 }",
+            "src/lib.rs",
+        )],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(std::slice::from_ref(&file));
+    assert!(
+        result.errors.iter().any(|v| v.code == "E001" && v.severity == "ERROR"),
+        "E001 should fire when signature changes"
+    );
+}
+
 // --- Integration tests that span compile + discovery ---
 
 #[test]
