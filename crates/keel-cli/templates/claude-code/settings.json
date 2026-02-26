@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.keel/hooks/post-edit.sh"
+            "command": ".keel/hooks/post-edit.sh"
           }
         ]
       }

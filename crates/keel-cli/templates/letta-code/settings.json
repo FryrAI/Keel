@@ -9,14 +9,14 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
-        "command": "\"$PROJECT_DIR\"/.keel/hooks/post-edit.sh",
+        "command": ".keel/hooks/post-edit.sh",
         "type": "command"
       }
     ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
-        "command": "\"$PROJECT_DIR\"/.keel/hooks/post-edit.sh",
+        "command": ".keel/hooks/post-edit.sh",
         "type": "command"
       }
     ]

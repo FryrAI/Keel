@@ -56,7 +56,7 @@ pub fn install_git_hook(root: &Path, verbose: bool) {
         return;
     }
 
-    let hook_content = "#!/bin/sh\n# Installed by keel init\nkeel compile \"$@\"\n";
+    let hook_content = "#!/bin/sh\n# Installed by keel init\nkeel compile --changed\n";
     match fs::write(&hook_path, hook_content) {
         Ok(_) => {
             #[cfg(unix)]
