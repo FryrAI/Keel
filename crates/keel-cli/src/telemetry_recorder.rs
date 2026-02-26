@@ -58,13 +58,15 @@ pub fn record_event(
     // Enforce 90-day retention — silently prune old events
     let _ = store.prune(90);
 
-    try_send_remote(config, &event);
+    try_send_remote(config, keel_dir, &event);
 }
 
 /// Sanitized payload for remote telemetry. Strips `id`, truncates timestamp
 /// to hour, and buckets node/edge counts to prevent fingerprinting.
 #[derive(Debug, serde::Serialize)]
 struct RemotePayload {
+    project_hash: String,
+    version: String,
     timestamp_hour: String,
     command: String,
     duration_ms: u64,
@@ -78,6 +80,17 @@ struct RemotePayload {
     circuit_breaker_events: u32,
     error_codes: std::collections::HashMap<String, u32>,
     client_name: Option<String>,
+}
+
+/// Compute a privacy-safe hash of the project root path.
+/// Uses xxhash64 of the canonicalized path, formatted as hex.
+fn compute_project_hash(keel_dir: &Path) -> String {
+    let project_root = keel_dir.parent().unwrap_or(keel_dir);
+    let canonical = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let hash = xxhash_rust::xxh64::xxh64(canonical.to_string_lossy().as_bytes(), 0);
+    format!("{:016x}", hash)
 }
 
 /// Truncate a timestamp to the hour: `2026-02-23 14:35:00` → `2026-02-23 14:00:00`.
@@ -106,8 +119,10 @@ fn bucket_count(n: u32) -> String {
 }
 
 /// Build a sanitized remote payload from a telemetry event.
-fn sanitize_for_remote(event: &telemetry::TelemetryEvent) -> RemotePayload {
+fn sanitize_for_remote(event: &telemetry::TelemetryEvent, keel_dir: &Path) -> RemotePayload {
     RemotePayload {
+        project_hash: compute_project_hash(keel_dir),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp_hour: truncate_to_hour(&event.timestamp),
         command: event.command.clone(),
         duration_ms: event.duration_ms,
@@ -131,13 +146,13 @@ fn sanitize_for_remote(event: &telemetry::TelemetryEvent) -> RemotePayload {
 /// When the user is logged in, dual-sends: anonymous aggregate first,
 /// then authenticated user-scoped telemetry. Both use the same thread
 /// and ureq Agent (connection pooling).
-fn try_send_remote(config: &KeelConfig, event: &telemetry::TelemetryEvent) {
+fn try_send_remote(config: &KeelConfig, keel_dir: &Path, event: &telemetry::TelemetryEvent) {
     if !config.telemetry.remote {
         return;
     }
 
     let endpoint = config.telemetry.effective_endpoint().to_string();
-    let payload = sanitize_for_remote(event);
+    let payload = sanitize_for_remote(event, keel_dir);
     let body = match serde_json::to_string(&payload) {
         Ok(b) => b,
         Err(_) => return,

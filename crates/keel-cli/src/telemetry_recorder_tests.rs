@@ -15,8 +15,9 @@ fn try_send_remote_skips_when_disabled() {
         ..Default::default()
     };
     let event = telemetry::new_event("compile", 100, 0);
+    let dir = tempfile::tempdir().unwrap();
     // Should return immediately without attempting network I/O
-    try_send_remote(&config, &event);
+    try_send_remote(&config, dir.path(), &event);
 }
 
 #[test]
@@ -386,7 +387,8 @@ fn sanitize_strips_id_and_truncates_timestamp() {
     event.node_count = 150;
     event.edge_count = 3000;
 
-    let payload = sanitize_for_remote(&event);
+    let dir = tempfile::tempdir().unwrap();
+    let payload = sanitize_for_remote(&event, dir.path());
 
     // id should not be present (RemotePayload has no id field)
     let json = serde_json::to_string(&payload).unwrap();
@@ -396,4 +398,6 @@ fn sanitize_strips_id_and_truncates_timestamp() {
     assert_eq!(payload.node_count_bucket, "101-500");
     assert_eq!(payload.edge_count_bucket, "1k-5k");
     assert_eq!(payload.command, "map");
+    assert!(!payload.project_hash.is_empty());
+    assert_eq!(payload.version, env!("CARGO_PKG_VERSION"));
 }
