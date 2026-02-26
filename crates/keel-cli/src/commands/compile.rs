@@ -215,12 +215,10 @@ pub fn run(
                 (delta.resolved_errors.len() + delta.resolved_warnings.len()) as u32;
             metrics.violations_persisted = {
                 let total_prev = prev.errors.len() + prev.warnings.len();
-                let resolved =
-                    delta.resolved_errors.len() + delta.resolved_warnings.len();
+                let resolved = delta.resolved_errors.len() + delta.resolved_warnings.len();
                 total_prev.saturating_sub(resolved) as u32
             };
-            metrics.violations_new =
-                (delta.new_errors.len() + delta.new_warnings.len()) as u32;
+            metrics.violations_new = (delta.new_errors.len() + delta.new_warnings.len()) as u32;
         }
     }
 

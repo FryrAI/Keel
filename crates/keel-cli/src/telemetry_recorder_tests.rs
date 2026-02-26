@@ -217,7 +217,10 @@ fn record_event_skips_when_telemetry_disabled() {
 
     // telemetry.db should not even be created
     let db_path = keel_dir.join("telemetry.db");
-    assert!(!db_path.exists(), "telemetry.db should not exist when disabled");
+    assert!(
+        !db_path.exists(),
+        "telemetry.db should not exist when disabled"
+    );
 }
 
 #[test]
@@ -427,14 +430,32 @@ fn sanitize_remote_payload_json_has_expected_field_names() {
     let json = serde_json::to_string(&payload).unwrap();
 
     // API-required fields must be present with correct names
-    assert!(json.contains("\"timestamp\":"), "must have 'timestamp' not 'timestamp_hour'");
-    assert!(json.contains("\"node_count\":"), "must have 'node_count' not 'node_count_bucket'");
-    assert!(json.contains("\"edge_count\":"), "must have 'edge_count' not 'edge_count_bucket'");
+    assert!(
+        json.contains("\"timestamp\":"),
+        "must have 'timestamp' not 'timestamp_hour'"
+    );
+    assert!(
+        json.contains("\"node_count\":"),
+        "must have 'node_count' not 'node_count_bucket'"
+    );
+    assert!(
+        json.contains("\"edge_count\":"),
+        "must have 'edge_count' not 'edge_count_bucket'"
+    );
 
     // Old field names must NOT appear
-    assert!(!json.contains("timestamp_hour"), "old field 'timestamp_hour' must not appear");
-    assert!(!json.contains("node_count_bucket"), "old field 'node_count_bucket' must not appear");
-    assert!(!json.contains("edge_count_bucket"), "old field 'edge_count_bucket' must not appear");
+    assert!(
+        !json.contains("timestamp_hour"),
+        "old field 'timestamp_hour' must not appear"
+    );
+    assert!(
+        !json.contains("node_count_bucket"),
+        "old field 'node_count_bucket' must not appear"
+    );
+    assert!(
+        !json.contains("edge_count_bucket"),
+        "old field 'edge_count_bucket' must not appear"
+    );
 }
 
 #[test]
@@ -467,8 +488,14 @@ fn sanitize_remote_payload_counts_are_raw_integers() {
     // Verify they serialize as JSON numbers, not strings
     let json = serde_json::to_string(&payload).unwrap();
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(v["node_count"].is_number(), "node_count must serialize as number");
-    assert!(v["edge_count"].is_number(), "edge_count must serialize as number");
+    assert!(
+        v["node_count"].is_number(),
+        "node_count must serialize as number"
+    );
+    assert!(
+        v["edge_count"].is_number(),
+        "edge_count must serialize as number"
+    );
     assert_eq!(v["node_count"].as_u64(), Some(7777));
     assert_eq!(v["edge_count"].as_u64(), Some(0));
 }
@@ -556,7 +583,6 @@ fn sanitize_remote_payload_json_snapshot() {
     assert_eq!(obj["error_count"].as_u64().unwrap(), 2);
     assert_eq!(obj["warning_count"].as_u64().unwrap(), 15);
     assert_eq!(obj["client_name"].as_str().unwrap(), "claude-code");
-
 }
 
 #[test]
