@@ -1,0 +1,48 @@
+{
+  "version": "0.3.5",
+  "languages": [
+    "python",
+    "rust",
+    "typescript"
+  ],
+  "enforce": {
+    "type_hints": true,
+    "docstrings": true,
+    "placement": true
+  },
+  "circuit_breaker": {
+    "max_failures": 3
+  },
+  "batch": {
+    "timeout_seconds": 60
+  },
+  "ignore_patterns": [],
+  "tier": "free",
+  "telemetry": {
+    "enabled": true,
+    "remote": true,
+    "endpoint": "https://keel.engineer/api/telemetry"
+  },
+  "naming_conventions": {
+    "style": null,
+    "prefixes": []
+  },
+  "monorepo": {
+    "enabled": true,
+    "kind": "CargoWorkspace",
+    "packages": [
+      "keel-core",
+      "keel-parsers",
+      "keel-enforce",
+      "keel-cli",
+      "keel-server",
+      "keel-output"
+    ]
+  },
+  "tier3": {
+    "enabled": false,
+    "scip_paths": {},
+    "lsp_commands": {},
+    "prefer_scip": true
+  }
+}
