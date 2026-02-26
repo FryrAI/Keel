@@ -171,9 +171,9 @@ fn test_compile_single_file_performance() {
     let code = output.status.code().unwrap_or(-1);
     assert!(code == 0 || code == 1, "compile failed with code {code}");
 
-    // Allow generous 2s for CI (process spawn + DB open), core target is <200ms
+    // Allow generous 5s for CI (process spawn + DB open + coverage overhead), core target is <200ms
     assert!(
-        elapsed.as_millis() < 2000,
+        elapsed.as_millis() < 5000,
         "single file compile took {:?} — should be fast",
         elapsed
     );

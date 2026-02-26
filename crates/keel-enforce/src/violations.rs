@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 use keel_parsers::resolver::FileIndex;
@@ -17,14 +19,19 @@ pub use crate::violations_extended::{
 /// If `cached_nodes` is provided, uses them instead of querying the store.
 pub fn check_broken_callers(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let nodes = store.get_nodes_in_file(&file.file_path);
-    check_broken_callers_with_cache(file, store, &nodes)
+    let empty: HashSet<&str> = HashSet::new();
+    check_broken_callers_with_cache(file, store, &nodes, &empty)
 }
 
 /// E001 implementation using pre-fetched nodes to avoid redundant queries.
+/// When `batch_files` is non-empty, callers whose source file is in the batch
+/// are skipped — the user modified both the function and its caller, so the
+/// caller was likely updated. Callers NOT in the batch still fire normally.
 pub fn check_broken_callers_with_cache(
     file: &FileIndex,
     store: &dyn GraphStore,
     existing_nodes: &[keel_core::types::GraphNode],
+    batch_files: &HashSet<&str>,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
 
@@ -64,16 +71,20 @@ pub fn check_broken_callers_with_cache(
             .filter(|e| e.kind == EdgeKind::Calls)
             .collect();
 
-        // Split into high-confidence (direct calls) and low-confidence (dynamic dispatch)
+        // Split into high-confidence (direct calls) and low-confidence (dynamic dispatch).
+        // Skip callers whose source file is in the compile batch — the user modified
+        // both files, so the caller was likely updated to match the new signature.
         let confident_callers: Vec<_> = caller_edges
             .iter()
             .filter(|e| e.confidence >= 0.80)
             .filter_map(|e| store.get_node_by_id(e.source_id))
+            .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
         let uncertain_callers: Vec<_> = caller_edges
             .iter()
             .filter(|e| e.confidence < 0.80)
             .filter_map(|e| store.get_node_by_id(e.source_id))
+            .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
 
         if confident_callers.is_empty() && uncertain_callers.is_empty() {

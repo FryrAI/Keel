@@ -3,6 +3,7 @@
 //! Silently fails — telemetry never blocks the CLI.
 
 use std::path::Path;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use keel_core::config::KeelConfig;
@@ -26,7 +27,9 @@ pub struct EventMetrics {
 }
 
 /// Record a telemetry event after a command completes.
-/// Silently returns on any failure — never blocks the CLI.
+/// Returns a JoinHandle for the remote send thread (if any).
+/// Caller should wait on this before process exit, otherwise the
+/// thread gets killed mid-request. Silently returns None on failure.
 pub fn record_event(
     keel_dir: &Path,
     config: &KeelConfig,
@@ -34,15 +37,15 @@ pub fn record_event(
     duration: Duration,
     exit_code: i32,
     metrics: EventMetrics,
-) {
+) -> Option<JoinHandle<()>> {
     if !config.telemetry.enabled {
-        return;
+        return None;
     }
 
     let db_path = keel_dir.join("telemetry.db");
     let store = match TelemetryStore::open(&db_path) {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return None,
     };
 
     let mut event = telemetry::new_event(command, duration.as_millis() as u64, exit_code);
@@ -64,7 +67,7 @@ pub fn record_event(
     // Enforce 90-day retention — silently prune old events
     let _ = store.prune(90);
 
-    try_send_remote(config, keel_dir, &event);
+    try_send_remote(config, keel_dir, &event)
 }
 
 /// Sanitized payload for remote telemetry. Strips `id` and truncates
@@ -91,9 +94,18 @@ struct RemotePayload {
     violations_new: u32,
 }
 
-/// Compute a privacy-safe hash of the project root path.
-/// Uses xxhash64 of the canonicalized path, formatted as hex.
-fn compute_project_hash(keel_dir: &Path) -> String {
+/// Compute a privacy-safe project identifier for telemetry deduplication.
+///
+/// If `config.telemetry_id` is set (generated at `keel init`), uses that directly
+/// so the same project produces the same hash regardless of checkout location.
+/// Falls back to xxhash64 of the canonicalized path for backward compatibility
+/// with projects that haven't re-initialized.
+fn compute_project_hash(keel_dir: &Path, config: &KeelConfig) -> String {
+    if let Some(ref id) = config.telemetry_id {
+        let hash = xxhash_rust::xxh64::xxh64(id.as_bytes(), 0);
+        return format!("{:016x}", hash);
+    }
+    // Backward compat: hash the filesystem path
     let project_root = keel_dir.parent().unwrap_or(keel_dir);
     let canonical = project_root
         .canonicalize()
@@ -113,9 +125,13 @@ fn to_iso8601_hour(ts: &str) -> String {
 }
 
 /// Build a sanitized remote payload from a telemetry event.
-fn sanitize_for_remote(event: &telemetry::TelemetryEvent, keel_dir: &Path) -> RemotePayload {
+fn sanitize_for_remote(
+    event: &telemetry::TelemetryEvent,
+    keel_dir: &Path,
+    config: &KeelConfig,
+) -> RemotePayload {
     RemotePayload {
-        project_hash: compute_project_hash(keel_dir),
+        project_hash: compute_project_hash(keel_dir, config),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: to_iso8601_hour(&event.timestamp),
         command: event.command.clone(),
@@ -136,23 +152,24 @@ fn sanitize_for_remote(event: &telemetry::TelemetryEvent, keel_dir: &Path) -> Re
     }
 }
 
-/// Fire-and-forget remote telemetry send.
-/// Spawns a background thread so the CLI never blocks on network I/O.
+/// Spawn remote telemetry send in a background thread.
+/// Returns the JoinHandle so the caller can wait before process exit.
 /// Silently swallows all errors — telemetry must never degrade UX.
-///
-/// When the user is logged in, dual-sends: anonymous aggregate first,
-/// then authenticated user-scoped telemetry. Both use the same thread
-/// and ureq Agent (connection pooling).
-fn try_send_remote(config: &KeelConfig, keel_dir: &Path, event: &telemetry::TelemetryEvent) {
+/// The thread has a 2s timeout so the CLI never hangs.
+fn try_send_remote(
+    config: &KeelConfig,
+    keel_dir: &Path,
+    event: &telemetry::TelemetryEvent,
+) -> Option<JoinHandle<()>> {
     if !config.telemetry.remote {
-        return;
+        return None;
     }
 
     let endpoint = config.telemetry.effective_endpoint().to_string();
-    let payload = sanitize_for_remote(event, keel_dir);
+    let payload = sanitize_for_remote(event, keel_dir, config);
     let body = match serde_json::to_string(&payload) {
         Ok(b) => b,
-        Err(_) => return,
+        Err(_) => return None,
     };
 
     // Load credentials before spawning thread (fast fs read, ~1ms)
@@ -160,9 +177,9 @@ fn try_send_remote(config: &KeelConfig, keel_dir: &Path, event: &telemetry::Tele
         .filter(|c| !c.is_expired())
         .map(|c| c.access_token);
 
-    std::thread::spawn(move || {
+    Some(std::thread::spawn(move || {
         let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .timeout_global(Some(std::time::Duration::from_secs(2)))
             .build()
             .new_agent();
 
@@ -181,7 +198,7 @@ fn try_send_remote(config: &KeelConfig, keel_dir: &Path, event: &telemetry::Tele
                 .header("Authorization", &format!("Bearer {token}"))
                 .send(body.as_bytes());
         }
-    });
+    }))
 }
 
 /// Detect the calling agent/client from environment variables.

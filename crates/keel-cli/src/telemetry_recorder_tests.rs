@@ -139,7 +139,72 @@ fn to_iso8601_hour_short_string() {
     assert_eq!(to_iso8601_hour("2026"), "2026");
 }
 
-// --- sanitize_for_remote tests ---
+// --- compute_project_hash tests ---
+
+#[test]
+fn compute_project_hash_uses_telemetry_id_when_set() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+
+    let config = KeelConfig {
+        telemetry_id: Some("stable_id_1234".to_string()),
+        ..Default::default()
+    };
+
+    // Two different paths with the same telemetry_id produce the same hash
+    let hash_a = compute_project_hash(dir_a.path(), &config);
+    let hash_b = compute_project_hash(dir_b.path(), &config);
+    assert_eq!(
+        hash_a, hash_b,
+        "same telemetry_id must produce same hash regardless of path"
+    );
+}
+
+#[test]
+fn compute_project_hash_falls_back_to_path_without_telemetry_id() {
+    // compute_project_hash hashes keel_dir.parent(), so we need nested dirs
+    // to ensure distinct parent paths.
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let keel_a = dir_a.path().join("project_a").join(".keel");
+    let keel_b = dir_b.path().join("project_b").join(".keel");
+    std::fs::create_dir_all(&keel_a).unwrap();
+    std::fs::create_dir_all(&keel_b).unwrap();
+
+    let config = KeelConfig {
+        telemetry_id: None,
+        ..Default::default()
+    };
+
+    // Two different project paths without telemetry_id produce different hashes
+    let hash_a = compute_project_hash(&keel_a, &config);
+    let hash_b = compute_project_hash(&keel_b, &config);
+    assert_ne!(
+        hash_a, hash_b,
+        "different paths must produce different hashes without telemetry_id"
+    );
+}
+
+#[test]
+fn compute_project_hash_different_telemetry_ids_differ() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let config_a = KeelConfig {
+        telemetry_id: Some("id_aaaa".to_string()),
+        ..Default::default()
+    };
+    let config_b = KeelConfig {
+        telemetry_id: Some("id_bbbb".to_string()),
+        ..Default::default()
+    };
+
+    let hash_a = compute_project_hash(dir.path(), &config_a);
+    let hash_b = compute_project_hash(dir.path(), &config_b);
+    assert_ne!(
+        hash_a, hash_b,
+        "different telemetry_ids must produce different hashes"
+    );
+}
 
 // --- record_event end-to-end tests ---
 
@@ -217,7 +282,10 @@ fn record_event_skips_when_telemetry_disabled() {
 
     // telemetry.db should not even be created
     let db_path = keel_dir.join("telemetry.db");
-    assert!(!db_path.exists(), "telemetry.db should not exist when disabled");
+    assert!(
+        !db_path.exists(),
+        "telemetry.db should not exist when disabled"
+    );
 }
 
 #[test]
@@ -401,7 +469,8 @@ fn sanitize_strips_id_and_truncates_timestamp() {
     event.edge_count = 3000;
 
     let dir = tempfile::tempdir().unwrap();
-    let payload = sanitize_for_remote(&event, dir.path());
+    let config = KeelConfig::default();
+    let payload = sanitize_for_remote(&event, dir.path(), &config);
 
     // id should not be present (RemotePayload has no id field)
     let json = serde_json::to_string(&payload).unwrap();
@@ -423,18 +492,37 @@ fn sanitize_remote_payload_json_has_expected_field_names() {
     event.edge_count = 1200;
 
     let dir = tempfile::tempdir().unwrap();
-    let payload = sanitize_for_remote(&event, dir.path());
+    let config = KeelConfig::default();
+    let payload = sanitize_for_remote(&event, dir.path(), &config);
     let json = serde_json::to_string(&payload).unwrap();
 
     // API-required fields must be present with correct names
-    assert!(json.contains("\"timestamp\":"), "must have 'timestamp' not 'timestamp_hour'");
-    assert!(json.contains("\"node_count\":"), "must have 'node_count' not 'node_count_bucket'");
-    assert!(json.contains("\"edge_count\":"), "must have 'edge_count' not 'edge_count_bucket'");
+    assert!(
+        json.contains("\"timestamp\":"),
+        "must have 'timestamp' not 'timestamp_hour'"
+    );
+    assert!(
+        json.contains("\"node_count\":"),
+        "must have 'node_count' not 'node_count_bucket'"
+    );
+    assert!(
+        json.contains("\"edge_count\":"),
+        "must have 'edge_count' not 'edge_count_bucket'"
+    );
 
     // Old field names must NOT appear
-    assert!(!json.contains("timestamp_hour"), "old field 'timestamp_hour' must not appear");
-    assert!(!json.contains("node_count_bucket"), "old field 'node_count_bucket' must not appear");
-    assert!(!json.contains("edge_count_bucket"), "old field 'edge_count_bucket' must not appear");
+    assert!(
+        !json.contains("timestamp_hour"),
+        "old field 'timestamp_hour' must not appear"
+    );
+    assert!(
+        !json.contains("node_count_bucket"),
+        "old field 'node_count_bucket' must not appear"
+    );
+    assert!(
+        !json.contains("edge_count_bucket"),
+        "old field 'edge_count_bucket' must not appear"
+    );
 }
 
 #[test]
@@ -443,7 +531,8 @@ fn sanitize_remote_payload_timestamp_is_iso8601() {
     event.timestamp = "2026-12-31 23:59:59".into();
 
     let dir = tempfile::tempdir().unwrap();
-    let payload = sanitize_for_remote(&event, dir.path());
+    let config = KeelConfig::default();
+    let payload = sanitize_for_remote(&event, dir.path(), &config);
 
     // Must be ISO 8601 with T separator and Z suffix, truncated to hour
     assert_eq!(payload.timestamp, "2026-12-31T23:00:00Z");
@@ -458,7 +547,8 @@ fn sanitize_remote_payload_counts_are_raw_integers() {
     event.edge_count = 0;
 
     let dir = tempfile::tempdir().unwrap();
-    let payload = sanitize_for_remote(&event, dir.path());
+    let config = KeelConfig::default();
+    let payload = sanitize_for_remote(&event, dir.path(), &config);
 
     // Counts must be raw u32 values, not bucket strings
     assert_eq!(payload.node_count, 7777);
@@ -467,8 +557,14 @@ fn sanitize_remote_payload_counts_are_raw_integers() {
     // Verify they serialize as JSON numbers, not strings
     let json = serde_json::to_string(&payload).unwrap();
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(v["node_count"].is_number(), "node_count must serialize as number");
-    assert!(v["edge_count"].is_number(), "edge_count must serialize as number");
+    assert!(
+        v["node_count"].is_number(),
+        "node_count must serialize as number"
+    );
+    assert!(
+        v["edge_count"].is_number(),
+        "edge_count must serialize as number"
+    );
     assert_eq!(v["node_count"].as_u64(), Some(7777));
     assert_eq!(v["edge_count"].as_u64(), Some(0));
 }
@@ -491,7 +587,8 @@ fn sanitize_remote_payload_preserves_all_fields() {
     event.error_codes.insert("E001".into(), 2);
 
     let dir = tempfile::tempdir().unwrap();
-    let payload = sanitize_for_remote(&event, dir.path());
+    let config = KeelConfig::default();
+    let payload = sanitize_for_remote(&event, dir.path(), &config);
 
     assert_eq!(payload.command, "compile");
     assert_eq!(payload.duration_ms, 250);
@@ -523,7 +620,8 @@ fn sanitize_remote_payload_json_snapshot() {
     event.error_codes.insert("E001".into(), 2);
 
     let dir = tempfile::tempdir().unwrap();
-    let payload = sanitize_for_remote(&event, dir.path());
+    let config = KeelConfig::default();
+    let payload = sanitize_for_remote(&event, dir.path(), &config);
     let json = serde_json::to_value(&payload).unwrap();
 
     // Verify the shape matches the API schema exactly
@@ -556,7 +654,6 @@ fn sanitize_remote_payload_json_snapshot() {
     assert_eq!(obj["error_count"].as_u64().unwrap(), 2);
     assert_eq!(obj["warning_count"].as_u64().unwrap(), 15);
     assert_eq!(obj["client_name"].as_str().unwrap(), "claude-code");
-
 }
 
 #[test]

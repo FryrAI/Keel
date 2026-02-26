@@ -183,10 +183,7 @@ fn test_e001_body_only_change_no_violation() {
 
     let result = engine.compile(std::slice::from_ref(&file));
     let e001_count = result.errors.iter().filter(|v| v.code == "E001").count();
-    assert_eq!(
-        e001_count, 0,
-        "E001 should NOT fire on body-only change"
-    );
+    assert_eq!(e001_count, 0, "E001 should NOT fire on body-only change");
 }
 
 #[test]
@@ -269,7 +266,10 @@ fn test_e001_signature_and_body_change_fires() {
 
     let result = engine.compile(std::slice::from_ref(&file));
     assert!(
-        result.errors.iter().any(|v| v.code == "E001" && v.severity == "ERROR"),
+        result
+            .errors
+            .iter()
+            .any(|v| v.code == "E001" && v.severity == "ERROR"),
         "E001 should fire when signature changes"
     );
 }

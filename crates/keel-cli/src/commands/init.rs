@@ -151,6 +151,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
             version: env!("CARGO_PKG_VERSION").to_string(),
             languages: languages.clone(),
             monorepo: monorepo_config.clone(),
+            telemetry_id: Some(generate_telemetry_id(&cwd)),
             ..KeelConfig::default()
         };
         let new_json: serde_json::Value = serde_json::to_value(&new_config)
@@ -174,6 +175,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
             version: env!("CARGO_PKG_VERSION").to_string(),
             languages: languages.clone(),
             monorepo: monorepo_config.clone(),
+            telemetry_id: Some(generate_telemetry_id(&cwd)),
             ..KeelConfig::default()
         };
         match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
@@ -396,6 +398,25 @@ fn update_gitignore(root: &Path, verbose: bool) {
             eprintln!("keel init: warning: failed to update .gitignore: {}", e);
         }
     }
+}
+
+/// Generate a stable telemetry ID for project deduplication.
+/// Uses xxhash with hostname, PID, timestamp, and path as entropy sources
+/// to produce a unique 32-hex-char identifier without requiring a `rand` dep.
+fn generate_telemetry_id(root: &Path) -> String {
+    let hostname = std::fs::read_to_string("/etc/hostname")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let pid = std::process::id();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let entropy = format!("{}:{}:{}:{}", hostname, pid, timestamp, root.display());
+    let hi = xxhash_rust::xxh64::xxh64(entropy.as_bytes(), 0);
+    let lo = xxhash_rust::xxh64::xxh64(entropy.as_bytes(), 42);
+    format!("{:016x}{:016x}", hi, lo)
 }
 
 /// Create a default .keelignore file if one doesn't exist.

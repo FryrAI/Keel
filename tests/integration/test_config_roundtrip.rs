@@ -70,7 +70,7 @@ fn test_init_creates_default_config() {
         serde_json::from_str(&config_str).expect("keel.json should be valid JSON");
 
     // Check default structure
-    assert_eq!(config["version"], "0.1.0");
+    assert_eq!(config["version"], env!("CARGO_PKG_VERSION"));
     assert!(
         config["languages"].is_array(),
         "should have languages array"
