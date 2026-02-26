@@ -414,3 +414,163 @@ fn sanitize_strips_id_and_truncates_timestamp() {
     assert!(!payload.project_hash.is_empty());
     assert_eq!(payload.version, env!("CARGO_PKG_VERSION"));
 }
+
+#[test]
+fn sanitize_remote_payload_json_has_expected_field_names() {
+    let mut event = telemetry::new_event("compile", 200, 0);
+    event.timestamp = "2026-02-26 09:15:42".into();
+    event.node_count = 500;
+    event.edge_count = 1200;
+
+    let dir = tempfile::tempdir().unwrap();
+    let payload = sanitize_for_remote(&event, dir.path());
+    let json = serde_json::to_string(&payload).unwrap();
+
+    // API-required fields must be present with correct names
+    assert!(json.contains("\"timestamp\":"), "must have 'timestamp' not 'timestamp_hour'");
+    assert!(json.contains("\"node_count\":"), "must have 'node_count' not 'node_count_bucket'");
+    assert!(json.contains("\"edge_count\":"), "must have 'edge_count' not 'edge_count_bucket'");
+
+    // Old field names must NOT appear
+    assert!(!json.contains("timestamp_hour"), "old field 'timestamp_hour' must not appear");
+    assert!(!json.contains("node_count_bucket"), "old field 'node_count_bucket' must not appear");
+    assert!(!json.contains("edge_count_bucket"), "old field 'edge_count_bucket' must not appear");
+}
+
+#[test]
+fn sanitize_remote_payload_timestamp_is_iso8601() {
+    let mut event = telemetry::new_event("compile", 100, 0);
+    event.timestamp = "2026-12-31 23:59:59".into();
+
+    let dir = tempfile::tempdir().unwrap();
+    let payload = sanitize_for_remote(&event, dir.path());
+
+    // Must be ISO 8601 with T separator and Z suffix, truncated to hour
+    assert_eq!(payload.timestamp, "2026-12-31T23:00:00Z");
+    assert!(payload.timestamp.contains('T'), "must use T separator");
+    assert!(payload.timestamp.ends_with('Z'), "must end with Z");
+}
+
+#[test]
+fn sanitize_remote_payload_counts_are_raw_integers() {
+    let mut event = telemetry::new_event("map", 300, 0);
+    event.node_count = 7777;
+    event.edge_count = 0;
+
+    let dir = tempfile::tempdir().unwrap();
+    let payload = sanitize_for_remote(&event, dir.path());
+
+    // Counts must be raw u32 values, not bucket strings
+    assert_eq!(payload.node_count, 7777);
+    assert_eq!(payload.edge_count, 0);
+
+    // Verify they serialize as JSON numbers, not strings
+    let json = serde_json::to_string(&payload).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(v["node_count"].is_number(), "node_count must serialize as number");
+    assert!(v["edge_count"].is_number(), "edge_count must serialize as number");
+    assert_eq!(v["node_count"].as_u64(), Some(7777));
+    assert_eq!(v["edge_count"].as_u64(), Some(0));
+}
+
+#[test]
+fn sanitize_remote_payload_preserves_all_fields() {
+    let mut event = telemetry::new_event("compile", 250, 1);
+    event.timestamp = "2026-02-26 10:30:00".into();
+    event.error_count = 5;
+    event.warning_count = 3;
+    event.node_count = 100;
+    event.edge_count = 200;
+    event.circuit_breaker_events = 2;
+    event.violations_resolved = 4;
+    event.violations_persisted = 1;
+    event.violations_new = 3;
+    event.client_name = Some("cursor".into());
+    event.language_mix.insert("python".into(), 80);
+    event.resolution_tiers.insert("tier1".into(), 90);
+    event.error_codes.insert("E001".into(), 2);
+
+    let dir = tempfile::tempdir().unwrap();
+    let payload = sanitize_for_remote(&event, dir.path());
+
+    assert_eq!(payload.command, "compile");
+    assert_eq!(payload.duration_ms, 250);
+    assert_eq!(payload.exit_code, 1);
+    assert_eq!(payload.error_count, 5);
+    assert_eq!(payload.warning_count, 3);
+    assert_eq!(payload.node_count, 100);
+    assert_eq!(payload.edge_count, 200);
+    assert_eq!(payload.circuit_breaker_events, 2);
+    assert_eq!(payload.violations_resolved, 4);
+    assert_eq!(payload.violations_persisted, 1);
+    assert_eq!(payload.violations_new, 3);
+    assert_eq!(payload.client_name, Some("cursor".into()));
+    assert_eq!(payload.language_mix.get("python"), Some(&80));
+    assert_eq!(payload.resolution_tiers.get("tier1"), Some(&90));
+    assert_eq!(payload.error_codes.get("E001"), Some(&2));
+}
+
+#[test]
+fn sanitize_remote_payload_json_snapshot() {
+    let mut event = telemetry::new_event("compile", 142, 1);
+    event.timestamp = "2026-02-26 10:22:33".into();
+    event.node_count = 3296;
+    event.edge_count = 5423;
+    event.error_count = 2;
+    event.warning_count = 15;
+    event.client_name = Some("claude-code".into());
+    event.language_mix.insert("rust".into(), 99);
+    event.error_codes.insert("E001".into(), 2);
+
+    let dir = tempfile::tempdir().unwrap();
+    let payload = sanitize_for_remote(&event, dir.path());
+    let json = serde_json::to_value(&payload).unwrap();
+
+    // Verify the shape matches the API schema exactly
+    assert!(json.is_object());
+    let obj = json.as_object().unwrap();
+
+    // Required fields exist
+    assert!(obj.contains_key("timestamp"));
+    assert!(obj.contains_key("node_count"));
+    assert!(obj.contains_key("edge_count"));
+    assert!(obj.contains_key("project_hash"));
+    assert!(obj.contains_key("version"));
+    assert!(obj.contains_key("command"));
+
+    // Types are correct
+    assert!(obj["timestamp"].is_string());
+    assert!(obj["node_count"].is_number());
+    assert!(obj["edge_count"].is_number());
+    assert!(obj["project_hash"].is_string());
+    assert!(obj["duration_ms"].is_number());
+    assert!(obj["exit_code"].is_number());
+
+    // Values are correct
+    assert_eq!(obj["timestamp"].as_str().unwrap(), "2026-02-26T10:00:00Z");
+    assert_eq!(obj["node_count"].as_u64().unwrap(), 3296);
+    assert_eq!(obj["edge_count"].as_u64().unwrap(), 5423);
+    assert_eq!(obj["command"].as_str().unwrap(), "compile");
+    assert_eq!(obj["duration_ms"].as_u64().unwrap(), 142);
+    assert_eq!(obj["exit_code"].as_i64().unwrap(), 1);
+    assert_eq!(obj["error_count"].as_u64().unwrap(), 2);
+    assert_eq!(obj["warning_count"].as_u64().unwrap(), 15);
+    assert_eq!(obj["client_name"].as_str().unwrap(), "claude-code");
+
+}
+
+#[test]
+fn to_iso8601_hour_midnight() {
+    assert_eq!(
+        to_iso8601_hour("2026-01-01 00:00:00"),
+        "2026-01-01T00:00:00Z"
+    );
+}
+
+#[test]
+fn to_iso8601_hour_end_of_day() {
+    assert_eq!(
+        to_iso8601_hour("2026-12-31 23:59:59"),
+        "2026-12-31T23:00:00Z"
+    );
+}
