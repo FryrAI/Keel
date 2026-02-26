@@ -115,58 +115,28 @@ fn command_name_logout() {
     assert_eq!(command_name(&cmd), "logout");
 }
 
-// --- truncate_to_hour tests ---
+// --- to_iso8601_hour tests ---
 
 #[test]
-fn truncate_to_hour_standard() {
+fn to_iso8601_hour_standard() {
     assert_eq!(
-        truncate_to_hour("2026-02-23 14:35:22"),
-        "2026-02-23 14:00:00"
+        to_iso8601_hour("2026-02-23 14:35:22"),
+        "2026-02-23T14:00:00Z"
     );
 }
 
 #[test]
-fn truncate_to_hour_already_on_hour() {
+fn to_iso8601_hour_already_on_hour() {
     assert_eq!(
-        truncate_to_hour("2026-02-23 14:00:00"),
-        "2026-02-23 14:00:00"
+        to_iso8601_hour("2026-02-23 14:00:00"),
+        "2026-02-23T14:00:00Z"
     );
 }
 
 #[test]
-fn truncate_to_hour_short_string() {
+fn to_iso8601_hour_short_string() {
     // Strings shorter than 13 chars returned as-is
-    assert_eq!(truncate_to_hour("2026"), "2026");
-}
-
-// --- bucket_count tests ---
-
-#[test]
-fn bucket_count_zero() {
-    assert_eq!(bucket_count(0), "0");
-}
-
-#[test]
-fn bucket_count_small() {
-    assert_eq!(bucket_count(1), "1-10");
-    assert_eq!(bucket_count(10), "1-10");
-}
-
-#[test]
-fn bucket_count_medium() {
-    assert_eq!(bucket_count(11), "11-50");
-    assert_eq!(bucket_count(50), "11-50");
-    assert_eq!(bucket_count(51), "51-100");
-    assert_eq!(bucket_count(100), "51-100");
-}
-
-#[test]
-fn bucket_count_large() {
-    assert_eq!(bucket_count(500), "101-500");
-    assert_eq!(bucket_count(1000), "501-1k");
-    assert_eq!(bucket_count(5000), "1k-5k");
-    assert_eq!(bucket_count(10000), "5k-10k");
-    assert_eq!(bucket_count(99999), "10k+");
+    assert_eq!(to_iso8601_hour("2026"), "2026");
 }
 
 // --- sanitize_for_remote tests ---
@@ -437,9 +407,9 @@ fn sanitize_strips_id_and_truncates_timestamp() {
     let json = serde_json::to_string(&payload).unwrap();
     assert!(!json.contains("\"id\""));
 
-    assert_eq!(payload.timestamp_hour, "2026-02-23 14:00:00");
-    assert_eq!(payload.node_count_bucket, "101-500");
-    assert_eq!(payload.edge_count_bucket, "1k-5k");
+    assert_eq!(payload.timestamp, "2026-02-23T14:00:00Z");
+    assert_eq!(payload.node_count, 150);
+    assert_eq!(payload.edge_count, 3000);
     assert_eq!(payload.command, "map");
     assert!(!payload.project_hash.is_empty());
     assert_eq!(payload.version, env!("CARGO_PKG_VERSION"));

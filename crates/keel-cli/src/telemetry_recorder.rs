@@ -67,20 +67,20 @@ pub fn record_event(
     try_send_remote(config, keel_dir, &event);
 }
 
-/// Sanitized payload for remote telemetry. Strips `id`, truncates timestamp
-/// to hour, and buckets node/edge counts to prevent fingerprinting.
+/// Sanitized payload for remote telemetry. Strips `id` and truncates
+/// timestamp to the hour.
 #[derive(Debug, serde::Serialize)]
 struct RemotePayload {
     project_hash: String,
     version: String,
-    timestamp_hour: String,
+    timestamp: String,
     command: String,
     duration_ms: u64,
     exit_code: i32,
     error_count: u32,
     warning_count: u32,
-    node_count_bucket: String,
-    edge_count_bucket: String,
+    node_count: u32,
+    edge_count: u32,
     language_mix: std::collections::HashMap<String, u32>,
     resolution_tiers: std::collections::HashMap<String, u32>,
     circuit_breaker_events: u32,
@@ -102,28 +102,13 @@ fn compute_project_hash(keel_dir: &Path) -> String {
     format!("{:016x}", hash)
 }
 
-/// Truncate a timestamp to the hour: `2026-02-23 14:35:00` → `2026-02-23 14:00:00`.
-fn truncate_to_hour(ts: &str) -> String {
+/// Format a timestamp as ISO 8601 truncated to the hour: `2026-02-23 14:35:22` → `2026-02-23T14:00:00Z`.
+fn to_iso8601_hour(ts: &str) -> String {
     // Timestamp format: YYYY-MM-DD HH:MM:SS (SQLite native)
     if ts.len() >= 13 {
-        format!("{}:00:00", &ts[..13])
+        format!("{}T{}:00:00Z", &ts[..10], &ts[11..13])
     } else {
         ts.to_string()
-    }
-}
-
-/// Bucket a count into a human-readable range to prevent fingerprinting.
-fn bucket_count(n: u32) -> String {
-    match n {
-        0 => "0".into(),
-        1..=10 => "1-10".into(),
-        11..=50 => "11-50".into(),
-        51..=100 => "51-100".into(),
-        101..=500 => "101-500".into(),
-        501..=1000 => "501-1k".into(),
-        1001..=5000 => "1k-5k".into(),
-        5001..=10000 => "5k-10k".into(),
-        _ => "10k+".into(),
     }
 }
 
@@ -132,14 +117,14 @@ fn sanitize_for_remote(event: &telemetry::TelemetryEvent, keel_dir: &Path) -> Re
     RemotePayload {
         project_hash: compute_project_hash(keel_dir),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        timestamp_hour: truncate_to_hour(&event.timestamp),
+        timestamp: to_iso8601_hour(&event.timestamp),
         command: event.command.clone(),
         duration_ms: event.duration_ms,
         exit_code: event.exit_code,
         error_count: event.error_count,
         warning_count: event.warning_count,
-        node_count_bucket: bucket_count(event.node_count),
-        edge_count_bucket: bucket_count(event.edge_count),
+        node_count: event.node_count,
+        edge_count: event.edge_count,
         language_mix: event.language_mix.clone(),
         resolution_tiers: event.resolution_tiers.clone(),
         circuit_breaker_events: event.circuit_breaker_events,
