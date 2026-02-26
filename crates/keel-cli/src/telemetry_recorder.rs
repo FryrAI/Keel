@@ -94,9 +94,18 @@ struct RemotePayload {
     violations_new: u32,
 }
 
-/// Compute a privacy-safe hash of the project root path.
-/// Uses xxhash64 of the canonicalized path, formatted as hex.
-fn compute_project_hash(keel_dir: &Path) -> String {
+/// Compute a privacy-safe project identifier for telemetry deduplication.
+///
+/// If `config.telemetry_id` is set (generated at `keel init`), uses that directly
+/// so the same project produces the same hash regardless of checkout location.
+/// Falls back to xxhash64 of the canonicalized path for backward compatibility
+/// with projects that haven't re-initialized.
+fn compute_project_hash(keel_dir: &Path, config: &KeelConfig) -> String {
+    if let Some(ref id) = config.telemetry_id {
+        let hash = xxhash_rust::xxh64::xxh64(id.as_bytes(), 0);
+        return format!("{:016x}", hash);
+    }
+    // Backward compat: hash the filesystem path
     let project_root = keel_dir.parent().unwrap_or(keel_dir);
     let canonical = project_root
         .canonicalize()
@@ -116,9 +125,13 @@ fn to_iso8601_hour(ts: &str) -> String {
 }
 
 /// Build a sanitized remote payload from a telemetry event.
-fn sanitize_for_remote(event: &telemetry::TelemetryEvent, keel_dir: &Path) -> RemotePayload {
+fn sanitize_for_remote(
+    event: &telemetry::TelemetryEvent,
+    keel_dir: &Path,
+    config: &KeelConfig,
+) -> RemotePayload {
     RemotePayload {
-        project_hash: compute_project_hash(keel_dir),
+        project_hash: compute_project_hash(keel_dir, config),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: to_iso8601_hour(&event.timestamp),
         command: event.command.clone(),
@@ -153,7 +166,7 @@ fn try_send_remote(
     }
 
     let endpoint = config.telemetry.effective_endpoint().to_string();
-    let payload = sanitize_for_remote(event, keel_dir);
+    let payload = sanitize_for_remote(event, keel_dir, config);
     let body = match serde_json::to_string(&payload) {
         Ok(b) => b,
         Err(_) => return None,

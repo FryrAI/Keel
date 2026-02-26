@@ -30,6 +30,10 @@ pub struct KeelConfig {
     pub monorepo: MonorepoConfig,
     #[serde(default)]
     pub tier3: Tier3Config,
+    /// Stable random identifier for telemetry project deduplication.
+    /// Generated at `keel init` time; avoids path-based hash inflation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry_id: Option<String>,
 }
 
 /// Product tier — gates feature access.
@@ -191,6 +195,7 @@ impl Default for KeelConfig {
             naming_conventions: NamingConventionsConfig::default(),
             monorepo: MonorepoConfig::default(),
             tier3: Tier3Config::default(),
+            telemetry_id: None,
         }
     }
 }
@@ -293,6 +298,7 @@ mod tests {
                 },
                 prefer_scip: false,
             },
+            telemetry_id: Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string()),
         };
 
         // Serialize to JSON
@@ -356,6 +362,10 @@ mod tests {
             &vec!["pyright-langserver", "--stdio"]
         );
         assert!(!roundtripped.tier3.prefer_scip);
+        assert_eq!(
+            roundtripped.telemetry_id,
+            Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string())
+        );
     }
 
     #[test]
@@ -445,6 +455,7 @@ mod tests {
         assert!(cfg.tier3.scip_paths.is_empty());
         assert!(cfg.tier3.lsp_commands.is_empty());
         assert!(cfg.tier3.prefer_scip);
+        assert!(cfg.telemetry_id.is_none());
     }
 
     #[test]
