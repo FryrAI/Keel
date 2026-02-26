@@ -52,7 +52,12 @@ pub fn check_broken_callers_with_cache(
             continue; // No change
         }
 
-        // Hash changed — find all callers with their edge confidence
+        // Body/docstring-only changes cannot break callers
+        if existing.signature == def.signature {
+            continue;
+        }
+
+        // Signature changed — find all callers with their edge confidence
         let incoming = store.get_edges(existing.id, EdgeDirection::Incoming);
         let caller_edges: Vec<_> = incoming
             .iter()

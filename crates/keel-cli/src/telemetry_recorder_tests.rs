@@ -377,6 +377,49 @@ fn record_event_multiple_commands_aggregate() {
     assert!((agg.avg_map_ms.unwrap() - 3000.0).abs() < 1.0);
 }
 
+// --- adoption metrics tests ---
+
+#[test]
+fn record_event_adoption_metrics_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let keel_dir = dir.path().to_path_buf();
+
+    let config = KeelConfig {
+        telemetry: TelemetryConfig {
+            enabled: true,
+            remote: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let metrics = EventMetrics {
+        error_count: 2,
+        warning_count: 1,
+        violations_resolved: 3,
+        violations_persisted: 1,
+        violations_new: 2,
+        client_name: Some("claude-code".into()),
+        ..Default::default()
+    };
+
+    record_event(
+        &keel_dir,
+        &config,
+        "compile",
+        std::time::Duration::from_millis(80),
+        1,
+        metrics,
+    );
+
+    let store = telemetry::TelemetryStore::open(&keel_dir.join("telemetry.db")).unwrap();
+    let events = store.recent_events(10).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].violations_resolved, 3);
+    assert_eq!(events[0].violations_persisted, 1);
+    assert_eq!(events[0].violations_new, 2);
+}
+
 // --- sanitize_for_remote tests ---
 
 #[test]

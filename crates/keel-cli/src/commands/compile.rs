@@ -205,6 +205,25 @@ pub fn run(
     let mut metrics = build_compile_metrics(&result, &target_files);
     metrics.circuit_breaker_events = cb_events;
 
+    // Compute adoption metrics: resolved/persisted/new vs previous snapshot.
+    // This runs on every compile, not just --delta, so telemetry always has the data.
+    {
+        use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};
+        if let Some(prev) = ViolationSnapshot::load(&keel_dir) {
+            let delta = compute_delta(&prev, &result);
+            metrics.violations_resolved =
+                (delta.resolved_errors.len() + delta.resolved_warnings.len()) as u32;
+            metrics.violations_persisted = {
+                let total_prev = prev.errors.len() + prev.warnings.len();
+                let resolved =
+                    delta.resolved_errors.len() + delta.resolved_warnings.len();
+                total_prev.saturating_sub(resolved) as u32
+            };
+            metrics.violations_new =
+                (delta.new_errors.len() + delta.new_warnings.len()) as u32;
+        }
+    }
+
     // Delta mode: diff against previous snapshot
     if delta {
         use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};

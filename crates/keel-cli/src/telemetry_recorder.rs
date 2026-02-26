@@ -20,6 +20,9 @@ pub struct EventMetrics {
     pub circuit_breaker_events: u32,
     pub error_codes: std::collections::HashMap<String, u32>,
     pub client_name: Option<String>,
+    pub violations_resolved: u32,
+    pub violations_persisted: u32,
+    pub violations_new: u32,
 }
 
 /// Record a telemetry event after a command completes.
@@ -52,6 +55,9 @@ pub fn record_event(
     event.circuit_breaker_events = metrics.circuit_breaker_events;
     event.error_codes = metrics.error_codes;
     event.client_name = metrics.client_name;
+    event.violations_resolved = metrics.violations_resolved;
+    event.violations_persisted = metrics.violations_persisted;
+    event.violations_new = metrics.violations_new;
 
     let _ = store.record(&event);
 
@@ -80,6 +86,9 @@ struct RemotePayload {
     circuit_breaker_events: u32,
     error_codes: std::collections::HashMap<String, u32>,
     client_name: Option<String>,
+    violations_resolved: u32,
+    violations_persisted: u32,
+    violations_new: u32,
 }
 
 /// Compute a privacy-safe hash of the project root path.
@@ -136,6 +145,9 @@ fn sanitize_for_remote(event: &telemetry::TelemetryEvent, keel_dir: &Path) -> Re
         circuit_breaker_events: event.circuit_breaker_events,
         error_codes: event.error_codes.clone(),
         client_name: event.client_name.clone(),
+        violations_resolved: event.violations_resolved,
+        violations_persisted: event.violations_persisted,
+        violations_new: event.violations_new,
     }
 }
 
