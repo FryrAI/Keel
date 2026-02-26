@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
 
@@ -51,17 +53,22 @@ impl EnforcementEngine {
         let file_paths: Vec<String> = files.iter().map(|f| f.file_path.clone()).collect();
         let mut node_changes: Vec<keel_core::types::NodeChange> = Vec::new();
 
+        // Build batch file set: callers in the same compile batch are skipped
+        // by E001/E004 since the user likely updated them in the same commit.
+        let batch_file_set: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
+
         for file in files {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
             let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
 
             let mut file_violations = Vec::new();
 
-            // E001: broken callers (uses cached nodes)
+            // E001: broken callers (uses cached nodes, batch-aware)
             file_violations.extend(violations::check_broken_callers_with_cache(
                 file,
                 &*self.store,
                 &existing_nodes,
+                &batch_file_set,
             ));
             // E002: missing type hints (gated by config)
             if self.enforce_config.type_hints {
@@ -71,11 +78,12 @@ impl EnforcementEngine {
             if self.enforce_config.docstrings {
                 file_violations.extend(violations::check_missing_docstring(file));
             }
-            // E004: function removed (uses cached nodes)
+            // E004: function removed (uses cached nodes, batch-aware)
             file_violations.extend(violations::check_removed_functions_with_cache(
                 file,
                 &*self.store,
                 &existing_nodes,
+                &batch_file_set,
             ));
             // E005: arity mismatch
             file_violations.extend(violations::check_arity_mismatch(file, &*self.store));

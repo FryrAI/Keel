@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 use keel_parsers::resolver::FileIndex;
@@ -9,14 +11,18 @@ use crate::violations_util::{count_call_args, count_params, extract_prefix, is_t
 /// Compares existing nodes in the store against current file definitions.
 pub fn check_removed_functions(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let nodes = store.get_nodes_in_file(&file.file_path);
-    check_removed_functions_with_cache(file, store, &nodes)
+    let empty: HashSet<&str> = HashSet::new();
+    check_removed_functions_with_cache(file, store, &nodes, &empty)
 }
 
 /// E004 implementation using pre-fetched nodes to avoid redundant queries.
+/// When `batch_files` is non-empty, callers whose source file is in the batch
+/// are skipped — the user likely updated or removed the call in the same commit.
 pub fn check_removed_functions_with_cache(
     file: &FileIndex,
     store: &dyn GraphStore,
     stored_nodes: &[keel_core::types::GraphNode],
+    batch_files: &HashSet<&str>,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
     let current_names: std::collections::HashSet<&str> =
@@ -30,12 +36,13 @@ pub fn check_removed_functions_with_cache(
             continue;
         }
 
-        // Function was removed — check for callers
+        // Function was removed — check for callers not in the compile batch
         let incoming = store.get_edges(node.id, EdgeDirection::Incoming);
         let callers: Vec<_> = incoming
             .iter()
             .filter(|e| e.kind == EdgeKind::Calls)
             .filter_map(|e| store.get_node_by_id(e.source_id))
+            .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
 
         if callers.is_empty() {
