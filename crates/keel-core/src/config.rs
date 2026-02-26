@@ -68,7 +68,7 @@ impl TelemetryConfig {
     pub fn effective_endpoint(&self) -> &str {
         self.endpoint
             .as_deref()
-            .unwrap_or("https://api.keel.engineer/telemetry")
+            .unwrap_or("https://keel.engineer/api/telemetry")
     }
 }
 
@@ -417,7 +417,7 @@ mod tests {
         assert!(cfg.endpoint.is_none());
         assert_eq!(
             cfg.effective_endpoint(),
-            "https://api.keel.engineer/telemetry"
+            "https://keel.engineer/api/telemetry"
         );
     }
 
