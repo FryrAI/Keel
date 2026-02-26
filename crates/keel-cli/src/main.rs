@@ -190,8 +190,9 @@ fn main() {
     // Check for updates in the background (at most once per 24h).
     update_check::maybe_check_async(no_telemetry);
 
-    // Record telemetry (silently fails — never blocks CLI)
-    if !no_telemetry {
+    // Record telemetry and wait for remote send before exit.
+    // The remote thread has a 2s timeout so the CLI never hangs.
+    let telemetry_handle = if !no_telemetry {
         if let Ok(cwd) = std::env::current_dir() {
             let keel_dir = cwd.join(".keel");
             if keel_dir.exists() {
@@ -205,9 +206,21 @@ fn main() {
                     start.elapsed(),
                     exit_code,
                     metrics,
-                );
+                )
+            } else {
+                None
             }
+        } else {
+            None
         }
+    } else {
+        None
+    };
+
+    // Wait for remote telemetry to finish before exiting.
+    // Without this, process::exit kills the send thread mid-request.
+    if let Some(handle) = telemetry_handle {
+        let _ = handle.join();
     }
 
     std::process::exit(exit_code);
