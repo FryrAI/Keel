@@ -1210,7 +1210,7 @@ dependencies = [
 
 [[package]]
 name = "keel-cli"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "keel-core"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "petgraph",
  "rusqlite",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "keel-enforce"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "keel-core",
  "keel-parsers",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "keel-output"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "keel-core",
  "keel-enforce",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "keel-parsers"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "globset",
  "ignore",
@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "keel-server"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axum",
  "keel-core",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "keel-tests"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "axum",
  "criterion",
