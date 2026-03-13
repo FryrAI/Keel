@@ -29,9 +29,13 @@ fn has_file_header(root_dir: &Path, file_path: &str) -> bool {
     let text = first_lines.join("\n").to_lowercase();
 
     // Check for structured header keywords
-    text.contains("purpose") || text.contains("//!") || text.contains("\"\"\"")
-        || text.contains("'''") || text.contains("@module")
-        || text.contains("@file") || text.contains("@description")
+    text.contains("purpose")
+        || text.contains("//!")
+        || text.contains("\"\"\"")
+        || text.contains("'''")
+        || text.contains("@module")
+        || text.contains("@file")
+        || text.contains("@description")
 }
 
 /// Regex-free check for cryptic names.
@@ -187,10 +191,7 @@ pub fn check_discoverability(
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,
             check: "missing_type_hints".into(),
-            message: format!(
-                "{} public functions missing type hints",
-                missing_type_hints
-            ),
+            message: format!("{} public functions missing type hints", missing_type_hints),
             tip: Some("Add type annotations to improve agent comprehension".into()),
             file: None,
             count: Some(missing_type_hints),

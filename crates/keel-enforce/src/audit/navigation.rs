@@ -7,10 +7,7 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::types::{AuditFinding, AuditSeverity};
 
-pub fn check_navigation(
-    store: &dyn GraphStore,
-    files: Option<&[String]>,
-) -> Vec<AuditFinding> {
+pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
     let modules = match files {
@@ -98,22 +95,18 @@ pub fn check_navigation(
             let incoming = store.get_edges(node.id, EdgeDirection::Incoming);
             let outgoing = store.get_edges(node.id, EdgeDirection::Outgoing);
 
-            let external_incoming = incoming
-                .iter()
-                .any(|e| {
-                    store
-                        .get_node_by_id(e.source_id)
-                        .map(|n| n.file_path != module.file_path)
-                        .unwrap_or(false)
-                });
-            let external_outgoing = outgoing
-                .iter()
-                .any(|e| {
-                    store
-                        .get_node_by_id(e.target_id)
-                        .map(|n| n.file_path != module.file_path)
-                        .unwrap_or(false)
-                });
+            let external_incoming = incoming.iter().any(|e| {
+                store
+                    .get_node_by_id(e.source_id)
+                    .map(|n| n.file_path != module.file_path)
+                    .unwrap_or(false)
+            });
+            let external_outgoing = outgoing.iter().any(|e| {
+                store
+                    .get_node_by_id(e.target_id)
+                    .map(|n| n.file_path != module.file_path)
+                    .unwrap_or(false)
+            });
 
             if external_incoming {
                 has_incoming = true;

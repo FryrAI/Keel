@@ -11,7 +11,7 @@ pub mod structure;
 use keel_core::store::GraphStore;
 
 use crate::types::{
-    AuditDimension, AuditOptions, AuditResult, AuditSeverity, compute_dimension_score,
+    compute_dimension_score, AuditDimension, AuditOptions, AuditResult, AuditSeverity,
 };
 
 /// Run a full audit of the repository and return a scored result.
@@ -27,7 +27,7 @@ pub fn audit_repo(
         options
             .dimension
             .as_ref()
-            .map_or(true, |d| d.eq_ignore_ascii_case(name))
+            .is_none_or(|d| d.eq_ignore_ascii_case(name))
     };
 
     if run_dim("structure") {
@@ -89,11 +89,10 @@ pub fn audit_repo(
 /// Returns true if the audit result should cause a non-zero exit.
 pub fn should_fail(result: &AuditResult, options: &AuditOptions) -> bool {
     if options.strict {
-        let has_fail = result.dimensions.iter().any(|d| {
-            d.findings
-                .iter()
-                .any(|f| f.severity == AuditSeverity::Fail)
-        });
+        let has_fail = result
+            .dimensions
+            .iter()
+            .any(|d| d.findings.iter().any(|f| f.severity == AuditSeverity::Fail));
         if has_fail {
             return true;
         }

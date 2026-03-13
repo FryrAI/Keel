@@ -52,12 +52,7 @@ pub fn run(
         dimension,
     };
 
-    let result = keel_enforce::audit::audit_repo(
-        &store,
-        &cwd,
-        &options,
-        changed_files.as_deref(),
-    );
+    let result = keel_enforce::audit::audit_repo(&store, &cwd, &options, changed_files.as_deref());
 
     if verbose {
         eprintln!(

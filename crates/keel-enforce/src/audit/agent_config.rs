@@ -40,9 +40,7 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
             severity: AuditSeverity::Fail,
             check: "no_claude_md".into(),
             message: "No CLAUDE.md found".into(),
-            tip: Some(
-                "Create CLAUDE.md with build commands, repo map, and conventions".into(),
-            ),
+            tip: Some("Create CLAUDE.md with build commands, repo map, and conventions".into()),
             file: None,
             count: None,
         });
@@ -55,9 +53,7 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
             severity: AuditSeverity::Tip,
             check: "no_claude_dir".into(),
             message: "No .claude/ directory found".into(),
-            tip: Some(
-                "Create .claude/ for settings, hooks, and slash commands".into(),
-            ),
+            tip: Some("Create .claude/ for settings, hooks, and slash commands".into()),
             file: None,
             count: None,
         });

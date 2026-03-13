@@ -5,10 +5,7 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::types::{AuditFinding, AuditSeverity};
 
-pub fn check_structure(
-    store: &dyn GraphStore,
-    files: Option<&[String]>,
-) -> Vec<AuditFinding> {
+pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
     let modules = match files {
@@ -52,18 +49,12 @@ pub fn check_structure(
         }
 
         // God file: >20 symbols
-        let symbol_count = nodes
-            .iter()
-            .filter(|n| n.kind != NodeKind::Module)
-            .count();
+        let symbol_count = nodes.iter().filter(|n| n.kind != NodeKind::Module).count();
         if symbol_count > 20 {
             findings.push(AuditFinding {
                 severity: AuditSeverity::Warn,
                 check: "god_file".into(),
-                message: format!(
-                    "{} — {} symbols (>20)",
-                    module.file_path, symbol_count
-                ),
+                message: format!("{} — {} symbols (>20)", module.file_path, symbol_count),
                 tip: Some("Split by responsibility into focused modules".into()),
                 file: Some(module.file_path.clone()),
                 count: None,
