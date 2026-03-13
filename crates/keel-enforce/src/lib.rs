@@ -10,6 +10,7 @@
 //! - W002: duplicate name (same function name in multiple modules)
 
 pub mod analyze;
+pub mod audit;
 pub mod batch;
 pub mod check;
 pub mod circuit_breaker;

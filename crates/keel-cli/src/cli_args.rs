@@ -200,6 +200,22 @@ pub(crate) enum Commands {
         file: String,
     },
 
+    /// AI-readiness scorecard: structure, discoverability, navigation, agent config
+    Audit {
+        /// Only audit git-changed files (fast, for hooks)
+        #[arg(long)]
+        changed: bool,
+        /// Exit 1 if any FAIL findings
+        #[arg(long)]
+        strict: bool,
+        /// Exit 1 if total score < threshold
+        #[arg(long)]
+        min_score: Option<u32>,
+        /// Only run one dimension: structure, discoverability, navigation, config
+        #[arg(long)]
+        dimension: Option<String>,
+    },
+
     /// Minimal structural context for safely editing a file
     Context {
         /// File path to get context for

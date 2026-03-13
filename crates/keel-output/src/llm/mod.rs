@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod audit;
 pub mod check;
 pub mod compile;
 pub mod discover;
@@ -10,8 +11,8 @@ pub mod violation;
 
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
-    FixResult, MapResult, NameResult,
+    AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
+    ExplainResult, FixResult, MapResult, NameResult,
 };
 
 pub struct LlmFormatter {
@@ -92,6 +93,10 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_analyze(&self, result: &AnalyzeResult) -> String {
         analyze::format_analyze(result)
+    }
+
+    fn format_audit(&self, result: &AuditResult) -> String {
+        audit::format_audit(result)
     }
 }
 

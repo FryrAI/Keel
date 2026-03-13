@@ -154,6 +154,22 @@ fn main() {
             commands::analyze::run(&*formatter, cli.verbose, file),
             Default::default(),
         ),
+        Commands::Audit {
+            changed,
+            strict,
+            min_score,
+            dimension,
+        } => (
+            commands::audit::run(
+                &*formatter,
+                cli.verbose,
+                changed,
+                strict,
+                min_score,
+                dimension,
+            ),
+            Default::default(),
+        ),
         Commands::Context { file } => (
             commands::context::run(&*formatter, cli.verbose, file, cli.json, cli.llm),
             Default::default(),

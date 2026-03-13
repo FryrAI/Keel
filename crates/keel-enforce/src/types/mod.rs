@@ -1,9 +1,11 @@
 mod analyze;
+mod audit;
 mod check;
 mod delta;
 mod fix_name;
 
 pub use analyze::*;
+pub use audit::*;
 pub use check::*;
 pub use delta::*;
 pub use fix_name::*;
