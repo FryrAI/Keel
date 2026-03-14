@@ -1,8 +1,8 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    AnalyzeResult, AuditResult, AuditSeverity, CheckResult, CompileDelta, CompileResult,
-    DiscoverResult, ExplainResult, FixResult, MapResult, NameResult,
+    AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
+    ExplainResult, FixResult, MapResult, NameResult,
 };
 
 pub struct HumanFormatter;
@@ -287,42 +287,7 @@ impl OutputFormatter for HumanFormatter {
     }
 
     fn format_audit(&self, result: &AuditResult) -> String {
-        let mut out = String::from("keel audit — AI Readiness Scorecard\n\n");
-
-        for dim in &result.dimensions {
-            let check = if dim.score == dim.max_score {
-                " ✓"
-            } else {
-                ""
-            };
-            out.push_str(&format!(
-                "  {} {:.<24} {}/{}{}\n",
-                dim_label(&dim.name),
-                "",
-                dim.score,
-                dim.max_score,
-                check,
-            ));
-
-            for f in &dim.findings {
-                let tag = match f.severity {
-                    AuditSeverity::Pass => continue,
-                    AuditSeverity::Tip => "[TIP] ",
-                    AuditSeverity::Warn => "[WARN]",
-                    AuditSeverity::Fail => "[FAIL]",
-                };
-                out.push_str(&format!("    {} {}\n", tag, f.message));
-                if let Some(ref tip) = f.tip {
-                    out.push_str(&format!("      Tip: {}\n", tip));
-                }
-            }
-        }
-
-        out.push_str(&format!(
-            "\n  Total: {}/{}\n",
-            result.total_score, result.max_score,
-        ));
-        out
+        crate::radar::format_audit_display(result)
     }
 
     fn format_analyze(&self, result: &AnalyzeResult) -> String {
@@ -363,12 +328,3 @@ impl OutputFormatter for HumanFormatter {
     }
 }
 
-fn dim_label(name: &str) -> &str {
-    match name {
-        "structure" => "Structure",
-        "discoverability" => "Discoverability",
-        "navigation" => "Navigation",
-        "config" => "Agent Config",
-        _ => name,
-    }
-}

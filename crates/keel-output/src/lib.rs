@@ -9,6 +9,7 @@ pub mod human;
 pub(crate) mod human_helpers;
 pub mod json;
 pub mod llm;
+pub mod radar;
 pub mod token_budget;
 
 use keel_enforce::types::{

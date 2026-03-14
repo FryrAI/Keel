@@ -99,13 +99,13 @@ fn test_gemini_md_includes_error_handling() {
 }
 
 #[test]
-fn test_gemini_settings_has_post_edit_hook() {
+fn test_gemini_settings_has_map_command() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
-        contents.contains("keel compile"),
-        "should reference keel compile on edit"
+        contents.contains("keel map"),
+        "should include keel map command in hooks"
     );
 }
 
