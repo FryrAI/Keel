@@ -174,14 +174,17 @@ jobs:
         run: |
           for crate in keel-core keel-parsers keel-enforce keel-output keel-server keel-cli; do
             echo "Publishing $crate..."
-            cargo publish -p "$crate" --allow-dirty || {
-              if cargo search "$crate" 2>/dev/null | grep -q "^$crate "; then
-                echo "$crate already published, continuing..."
-              else
-                echo "Failed to publish $crate"
-                exit 1
-              fi
-            }
+            output=$(cargo publish -p "$crate" --allow-dirty 2>&1) && true
+            status=$?
+            if [ $status -eq 0 ]; then
+              echo "$crate published successfully"
+            elif echo "$output" | grep -q "already exists"; then
+              echo "$crate already published, skipping..."
+            else
+              echo "$output"
+              echo "Failed to publish $crate"
+              exit 1
+            fi
             sleep 30
           done
         env:
