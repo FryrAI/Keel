@@ -1,11 +1,17 @@
 //! Structure dimension — file size, function size, god files, monoliths.
 
+use std::path::Path;
+
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::types::{AuditFinding, AuditSeverity};
 
-pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<AuditFinding> {
+pub fn check_structure(
+    store: &dyn GraphStore,
+    root_dir: &Path,
+    files: Option<&[String]>,
+) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
     let modules = match files {
@@ -157,6 +163,74 @@ pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<
                 });
             }
         }
+    }
+
+    // Dev workflow tooling check
+    let workflow_files: &[&str] = &[
+        "Makefile",
+        "makefile",
+        "GNUmakefile",
+        "Justfile",
+        "justfile",
+        "taskfile.yml",
+        "Taskfile.yml",
+    ];
+    let has_workflow_file = workflow_files.iter().any(|f| root_dir.join(f).exists());
+    let has_npm_scripts = root_dir.join("package.json").exists() && {
+        std::fs::read_to_string(root_dir.join("package.json"))
+            .map(|c| c.contains("\"scripts\""))
+            .unwrap_or(false)
+    };
+    let has_scripts_dir = root_dir.join("scripts").is_dir();
+    if !has_workflow_file && !has_npm_scripts && !has_scripts_dir {
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Warn,
+            check: "no_dev_workflow_tool".into(),
+            message: "No dev workflow automation found (Makefile, Justfile, scripts/)".into(),
+            tip: Some(
+                "Create a Makefile, Justfile, or scripts/ directory with common dev commands. \
+                 Example: make test, make lint, make build. Agents need discoverable CLI \
+                 commands for every workflow — GUIs and tribal knowledge don't work."
+                    .into(),
+            ),
+            file: None,
+            count: None,
+        });
+    }
+
+    // Layer-based organization detection
+    let layer_dirs: &[&str] = &[
+        "models",
+        "views",
+        "controllers",
+        "services",
+        "routes",
+        "handlers",
+        "middleware",
+        "serializers",
+    ];
+    let layer_count = layer_dirs
+        .iter()
+        .filter(|d| root_dir.join(d).is_dir())
+        .count();
+    if layer_count >= 3 {
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Tip,
+            check: "layer_organization".into(),
+            message: format!(
+                "Detected {} layer-based directories (models/, views/, etc.)",
+                layer_count,
+            ),
+            tip: Some(
+                "Layer-based organization (models/, views/, controllers/) scatters features \
+                 across directories. Consider grouping by feature instead (experiments/, \
+                 users/, billing/) where each feature dir contains its own models, routes, \
+                 and schemas. Agents modify fewer directories per task."
+                    .into(),
+            ),
+            file: None,
+            count: None,
+        });
     }
 
     findings

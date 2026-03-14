@@ -175,6 +175,35 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
             }
         }
 
+        // Bottleneck detection: modules with high fan-in AND high fan-out
+        let incoming_count = module_deps
+            .iter()
+            .filter(|(_, deps)| deps.contains(&module.file_path))
+            .count();
+        let outgoing_count = module_deps
+            .get(&module.file_path)
+            .map(|d| d.len())
+            .unwrap_or(0);
+
+        if incoming_count > 4 && outgoing_count > 4 {
+            findings.push(AuditFinding {
+                severity: AuditSeverity::Warn,
+                check: "bottleneck_module".into(),
+                message: format!(
+                    "{} — {} importers, {} dependencies (bottleneck)",
+                    module.file_path, incoming_count, outgoing_count,
+                ),
+                tip: Some(format!(
+                    "{} is imported by {} modules AND depends on {} others. Changes here \
+                     have wide blast radius. Run `keel analyze {}` to identify which \
+                     dependencies can be moved to separate modules.",
+                    module.file_path, incoming_count, outgoing_count, module.file_path,
+                )),
+                file: Some(module.file_path.clone()),
+                count: None,
+            });
+        }
+
         // Orphan file
         if !has_incoming && !has_outgoing {
             let non_module = nodes.iter().any(|n| n.kind != NodeKind::Module);

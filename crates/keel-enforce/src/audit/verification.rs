@@ -174,6 +174,51 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
             .map(|c| c.contains("[tool.ruff]") || c.contains("[tool.mypy]"))
             .unwrap_or(false)
     };
+    // Check 6: strict_types_configured
+    if has_lint_via_file || has_lint_via_pyproject {
+        let mut strict_missing = Vec::new();
+
+        // TypeScript: tsconfig.json should have "strict": true
+        let tsconfig_path = root_dir.join("tsconfig.json");
+        if tsconfig_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&tsconfig_path) {
+                if !content.contains("\"strict\": true") && !content.contains("\"strict\":true") {
+                    strict_missing.push("tsconfig.json missing \"strict\": true");
+                }
+            }
+        }
+
+        // Python: pyproject.toml [tool.mypy] should have strict = true
+        let pyproject_path = root_dir.join("pyproject.toml");
+        if pyproject_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
+                if content.contains("[tool.mypy]") && !content.contains("strict = true") {
+                    strict_missing.push("pyproject.toml [tool.mypy] missing strict = true");
+                }
+            }
+        }
+
+        if !strict_missing.is_empty() {
+            findings.push(AuditFinding {
+                severity: AuditSeverity::Warn,
+                check: "strict_types_configured".into(),
+                message: format!(
+                    "Type checker without strict mode: {}",
+                    strict_missing.join(", "),
+                ),
+                tip: Some(
+                    "Enable strict mode for maximum agent safety. TypeScript: set \
+                     \"strict\": true in tsconfig.json. Python: add strict = true \
+                     under [tool.mypy] in pyproject.toml. Strict types prevent agents \
+                     from introducing `any` types or untyped code paths."
+                        .into(),
+                ),
+                file: None,
+                count: None,
+            });
+        }
+    }
+
     if !has_lint_via_file && !has_lint_via_pyproject {
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,

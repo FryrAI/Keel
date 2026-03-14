@@ -36,6 +36,7 @@ fn has_file_header(root_dir: &Path, file_path: &str) -> bool {
         || text.contains("@module")
         || text.contains("@file")
         || text.contains("@description")
+        || text.contains("// package ") // Go convention
 }
 
 /// Check if file header includes related/sister file references.

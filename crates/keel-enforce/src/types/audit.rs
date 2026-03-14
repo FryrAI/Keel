@@ -64,7 +64,7 @@ pub struct AuditOptions {
 }
 
 /// Compute dimension score from findings.
-/// 5 = pristine, 4 = minor, 3 = noticeable debt, 2 = one FAIL or many WARNs,
+/// 5 = pristine, 4 = 1 WARN, 3 = 2-3 WARNs, 2 = 1 FAIL or 4+ WARNs,
 /// 1 = 2-3 FAILs, 0 = >3 FAILs
 pub fn compute_dimension_score(findings: &[AuditFinding]) -> u32 {
     let fails = findings
@@ -76,17 +76,12 @@ pub fn compute_dimension_score(findings: &[AuditFinding]) -> u32 {
         .filter(|f| f.severity == AuditSeverity::Warn)
         .count();
 
-    if fails == 0 && warns == 0 {
-        5
-    } else if fails == 0 && warns <= 2 {
-        4
-    } else if fails == 0 && warns <= 5 {
-        3
-    } else if fails <= 1 || (fails == 0 && warns > 5) {
-        2
-    } else if fails <= 3 {
-        1
-    } else {
-        0
+    match (fails, warns) {
+        (0, 0) => 5,
+        (0, 1) => 4,
+        (0, 2..=3) => 3,
+        (1, _) | (0, _) => 2, // 1 fail OR 4+ warns
+        (2..=3, _) => 1,
+        _ => 0,
     }
 }

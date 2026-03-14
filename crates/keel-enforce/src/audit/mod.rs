@@ -32,7 +32,7 @@ pub fn audit_repo(
     };
 
     if run_dim("structure") {
-        let findings = structure::check_structure(store, files);
+        let findings = structure::check_structure(store, root_dir, files);
         let score = compute_dimension_score(&findings);
         dimensions.push(AuditDimension {
             name: "structure".into(),
