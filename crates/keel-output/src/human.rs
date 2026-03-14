@@ -327,4 +327,3 @@ impl OutputFormatter for HumanFormatter {
         out
     }
 }
-

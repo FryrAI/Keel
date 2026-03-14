@@ -14,12 +14,7 @@ const MAX_RADIUS: f64 = 15.0;
 const INNER_W: usize = 55;
 
 /// Braille dot bit positions: [row_in_cell 0..4][col_in_cell 0..2]
-const BRAILLE_DOT: [[u8; 2]; 4] = [
-    [0x01, 0x08],
-    [0x02, 0x10],
-    [0x04, 0x20],
-    [0x40, 0x80],
-];
+const BRAILLE_DOT: [[u8; 2]; 4] = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];
 
 // ── BrailleCanvas ──────────────────────────────────────────────────────────────
 
@@ -71,10 +66,10 @@ impl BrailleCanvas {
                 (0..CANVAS_COLS)
                     .map(|col| {
                         let mut bits: u8 = 0;
-                        for py in 0..4 {
-                            for px in 0..2 {
+                        for (py, braille_row) in BRAILLE_DOT.iter().enumerate() {
+                            for (px, &dot) in braille_row.iter().enumerate().take(2) {
                                 if self.pixels[row * 4 + py][col * 2 + px] {
-                                    bits |= BRAILLE_DOT[py][px];
+                                    bits |= dot;
                                 }
                             }
                         }
@@ -92,12 +87,7 @@ fn diamond_at(r: f64) -> [(i32, i32); 4] {
     let cx = CENTER_X as i32;
     let cy = CENTER_Y as i32;
     let ri = r as i32;
-    [
-        (cx, cy - ri),
-        (cx + ri, cy),
-        (cx, cy + ri),
-        (cx - ri, cy),
-    ]
+    [(cx, cy - ri), (cx + ri, cy), (cx, cy + ri), (cx - ri, cy)]
 }
 
 /// Render a radar/spider chart. Axis order: [N, E, S, W].
@@ -223,12 +213,7 @@ fn center_str(text: &str, w: usize) -> String {
         return text.to_string();
     }
     let left = (w - len) / 2;
-    format!(
-        "{}{}{}",
-        " ".repeat(left),
-        text,
-        " ".repeat(w - len - left)
-    )
+    format!("{}{}{}", " ".repeat(left), text, " ".repeat(w - len - left))
 }
 
 fn truncate(s: &str, max_w: usize) -> String {
@@ -264,7 +249,7 @@ fn box_row(content: &str, w: usize) -> String {
 
 // ── Radar dimension lookup ─────────────────────────────────────────────────────
 
-fn find_radar_dims<'a>(dims: &'a [AuditDimension]) -> Option<[&'a AuditDimension; 4]> {
+fn find_radar_dims(dims: &[AuditDimension]) -> Option<[&AuditDimension; 4]> {
     let order = ["structure", "discoverability", "navigation", "config"];
     let found: Vec<_> = order
         .iter()
@@ -396,7 +381,7 @@ pub fn format_audit_display(result: &AuditResult) -> String {
                     AuditSeverity::Tip => "[TIP] ",
                     AuditSeverity::Warn => "[WARN]",
                     AuditSeverity::Fail => "[FAIL]",
-                    AuditSeverity::Pass => unreachable!(),
+                    AuditSeverity::Pass => continue,
                 };
                 let file_part = match &f.file {
                     Some(p) => format!("{}: ", p),

@@ -18,7 +18,7 @@ pub fn format_audit(result: &AuditResult) -> String {
     for dim in &result.dimensions {
         for f in &dim.findings {
             let severity = f.severity.to_string();
-            let mut line = format!("{}:{}", severity, f.check);
+            let mut line = format!("{}:{} {}", severity, f.check, f.message);
             if let Some(ref file) = f.file {
                 line.push_str(&format!(" {}", file));
             }

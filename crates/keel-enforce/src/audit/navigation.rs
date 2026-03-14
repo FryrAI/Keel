@@ -195,7 +195,7 @@ fn bfs_max_depth(store: &dyn GraphStore, start_id: u64) -> u32 {
         }
         // Cap BFS to avoid runaway on large graphs
         if depth >= 15 {
-            break;
+            continue;
         }
         let edges = store.get_edges(node_id, EdgeDirection::Outgoing);
         for edge in &edges {

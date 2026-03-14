@@ -17,6 +17,18 @@ pub fn run(
         }
     };
 
+    const VALID_DIMENSIONS: &[&str] = &["structure", "discoverability", "navigation", "config"];
+    if let Some(ref dim) = dimension {
+        if !VALID_DIMENSIONS.iter().any(|v| v.eq_ignore_ascii_case(dim)) {
+            eprintln!(
+                "keel audit: unknown dimension '{}'. Valid: {}",
+                dim,
+                VALID_DIMENSIONS.join(", ")
+            );
+            return 2;
+        }
+    }
+
     let keel_dir = cwd.join(".keel");
     if !keel_dir.exists() {
         eprintln!("keel audit: not initialized. Run `keel init` first.");
