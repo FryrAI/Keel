@@ -22,6 +22,9 @@ pub fn format_audit(result: &AuditResult) -> String {
             if let Some(ref file) = f.file {
                 line.push_str(&format!(" {}", file));
             }
+            if let Some(ref tip) = f.tip {
+                line.push_str(&format!(" tip={}", tip));
+            }
             if let Some(count) = f.count {
                 line.push_str(&format!(" count={}", count));
             }

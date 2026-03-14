@@ -1,7 +1,7 @@
 //! Audit module — AI-readiness scorecard for codebases.
 //!
 //! Scores a codebase across 4 dimensions: Structure, Discoverability,
-//! Navigation, and Agent Config. Each dimension scored 0–3 (max total: 12).
+//! Navigation, and Agent Config. Each dimension scored 0–5 (max total: 20).
 
 pub mod agent_config;
 pub mod discoverability;
@@ -36,7 +36,7 @@ pub fn audit_repo(
         dimensions.push(AuditDimension {
             name: "structure".into(),
             score,
-            max_score: 3,
+            max_score: 5,
             findings,
         });
     }
@@ -47,7 +47,7 @@ pub fn audit_repo(
         dimensions.push(AuditDimension {
             name: "discoverability".into(),
             score,
-            max_score: 3,
+            max_score: 5,
             findings,
         });
     }
@@ -58,7 +58,7 @@ pub fn audit_repo(
         dimensions.push(AuditDimension {
             name: "navigation".into(),
             score,
-            max_score: 3,
+            max_score: 5,
             findings,
         });
     }
@@ -69,7 +69,7 @@ pub fn audit_repo(
         dimensions.push(AuditDimension {
             name: "config".into(),
             score,
-            max_score: 3,
+            max_score: 5,
             findings,
         });
     }

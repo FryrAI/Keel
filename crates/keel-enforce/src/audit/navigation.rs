@@ -142,7 +142,7 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
                 let max_depth = bfs_max_depth(store, node.id);
                 if max_depth > 7 {
                     findings.push(AuditFinding {
-                        severity: AuditSeverity::Tip,
+                        severity: AuditSeverity::Warn,
                         check: "deep_call_chain".into(),
                         message: format!(
                             "`{}` in {} — call chain depth {} (>7 hops)",

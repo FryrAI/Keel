@@ -22,7 +22,7 @@ fn has_file_header(root_dir: &Path, file_path: &str) -> bool {
     let full_path = root_dir.join(file_path);
     let content = match std::fs::read_to_string(&full_path) {
         Ok(c) => c,
-        Err(_) => return true, // can't read = skip
+        Err(_) => return false, // can't read = flag as missing
     };
 
     let first_lines: Vec<&str> = content.lines().take(10).collect();
@@ -152,7 +152,7 @@ pub fn check_discoverability(
             let ratio = public_count as f64 / total_count as f64;
             if ratio > 0.8 {
                 findings.push(AuditFinding {
-                    severity: AuditSeverity::Tip,
+                    severity: AuditSeverity::Warn,
                     check: "public_ratio".into(),
                     message: format!(
                         "{} — {:.0}% public ({}/{})",

@@ -102,7 +102,7 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
                     let has_hooks = parsed.get("hooks").is_some();
                     if !has_hooks {
                         findings.push(AuditFinding {
-                            severity: AuditSeverity::Tip,
+                            severity: AuditSeverity::Warn,
                             check: "no_hooks".into(),
                             message: "No hooks configured in .claude/settings.json".into(),
                             tip: Some(
@@ -116,7 +116,7 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
             }
         } else {
             findings.push(AuditFinding {
-                severity: AuditSeverity::Tip,
+                severity: AuditSeverity::Warn,
                 check: "no_hooks".into(),
                 message: "No .claude/settings.json found".into(),
                 tip: Some(
