@@ -9,6 +9,7 @@
 pub mod http;
 pub mod mcp;
 mod mcp_analyze;
+mod mcp_audit;
 mod mcp_check;
 mod mcp_compile;
 mod mcp_context;

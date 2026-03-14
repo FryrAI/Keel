@@ -63,13 +63,13 @@ fn test_cursor_hooks_json_generation() {
 }
 
 #[test]
-fn test_cursor_hooks_json_has_file_edit_trigger() {
+fn test_cursor_hooks_json_has_map_command() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
     let contents = fs::read_to_string(&hooks).unwrap();
     assert!(
-        contents.contains("keel compile"),
-        "should reference keel compile on file edit"
+        contents.contains("keel map"),
+        "should include keel map command in hooks"
     );
 }
 

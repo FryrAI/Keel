@@ -12,6 +12,26 @@ use std::path::Path;
 use keel_core::config::KeelConfig;
 use keel_output::OutputFormatter;
 
+/// Selected enforcement hooks to install during init.
+#[derive(Debug, Clone)]
+pub struct HookSelection {
+    pub session_start: bool,
+    pub pre_commit: bool,
+    pub pre_commit_audit: bool,
+    pub on_edit: bool,
+}
+
+impl Default for HookSelection {
+    fn default() -> Self {
+        Self {
+            session_start: true,
+            pre_commit: true,
+            pre_commit_audit: true,
+            on_edit: false,
+        }
+    }
+}
+
 /// Detected AI coding tool present in the repository.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DetectedTool {
@@ -210,10 +230,6 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
         }
     }
 
-    // Install hooks
-    hook_script::install_git_hook(&cwd, verbose);
-    hook_script::install_post_edit_hook(&cwd, verbose);
-
     // Create .keelignore
     create_keelignore(&cwd, verbose);
 
@@ -259,13 +275,53 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
         selections.iter().map(|&i| &all_agents[i]).collect()
     };
 
+    // Hook selection: which enforcement hooks to enable
+    let hook_selection = if yes {
+        HookSelection::default()
+    } else {
+        let hook_items = [
+            "Session start \u{2014} inject structural map on session start (fast, recommended)",
+            "Pre-commit \u{2014} validate on git commit (recommended)",
+            "Pre-commit audit \u{2014} AI-readiness scorecard on commit",
+            "On-edit \u{2014} validate after every file edit (accurate but slower, may cause issues)",
+        ];
+        let hook_defaults = [true, true, true, false];
+
+        let hook_selections = dialoguer::MultiSelect::new()
+            .with_prompt("Select enforcement hooks")
+            .items(&hook_items)
+            .defaults(&hook_defaults)
+            .interact()
+            .unwrap_or_else(|_| vec![0, 1, 2]); // Non-interactive default
+
+        HookSelection {
+            session_start: hook_selections.contains(&0),
+            pre_commit: hook_selections.contains(&1),
+            pre_commit_audit: hook_selections.contains(&2),
+            on_edit: hook_selections.contains(&3),
+        }
+    };
+
+    if hook_selection.on_edit {
+        eprintln!(
+            "  \u{26a0} On-edit hooks enabled. This runs keel compile after every file edit."
+        );
+        eprintln!("    If sessions become slow, re-run `keel init` and deselect this option.");
+    }
+
+    // Install hooks based on selection
+    hook_script::install_git_hook(&cwd, verbose, &hook_selection);
+    if hook_selection.on_edit {
+        hook_script::install_post_edit_hook(&cwd, verbose);
+    }
+
     for tool in &selected_tools {
         let files = match tool {
-            DetectedTool::ClaudeCode => generators::generate_claude_code(&cwd),
-            DetectedTool::Cursor => generators::generate_cursor(&cwd),
-            DetectedTool::GeminiCli => generators::generate_gemini_cli(&cwd),
-            DetectedTool::Windsurf => generators::generate_windsurf(&cwd),
-            DetectedTool::LettaCode => generators::generate_letta_code(&cwd),
+            DetectedTool::ClaudeCode => generators::generate_claude_code(&cwd, &hook_selection),
+            DetectedTool::Cursor => generators::generate_cursor(&cwd, &hook_selection),
+            DetectedTool::GeminiCli => generators::generate_gemini_cli(&cwd, &hook_selection),
+            DetectedTool::Windsurf => generators::generate_windsurf(&cwd, &hook_selection),
+            DetectedTool::LettaCode => generators::generate_letta_code(&cwd, &hook_selection),
             DetectedTool::Antigravity => generators::generate_antigravity(&cwd),
             DetectedTool::Aider => generators::generate_aider(&cwd),
             DetectedTool::Copilot => generators::generate_copilot(&cwd),

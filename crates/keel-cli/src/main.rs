@@ -56,6 +56,7 @@ fn main() {
             strict,
             depth,
             tier3,
+            cached,
         } => commands::map::run(
             &*formatter,
             cli.verbose,
@@ -64,6 +65,7 @@ fn main() {
             strict,
             depth,
             tier3,
+            cached,
         ),
         Commands::Discover {
             query,
@@ -152,6 +154,22 @@ fn main() {
         ),
         Commands::Analyze { file } => (
             commands::analyze::run(&*formatter, cli.verbose, file),
+            Default::default(),
+        ),
+        Commands::Audit {
+            changed,
+            strict,
+            min_score,
+            dimension,
+        } => (
+            commands::audit::run(
+                &*formatter,
+                cli.verbose,
+                changed,
+                strict,
+                min_score,
+                dimension,
+            ),
             Default::default(),
         ),
         Commands::Context { file } => (

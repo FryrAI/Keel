@@ -179,7 +179,7 @@ fn test_mcp_server_registers_all_tools() {
     ));
 
     let tools = resp["result"].as_array().unwrap();
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 12);
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"keel/compile"));
@@ -193,6 +193,7 @@ fn test_mcp_server_registers_all_tools() {
     assert!(names.contains(&"keel/search"));
     assert!(names.contains(&"keel/name"));
     assert!(names.contains(&"keel/analyze"));
+    assert!(names.contains(&"keel/audit"));
 
     // Every tool has an inputSchema
     for tool in tools {

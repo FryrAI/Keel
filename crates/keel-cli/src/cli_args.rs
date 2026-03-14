@@ -60,6 +60,9 @@ pub(crate) enum Commands {
         /// Enable Tier 3 (LSP/SCIP) resolution for unresolved references
         #[arg(long)]
         tier3: bool,
+        /// Read from existing graph.db instead of re-parsing (fast, for hooks)
+        #[arg(long)]
+        cached: bool,
     },
 
     /// Look up a function's callers, callees, and context (accepts hash, file path, or --name)
@@ -198,6 +201,22 @@ pub(crate) enum Commands {
     Analyze {
         /// File path to analyze
         file: String,
+    },
+
+    /// AI-readiness scorecard: structure, discoverability, navigation, agent config
+    Audit {
+        /// Only audit git-changed files (fast, for hooks)
+        #[arg(long)]
+        changed: bool,
+        /// Exit 1 if any FAIL findings
+        #[arg(long)]
+        strict: bool,
+        /// Exit 1 if total score < threshold
+        #[arg(long)]
+        min_score: Option<u32>,
+        /// Only run one dimension: structure, discoverability, navigation, config
+        #[arg(long)]
+        dimension: Option<String>,
     },
 
     /// Minimal structural context for safely editing a file

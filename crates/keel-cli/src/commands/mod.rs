@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod audit;
 pub mod check;
 pub mod compile;
 pub mod compile_lock;
@@ -16,6 +17,7 @@ pub(crate) mod json_helpers;
 pub mod login;
 pub mod logout;
 pub mod map;
+pub mod map_cached;
 pub mod map_helpers;
 pub mod map_resolve;
 pub mod map_tier3;

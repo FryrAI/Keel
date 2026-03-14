@@ -1,8 +1,8 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
-    FixResult, MapResult, NameResult,
+    AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
+    ExplainResult, FixResult, MapResult, NameResult,
 };
 
 pub struct HumanFormatter;
@@ -284,6 +284,10 @@ impl OutputFormatter for HumanFormatter {
             delta.total_errors, delta.total_warnings,
         ));
         out
+    }
+
+    fn format_audit(&self, result: &AuditResult) -> String {
+        crate::radar::format_audit_display(result)
     }
 
     fn format_analyze(&self, result: &AnalyzeResult) -> String {

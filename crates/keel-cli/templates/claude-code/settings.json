@@ -11,18 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "keel map --llm"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|MultiEdit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".keel/hooks/post-edit.sh"
+            "command": "timeout 10 keel map --llm --cached"
           }
         ]
       }

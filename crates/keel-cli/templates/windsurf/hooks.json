@@ -2,14 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "keel map --llm",
-        "type": "command"
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "command": ".keel/hooks/post-edit.sh",
+        "command": "timeout 10 keel map --llm --cached",
         "type": "command"
       }
     ]

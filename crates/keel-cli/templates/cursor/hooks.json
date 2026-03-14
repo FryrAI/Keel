@@ -2,17 +2,9 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "keel map --llm",
+        "command": "timeout 10 keel map --llm --cached",
         "type": "command",
         "description": "Build keel structural map at session start"
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "command": ".keel/hooks/post-edit.sh",
-        "type": "command",
-        "description": "Run keel compile on edited file to validate structural integrity"
       }
     ]
   }

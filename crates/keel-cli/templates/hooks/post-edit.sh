@@ -14,7 +14,7 @@ if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
   exit 2
 fi
 
-RESULT=$(keel compile --delta --llm -- "$FILE_PATH" 2>&1)
+RESULT=$(timeout 15 keel compile --delta --llm -- "$FILE_PATH" 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then

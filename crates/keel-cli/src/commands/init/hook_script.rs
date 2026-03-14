@@ -1,7 +1,7 @@
 //! Hook script installation for keel init.
 //!
 //! Installs:
-//! - `.keel/hooks/post-edit.sh` — shared hook for Tier 1 tools
+//! - `.keel/hooks/post-edit.sh` — shared hook for Tier 1 tools (opt-in)
 //! - `.git/hooks/pre-commit` — git pre-commit hook
 
 use std::fs;
@@ -11,6 +11,7 @@ use std::path::Path;
 use std::os::unix::fs::PermissionsExt;
 
 use super::templates;
+use super::HookSelection;
 
 /// Install the shared post-edit hook script to `.keel/hooks/post-edit.sh`.
 pub fn install_post_edit_hook(root: &Path, verbose: bool) {
@@ -40,8 +41,12 @@ pub fn install_post_edit_hook(root: &Path, verbose: bool) {
     }
 }
 
-/// Install a git pre-commit hook that runs `keel compile`.
-pub fn install_git_hook(root: &Path, verbose: bool) {
+/// Install a git pre-commit hook based on hook selection.
+pub fn install_git_hook(root: &Path, verbose: bool, hooks: &HookSelection) {
+    if !hooks.pre_commit && !hooks.pre_commit_audit {
+        return; // No pre-commit hooks selected
+    }
+
     let hooks_dir = root.join(".git/hooks");
     if !hooks_dir.exists() {
         if verbose {
@@ -56,8 +61,15 @@ pub fn install_git_hook(root: &Path, verbose: bool) {
         return;
     }
 
-    let hook_content = "#!/bin/sh\n# Installed by keel init\nkeel compile --changed\n";
-    match fs::write(&hook_path, hook_content) {
+    let mut hook_content = String::from("#!/bin/bash\nset -e\n# Installed by keel init\n");
+    if hooks.pre_commit {
+        hook_content.push_str("keel compile --changed\n");
+    }
+    if hooks.pre_commit_audit {
+        hook_content.push_str("keel audit --changed || true\n");
+    }
+
+    match fs::write(&hook_path, &hook_content) {
         Ok(_) => {
             #[cfg(unix)]
             {

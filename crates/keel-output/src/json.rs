@@ -1,7 +1,7 @@
 use crate::OutputFormatter;
 use keel_enforce::types::{
-    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
-    FixResult, MapResult, NameResult,
+    AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
+    ExplainResult, FixResult, MapResult, NameResult,
 };
 
 pub struct JsonFormatter;
@@ -32,6 +32,9 @@ impl OutputFormatter for JsonFormatter {
         serde_json::to_string_pretty(delta).unwrap_or_default()
     }
     fn format_analyze(&self, result: &AnalyzeResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_audit(&self, result: &AuditResult) -> String {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
 }

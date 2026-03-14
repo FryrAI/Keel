@@ -9,11 +9,12 @@ pub mod human;
 pub(crate) mod human_helpers;
 pub mod json;
 pub mod llm;
+pub mod radar;
 pub mod token_budget;
 
 use keel_enforce::types::{
-    AnalyzeResult, CheckResult, CompileDelta, CompileResult, DiscoverResult, ExplainResult,
-    FixResult, MapResult, NameResult,
+    AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
+    ExplainResult, FixResult, MapResult, NameResult,
 };
 
 pub trait OutputFormatter {
@@ -26,4 +27,5 @@ pub trait OutputFormatter {
     fn format_check(&self, result: &CheckResult) -> String;
     fn format_compile_delta(&self, delta: &CompileDelta) -> String;
     fn format_analyze(&self, result: &AnalyzeResult) -> String;
+    fn format_audit(&self, result: &AuditResult) -> String;
 }

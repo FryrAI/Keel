@@ -109,13 +109,13 @@ fn test_claude_code_hook_config_has_session_start() {
 }
 
 #[test]
-fn test_claude_code_hook_config_has_post_tool_use() {
+fn test_claude_code_hook_post_tool_use_is_opt_in() {
     let dir = init_project();
     let settings = dir.path().join(".claude/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
-        contents.contains("PostToolUse") || contents.contains("post_tool_use"),
-        "should have PostToolUse event config"
+        !contents.contains("PostToolUse"),
+        "default config should not include PostToolUse (opt-in via on_edit)"
     );
 }
 
@@ -131,24 +131,24 @@ fn test_claude_code_hook_output_format_is_llm() {
 }
 
 #[test]
-fn test_claude_code_hook_fires_on_write_tool() {
+fn test_claude_code_hook_has_map_command() {
     let dir = init_project();
     let settings = dir.path().join(".claude/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
-        contents.contains("Write") || contents.contains("write"),
-        "should trigger on Write tool"
+        contents.contains("keel map"),
+        "should include keel map command in hooks"
     );
 }
 
 #[test]
-fn test_claude_code_hook_fires_on_edit_tool() {
+fn test_claude_code_hook_uses_cached_map() {
     let dir = init_project();
     let settings = dir.path().join(".claude/settings.json");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
-        contents.contains("Edit") || contents.contains("edit"),
-        "should trigger on Edit tool"
+        contents.contains("keel map --llm --cached"),
+        "should use --cached flag for session start map"
     );
 }
 

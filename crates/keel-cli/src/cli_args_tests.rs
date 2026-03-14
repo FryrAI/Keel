@@ -69,12 +69,14 @@ fn parse_map_defaults() {
             strict,
             depth,
             tier3,
+            cached,
         } => {
             assert!(!llm_verbose);
             assert!(scope.is_none());
             assert!(!strict);
             assert_eq!(depth, 1);
             assert!(!tier3);
+            assert!(!cached);
         }
         _ => panic!("expected Map"),
     }
@@ -100,12 +102,14 @@ fn parse_map_all_flags() {
             strict,
             depth,
             tier3,
+            cached,
         } => {
             assert!(llm_verbose);
             assert_eq!(scope.as_deref(), Some("auth,core"));
             assert!(strict);
             assert_eq!(depth, 2);
             assert!(tier3);
+            assert!(!cached);
         }
         _ => panic!("expected Map"),
     }
@@ -491,6 +495,17 @@ fn parse_name_with_options() {
 #[test]
 fn parse_name_missing_description() {
     parse_err(&["keel", "name"]);
+}
+
+// --- Map --cached ---
+
+#[test]
+fn parse_map_cached() {
+    let cli = parse(&["keel", "map", "--cached"]);
+    match cli.command {
+        Commands::Map { cached, .. } => assert!(cached),
+        _ => panic!("expected Map"),
+    }
 }
 
 // --- Depth flags ---
