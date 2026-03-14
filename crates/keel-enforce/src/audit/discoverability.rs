@@ -38,6 +38,37 @@ fn has_file_header(root_dir: &Path, file_path: &str) -> bool {
         || text.contains("@description")
 }
 
+/// Check if file header includes related/sister file references.
+fn has_related_in_header(root_dir: &Path, file_path: &str) -> bool {
+    let full_path = root_dir.join(file_path);
+    let content = match std::fs::read_to_string(&full_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let header: String = content
+        .lines()
+        .take(15)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase();
+
+    let has_keyword = ["related", "see also", "sister", "depends on", "used by"]
+        .iter()
+        .any(|kw| header.contains(kw));
+
+    let has_file_ref = content.lines().take(15).any(|line| {
+        let l = line.to_lowercase();
+        l.contains(".rs")
+            || l.contains(".py")
+            || l.contains(".ts")
+            || l.contains(".go")
+            || l.contains(".js")
+    });
+
+    has_keyword && has_file_ref
+}
+
 /// Regex-free check for cryptic names.
 fn is_cryptic_name(name: &str) -> bool {
     name.len() < 3
@@ -211,8 +242,40 @@ pub fn check_discoverability(
             check: "missing_file_header".into(),
             message: format!("{} source files missing header comments", count),
             tip: Some(format!(
-                "Add a module-level header. For Rust: //! Purpose: <what this module does>. \
-                 For Python: \"\"\"<description>.\"\"\" at top. Example files missing: {}",
+                "Add a module-level header with purpose AND related files. For Rust:\n  \
+                 //! Purpose: <what this module does>\n  //! Related: types.rs, store.rs\n\
+                 For Python: \"\"\"<description>. See also: models.py\"\"\"\n\
+                 Example files missing: {}",
+                first_3.join(", "),
+            )),
+            file: None,
+            count: Some(count),
+        });
+    }
+
+    // Check for missing "related files" in headers (separate from missing headers entirely)
+    let mut missing_related = Vec::new();
+    for module in &modules {
+        let path = &module.file_path;
+        if comment_prefix(path).is_some()
+            && has_file_header(root_dir, path)
+            && !has_related_in_header(root_dir, path)
+        {
+            missing_related.push(path.clone());
+        }
+    }
+
+    if !missing_related.is_empty() {
+        let count = missing_related.len() as u32;
+        let first_3: Vec<_> = missing_related.iter().take(3).cloned().collect();
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Warn,
+            check: "missing_related_files".into(),
+            message: format!("{} files have headers but no related-files list", count),
+            tip: Some(format!(
+                "Add related/sister file references to module headers so agents can navigate. \
+                 For Rust: //! Related: types.rs, store.rs. For Python: See also: models.py. \
+                 Files missing related links: {}",
                 first_3.join(", "),
             )),
             file: None,

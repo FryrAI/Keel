@@ -119,6 +119,101 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
                     count: None,
                 });
             }
+
+            // Content quality: check for repo map / architecture section
+            let has_repo_map = [
+                "## architecture",
+                "## project structure",
+                "## crates",
+                "## modules",
+                "## layout",
+                "## repo map",
+                "crate layout",
+                "directory structure",
+            ]
+            .iter()
+            .any(|pat| lower.contains(pat));
+            if !has_repo_map {
+                findings.push(AuditFinding {
+                    severity: AuditSeverity::Warn,
+                    check: "no_repo_map".into(),
+                    message: format!("{} has no architecture/repo map section", instruction_file),
+                    tip: Some(format!(
+                        "Add a ## Architecture or ## Project Structure section to {} showing \
+                         where key modules live. Example:\n  ## Architecture\n  src/\n    \
+                         api/     # HTTP handlers\n    models/  # Domain types\n    store/   \
+                         # Database layer\n\
+                         Agents need a map to navigate the codebase.",
+                        instruction_file,
+                    )),
+                    file: Some(instruction_file.to_string()),
+                    count: None,
+                });
+            }
+
+            // Content quality: check for definition of done
+            let has_dod = [
+                "definition of done",
+                "before merging",
+                "before committing",
+                "checklist",
+                "required before",
+                "## done",
+                "must pass",
+            ]
+            .iter()
+            .any(|pat| lower.contains(pat));
+            if !has_dod {
+                findings.push(AuditFinding {
+                    severity: AuditSeverity::Warn,
+                    check: "no_definition_of_done".into(),
+                    message: format!("{} has no definition of done", instruction_file),
+                    tip: Some(format!(
+                        "Add a ## Definition of Done section to {} specifying what must be true \
+                         before the agent stops. Example:\n  ## Definition of Done\n  \
+                         - All tests pass\n  - No clippy warnings\n  \
+                         - PR description includes summary\n\
+                         Without this, agents don't know when they're finished.",
+                        instruction_file,
+                    )),
+                    file: Some(instruction_file.to_string()),
+                    count: None,
+                });
+            }
+
+            // Content quality: check for constraints / "do not" list
+            let has_constraints = [
+                "do not",
+                "don't",
+                "must not",
+                "never ",
+                "## constraints",
+                "## rules",
+                "forbidden",
+                "prohibited",
+            ]
+            .iter()
+            .any(|pat| lower.contains(pat));
+            if !has_constraints {
+                findings.push(AuditFinding {
+                    severity: AuditSeverity::Tip,
+                    check: "no_constraints_list".into(),
+                    message: format!(
+                        "{} has no explicit constraints or 'do not' rules",
+                        instruction_file
+                    ),
+                    tip: Some(format!(
+                        "Add explicit constraints to {} so agents know what to avoid. Example:\n  \
+                         ## Constraints\n  - Do NOT modify test fixtures\n  \
+                         - Never commit .env files\n  \
+                         - Do not add dependencies without approval\n\
+                         Constraints prevent agents from making costly mistakes.",
+                        instruction_file,
+                    )),
+                    file: Some(instruction_file.to_string()),
+                    count: None,
+                });
+            }
         }
     } else if !found_instruction_dir {
         findings.push(AuditFinding {
@@ -235,5 +330,56 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
         }
     }
 
+    // Check for progressive disclosure (folder-level rules)
+    let has_folder_rules = root_dir.join(".claude/rules").is_dir()
+        || root_dir.join(".cursor/rules").is_dir()
+        || has_subfolder_claude_md(root_dir);
+    if !has_folder_rules {
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Tip,
+            check: "no_progressive_disclosure".into(),
+            message: "No folder-level rules for progressive disclosure".into(),
+            tip: Some(
+                "Create .claude/rules/ with focused rule files for different parts of the \
+                 codebase. Example: .claude/rules/testing.md, .claude/rules/api.md. This keeps \
+                 root CLAUDE.md lean while giving agents context-specific guidance."
+                    .into(),
+            ),
+            file: None,
+            count: None,
+        });
+    }
+
     findings
+}
+
+fn has_subfolder_claude_md(root_dir: &Path) -> bool {
+    let entries = match std::fs::read_dir(root_dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        let name_str = name.to_str().unwrap_or("");
+        if name_str.starts_with('.') || name_str == "node_modules" || name_str == "target" {
+            continue;
+        }
+        if entry.path().join("CLAUDE.md").exists() {
+            return true;
+        }
+        // Check one more level
+        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
+            for sub in sub_entries.flatten() {
+                if sub.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                    && sub.path().join("CLAUDE.md").exists()
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }

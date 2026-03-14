@@ -150,6 +150,47 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
         });
     }
 
+    // Check 5: has_lint_config
+    let lint_configs: &[&str] = &[
+        "clippy.toml",
+        ".clippy.toml",
+        ".eslintrc.json",
+        ".eslintrc.js",
+        ".eslintrc.yml",
+        ".eslintrc.yaml",
+        "eslint.config.js",
+        "eslint.config.mjs",
+        "eslint.config.ts",
+        "ruff.toml",
+        "tsconfig.json",
+        ".golangci.yml",
+        ".golangci.yaml",
+        "biome.json",
+    ];
+    let has_lint_via_file = lint_configs.iter().any(|c| root_dir.join(c).exists());
+    // Also check pyproject.toml for [tool.ruff] or [tool.mypy]
+    let has_lint_via_pyproject = root_dir.join("pyproject.toml").exists() && {
+        std::fs::read_to_string(root_dir.join("pyproject.toml"))
+            .map(|c| c.contains("[tool.ruff]") || c.contains("[tool.mypy]"))
+            .unwrap_or(false)
+    };
+    if !has_lint_via_file && !has_lint_via_pyproject {
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Warn,
+            check: "has_lint_config".into(),
+            message: "No linter or type-checker configuration found".into(),
+            tip: Some(
+                "Configure a linter as a guardrail. For Rust: clippy is built-in (add \
+                 clippy.toml for customization). For Python: add ruff.toml or [tool.ruff] \
+                 to pyproject.toml. For TypeScript: ensure tsconfig.json exists with strict \
+                 mode. For Go: add .golangci.yml."
+                    .into(),
+            ),
+            file: None,
+            count: None,
+        });
+    }
+
     findings
 }
 
