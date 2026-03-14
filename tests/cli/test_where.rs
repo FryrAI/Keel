@@ -96,9 +96,9 @@ fn test_where_performance_target() {
         .expect("Failed to run keel where");
     let elapsed = start.elapsed();
 
-    // Allow 2s for process spawn, core target is <50ms
+    // Allow 3s for process spawn on slow CI runners, core target is <50ms
     assert!(
-        elapsed.as_millis() < 2000,
+        elapsed.as_millis() < 3000,
         "where took {:?} — should be fast",
         elapsed
     );

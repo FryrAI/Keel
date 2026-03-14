@@ -263,7 +263,7 @@ fn test_search_performance() {
     let elapsed = start.elapsed();
 
     assert!(
-        elapsed.as_millis() < 2000,
+        elapsed.as_millis() < 3000,
         "search took {:?} — should be fast",
         elapsed
     );

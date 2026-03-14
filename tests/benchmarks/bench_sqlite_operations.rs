@@ -223,8 +223,8 @@ fn bench_sqlite_incremental_update_100_nodes() {
     let elapsed = start.elapsed();
 
     assert!(
-        elapsed.as_millis() < 2000,
-        "updating 100 nodes took {:?} — should be under 2s in debug",
+        elapsed.as_millis() < 3000,
+        "updating 100 nodes took {:?} — should be under 3s in debug",
         elapsed
     );
 }

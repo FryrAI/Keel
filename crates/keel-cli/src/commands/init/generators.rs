@@ -8,14 +8,62 @@ use std::path::{Path, PathBuf};
 
 use super::merge;
 use super::templates;
+use super::HookSelection;
+
+/// Inject PostToolUse hook into a JSON settings string (for on-edit mode).
+fn inject_on_edit_hook(json_str: &str, matcher: &str) -> String {
+    // Parse, add PostToolUse, re-serialize
+    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(json_str) {
+        let hooks = val
+            .as_object_mut()
+            .and_then(|o| o.get_mut("hooks"))
+            .and_then(|h| h.as_object_mut());
+        if let Some(hooks) = hooks {
+            let post_tool = serde_json::json!([{
+                "matcher": matcher,
+                "hooks": [{
+                    "type": "command",
+                    "command": ".keel/hooks/post-edit.sh"
+                }]
+            }]);
+            hooks.insert("PostToolUse".to_string(), post_tool);
+        }
+        serde_json::to_string_pretty(&val).unwrap_or_else(|_| json_str.to_string())
+    } else {
+        json_str.to_string()
+    }
+}
+
+/// Remove SessionStart hooks from a JSON settings string.
+fn strip_session_start(json_str: &str) -> String {
+    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(json_str) {
+        if let Some(hooks) = val
+            .as_object_mut()
+            .and_then(|o| o.get_mut("hooks"))
+            .and_then(|h| h.as_object_mut())
+        {
+            hooks.remove("SessionStart");
+        }
+        serde_json::to_string_pretty(&val).unwrap_or_else(|_| json_str.to_string())
+    } else {
+        json_str.to_string()
+    }
+}
 
 /// Generate Claude Code config files: `.claude/settings.json` and `CLAUDE.md`.
-pub fn generate_claude_code(root: &Path) -> Vec<(PathBuf, String)> {
+pub fn generate_claude_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
     // settings.json — JSON deep merge
     let settings_path = root.join(".claude/settings.json");
-    match merge::merge_json_file(&settings_path, templates::CLAUDE_CODE_SETTINGS) {
+    let mut template = templates::CLAUDE_CODE_SETTINGS.to_string();
+    if !hooks.session_start {
+        template = strip_session_start(&template);
+    }
+    if hooks.on_edit {
+        template = inject_on_edit_hook(&template, "Edit|MultiEdit|Write");
+    }
+    match merge::merge_json_file(&settings_path, &template) {
         Ok(content) => files.push((settings_path, content)),
         Err(e) => eprintln!(
             "keel init: warning: Claude Code settings merge failed: {}",
@@ -34,12 +82,19 @@ pub fn generate_claude_code(root: &Path) -> Vec<(PathBuf, String)> {
 }
 
 /// Generate Cursor config files: `.cursor/hooks.json` and `.cursor/rules/keel.mdc`.
-pub fn generate_cursor(root: &Path) -> Vec<(PathBuf, String)> {
+pub fn generate_cursor(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
     // hooks.json — JSON deep merge
     let hooks_path = root.join(".cursor/hooks.json");
-    match merge::merge_json_file(&hooks_path, templates::CURSOR_HOOKS) {
+    let mut template = templates::CURSOR_HOOKS.to_string();
+    if !hooks.session_start {
+        template = strip_session_start(&template);
+    }
+    if hooks.on_edit {
+        template = inject_on_edit_hook(&template, "Edit|Write|MultiEdit");
+    }
+    match merge::merge_json_file(&hooks_path, &template) {
         Ok(content) => files.push((hooks_path, content)),
         Err(e) => eprintln!("keel init: warning: Cursor hooks merge failed: {}", e),
     }
@@ -52,12 +107,19 @@ pub fn generate_cursor(root: &Path) -> Vec<(PathBuf, String)> {
 }
 
 /// Generate Gemini CLI config files: `.gemini/settings.json` and `GEMINI.md`.
-pub fn generate_gemini_cli(root: &Path) -> Vec<(PathBuf, String)> {
+pub fn generate_gemini_cli(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
     // settings.json — JSON deep merge
     let settings_path = root.join(".gemini/settings.json");
-    match merge::merge_json_file(&settings_path, templates::GEMINI_SETTINGS) {
+    let mut template = templates::GEMINI_SETTINGS.to_string();
+    if !hooks.session_start {
+        template = strip_session_start(&template);
+    }
+    if hooks.on_edit {
+        template = inject_on_edit_hook(&template, "Edit|Write");
+    }
+    match merge::merge_json_file(&settings_path, &template) {
         Ok(content) => files.push((settings_path, content)),
         Err(e) => eprintln!("keel init: warning: Gemini settings merge failed: {}", e),
     }
@@ -73,13 +135,20 @@ pub fn generate_gemini_cli(root: &Path) -> Vec<(PathBuf, String)> {
 }
 
 /// Generate Windsurf config files: `.windsurf/hooks.json` and `.windsurfrules`.
-pub fn generate_windsurf(root: &Path) -> Vec<(PathBuf, String)> {
+pub fn generate_windsurf(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
     // hooks.json — JSON deep merge
     let hooks_path = root.join(".windsurf/hooks.json");
+    let mut template = templates::WINDSURF_HOOKS.to_string();
+    if !hooks.session_start {
+        template = strip_session_start(&template);
+    }
+    if hooks.on_edit {
+        template = inject_on_edit_hook(&template, "Edit|Write");
+    }
     // Create .windsurf/ if it doesn't exist (may have been detected via .windsurfrules)
-    match merge::merge_json_file(&hooks_path, templates::WINDSURF_HOOKS) {
+    match merge::merge_json_file(&hooks_path, &template) {
         Ok(content) => files.push((hooks_path, content)),
         Err(e) => eprintln!("keel init: warning: Windsurf hooks merge failed: {}", e),
     }
@@ -92,12 +161,19 @@ pub fn generate_windsurf(root: &Path) -> Vec<(PathBuf, String)> {
 }
 
 /// Generate Letta Code config files: `.letta/settings.json` and `LETTA.md`.
-pub fn generate_letta_code(root: &Path) -> Vec<(PathBuf, String)> {
+pub fn generate_letta_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
     // settings.json — JSON deep merge
     let settings_path = root.join(".letta/settings.json");
-    match merge::merge_json_file(&settings_path, templates::LETTA_SETTINGS) {
+    let mut template = templates::LETTA_SETTINGS.to_string();
+    if !hooks.session_start {
+        template = strip_session_start(&template);
+    }
+    if hooks.on_edit {
+        template = inject_on_edit_hook(&template, "Edit|Write|MultiEdit");
+    }
+    match merge::merge_json_file(&settings_path, &template) {
         Ok(content) => files.push((settings_path, content)),
         Err(e) => eprintln!("keel init: warning: Letta settings merge failed: {}", e),
     }

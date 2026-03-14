@@ -308,7 +308,7 @@ jobs:
 
       - name: Check for matching release tag
         run: |
-          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep '^version = "' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           TAG="v${VERSION}"
           if git tag -l "$TAG" | grep -q "$TAG"; then
             echo "Tag $TAG exists — release is up to date"

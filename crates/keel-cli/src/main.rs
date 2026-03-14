@@ -56,6 +56,7 @@ fn main() {
             strict,
             depth,
             tier3,
+            cached,
         } => commands::map::run(
             &*formatter,
             cli.verbose,
@@ -64,6 +65,7 @@ fn main() {
             strict,
             depth,
             tier3,
+            cached,
         ),
         Commands::Discover {
             query,

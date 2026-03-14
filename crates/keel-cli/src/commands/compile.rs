@@ -242,8 +242,8 @@ pub fn run(
             if !output.is_empty() {
                 println!("{}", output);
             }
-            let has_errors = !result.errors.is_empty();
-            let has_warnings = !result.warnings.is_empty();
+            let has_errors = !delta_result.new_errors.is_empty();
+            let has_warnings = !delta_result.new_warnings.is_empty();
             let exit = if has_errors || (strict && has_warnings) {
                 1
             } else {

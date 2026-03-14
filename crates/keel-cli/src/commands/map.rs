@@ -22,6 +22,7 @@ use super::map_resolve::{
 use crate::telemetry_recorder::EventMetrics;
 
 /// Run `keel map` — full re-parse of the codebase.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
@@ -30,6 +31,7 @@ pub fn run(
     _strict: bool,
     _depth: u32,
     tier3_enabled: bool,
+    cached: bool,
 ) -> (i32, EventMetrics) {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -55,6 +57,11 @@ pub fn run(
             return (2, EventMetrics::default());
         }
     };
+
+    // --cached: read from existing graph.db instead of re-parsing
+    if cached {
+        return super::map_cached::run_cached(&store, formatter, verbose, _depth);
+    }
 
     // Walk all source files (with optional monorepo package annotation)
     let config = keel_core::config::KeelConfig::load(&keel_dir);

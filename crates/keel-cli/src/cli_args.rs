@@ -60,6 +60,9 @@ pub(crate) enum Commands {
         /// Enable Tier 3 (LSP/SCIP) resolution for unresolved references
         #[arg(long)]
         tier3: bool,
+        /// Read from existing graph.db instead of re-parsing (fast, for hooks)
+        #[arg(long)]
+        cached: bool,
     },
 
     /// Look up a function's callers, callees, and context (accepts hash, file path, or --name)

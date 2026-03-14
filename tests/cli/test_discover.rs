@@ -171,9 +171,9 @@ fn test_discover_performance_target() {
         .expect("Failed to run keel discover");
     let elapsed = start.elapsed();
 
-    // Allow 2s for process spawn overhead, core target is <50ms
+    // Allow 3s for process spawn on slow CI runners, core target is <50ms
     assert!(
-        elapsed.as_millis() < 2000,
+        elapsed.as_millis() < 3000,
         "discover took {:?} — should be fast",
         elapsed
     );

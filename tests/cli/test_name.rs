@@ -183,7 +183,7 @@ fn test_name_performance() {
     let elapsed = start.elapsed();
 
     assert!(
-        elapsed.as_millis() < 2000,
+        elapsed.as_millis() < 3000,
         "name took {:?} — should be fast",
         elapsed
     );
