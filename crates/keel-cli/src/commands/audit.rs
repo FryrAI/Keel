@@ -17,7 +17,13 @@ pub fn run(
         }
     };
 
-    const VALID_DIMENSIONS: &[&str] = &["structure", "discoverability", "navigation", "config"];
+    const VALID_DIMENSIONS: &[&str] = &[
+        "structure",
+        "discoverability",
+        "navigation",
+        "config",
+        "verification",
+    ];
     if let Some(ref dim) = dimension {
         if !VALID_DIMENSIONS.iter().any(|v| v.eq_ignore_ascii_case(dim)) {
             eprintln!(

@@ -33,7 +33,12 @@ pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<
                 severity: AuditSeverity::Fail,
                 check: "file_size".into(),
                 message: format!("{} — {} lines (>800)", module.file_path, line_count),
-                tip: Some("Split into focused modules under 400 lines".into()),
+                tip: Some(format!(
+                    "This file is too large for agents to reason about. Run \
+                     `keel analyze {}` to identify natural split points, then extract \
+                     cohesive groups into separate modules under 400 lines.",
+                    module.file_path,
+                )),
                 file: Some(module.file_path.clone()),
                 count: None,
             });
@@ -42,20 +47,45 @@ pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<
                 severity: AuditSeverity::Warn,
                 check: "file_size".into(),
                 message: format!("{} — {} lines (>400)", module.file_path, line_count),
-                tip: Some("Consider splitting into smaller modules".into()),
+                tip: Some(format!(
+                    "Run `keel analyze {}` to see function groupings and identify split \
+                     points before this file grows past 800 lines.",
+                    module.file_path,
+                )),
                 file: Some(module.file_path.clone()),
                 count: None,
             });
         }
 
-        // God file: >20 symbols
+        // God file: >20 symbols, FAIL at >35
         let symbol_count = nodes.iter().filter(|n| n.kind != NodeKind::Module).count();
-        if symbol_count > 20 {
+        if symbol_count > 35 {
+            findings.push(AuditFinding {
+                severity: AuditSeverity::Fail,
+                check: "god_file".into(),
+                message: format!("{} — {} symbols (>35)", module.file_path, symbol_count),
+                tip: Some(format!(
+                    "Run `keel discover {}` to list all {} symbols. Group related \
+                     functions and extract each group into a new module of <20 symbols.",
+                    module.file_path, symbol_count,
+                )),
+                file: Some(module.file_path.clone()),
+                count: None,
+            });
+        } else if symbol_count > 20 {
+            let stem = std::path::Path::new(&module.file_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
             findings.push(AuditFinding {
                 severity: AuditSeverity::Warn,
                 check: "god_file".into(),
                 message: format!("{} — {} symbols (>20)", module.file_path, symbol_count),
-                tip: Some("Split by responsibility into focused modules".into()),
+                tip: Some(format!(
+                    "Run `keel discover {}` to see symbol groupings. Extract related \
+                     functions into a new module (e.g., {}_ops.rs or {}_helpers.rs).",
+                    module.file_path, stem, stem,
+                )),
                 file: Some(module.file_path.clone()),
                 count: None,
             });
@@ -76,7 +106,11 @@ pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<
                         "`{}` in {} — {} lines (>200)",
                         node.name, module.file_path, fn_lines
                     ),
-                    tip: Some("Extract sub-operations into helper functions".into()),
+                    tip: Some(format!(
+                        "Extract sub-operations from `{}`. Run `keel discover {}` to see \
+                         what it calls and group related operations into helper functions.",
+                        node.name, module.file_path,
+                    )),
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
@@ -88,7 +122,11 @@ pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<
                         "`{}` in {} — {} lines (>100)",
                         node.name, module.file_path, fn_lines
                     ),
-                    tip: Some("Consider breaking into smaller functions".into()),
+                    tip: Some(format!(
+                        "Run `keel check {}` to assess refactoring impact, then extract \
+                         sub-operations from `{}` into focused helpers.",
+                        node.hash, node.name,
+                    )),
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
@@ -108,10 +146,12 @@ pub fn check_structure(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<
                         "`{}` in {} — {} lines, {} callees",
                         node.name, module.file_path, fn_lines, callees
                     ),
-                    tip: Some(
-                        "Monolithic function: extract sub-operations or split responsibilities"
-                            .into(),
-                    ),
+                    tip: Some(format!(
+                        "Function `{}` is both long and deeply connected ({} callees). \
+                         Run `keel discover --name {}` to see its call graph, then \
+                         extract sub-operations.",
+                        node.name, callees, node.name,
+                    )),
                     file: Some(module.file_path.clone()),
                     count: None,
                 });

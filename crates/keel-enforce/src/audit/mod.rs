@@ -1,12 +1,13 @@
 //! Audit module — AI-readiness scorecard for codebases.
 //!
-//! Scores a codebase across 4 dimensions: Structure, Discoverability,
-//! Navigation, and Agent Config. Each dimension scored 0–5 (max total: 20).
+//! Scores a codebase across 5 dimensions: Structure, Discoverability,
+//! Navigation, Agent Config, and Verification. Each dimension scored 0–5 (max total: 25).
 
 pub mod agent_config;
 pub mod discoverability;
 pub mod navigation;
 pub mod structure;
+pub mod verification;
 
 use keel_core::store::GraphStore;
 
@@ -68,6 +69,17 @@ pub fn audit_repo(
         let score = compute_dimension_score(&findings);
         dimensions.push(AuditDimension {
             name: "config".into(),
+            score,
+            max_score: 5,
+            findings,
+        });
+    }
+
+    if run_dim("verification") {
+        let findings = verification::check_verification(root_dir);
+        let score = compute_dimension_score(&findings);
+        dimensions.push(AuditDimension {
+            name: "verification".into(),
             score,
             max_score: 5,
             findings,

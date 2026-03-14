@@ -92,14 +92,19 @@ pub fn check_discoverability(
 
         // Generic module name
         if is_generic_module(path) {
+            let stem = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
             findings.push(AuditFinding {
                 severity: AuditSeverity::Warn,
                 check: "generic_module".into(),
                 message: format!("{} — generic module name", path),
-                tip: Some(
-                    "Rename to describe responsibility (e.g., string_utils.py, date_helpers.py)"
-                        .into(),
-                ),
+                tip: Some(format!(
+                    "Rename {} to describe its responsibility. Run `keel discover {}` \
+                     to see what it contains, then pick a name like {}_<responsibility>.",
+                    path, path, stem,
+                )),
                 file: Some(path.clone()),
                 count: None,
             });
@@ -123,7 +128,11 @@ pub fn check_discoverability(
                     severity: AuditSeverity::Warn,
                     check: "cryptic_name".into(),
                     message: format!("`{}` in {} — name too short (<3 chars)", node.name, path),
-                    tip: Some("Use descriptive names for agent comprehension".into()),
+                    tip: Some(format!(
+                        "Rename `{}` to a descriptive name (minimum 3 characters). \
+                         Spell out abbreviations for agent comprehension.",
+                        node.name,
+                    )),
                     file: Some(path.clone()),
                     count: None,
                 });
@@ -150,7 +159,27 @@ pub fn check_discoverability(
         // Public API surface ratio
         if total_count > 5 && public_count > 0 {
             let ratio = public_count as f64 / total_count as f64;
-            if ratio > 0.8 {
+            if ratio > 0.9 {
+                findings.push(AuditFinding {
+                    severity: AuditSeverity::Fail,
+                    check: "public_ratio".into(),
+                    message: format!(
+                        "{} — {:.0}% public ({}/{})",
+                        path,
+                        ratio * 100.0,
+                        public_count,
+                        total_count,
+                    ),
+                    tip: Some(format!(
+                        "Nearly all symbols in {} are public. Run `keel discover {}` to find \
+                         functions with 0 external callers, then remove `pub` from file-internal \
+                         helpers.",
+                        path, path,
+                    )),
+                    file: Some(path.clone()),
+                    count: None,
+                });
+            } else if ratio > 0.6 {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Warn,
                     check: "public_ratio".into(),
@@ -161,7 +190,11 @@ pub fn check_discoverability(
                         public_count,
                         total_count,
                     ),
-                    tip: Some("Consider marking internal helpers as private".into()),
+                    tip: Some(format!(
+                        "Run `keel discover {}` to identify functions with 0 external callers, \
+                         then restrict visibility with `pub(crate)` or by removing `pub`.",
+                        path,
+                    )),
                     file: Some(path.clone()),
                     count: None,
                 });
@@ -172,33 +205,68 @@ pub fn check_discoverability(
     // Aggregate findings
     if !missing_headers.is_empty() {
         let count = missing_headers.len() as u32;
-        let example = missing_headers.first().cloned().unwrap_or_default();
-        let prefix = comment_prefix(&example).unwrap_or("#");
+        let first_3: Vec<_> = missing_headers.iter().take(3).cloned().collect();
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,
             check: "missing_file_header".into(),
             message: format!("{} source files missing header comments", count),
             tip: Some(format!(
-                "Add a header block to each file:\n  {} purpose: <what this file does>\n  {} why: <why it exists>\n  {} related: <related files>",
-                prefix, prefix, prefix,
+                "Add a module-level header. For Rust: //! Purpose: <what this module does>. \
+                 For Python: \"\"\"<description>.\"\"\" at top. Example files missing: {}",
+                first_3.join(", "),
             )),
             file: None,
             count: Some(count),
         });
     }
 
-    if missing_type_hints > 0 {
+    if missing_type_hints > 10 {
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Fail,
+            check: "missing_type_hints".into(),
+            message: format!("{} public functions missing type hints", missing_type_hints),
+            tip: Some(
+                "Add type annotations to all public function parameters and return types. \
+                 For Python: `def f(x: int) -> str`. For JS: add JSDoc @param/@returns. \
+                 Run `keel compile --changed` after fixing."
+                    .into(),
+            ),
+            file: None,
+            count: Some(missing_type_hints),
+        });
+    } else if missing_type_hints > 0 {
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,
             check: "missing_type_hints".into(),
             message: format!("{} public functions missing type hints", missing_type_hints),
-            tip: Some("Add type annotations to improve agent comprehension".into()),
+            tip: Some(
+                "Add type annotations to all public function parameters and return types. \
+                 For Python: `def f(x: int) -> str`. For JS: add JSDoc @param/@returns. \
+                 Run `keel compile --changed` after fixing."
+                    .into(),
+            ),
             file: None,
             count: Some(missing_type_hints),
         });
     }
 
-    if missing_docstrings > 0 {
+    if missing_docstrings > 5 {
+        findings.push(AuditFinding {
+            severity: AuditSeverity::Fail,
+            check: "missing_docstrings".into(),
+            message: format!(
+                "{} high-use public functions missing docstrings (>3 callers)",
+                missing_docstrings,
+            ),
+            tip: Some(
+                "Add docstrings to these high-use public functions describing: purpose, \
+                 parameters, return value, and side effects. Run `keel compile` to verify."
+                    .into(),
+            ),
+            file: None,
+            count: Some(missing_docstrings),
+        });
+    } else if missing_docstrings > 0 {
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,
             check: "missing_docstrings".into(),
@@ -206,7 +274,11 @@ pub fn check_discoverability(
                 "{} high-use public functions missing docstrings (>3 callers)",
                 missing_docstrings,
             ),
-            tip: Some("Add docstrings to frequently-called public functions".into()),
+            tip: Some(
+                "Add docstrings to these high-use public functions describing: purpose, \
+                 parameters, return value, and side effects. Run `keel compile` to verify."
+                    .into(),
+            ),
             file: None,
             count: Some(missing_docstrings),
         });

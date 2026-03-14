@@ -54,24 +54,37 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
     let cycles = find_cycles(&module_deps);
     for cycle in &cycles {
         let chain = cycle.join(" → ");
+        let first = cycle.first().cloned().unwrap_or_default();
+        let second = cycle.get(1).cloned().unwrap_or_default();
         findings.push(AuditFinding {
-            severity: AuditSeverity::Warn,
+            severity: AuditSeverity::Fail,
             check: "circular_dep".into(),
             message: format!("Circular dependency: {}", chain),
-            tip: Some("Extract shared types to a common module to break the cycle".into()),
+            tip: Some(format!(
+                "Circular dependency: {}. Extract the shared types/functions into a new module \
+                 that both sides can import. Run `keel discover {}` and `keel discover {}` \
+                 to identify the shared symbols.",
+                chain, first, second,
+            )),
             file: None,
             count: None,
         });
     }
 
-    // High cross-module coupling: module imports >10 others
+    // High cross-module coupling: module imports >7 others
     for (path, deps) in &module_deps {
-        if deps.len() > 10 {
+        if deps.len() > 7 {
             findings.push(AuditFinding {
                 severity: AuditSeverity::Warn,
                 check: "high_coupling".into(),
-                message: format!("{} imports {} other modules (>10)", path, deps.len()),
-                tip: Some("Reduce coupling by introducing facade modules or interfaces".into()),
+                message: format!("{} imports {} other modules (>7)", path, deps.len()),
+                tip: Some(format!(
+                    "This module imports {} others (>7). Run `keel analyze {}` to see the \
+                     dependency breakdown, then introduce a facade module or re-exports \
+                     to reduce direct imports.",
+                    deps.len(),
+                    path,
+                )),
                 file: Some(path.clone()),
                 count: None,
             });
@@ -128,10 +141,11 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
                         "`{}` in {} — public, {} callers, no docstring",
                         node.name, module.file_path, call_callers,
                     ),
-                    tip: Some(
-                        "High-use public functions need docstrings to prevent misuse by agents"
-                            .into(),
-                    ),
+                    tip: Some(format!(
+                        "Add a docstring to `{}` — it has {} callers and no documentation. \
+                         Include: purpose, parameters, return type, and error conditions.",
+                        node.name, call_callers,
+                    )),
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
@@ -140,18 +154,20 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
             // Deep call chain detection (BFS from functions with 0 incoming calls)
             if node.kind == NodeKind::Function && call_callers == 0 {
                 let max_depth = bfs_max_depth(store, node.id);
-                if max_depth > 7 {
+                if max_depth > 5 {
                     findings.push(AuditFinding {
                         severity: AuditSeverity::Warn,
                         check: "deep_call_chain".into(),
                         message: format!(
-                            "`{}` in {} — call chain depth {} (>7 hops)",
+                            "`{}` in {} — call chain depth {} (>5 hops)",
                             node.name, module.file_path, max_depth,
                         ),
-                        tip: Some(
-                            "Deep call chains make it hard for agents to trace execution flow"
-                                .into(),
-                        ),
+                        tip: Some(format!(
+                            "Call chain from `{}` is {} hops deep (>5). Agents lose context \
+                             beyond 5 levels. Run `keel discover --name {}` to trace the chain, \
+                             then flatten with intermediate orchestrator functions.",
+                            node.name, max_depth, node.name,
+                        )),
                         file: Some(module.file_path.clone()),
                         count: None,
                     });
@@ -164,13 +180,18 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
             let non_module = nodes.iter().any(|n| n.kind != NodeKind::Module);
             if non_module {
                 findings.push(AuditFinding {
-                    severity: AuditSeverity::Tip,
+                    severity: AuditSeverity::Warn,
                     check: "orphan_file".into(),
                     message: format!(
                         "{} — no external dependencies in either direction",
                         module.file_path,
                     ),
-                    tip: Some("Orphan files may be dead code or poorly integrated".into()),
+                    tip: Some(format!(
+                        "This file has no connections to the codebase. Run `keel discover {}` \
+                         to verify — if it shows no symbols, it may be dead code. Either \
+                         integrate it or delete it.",
+                        module.file_path,
+                    )),
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
