@@ -40,23 +40,81 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
         let path = root_dir.join(instruction_file);
         if let Ok(content) = std::fs::read_to_string(&path) {
             let line_count = content.lines().count();
-            if line_count > 500 {
+            if line_count > 300 {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Fail,
                     check: "agent_instructions_size".into(),
-                    message: format!("{} is {} lines (>500)", instruction_file, line_count),
+                    message: format!("{} is {} lines (>300)", instruction_file, line_count),
                     tip: Some(
-                        "Split into focused sections or decompose into a config directory".into(),
+                        "This file is too large for agents to hold in context. \
+                         Split into focused sections under 150 lines each, or decompose \
+                         into a config directory (e.g., .claude/rules/)."
+                            .into(),
                     ),
                     file: Some(instruction_file.to_string()),
                     count: None,
                 });
-            } else if line_count > 300 {
+            } else if line_count > 150 {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Warn,
                     check: "agent_instructions_size".into(),
-                    message: format!("{} is {} lines (>300)", instruction_file, line_count),
-                    tip: Some("Consider splitting to keep agent context lean".into()),
+                    message: format!("{} is {} lines (>150)", instruction_file, line_count),
+                    tip: Some(format!(
+                        "Run `wc -l {}` and identify sections to extract into \
+                         separate files. Keep agent instructions under 150 lines \
+                         for optimal context usage.",
+                        instruction_file,
+                    )),
+                    file: Some(instruction_file.to_string()),
+                    count: None,
+                });
+            }
+
+            // Content quality: check for test command
+            let lower = content.to_lowercase();
+            let has_test_cmd = ["cargo test", "pytest", "npm test", "go test", "make test"]
+                .iter()
+                .any(|pat| lower.contains(pat));
+            if !has_test_cmd {
+                findings.push(AuditFinding {
+                    severity: AuditSeverity::Warn,
+                    check: "agent_instructions_no_test_cmd".into(),
+                    message: format!("{} has no test command", instruction_file),
+                    tip: Some(format!(
+                        "Add a ## Testing section to {} with runnable test commands, e.g.:\n  \
+                         cargo test\n\
+                         Agents need exact commands to verify their work.",
+                        instruction_file,
+                    )),
+                    file: Some(instruction_file.to_string()),
+                    count: None,
+                });
+            }
+
+            // Content quality: check for build/lint command
+            let has_build_cmd = [
+                "cargo build",
+                "cargo check",
+                "cargo clippy",
+                "npm run",
+                "go build",
+                "make",
+                "ruff",
+                "eslint",
+            ]
+            .iter()
+            .any(|pat| lower.contains(pat));
+            if !has_build_cmd {
+                findings.push(AuditFinding {
+                    severity: AuditSeverity::Warn,
+                    check: "agent_instructions_no_build_cmd".into(),
+                    message: format!("{} has no build/lint command", instruction_file),
+                    tip: Some(format!(
+                        "Add a ## Build section to {} with build/lint commands, e.g.:\n  \
+                         cargo clippy --workspace\n\
+                         Agents need to know how to check their changes compile.",
+                        instruction_file,
+                    )),
                     file: Some(instruction_file.to_string()),
                     count: None,
                 });
@@ -80,11 +138,13 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
 
     if found_config_dir.is_none() {
         findings.push(AuditFinding {
-            severity: AuditSeverity::Tip,
+            severity: AuditSeverity::Warn,
             check: "no_agent_dir".into(),
             message: "No agent config directory found".into(),
             tip: Some(
-                "Create .claude/, .cursor/, or similar for settings, hooks, and commands".into(),
+                "Create .claude/ or .cursor/ for settings, hooks, and commands. \
+                 Example: mkdir -p .claude/commands && echo '{}' > .claude/settings.json"
+                    .into(),
             ),
             file: None,
             count: None,
@@ -99,18 +159,44 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
         if settings_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&settings_path) {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let has_hooks = parsed.get("hooks").is_some();
-                    if !has_hooks {
+                    let hooks = parsed.get("hooks");
+                    if hooks.is_none() {
                         findings.push(AuditFinding {
                             severity: AuditSeverity::Warn,
                             check: "no_hooks".into(),
                             message: "No hooks configured in .claude/settings.json".into(),
                             tip: Some(
-                                "Add PostToolUse hooks for automatic lint/compile feedback".into(),
+                                "Add PostToolUse hooks for automatic verification after edits. \
+                                 Example in .claude/settings.json:\n  \
+                                 \"hooks\": {\"PostToolUse\": [{\"matcher\": \"Edit|Write\", \
+                                 \"command\": \"keel compile --changed\"}]}"
+                                    .into(),
                             ),
                             file: Some(".claude/settings.json".into()),
                             count: None,
                         });
+                    } else if let Some(hooks_obj) = hooks.and_then(|h| h.as_object()) {
+                        // Hooks exist but check for PostToolUse-like entries
+                        let has_post_tool = hooks_obj.keys().any(|k| {
+                            let lower = k.to_lowercase();
+                            lower.contains("posttool") || lower.contains("post_tool")
+                        });
+                        if !has_post_tool {
+                            findings.push(AuditFinding {
+                                severity: AuditSeverity::Warn,
+                                check: "no_post_tool_hooks".into(),
+                                message: "Hooks exist but no PostToolUse hook found".into(),
+                                tip: Some(
+                                    "Add a hook that auto-runs verification after edits. \
+                                     Example in .claude/settings.json:\n  \
+                                     \"hooks\": {\"PostToolUse\": [{\"matcher\": \"Edit|Write\", \
+                                     \"command\": \"keel compile --changed\"}]}"
+                                        .into(),
+                                ),
+                                file: Some(".claude/settings.json".into()),
+                                count: None,
+                            });
+                        }
                     }
                 }
             }
@@ -120,7 +206,10 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
                 check: "no_hooks".into(),
                 message: "No .claude/settings.json found".into(),
                 tip: Some(
-                    "Create .claude/settings.json with hooks for automatic feedback loops".into(),
+                    "Create .claude/settings.json with hooks for automatic feedback loops. \
+                     Example:\n  {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"Edit|Write\", \
+                     \"command\": \"keel compile --changed\"}]}}"
+                        .into(),
                 ),
                 file: None,
                 count: None,
@@ -131,10 +220,15 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
         let commands_dir = claude_dir.join("commands");
         if !commands_dir.exists() {
             findings.push(AuditFinding {
-                severity: AuditSeverity::Tip,
+                severity: AuditSeverity::Warn,
                 check: "no_commands".into(),
                 message: "No .claude/commands/ directory".into(),
-                tip: Some("Add slash commands for common workflows (e.g., /review, /test)".into()),
+                tip: Some(
+                    "Create .claude/commands/ with slash commands for common workflows. \
+                     Example: mkdir -p .claude/commands && echo 'Run cargo test' > \
+                     .claude/commands/test.md"
+                        .into(),
+                ),
                 file: None,
                 count: None,
             });

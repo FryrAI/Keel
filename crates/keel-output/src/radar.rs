@@ -48,6 +48,7 @@ fn dim_label(name: &str) -> &str {
         "discoverability" => "Discoverability",
         "navigation" => "Navigation",
         "config" => "Agent Config",
+        "verification" => "Verification",
         _ => name,
     }
 }

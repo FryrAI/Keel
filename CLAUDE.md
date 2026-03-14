@@ -103,6 +103,14 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 
 Every ERROR has `fix_hint`. Every violation has `confidence` (0.0-1.0) and `resolution_tier`.
 
+## Build
+
+```bash
+cargo build --workspace                                    # Full build
+cargo clippy --workspace --all-targets -- -D warnings      # Lint (must pass clean)
+cargo fmt --check                                          # Format check
+```
+
 ## Testing
 
 ```bash
