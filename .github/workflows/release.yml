@@ -172,17 +172,18 @@ jobs:
 
       - name: Publish to crates.io
         run: |
-          cargo publish -p keel-core --allow-dirty
-          sleep 30
-          cargo publish -p keel-parsers --allow-dirty
-          sleep 30
-          cargo publish -p keel-enforce --allow-dirty
-          sleep 30
-          cargo publish -p keel-output --allow-dirty
-          sleep 30
-          cargo publish -p keel-server --allow-dirty
-          sleep 30
-          cargo publish -p keel-cli --allow-dirty
+          for crate in keel-core keel-parsers keel-enforce keel-output keel-server keel-cli; do
+            echo "Publishing $crate..."
+            cargo publish -p "$crate" --allow-dirty || {
+              if cargo search "$crate" 2>/dev/null | grep -q "^$crate "; then
+                echo "$crate already published, continuing..."
+              else
+                echo "Failed to publish $crate"
+                exit 1
+              fi
+            }
+            sleep 30
+          done
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
