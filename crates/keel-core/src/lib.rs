@@ -16,4 +16,5 @@ pub mod sqlite_helpers;
 pub mod sqlite_queries;
 pub mod store;
 pub mod telemetry;
+mod telemetry_aggregate;
 pub mod types;

@@ -19,6 +19,7 @@ pub mod logout;
 pub mod map;
 pub mod map_cached;
 pub mod map_helpers;
+pub(crate) mod map_passes;
 pub mod map_resolve;
 pub mod map_tier3;
 pub mod name;

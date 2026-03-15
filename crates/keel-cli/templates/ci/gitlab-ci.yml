@@ -4,5 +4,5 @@
 keel:
   stage: test
   script:
-    - curl -fsSL https://keel.engineer/install.sh | sh
+    - curl -fsSL https://keel.engineer/install.sh | bash
     - keel map --json --strict

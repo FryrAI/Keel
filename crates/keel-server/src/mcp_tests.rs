@@ -1,4 +1,5 @@
 use super::*;
+use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeKind};
 use keel_enforce::engine::EnforcementEngine;
 

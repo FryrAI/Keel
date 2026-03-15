@@ -13,6 +13,7 @@ mod mcp_audit;
 mod mcp_check;
 mod mcp_compile;
 mod mcp_context;
+mod mcp_discover;
 mod mcp_fix;
 mod mcp_name;
 mod mcp_search;
