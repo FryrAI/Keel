@@ -34,6 +34,25 @@ fn make_file(defs: Vec<Definition>) -> FileIndex {
     }
 }
 
+fn make_file_with_path(path: &str, defs: Vec<Definition>) -> FileIndex {
+    let defs = defs
+        .into_iter()
+        .map(|mut d| {
+            d.file_path = path.to_string();
+            d
+        })
+        .collect();
+    FileIndex {
+        file_path: path.to_string(),
+        content_hash: 0,
+        definitions: defs,
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }
+}
+
 #[test]
 fn test_e002_python_missing_type_hints() {
     let file = make_file(vec![make_def("process", true, false)]);
@@ -124,4 +143,37 @@ fn test_e002_confidence_is_1() {
 
     assert_eq!(violations.len(), 1);
     assert_eq!(violations[0].confidence, 1.0);
+}
+
+#[test]
+fn test_e002_skips_test_file_by_name() {
+    let file = make_file_with_path(
+        "tests/test_handler.py",
+        vec![make_def("process", true, false)],
+    );
+    let violations = check_missing_type_hints(&file);
+    assert!(violations.is_empty(), "E002 should skip test files");
+}
+
+#[test]
+fn test_e002_skips_test_file_in_tests_dir() {
+    let file = make_file_with_path(
+        "src/tests/helpers.py",
+        vec![make_def("process", true, false)],
+    );
+    let violations = check_missing_type_hints(&file);
+    assert!(
+        violations.is_empty(),
+        "E002 should skip files in tests/ directory"
+    );
+}
+
+#[test]
+fn test_e002_skips_spec_file() {
+    let file = make_file_with_path(
+        "src/handler.spec.ts",
+        vec![make_def("process", true, false)],
+    );
+    let violations = check_missing_type_hints(&file);
+    assert!(violations.is_empty(), "E002 should skip .spec files");
 }

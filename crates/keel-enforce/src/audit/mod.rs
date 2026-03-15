@@ -98,6 +98,38 @@ pub fn audit_repo(
     }
 }
 
+/// Check if any subfolder (up to 2 levels) contains a CLAUDE.md file.
+fn has_subfolder_claude_md(root_dir: &std::path::Path) -> bool {
+    let entries = match std::fs::read_dir(root_dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        let name_str = name.to_str().unwrap_or("");
+        if name_str.starts_with('.') || name_str == "node_modules" || name_str == "target" {
+            continue;
+        }
+        if entry.path().join("CLAUDE.md").exists() {
+            return true;
+        }
+        // Check one more level
+        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
+            for sub in sub_entries.flatten() {
+                if sub.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                    && sub.path().join("CLAUDE.md").exists()
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Returns true if the audit result should cause a non-zero exit.
 pub fn should_fail(result: &AuditResult, options: &AuditOptions) -> bool {
     if options.strict {

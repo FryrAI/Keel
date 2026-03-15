@@ -23,6 +23,7 @@ const AGENT_INSTRUCTION_DIRS: &[&str] = &[".cursor/rules"];
 /// Agent config directories.
 const AGENT_CONFIG_DIRS: &[&str] = &[".claude", ".cursor", ".gemini", ".windsurf", ".letta"];
 
+/// Audit agent configuration files (CLAUDE.md, .cursorrules, etc.) for completeness.
 pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
@@ -39,7 +40,21 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
         // Check size of whichever instruction file was found
         let path = root_dir.join(instruction_file);
         if let Ok(content) = std::fs::read_to_string(&path) {
-            let line_count = content.lines().count();
+            // Exclude keel-injected content between <!-- keel:start --> and <!-- keel:end -->
+            let line_count = content
+                .lines()
+                .scan(false, |in_keel_block, line| {
+                    if line.contains("<!-- keel:start") {
+                        *in_keel_block = true;
+                    }
+                    let skip = *in_keel_block;
+                    if line.contains("<!-- keel:end") {
+                        *in_keel_block = false;
+                    }
+                    Some(!skip)
+                })
+                .filter(|&keep| keep)
+                .count();
             if line_count > 300 {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Fail,
@@ -311,13 +326,26 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
             });
         }
 
-        // Check for slash commands
+        // Check for slash commands — directory must exist AND contain .md files
         let commands_dir = claude_dir.join("commands");
-        if !commands_dir.exists() {
+        let has_command_files = commands_dir.is_dir()
+            && std::fs::read_dir(&commands_dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .any(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("md"))
+                })
+                .unwrap_or(false);
+        if !has_command_files {
+            let message = if commands_dir.is_dir() {
+                "No .md files in .claude/commands/"
+            } else {
+                "No .claude/commands/ directory"
+            };
             findings.push(AuditFinding {
                 severity: AuditSeverity::Warn,
                 check: "no_commands".into(),
-                message: "No .claude/commands/ directory".into(),
+                message: message.into(),
                 tip: Some(
                     "Create .claude/commands/ with slash commands for common workflows. \
                      Example: mkdir -p .claude/commands && echo 'Run cargo test' > \
@@ -333,7 +361,7 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
     // Check for progressive disclosure (folder-level rules)
     let has_folder_rules = root_dir.join(".claude/rules").is_dir()
         || root_dir.join(".cursor/rules").is_dir()
-        || has_subfolder_claude_md(root_dir);
+        || super::has_subfolder_claude_md(root_dir);
     if !has_folder_rules {
         findings.push(AuditFinding {
             severity: AuditSeverity::Tip,
@@ -351,35 +379,4 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
     }
 
     findings
-}
-
-fn has_subfolder_claude_md(root_dir: &Path) -> bool {
-    let entries = match std::fs::read_dir(root_dir) {
-        Ok(e) => e,
-        Err(_) => return false,
-    };
-    for entry in entries.flatten() {
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let name = entry.file_name();
-        let name_str = name.to_str().unwrap_or("");
-        if name_str.starts_with('.') || name_str == "node_modules" || name_str == "target" {
-            continue;
-        }
-        if entry.path().join("CLAUDE.md").exists() {
-            return true;
-        }
-        // Check one more level
-        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
-            for sub in sub_entries.flatten() {
-                if sub.file_type().map(|t| t.is_dir()).unwrap_or(false)
-                    && sub.path().join("CLAUDE.md").exists()
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    false
 }

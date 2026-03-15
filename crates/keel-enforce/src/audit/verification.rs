@@ -38,12 +38,18 @@ const CI_CONFIGS: &[&str] = &[
 const TEST_CMD_PATTERNS: &[&str] = &[
     "cargo test",
     "pytest",
+    "uv run pytest",
+    "uv run test",
     "npm test",
     "go test",
     "make test",
     "yarn test",
     "npx jest",
     "npx vitest",
+    "vitest",
+    "jest",
+    "playwright",
+    "bun test",
 ];
 
 /// Agent instruction files to search for test commands.
@@ -57,6 +63,7 @@ const INSTRUCTION_FILES: &[&str] = &[
     "README.md",
 ];
 
+/// Audit verification practices: test coverage, CI config, and pre-commit hooks.
 pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
@@ -98,8 +105,9 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
             check: "test_command_documented".into(),
             message: "No test command found in agent instruction files or README".into(),
             tip: Some(
-                "Add a ## Testing section to CLAUDE.md with the exact command:\n  \
-                 ```bash\n  cargo test\n  ```\n\
+                "Document the test command in an agent instruction file (CLAUDE.md, \
+                 .cursorrules, etc.):\n  \
+                 ```bash\n  cargo test  # or: pytest, npm test, go test, etc.\n  ```\n\
                  Agents need to know how to verify their changes."
                     .into(),
             ),
@@ -134,7 +142,23 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
     }
 
     // Check 4: has_ci_config
-    let has_ci = CI_CONFIGS.iter().any(|c| root_dir.join(c).exists());
+    // For directories (e.g. .github/workflows), verify they contain .yml/.yaml files.
+    // For files (e.g. .gitlab-ci.yml), just check existence.
+    let has_ci = CI_CONFIGS.iter().any(|c| {
+        let path = root_dir.join(c);
+        if path.is_dir() {
+            std::fs::read_dir(&path)
+                .map(|entries| {
+                    entries.flatten().any(|e| {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        name.ends_with(".yml") || name.ends_with(".yaml")
+                    })
+                })
+                .unwrap_or(false)
+        } else {
+            path.exists()
+        }
+    });
     if !has_ci {
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,
@@ -240,27 +264,21 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
 }
 
 /// Count test files and source files by walking the directory tree.
+/// Uses `ignore::WalkBuilder` to respect .gitignore and .keelignore,
+/// preventing inflated counts from vendored/generated code.
 fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
     let mut test_count = 0usize;
     let mut source_count = 0usize;
 
-    let walker = walkdir::WalkDir::new(root_dir)
-        .max_depth(6)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_str().unwrap_or("");
-            // Skip hidden dirs (except .github), node_modules, target, vendor
-            if e.file_type().is_dir() {
-                return !matches!(
-                    name,
-                    "node_modules" | "target" | "vendor" | ".git" | "dist" | "build"
-                );
-            }
-            true
-        });
+    let walker = ignore::WalkBuilder::new(root_dir)
+        .hidden(true)
+        .git_ignore(true)
+        .add_custom_ignore_filename(".keelignore")
+        .max_depth(Some(6))
+        .build();
 
     for entry in walker.flatten() {
-        if !entry.file_type().is_file() {
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             continue;
         }
         let name = entry.file_name().to_str().unwrap_or("");
