@@ -44,6 +44,8 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
             let line_count = content
                 .lines()
                 .scan(false, |in_keel_block, line| {
+                    // Order matters: set flag BEFORE reading it so the
+                    // start-tag line itself is excluded from the count.
                     if line.contains("<!-- keel:start") {
                         *in_keel_block = true;
                     }

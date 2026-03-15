@@ -3,24 +3,10 @@
 use std::path::Path;
 
 use crate::types::{AuditFinding, AuditSeverity};
+use crate::violations_util;
 
 /// File patterns that indicate test files exist.
 const TEST_DIR_NAMES: &[&str] = &["tests", "__tests__", "test"];
-
-/// File glob patterns for test files (checked via simple suffix/prefix matching).
-const TEST_FILE_PATTERNS: &[(&str, &str)] = &[
-    ("test_", ".py"),  // Python: test_*.py
-    ("", "_test.go"),  // Go: *_test.go
-    ("", "_test.rs"),  // Rust: *_test.rs
-    ("", ".test.ts"),  // TS: *.test.ts
-    ("", ".test.tsx"), // TSX: *.test.tsx
-    ("", ".test.js"),  // JS: *.test.js
-    ("", ".test.jsx"), // JSX: *.test.jsx
-    ("", ".spec.ts"),  // TS: *.spec.ts
-    ("", ".spec.tsx"), // TSX: *.spec.tsx
-    ("", ".spec.js"),  // JS: *.spec.js
-    ("", ".spec.jsx"), // JSX: *.spec.jsx
-];
 
 /// Source file extensions to count.
 const SOURCE_EXTENSIONS: &[&str] = &["py", "rs", "ts", "tsx", "js", "jsx", "go"];
@@ -39,7 +25,6 @@ const TEST_CMD_PATTERNS: &[&str] = &[
     "cargo test",
     "pytest",
     "uv run pytest",
-    "uv run test",
     "npm test",
     "go test",
     "make test",
@@ -283,7 +268,7 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
         }
         let name = entry.file_name().to_str().unwrap_or("");
         let path_str = entry.path().to_str().unwrap_or("");
-        let is_test = is_test_file(name) || is_in_test_dir(path_str);
+        let is_test = violations_util::is_test_file(path_str);
         let is_source = SOURCE_EXTENSIONS
             .iter()
             .any(|ext| name.ends_with(&format!(".{}", ext)));
@@ -310,30 +295,3 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
     (test_count, source_count)
 }
 
-/// Check if a file is inside a test directory (tests/, __tests__/, etc.).
-fn is_in_test_dir(path: &str) -> bool {
-    let normalized = path.replace('\\', "/");
-    normalized.contains("/tests/")
-        || normalized.contains("/__tests__/")
-        || normalized.contains("/test/")
-}
-
-/// Check if a filename matches test file patterns.
-fn is_test_file(name: &str) -> bool {
-    // Rust inline tests (#[cfg(test)]) won't show as separate files,
-    // but *_test.rs files in tests/ will.
-    for (prefix, suffix) in TEST_FILE_PATTERNS {
-        if !prefix.is_empty() && !suffix.is_empty() {
-            if name.starts_with(prefix) && name.ends_with(suffix) {
-                return true;
-            }
-        } else if !prefix.is_empty() {
-            if name.starts_with(prefix) {
-                return true;
-            }
-        } else if !suffix.is_empty() && name.ends_with(suffix) {
-            return true;
-        }
-    }
-    false
-}
