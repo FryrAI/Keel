@@ -294,4 +294,3 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
 
     (test_count, source_count)
 }
-
