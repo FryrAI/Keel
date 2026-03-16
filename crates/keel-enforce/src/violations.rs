@@ -5,6 +5,7 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
+use crate::violations_util::is_test_file;
 
 // Re-export E004, E005, W001, W002 checkers so engine.rs keeps using violations::*
 pub use crate::violations_extended::{
@@ -176,8 +177,14 @@ pub fn check_broken_callers_with_cache(
 
 /// Check E002: missing_type_hints — function parameters/return lack type annotations.
 /// Only for Python (and JS with JSDoc). TS/Go/Rust are typed by nature.
+/// Skips test files — test helpers rarely need full type annotations.
 pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
     let mut violations = Vec::new();
+
+    // Skip test files: test helpers rarely need full type annotations
+    if is_test_file(&file.file_path) {
+        return violations;
+    }
 
     for def in &file.definitions {
         if def.kind != NodeKind::Function {
@@ -230,8 +237,14 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
 }
 
 /// Check E003: missing_docstring — public function has no docstring.
+/// Skips test files — test functions are self-documenting by name.
 pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
     let mut violations = Vec::new();
+
+    // Skip test files: test functions are self-documenting by name
+    if is_test_file(&file.file_path) {
+        return violations;
+    }
 
     for def in &file.definitions {
         if def.kind != NodeKind::Function {

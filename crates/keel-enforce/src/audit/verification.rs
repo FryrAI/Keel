@@ -3,24 +3,10 @@
 use std::path::Path;
 
 use crate::types::{AuditFinding, AuditSeverity};
+use crate::violations_util;
 
 /// File patterns that indicate test files exist.
 const TEST_DIR_NAMES: &[&str] = &["tests", "__tests__", "test"];
-
-/// File glob patterns for test files (checked via simple suffix/prefix matching).
-const TEST_FILE_PATTERNS: &[(&str, &str)] = &[
-    ("test_", ".py"),  // Python: test_*.py
-    ("", "_test.go"),  // Go: *_test.go
-    ("", "_test.rs"),  // Rust: *_test.rs
-    ("", ".test.ts"),  // TS: *.test.ts
-    ("", ".test.tsx"), // TSX: *.test.tsx
-    ("", ".test.js"),  // JS: *.test.js
-    ("", ".test.jsx"), // JSX: *.test.jsx
-    ("", ".spec.ts"),  // TS: *.spec.ts
-    ("", ".spec.tsx"), // TSX: *.spec.tsx
-    ("", ".spec.js"),  // JS: *.spec.js
-    ("", ".spec.jsx"), // JSX: *.spec.jsx
-];
 
 /// Source file extensions to count.
 const SOURCE_EXTENSIONS: &[&str] = &["py", "rs", "ts", "tsx", "js", "jsx", "go"];
@@ -35,15 +21,18 @@ const CI_CONFIGS: &[&str] = &[
 ];
 
 /// Test command patterns to search for in instruction files.
-const TEST_CMD_PATTERNS: &[&str] = &[
+/// Also used by `agent_config` to check instruction file content quality.
+pub const TEST_CMD_PATTERNS: &[&str] = &[
     "cargo test",
-    "pytest",
+    "pytest", // also matches "uv run pytest"
     "npm test",
     "go test",
     "make test",
     "yarn test",
-    "npx jest",
-    "npx vitest",
+    "vitest", // also matches "npx vitest"
+    "jest",   // also matches "npx jest"
+    "playwright",
+    "bun test",
 ];
 
 /// Agent instruction files to search for test commands.
@@ -57,6 +46,7 @@ const INSTRUCTION_FILES: &[&str] = &[
     "README.md",
 ];
 
+/// Audit verification practices: test coverage, CI config, and pre-commit hooks.
 pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
@@ -98,8 +88,9 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
             check: "test_command_documented".into(),
             message: "No test command found in agent instruction files or README".into(),
             tip: Some(
-                "Add a ## Testing section to CLAUDE.md with the exact command:\n  \
-                 ```bash\n  cargo test\n  ```\n\
+                "Document the test command in an agent instruction file (CLAUDE.md, \
+                 .cursorrules, etc.):\n  \
+                 ```bash\n  cargo test  # or: pytest, npm test, go test, etc.\n  ```\n\
                  Agents need to know how to verify their changes."
                     .into(),
             ),
@@ -134,7 +125,23 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
     }
 
     // Check 4: has_ci_config
-    let has_ci = CI_CONFIGS.iter().any(|c| root_dir.join(c).exists());
+    // For directories (e.g. .github/workflows), verify they contain .yml/.yaml files.
+    // For files (e.g. .gitlab-ci.yml), just check existence.
+    let has_ci = CI_CONFIGS.iter().any(|c| {
+        let path = root_dir.join(c);
+        if path.is_dir() {
+            std::fs::read_dir(&path)
+                .map(|entries| {
+                    entries.flatten().any(|e| {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        name.ends_with(".yml") || name.ends_with(".yaml")
+                    })
+                })
+                .unwrap_or(false)
+        } else {
+            path.exists()
+        }
+    });
     if !has_ci {
         findings.push(AuditFinding {
             severity: AuditSeverity::Warn,
@@ -240,42 +247,38 @@ pub fn check_verification(root_dir: &Path) -> Vec<AuditFinding> {
 }
 
 /// Count test files and source files by walking the directory tree.
+/// Uses `ignore::WalkBuilder` to respect .gitignore and .keelignore,
+/// preventing inflated counts from vendored/generated code.
 fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
     let mut test_count = 0usize;
     let mut source_count = 0usize;
 
-    let walker = walkdir::WalkDir::new(root_dir)
-        .max_depth(6)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_str().unwrap_or("");
-            // Skip hidden dirs (except .github), node_modules, target, vendor
-            if e.file_type().is_dir() {
-                return !matches!(
-                    name,
-                    "node_modules" | "target" | "vendor" | ".git" | "dist" | "build"
-                );
-            }
-            true
-        });
+    let walker = ignore::WalkBuilder::new(root_dir)
+        .hidden(true)
+        .git_ignore(true)
+        .add_custom_ignore_filename(".keelignore")
+        .max_depth(Some(6))
+        .build();
 
     for entry in walker.flatten() {
-        if !entry.file_type().is_file() {
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             continue;
         }
         let name = entry.file_name().to_str().unwrap_or("");
         let path_str = entry.path().to_str().unwrap_or("");
-        let is_test = is_test_file(name) || is_in_test_dir(path_str);
+        let is_test = violations_util::is_test_file(path_str);
         let is_source = SOURCE_EXTENSIONS
             .iter()
             .any(|ext| name.ends_with(&format!(".{}", ext)));
 
-        // For Rust files, also check for inline #[cfg(test)] modules
+        // For Rust files, also check for inline #[cfg(test)] modules.
+        // Intentionally counted as both test AND source: the file contains
+        // production code with co-located tests, so it contributes to both
+        // the test coverage numerator and the source denominator.
         if !is_test && name.ends_with(".rs") {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
                 if content.contains("#[cfg(test)]") {
                     test_count += 1;
-                    // Still count as source too (it's both)
                     source_count += 1;
                     continue;
                 }
@@ -290,32 +293,4 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
     }
 
     (test_count, source_count)
-}
-
-/// Check if a file is inside a test directory (tests/, __tests__/, etc.).
-fn is_in_test_dir(path: &str) -> bool {
-    let normalized = path.replace('\\', "/");
-    normalized.contains("/tests/")
-        || normalized.contains("/__tests__/")
-        || normalized.contains("/test/")
-}
-
-/// Check if a filename matches test file patterns.
-fn is_test_file(name: &str) -> bool {
-    // Rust inline tests (#[cfg(test)]) won't show as separate files,
-    // but *_test.rs files in tests/ will.
-    for (prefix, suffix) in TEST_FILE_PATTERNS {
-        if !prefix.is_empty() && !suffix.is_empty() {
-            if name.starts_with(prefix) && name.ends_with(suffix) {
-                return true;
-            }
-        } else if !prefix.is_empty() {
-            if name.starts_with(prefix) {
-                return true;
-            }
-        } else if !suffix.is_empty() && name.ends_with(suffix) {
-            return true;
-        }
-    }
-    false
 }

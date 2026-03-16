@@ -2,8 +2,21 @@
 /// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
 /// *.test.js, *.spec.js, *_test.rs, tests.rs
 pub fn is_test_file(path: &str) -> bool {
-    let basename = path.rsplit('/').next().unwrap_or(path);
-    let basename = basename.rsplit('\\').next().unwrap_or(basename);
+    let normalized = path.replace('\\', "/");
+
+    // Directory-based: files inside tests/, __tests__/, test/ directories
+    // Check both mid-path ("/tests/") and top-level ("tests/") variants
+    if normalized.contains("/tests/")
+        || normalized.contains("/__tests__/")
+        || normalized.contains("/test/")
+        || normalized.starts_with("tests/")
+        || normalized.starts_with("__tests__/")
+        || normalized.starts_with("test/")
+    {
+        return true;
+    }
+
+    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
 
     // Go: *_test.go
     if basename.ends_with("_test.go") {
@@ -160,5 +173,16 @@ mod tests {
         assert!(is_test_file("src/handler_test.rs"));
         assert!(is_test_file("src/tests.rs"));
         assert!(!is_test_file("src/handler.rs"));
+
+        // Directory-based detection
+        assert!(is_test_file("src/tests/helpers.py"));
+        assert!(is_test_file("project/test/utils.go"));
+        assert!(is_test_file("src/__tests__/handler.ts"));
+        assert!(!is_test_file("src/contest/handler.py")); // "contest" != "test"
+
+        // Top-level test directories (no parent path prefix)
+        assert!(is_test_file("tests/helpers.py"));
+        assert!(is_test_file("test/utils.go"));
+        assert!(is_test_file("__tests__/handler.ts"));
     }
 }

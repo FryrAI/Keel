@@ -1248,6 +1248,7 @@ dependencies = [
 name = "keel-enforce"
 version = "0.4.2"
 dependencies = [
+ "ignore",
  "keel-core",
  "keel-parsers",
  "serde",
