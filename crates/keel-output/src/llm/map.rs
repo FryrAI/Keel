@@ -140,6 +140,8 @@ mod tests {
                     responsibility_keywords: Some(vec!["auth".into(), "jwt".into()]),
                     external_endpoints: None,
                     function_names: vec![],
+                    summary: None,
+                    when_to_use: None,
                 },
                 ModuleEntry {
                     path: "src/handlers/".into(),
@@ -149,6 +151,8 @@ mod tests {
                     responsibility_keywords: Some(vec!["http".into(), "api".into()]),
                     external_endpoints: None,
                     function_names: vec![],
+                    summary: None,
+                    when_to_use: None,
                 },
             ],
             hotspots: vec![HotspotEntry {

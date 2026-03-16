@@ -176,6 +176,60 @@ fn main() {
             commands::context::run(&*formatter, cli.verbose, file, cli.json, cli.llm),
             Default::default(),
         ),
+        Commands::Skeleton {
+            file,
+            docs,
+            private,
+        } => (
+            commands::skeleton::run(
+                &*formatter,
+                cli.verbose,
+                file,
+                docs,
+                private,
+                cli.json,
+                cli.llm,
+            ),
+            Default::default(),
+        ),
+        Commands::Focus {
+            query,
+            depth,
+            budget,
+            name,
+        } => (
+            commands::focus::run(
+                &*formatter,
+                cli.verbose,
+                query,
+                depth,
+                budget,
+                name,
+                cli.json,
+                cli.llm,
+            ),
+            Default::default(),
+        ),
+        Commands::Checkpoint {
+            since,
+            staged,
+            output,
+        } => (
+            commands::checkpoint::run(
+                &*formatter,
+                cli.verbose,
+                since,
+                staged,
+                output,
+                cli.json,
+                cli.llm,
+            ),
+            Default::default(),
+        ),
+        Commands::ValidatePlan { input } => (
+            commands::validate_plan::run(cli.verbose, input, cli.json, cli.llm),
+            Default::default(),
+        ),
         Commands::Serve { mcp, http, watch } => (
             commands::serve::run(&*formatter, cli.verbose, mcp, http, watch, no_telemetry),
             Default::default(),

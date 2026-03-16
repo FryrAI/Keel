@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-
 use keel_core::types::{EdgeChange, EdgeKind, ModuleProfile, NodeChange, NodeKind};
 use keel_enforce::types::ModuleFunctionRef;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 /// Build a MapResult from collected node and edge data (before they are consumed).
 pub fn build_map_result(
@@ -58,7 +59,6 @@ pub fn build_map_result(
     }
     let mut langs: Vec<String> = languages.into_iter().collect();
     langs.sort();
-
     let external_endpoint_count = nodes
         .iter()
         .map(|n| n.external_endpoints.len())
@@ -76,7 +76,6 @@ pub fn build_map_result(
         }
     }
 
-    // Per-module entries: count functions, classes, edges per module
     let mut module_entries = Vec::new();
     for node in &nodes {
         if node.kind != NodeKind::Module {
@@ -117,6 +116,19 @@ pub fn build_map_result(
             })
             .collect();
 
+        // Extract summary from module docstring (first non-empty doc line)
+        let summary = node
+            .docstring
+            .as_ref()
+            .and_then(|d| d.lines().find(|l| !l.trim().is_empty()))
+            .map(|l| l.trim().to_string());
+
+        // Generate when_to_use from file path
+        let stripped = file_path
+            .trim_start_matches("src/")
+            .trim_start_matches("lib/");
+        let when_to_use = Some(format!("When modifying {}", stripped));
+
         module_entries.push(ModuleEntry {
             path: file_path.clone(),
             function_count: fn_count,
@@ -125,6 +137,8 @@ pub fn build_map_result(
             responsibility_keywords: None,
             external_endpoints: None,
             function_names: fn_refs,
+            summary,
+            when_to_use,
         });
     }
 
@@ -173,7 +187,6 @@ pub fn populate_hotspots(
         })
         .collect();
 
-    // Count incoming (callers) and outgoing (callees) Calls edges per node
     let mut callers: HashMap<u64, u32> = HashMap::new();
     let mut callees: HashMap<u64, u32> = HashMap::new();
     for e in valid_edges {
@@ -184,7 +197,6 @@ pub fn populate_hotspots(
             }
         }
     }
-
     // Score and rank by total connectivity
     let mut scored: Vec<_> = nodes
         .iter()
@@ -206,7 +218,7 @@ pub fn populate_hotspots(
             hash: n.hash.clone(),
             callers: c,
             callees: ce,
-            keywords: vec![], // Keywords come from module profile, not available here
+            keywords: vec![],
         })
         .collect();
 }
@@ -227,7 +239,6 @@ pub fn populate_functions(
         })
         .collect();
 
-    // Count callers/callees per function
     let mut callers: HashMap<u64, u32> = HashMap::new();
     let mut callees: HashMap<u64, u32> = HashMap::new();
     for e in valid_edges {
@@ -238,7 +249,6 @@ pub fn populate_functions(
             }
         }
     }
-
     result.functions = functions
         .iter()
         .map(|n| FunctionEntry {
@@ -254,8 +264,7 @@ pub fn populate_functions(
         .collect();
 }
 
-/// Build module profiles from node changes for populating the module_profiles table.
-/// Generates responsibility_keywords from file paths and function/class names.
+/// Build module profiles from node changes. Generates responsibility_keywords.
 pub fn build_module_profiles(node_changes: &[NodeChange]) -> Vec<ModuleProfile> {
     let nodes: Vec<_> = node_changes
         .iter()

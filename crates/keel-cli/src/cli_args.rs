@@ -225,6 +225,52 @@ pub(crate) enum Commands {
         file: String,
     },
 
+    /// Signature-only view of a file (no function bodies)
+    Skeleton {
+        /// File path to show skeleton for
+        file: String,
+        /// Include docstrings in output
+        #[arg(long)]
+        docs: bool,
+        /// Include private/internal symbols
+        #[arg(long)]
+        private: bool,
+    },
+
+    /// Compute minimal relevant file set for safe modification
+    Focus {
+        /// Hash, file path, or function name
+        query: String,
+        /// Traversal depth (default: 2)
+        #[arg(long, default_value = "2")]
+        depth: u32,
+        /// Token budget limit
+        #[arg(long)]
+        budget: Option<usize>,
+        /// Look up by function name
+        #[arg(long)]
+        name: bool,
+    },
+
+    /// Generate compact session state summary
+    Checkpoint {
+        /// Show changes since this commit (default: HEAD)
+        #[arg(long)]
+        since: Option<String>,
+        /// Show staged changes only
+        #[arg(long)]
+        staged: bool,
+        /// Write checkpoint to file
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+
+    /// Validate a plan against the dependency graph
+    ValidatePlan {
+        /// Plan file path, or "-" for stdin
+        input: String,
+    },
+
     /// Remove all keel-generated files
     Deinit,
 

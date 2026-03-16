@@ -217,6 +217,12 @@ pub struct ModuleEntry {
     /// Function names with hashes for agent-friendly module listings.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub function_names: Vec<ModuleFunctionRef>,
+    /// One-line summary extracted from module docstring or inferred from contents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// When an agent should read this module (inferred from keywords and function names).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when_to_use: Option<String>,
 }
 
 /// Lightweight function reference within a module entry.

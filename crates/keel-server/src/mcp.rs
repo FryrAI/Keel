@@ -190,6 +190,55 @@ fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/skeleton".into(),
+            description: "Signature-only view of a file (no function bodies)".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string" },
+                    "docs": { "type": "boolean", "default": false },
+                    "private": { "type": "boolean", "default": false }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/focus".into(),
+            description: "Compute minimal relevant file set for safe modification of a target".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": { "type": "string", "description": "Hash, file path, or function name" },
+                    "depth": { "type": "integer", "default": 2 },
+                    "budget": { "type": "integer", "description": "Token budget limit" },
+                    "name": { "type": "boolean", "default": false, "description": "Look up by function name" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/checkpoint".into(),
+            description: "Generate compact session state summary: changes, impact, violations".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "since": { "type": "string", "description": "Commit ref to diff against (default: HEAD)" },
+                    "staged": { "type": "boolean", "default": false }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/validate-plan".into(),
+            description: "Validate a plan against the dependency graph before execution".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["plan_text"],
+                "properties": {
+                    "plan_text": { "type": "string", "description": "Plan text describing intended changes" }
+                }
+            }),
+        },
     ]
 }
 
@@ -221,6 +270,10 @@ fn dispatch(
         "keel/analyze" => crate::mcp_analyze::handle_analyze(store, params),
         "keel/audit" => crate::mcp_audit::handle_audit(store, params),
         "keel/context" => crate::mcp_context::handle_context(store, params),
+        "keel/skeleton" => crate::mcp_skeleton::handle_skeleton(store, params),
+        "keel/focus" => crate::mcp_focus::handle_focus(store, params),
+        "keel/checkpoint" => crate::mcp_checkpoint::handle_checkpoint(store, params),
+        "keel/validate-plan" => crate::mcp_validate_plan::handle_validate_plan(store, params),
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Method not found: {}", method),
@@ -277,6 +330,7 @@ pub(crate) fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
     }
 }
 
+/// Create a JSON-RPC error for a missing parameter.
 pub(crate) fn missing_param(name: &str) -> JsonRpcError {
     JsonRpcError {
         code: -32602,
@@ -284,6 +338,7 @@ pub(crate) fn missing_param(name: &str) -> JsonRpcError {
     }
 }
 
+/// Create a JSON-RPC error for a node not found.
 pub(crate) fn not_found(hash: &str) -> JsonRpcError {
     JsonRpcError {
         code: -32602,

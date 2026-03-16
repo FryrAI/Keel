@@ -27,6 +27,8 @@ fn sample_map() -> MapResult {
                 responsibility_keywords: Some(vec!["entry".into(), "main".into()]),
                 external_endpoints: Some(vec!["POST /api/run".into()]),
                 function_names: vec![],
+                summary: None,
+                when_to_use: None,
             },
             ModuleEntry {
                 path: "src/utils.py".into(),
@@ -36,6 +38,8 @@ fn sample_map() -> MapResult {
                 responsibility_keywords: None,
                 external_endpoints: None,
                 function_names: vec![],
+                summary: None,
+                when_to_use: None,
             },
         ],
         hotspots: vec![],

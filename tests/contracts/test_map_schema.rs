@@ -28,6 +28,8 @@ fn map_output_matches_schema() {
                 responsibility_keywords: Some(vec!["api".to_string(), "http".to_string()]),
                 external_endpoints: Some(vec!["GET /api/users".to_string()]),
                 function_names: vec![],
+                summary: None,
+                when_to_use: None,
             },
             ModuleEntry {
                 path: "src/auth.py".to_string(),
@@ -37,6 +39,8 @@ fn map_output_matches_schema() {
                 responsibility_keywords: None,
                 external_endpoints: None,
                 function_names: vec![],
+                summary: None,
+                when_to_use: None,
             },
         ],
         hotspots: vec![],
