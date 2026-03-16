@@ -21,18 +21,16 @@ const CI_CONFIGS: &[&str] = &[
 ];
 
 /// Test command patterns to search for in instruction files.
-const TEST_CMD_PATTERNS: &[&str] = &[
+/// Also used by `agent_config` to check instruction file content quality.
+pub const TEST_CMD_PATTERNS: &[&str] = &[
     "cargo test",
-    "pytest",
-    "uv run pytest",
+    "pytest", // also matches "uv run pytest"
     "npm test",
     "go test",
     "make test",
     "yarn test",
-    "npx jest",
-    "npx vitest",
-    "vitest",
-    "jest",
+    "vitest", // also matches "npx vitest"
+    "jest",   // also matches "npx jest"
     "playwright",
     "bun test",
 ];
@@ -273,12 +271,14 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
             .iter()
             .any(|ext| name.ends_with(&format!(".{}", ext)));
 
-        // For Rust files, also check for inline #[cfg(test)] modules
+        // For Rust files, also check for inline #[cfg(test)] modules.
+        // Intentionally counted as both test AND source: the file contains
+        // production code with co-located tests, so it contributes to both
+        // the test coverage numerator and the source denominator.
         if !is_test && name.ends_with(".rs") {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
                 if content.contains("#[cfg(test)]") {
                     test_count += 1;
-                    // Still count as source too (it's both)
                     source_count += 1;
                     continue;
                 }

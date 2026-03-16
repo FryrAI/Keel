@@ -89,7 +89,7 @@ pub fn check_agent_config(root_dir: &Path) -> Vec<AuditFinding> {
 
             // Content quality: check for test command
             let lower = content.to_lowercase();
-            let has_test_cmd = ["cargo test", "pytest", "npm test", "go test", "make test"]
+            let has_test_cmd = super::verification::TEST_CMD_PATTERNS
                 .iter()
                 .any(|pat| lower.contains(pat));
             if !has_test_cmd {
