@@ -194,12 +194,12 @@ fn extract_definitions(
                 | "def.impl.type"
                 | "def.trait_impl.trait_name"
                 | "def.trait_impl.type_name"
-                | "def.trait_impl.body" => {
-                    if def_node.is_none() {
-                        line_start = cap.node.start_position().row as u32 + 1;
-                        line_end = cap.node.end_position().row as u32 + 1;
-                        def_node = Some(cap.node);
-                    }
+                | "def.trait_impl.body"
+                    if def_node.is_none() =>
+                {
+                    line_start = cap.node.start_position().row as u32 + 1;
+                    line_end = cap.node.end_position().row as u32 + 1;
+                    def_node = Some(cap.node);
                 }
                 _ => {}
             }
