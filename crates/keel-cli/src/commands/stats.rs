@@ -182,7 +182,7 @@ fn print_telemetry_human(agg: &keel_core::telemetry::TelemetryAggregate) {
         println!();
         println!("    agent adoption:");
         let mut agents: Vec<_> = agg.agent_stats.iter().collect();
-        agents.sort_by(|a, b| b.1.sessions.cmp(&a.1.sessions));
+        agents.sort_by_key(|a| std::cmp::Reverse(a.1.sessions));
         for (name, stats) in agents {
             println!(
                 "      {}: {} sessions, avg {:.0} tool calls/session",
