@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::compile_note::apply_honest_compile_note;
 use super::merge;
 use super::templates;
 use super::HookSelection;
@@ -73,7 +74,8 @@ pub fn generate_claude_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf,
 
     // CLAUDE.md — markdown marker merge
     let md_path = root.join("CLAUDE.md");
-    match merge::merge_markdown_file(&md_path, templates::CLAUDE_CODE_INSTRUCTIONS) {
+    let md_content = apply_honest_compile_note(templates::CLAUDE_CODE_INSTRUCTIONS, hooks.on_edit);
+    match merge::merge_markdown_file(&md_path, &md_content) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: CLAUDE.md merge failed: {}", e),
     }
@@ -101,7 +103,8 @@ pub fn generate_cursor(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, Stri
 
     // keel.mdc — write to rules directory (no merge, overwrite)
     let rules_path = root.join(".cursor/rules/keel.mdc");
-    files.push((rules_path, templates::CURSOR_RULES.to_string()));
+    let rules_content = apply_honest_compile_note(templates::CURSOR_RULES, hooks.on_edit);
+    files.push((rules_path, rules_content));
 
     files
 }
@@ -126,7 +129,8 @@ pub fn generate_gemini_cli(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, 
 
     // GEMINI.md — markdown marker merge
     let md_path = root.join("GEMINI.md");
-    match merge::merge_markdown_file(&md_path, templates::GEMINI_INSTRUCTIONS) {
+    let md_content = apply_honest_compile_note(templates::GEMINI_INSTRUCTIONS, hooks.on_edit);
+    match merge::merge_markdown_file(&md_path, &md_content) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: GEMINI.md merge failed: {}", e),
     }
@@ -155,7 +159,8 @@ pub fn generate_windsurf(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, St
 
     // .windsurfrules — overwrite (not markdown with markers)
     let rules_path = root.join(".windsurfrules");
-    files.push((rules_path, templates::WINDSURF_RULES.to_string()));
+    let rules_content = apply_honest_compile_note(templates::WINDSURF_RULES, hooks.on_edit);
+    files.push((rules_path, rules_content));
 
     files
 }
@@ -180,7 +185,8 @@ pub fn generate_letta_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, 
 
     // Instruction file — markdown marker merge
     let md_path = root.join("LETTA.md");
-    match merge::merge_markdown_file(&md_path, templates::LETTA_INSTRUCTIONS) {
+    let md_content = apply_honest_compile_note(templates::LETTA_INSTRUCTIONS, hooks.on_edit);
+    match merge::merge_markdown_file(&md_path, &md_content) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: LETTA.md merge failed: {}", e),
     }
@@ -315,3 +321,7 @@ pub fn write_files(files: &[(PathBuf, String)], verbose: bool) -> usize {
     }
     count
 }
+
+#[cfg(test)]
+#[path = "generators_tests.rs"]
+mod tests;

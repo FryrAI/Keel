@@ -14,9 +14,6 @@ use super::compile_lock::acquire_compile_lock;
 use super::compile_metrics::build_compile_metrics;
 use crate::telemetry_recorder::EventMetrics;
 
-/// Supported file extensions for --changed filtering.
-const SUPPORTED_EXTENSIONS: &[&str] = &["rs", "py", "ts", "tsx", "js", "jsx", "go"];
-
 /// Run `keel compile` — incremental validation of changed files.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -158,7 +155,9 @@ pub fn run(
         };
 
         let resolver: &dyn LanguageResolver = match lang {
-            "typescript" | "javascript" | "tsx" => ts.get_or_insert_with(TsResolver::new),
+            l if keel_parsers::treesitter::is_typescript_family(l) => {
+                ts.get_or_insert_with(|| TsResolver::with_project_root(&cwd))
+            }
             "python" => py.get_or_insert_with(PyResolver::new),
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
             "rust" => rs.get_or_insert_with(RustLangResolver::new),
@@ -311,17 +310,12 @@ fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
     Ok(filter_supported_files(&text))
 }
 
-/// Filter file paths to only supported extensions.
+/// Filter file paths to only supported languages, per the canonical
+/// extension table in `keel_parsers::treesitter::detect_language`.
 fn filter_supported_files(text: &str) -> Vec<String> {
     text.lines()
         .filter(|line| !line.is_empty())
-        .filter(|line| {
-            Path::new(line)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| SUPPORTED_EXTENSIONS.contains(&e))
-                .unwrap_or(false)
-        })
+        .filter(|line| detect_language(Path::new(line)).is_some())
         .map(|s| s.to_string())
         .collect()
 }

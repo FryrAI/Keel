@@ -6,8 +6,8 @@ use crate::mcp::{
     internal_err, lock_store, missing_param, not_found, JsonRpcError, SharedEngine, SharedStore,
 };
 use keel_core::store::GraphStore;
-use keel_enforce::types::{ExplainResult, ResolutionStep};
 
+/// Find the callers and callees of a node by hash.
 pub(crate) fn handle_discover(
     engine: &SharedEngine,
     params: Option<Value>,
@@ -36,6 +36,7 @@ pub(crate) fn handle_discover(
     serde_json::to_value(result).map_err(internal_err)
 }
 
+/// Resolve a hash to its file and line range.
 pub(crate) fn handle_where(
     store: &SharedStore,
     params: Option<Value>,
@@ -59,8 +60,12 @@ pub(crate) fn handle_where(
     .map_err(internal_err)
 }
 
+/// Explain a violation's resolution chain.
+///
+/// Delegates to the enforcement engine's `explain` — the same path the CLI and
+/// HTTP handlers use — so all three interfaces report an identical chain,
+/// confidence, and resolution tier.
 pub(crate) fn handle_explain(
-    store: &SharedStore,
     engine: &SharedEngine,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
@@ -78,40 +83,18 @@ pub(crate) fn handle_explain(
         .ok_or_else(|| missing_param("hash"))?
         .to_string();
 
-    let store = lock_store(store)?;
-    let node = store.get_node(&hash).ok_or_else(|| not_found(&hash))?;
-
-    // Check circuit breaker state for this error_code+hash to get real confidence
-    let eng = engine.lock().map_err(|_| JsonRpcError {
+    let engine = engine.lock().map_err(|_| JsonRpcError {
         code: -32603,
         message: "Engine lock poisoned".into(),
     })?;
-    let cb_failures = eng.circuit_breaker_failures(&error_code, &hash, &node.file_path);
-    let confidence = if cb_failures > 0 {
-        (1.0 - (cb_failures as f64 * 0.2)).max(0.3)
-    } else {
-        1.0
-    };
 
-    let result = ExplainResult {
-        version: env!("CARGO_PKG_VERSION").into(),
-        command: "explain".into(),
-        error_code,
-        hash: node.hash.clone(),
-        confidence,
-        resolution_tier: "tree-sitter".into(),
-        resolution_chain: vec![ResolutionStep {
-            kind: "lookup".into(),
-            file: node.file_path,
-            line: node.line_start,
-            text: format!("Node '{}' found via hash lookup", node.name),
-        }],
-        summary: format!("Resolved '{}' via tree-sitter (Tier 1)", node.name),
-    };
-
+    let result = engine
+        .explain(&error_code, &hash)
+        .ok_or_else(|| not_found(&hash))?;
     serde_json::to_value(result).map_err(internal_err)
 }
 
+/// Return a graph map, either full-graph or scoped to a single file.
 pub(crate) fn handle_map(
     store: &SharedStore,
     params: Option<Value>,

@@ -18,6 +18,7 @@ mod mcp_fix;
 mod mcp_name;
 mod mcp_search;
 pub mod mcp_stdio;
+mod mcp_tools;
 mod parse_shared;
 pub mod watcher;
 

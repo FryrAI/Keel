@@ -10,7 +10,14 @@ use keel_output::OutputFormatter;
 use super::map_helpers::{build_map_result, populate_functions, populate_hotspots};
 use crate::telemetry_recorder::EventMetrics;
 
-/// Read map from existing graph.db without re-parsing. Returns error if DB is empty.
+/// Read map from existing graph.db without re-parsing.
+///
+/// Falls back to a full, non-cached map when the graph is empty (e.g. right
+/// after `keel init`, which creates the database but does not populate it —
+/// or in a fresh worktree/clone that never ran `keel map`). Without this
+/// fallback, the first session-start hook on a fresh repo would inject an
+/// error instead of a real structural map. The fast path (cache present)
+/// remains unchanged.
 pub fn run_cached(
     store: &dyn GraphStore,
     formatter: &dyn OutputFormatter,
@@ -21,11 +28,15 @@ pub fn run_cached(
 
     let modules = store.get_all_modules();
     if modules.is_empty() {
-        if verbose {
-            eprintln!("keel map --cached: graph.db is empty, falling back to full map");
-        }
-        eprintln!("keel map --cached: no cached graph found. Run `keel map` first.");
-        return (2, EventMetrics::default());
+        // Always announce the fallback: it swaps a fast cache read for a full
+        // repo parse, and a silent slow path is undebuggable from a hook.
+        eprintln!("keel map --cached: graph.db is empty, falling back to full map");
+        // Delegate to the existing non-cached map path, which opens its own
+        // store and performs a full parse. `llm_verbose`/`scope`/`strict` are
+        // unused by that path (see its `_`-prefixed params); `tier3_enabled`
+        // is left off here — project-level tier3 config (.keel/keel.json)
+        // still applies via that path's own config load.
+        return super::map::run(formatter, verbose, false, None, false, depth, false, false);
     }
 
     // Collect all nodes and edges from the DB
@@ -65,17 +76,13 @@ pub fn run_cached(
     let mut map_result = build_map_result(&node_changes, &edge_changes, &entries);
     map_result.depth = depth;
 
-    // Reconstruct language list from file extensions in module paths
+    // Reconstruct language list from file extensions in module paths, using
+    // the canonical table verbatim so cached output matches a fresh `keel map`
+    // (which reports the walker's raw language strings, e.g. "svelte").
     let mut languages: HashSet<String> = HashSet::new();
     for module in &modules {
-        if let Some(ext) = std::path::Path::new(&module.file_path).extension() {
-            let lang = match ext.to_str().unwrap_or("") {
-                "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" => "typescript",
-                "py" | "pyi" => "python",
-                "go" => "go",
-                "rs" => "rust",
-                _ => continue,
-            };
+        let path = std::path::Path::new(&module.file_path);
+        if let Some(lang) = keel_parsers::treesitter::detect_language(path) {
             languages.insert(lang.to_string());
         }
     }

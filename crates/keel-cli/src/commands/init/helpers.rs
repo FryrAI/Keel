@@ -102,6 +102,7 @@ target/
 dist/
 build/
 .next/
+.svelte-kit/
 vendor/
 .venv/
 ";

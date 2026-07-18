@@ -8,9 +8,6 @@ use crate::violations_util;
 /// File patterns that indicate test files exist.
 const TEST_DIR_NAMES: &[&str] = &["tests", "__tests__", "test"];
 
-/// Source file extensions to count.
-const SOURCE_EXTENSIONS: &[&str] = &["py", "rs", "ts", "tsx", "js", "jsx", "go"];
-
 /// CI config paths to check.
 const CI_CONFIGS: &[&str] = &[
     ".github/workflows",
@@ -266,10 +263,11 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
         }
         let name = entry.file_name().to_str().unwrap_or("");
         let path_str = entry.path().to_str().unwrap_or("");
-        let is_test = violations_util::is_test_file(path_str);
-        let is_source = SOURCE_EXTENSIONS
-            .iter()
-            .any(|ext| name.ends_with(&format!(".{}", ext)));
+        // Canonical language table on BOTH sides of the ratio: the numerator
+        // must not count JSON/snapshot fixtures under tests/, and the
+        // denominator counts everything keel indexes (e.g. .svelte).
+        let is_code = keel_parsers::treesitter::detect_language(entry.path()).is_some();
+        let is_test = is_code && violations_util::is_test_file(path_str);
 
         // For Rust files, also check for inline #[cfg(test)] modules.
         // Intentionally counted as both test AND source: the file contains
@@ -287,7 +285,7 @@ fn count_test_and_source_files(root_dir: &Path) -> (usize, usize) {
 
         if is_test {
             test_count += 1;
-        } else if is_source {
+        } else if is_code {
             source_count += 1;
         }
     }

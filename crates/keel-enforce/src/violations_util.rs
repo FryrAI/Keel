@@ -1,3 +1,13 @@
+/// Check if a file is a declaration/stub file: signature-only by definition,
+/// so docstring and body-level checks don't apply (`.pyi` stubs, `.d.ts`
+/// declarations).
+pub fn is_stub_file(path: &str) -> bool {
+    path.ends_with(".pyi")
+        || path.ends_with(".d.ts")
+        || path.ends_with(".d.mts")
+        || path.ends_with(".d.cts")
+}
+
 /// Check if a file path is a test file by language convention.
 /// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
 /// *.test.js, *.spec.js, *_test.rs, tests.rs
@@ -62,6 +72,26 @@ pub fn count_call_args(name: &str) -> usize {
         return 0;
     }
     args.split(',').count()
+}
+
+/// Strip all whitespace so signatures can be compared ignoring pure
+/// reformatting. A simple "collapse runs of whitespace to one space" would
+/// still miscompare the most common rustfmt/prettier wrap style — one
+/// parameter per line, with the `(`/`)` glued to a newline that has no
+/// corresponding space in the single-line form:
+/// ```text
+/// fn foo(x: i32, y: i32) -> bool
+/// fn foo(
+///     x: i32,
+///     y: i32,
+/// ) -> bool
+/// ```
+/// Collapsing would leave `foo( x: i32...` vs `foo(x: i32...`, still
+/// unequal. Removing whitespace entirely instead of collapsing it handles
+/// this correctly — the token stream is what actually defines the
+/// signature, and whitespace never distinguishes two different signatures.
+pub fn normalize_signature(sig: &str) -> String {
+    sig.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 /// Extract a name prefix (e.g., "handle" from "handleRequest").
@@ -148,6 +178,62 @@ mod tests {
     #[test]
     fn test_extract_prefix_snake_case_multi() {
         assert_eq!(extract_prefix("get_user_name"), "get");
+    }
+
+    #[test]
+    fn test_normalize_signature_whitespace_only_reformat_matches() {
+        // rustfmt's common one-param-per-line wrap style — the `(`/`)`
+        // glue directly to a newline that has no corresponding space in
+        // the single-line form. (A trailing comma, if rustfmt adds one,
+        // is a real content difference, not whitespace — out of scope
+        // for whitespace normalization, and correctly still flagged.)
+        let a = "fn foo(x: i32, y: i32) -> bool";
+        let b = "fn foo(\n    x: i32,\n    y: i32\n) -> bool";
+        assert_eq!(normalize_signature(a), normalize_signature(b));
+
+        // prettier-style wrap without a trailing comma
+        let c = "function foo(\n  x: number,\n  y: number\n): boolean";
+        let d = "function foo(x: number, y: number): boolean";
+        assert_eq!(normalize_signature(c), normalize_signature(d));
+
+        // Extra/irregular spacing
+        assert_eq!(
+            normalize_signature("fn  foo( x:i32 )"),
+            normalize_signature("fn foo(x:i32)")
+        );
+
+        // Leading/trailing whitespace
+        assert_eq!(
+            normalize_signature("  fn foo()  "),
+            normalize_signature("fn foo()")
+        );
+    }
+
+    #[test]
+    fn test_normalize_signature_real_change_differs() {
+        // Added parameter is a real signature change, not just reformatting
+        assert_ne!(
+            normalize_signature("fn foo(x: i32)"),
+            normalize_signature("fn foo(x: i32, y: i32)")
+        );
+        // Type change is a real signature change
+        assert_ne!(
+            normalize_signature("fn foo(x: i32)"),
+            normalize_signature("fn foo(x: i64)")
+        );
+        // Renamed function is a real signature change
+        assert_ne!(
+            normalize_signature("fn foo()"),
+            normalize_signature("fn bar()")
+        );
+    }
+
+    #[test]
+    fn test_is_stub_file() {
+        assert!(is_stub_file("src/models.pyi"));
+        assert!(is_stub_file("types/global.d.ts"));
+        assert!(!is_stub_file("src/models.py"));
+        assert!(!is_stub_file("src/app.ts"));
     }
 
     #[test]

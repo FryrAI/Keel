@@ -82,10 +82,11 @@ async fn compile(
     State(engine): State<SharedEngine>,
     Json(req): Json<CompileRequest>,
 ) -> Json<CompileResult> {
+    let mut parser = FileParser::new();
     let file_indexes: Vec<FileIndex> = req
         .files
         .iter()
-        .filter_map(|path| parse_file_to_index(path))
+        .filter_map(|path| parser.parse(path))
         .collect();
 
     let mut engine = engine.lock().unwrap();
@@ -129,7 +130,7 @@ async fn explain(
 
 // --- File parsing helper (delegated to parse_shared) ---
 
-use crate::parse_shared::parse_file_to_index;
+use crate::parse_shared::FileParser;
 
 #[cfg(test)]
 mod tests {

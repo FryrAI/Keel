@@ -74,8 +74,8 @@ pub fn check_removed_functions_with_cache(
             confidence: 0.95,
             resolution_tier: "tree-sitter".to_string(),
             fix_hint: Some(format!(
-                "Remove or update callers of `{}` before deleting it",
-                node.name
+                "Remove or update callers of `{}` before deleting it — e.g. {}:{}",
+                node.name, callers[0].file_path, callers[0].line_start
             )),
             suppressed: false,
             suppress_hint: None,

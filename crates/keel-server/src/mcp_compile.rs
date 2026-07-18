@@ -8,7 +8,7 @@ use serde_json::Value;
 use keel_enforce::types::{CompileInfo, CompileResult};
 
 use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
-use crate::parse_shared::parse_file_to_index;
+use crate::parse_shared::FileParser;
 
 /// Handle the `keel/compile` MCP tool call to parse files and run enforcement checks.
 pub(crate) fn handle_compile(
@@ -34,10 +34,8 @@ pub(crate) fn handle_compile(
         .unwrap_or(false);
 
     // Parse files that exist on disk into FileIndexes
-    let file_indexes: Vec<_> = files
-        .iter()
-        .filter_map(|path| parse_file_to_index(path))
-        .collect();
+    let mut parser = FileParser::new();
+    let file_indexes: Vec<_> = files.iter().filter_map(|path| parser.parse(path)).collect();
 
     // Use shared engine — state persists across calls
     let mut engine = engine.lock().map_err(|_| JsonRpcError {

@@ -19,7 +19,14 @@ pub(crate) fn analyze_with_oxc(path: &Path, content: &str) -> OxcSymbolInfo {
     use oxc_span::SourceType;
 
     let allocator = Allocator::default();
-    let source_type = SourceType::from_path(path).unwrap_or_default();
+    // oxc has no `.svelte` source type; the extracted script blocks are TS.
+    let source_type = if super::svelte::is_svelte_file(path) {
+        SourceType::default()
+            .with_typescript(true)
+            .with_module(true)
+    } else {
+        SourceType::from_path(path).unwrap_or_default()
+    };
 
     let parse_result = OxcParser::new(&allocator, content, source_type).parse();
     if !parse_result.errors.is_empty() {

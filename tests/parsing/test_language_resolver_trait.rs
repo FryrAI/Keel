@@ -30,8 +30,13 @@ fn test_resolver_supported_extensions() {
     let go = GoResolver::new();
     let rs = RustLangResolver::new();
 
-    assert_eq!(ts.supported_extensions(), &["ts", "tsx", "js", "jsx"]);
-    assert_eq!(py.supported_extensions(), &["py"]);
+    // .svelte is TS-family: script blocks are extracted and parsed as TypeScript.
+    // Must match the TS-family rows of `treesitter::detect_language`.
+    assert_eq!(
+        ts.supported_extensions(),
+        &["ts", "mts", "cts", "tsx", "js", "mjs", "cjs", "jsx", "svelte"]
+    );
+    assert_eq!(py.supported_extensions(), &["py", "pyi"]);
     assert_eq!(go.supported_extensions(), &["go"]);
     assert_eq!(rs.supported_extensions(), &["rs"]);
 

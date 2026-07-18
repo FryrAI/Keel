@@ -18,7 +18,21 @@ struct JsonRpcRequest {
     jsonrpc: String,
     method: String,
     params: Option<Value>,
+    // `None` = the member was absent (a notification). An explicit
+    // `"id": null` must survive as `Some(Value::Null)` — plain
+    // `Option<Value>` would collapse it to `None` — because JSON-RPC 2.0
+    // treats a present-but-null id as a request that requires a response.
+    #[serde(default, deserialize_with = "deserialize_present_id")]
     id: Option<Value>,
+}
+
+/// Deserializer for `id` that maps a *present* JSON `null` to
+/// `Some(Value::Null)` instead of `None`, so absent and null differ.
+fn deserialize_present_id<'de, D>(d: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(d).map(Some)
 }
 
 #[derive(Serialize)]
@@ -31,166 +45,40 @@ struct JsonRpcResponse {
     id: Value,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct JsonRpcError {
     pub(crate) code: i64,
     pub(crate) message: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct ToolInfo {
-    name: String,
-    description: String,
-    #[serde(rename = "inputSchema")]
-    input_schema: Value,
-}
+pub(crate) use crate::mcp_tools::{dispatch_tool, tool_list};
 
-fn tool_list() -> Vec<ToolInfo> {
-    vec![
-        ToolInfo {
-            name: "keel/compile".into(),
-            description: "Compile files and check for violations".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "files": { "type": "array", "items": { "type": "string" } },
-                    "batch_start": { "type": "boolean" },
-                    "batch_end": { "type": "boolean" }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/discover".into(),
-            description: "Discover callers and callees of a node by hash".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["hash"],
-                "properties": {
-                    "hash": { "type": "string" },
-                    "depth": { "type": "integer", "default": 1 }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/where".into(),
-            description: "Find file and line for a hash".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["hash"],
-                "properties": {
-                    "hash": { "type": "string" }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/explain".into(),
-            description: "Explain a violation with resolution chain".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["error_code", "hash"],
-                "properties": {
-                    "error_code": { "type": "string" },
-                    "hash": { "type": "string" }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/map".into(),
-            description: "Full re-map of the codebase graph".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "format": { "type": "string", "enum": ["json", "llm"] },
-                    "scope": { "type": "array", "items": { "type": "string" } },
-                    "file_path": { "type": "string", "description": "Scope map to a single file" }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/check".into(),
-            description: "Pre-edit risk assessment: callers, callees, risk level, suggestions"
-                .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["hash"],
-                "properties": {
-                    "hash": { "type": "string" }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/fix".into(),
-            description: "Compile files and generate fix plans for violations".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "files": { "type": "array", "items": { "type": "string" } }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/search".into(),
-            description: "Search graph nodes by name substring".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": { "type": "string" },
-                    "kind": { "type": "string", "enum": ["function", "class", "module"] },
-                    "limit": { "type": "integer", "default": 20 }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/name".into(),
-            description: "Suggest name and location for new code based on description".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["description"],
-                "properties": {
-                    "description": { "type": "string" },
-                    "module": { "type": "string", "description": "Filter to modules matching this path substring" },
-                    "kind": { "type": "string", "enum": ["function", "class"] }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/analyze".into(),
-            description: "Analyze a file for structure, code smells, and refactoring opportunities"
-                .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["file"],
-                "properties": {
-                    "file": { "type": "string" }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/audit".into(),
-            description:
-                "AI-readiness scorecard: structure, discoverability, navigation, agent config"
-                    .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "dimension": { "type": "string", "enum": ["structure", "discoverability", "navigation", "config"] },
-                    "strict": { "type": "boolean", "default": false }
-                }
-            }),
-        },
-        ToolInfo {
-            name: "keel/context".into(),
-            description: "Minimal structural context for safely editing a file: symbols, external callers, and external callees".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "required": ["file"],
-                "properties": {
-                    "file": { "type": "string" }
-                }
-            }),
-        },
-    ]
+/// Protocol version advertised when the client does not request one (or
+/// requests one we don't know).
+const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// Protocol revisions this server knows how to speak.
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
+
+/// Build the `initialize` result, negotiating the protocol version: echo the
+/// client's requested version when we support it, otherwise answer with our
+/// default — per MCP, the server must never claim a version it doesn't speak.
+fn handle_initialize(params: Option<Value>) -> Value {
+    let protocol_version = params
+        .as_ref()
+        .and_then(|p| p.get("protocolVersion"))
+        .and_then(|v| v.as_str())
+        .filter(|v| SUPPORTED_PROTOCOL_VERSIONS.contains(v))
+        .unwrap_or(DEFAULT_PROTOCOL_VERSION);
+
+    serde_json::json!({
+        "protocolVersion": protocol_version,
+        "capabilities": { "tools": {} },
+        "serverInfo": {
+            "name": "keel",
+            "version": env!("CARGO_PKG_VERSION")
+        }
+    })
 }
 
 fn dispatch(
@@ -200,35 +88,27 @@ fn dispatch(
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
     match method {
-        "initialize" => Ok(serde_json::json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": { "tools": {} },
-            "serverInfo": {
-                "name": "keel",
-                "version": env!("CARGO_PKG_VERSION")
-            }
+        "initialize" => Ok(handle_initialize(params)),
+        // MCP requires the manifest be wrapped as {"tools": [...]}, not a bare array.
+        "tools/list" => Ok(serde_json::json!({
+            "tools": serde_json::to_value(tool_list()).map_err(internal_err)?
         })),
-        "tools/list" => serde_json::to_value(tool_list()).map_err(internal_err),
-        "keel/compile" => crate::mcp_compile::handle_compile(engine, params),
-        "keel/discover" => crate::mcp_discover::handle_discover(engine, params),
-        "keel/where" => crate::mcp_discover::handle_where(store, params),
-        "keel/explain" => crate::mcp_discover::handle_explain(store, engine, params),
-        "keel/map" => crate::mcp_discover::handle_map(store, params),
-        "keel/check" => crate::mcp_check::handle_check(engine, params),
-        "keel/fix" => crate::mcp_fix::handle_fix(store, engine, params),
-        "keel/search" => crate::mcp_search::handle_search(store, params),
-        "keel/name" => crate::mcp_name::handle_name(store, params),
-        "keel/analyze" => crate::mcp_analyze::handle_analyze(store, params),
-        "keel/audit" => crate::mcp_audit::handle_audit(store, params),
-        "keel/context" => crate::mcp_context::handle_context(store, params),
-        _ => Err(JsonRpcError {
-            code: -32601,
-            message: format!("Method not found: {}", method),
+        "tools/call" => crate::mcp_tools::handle_tools_call(store, engine, params),
+        // Legacy back-compat: tool names accepted as direct JSON-RPC methods.
+        _ => dispatch_tool(store, engine, method, params).unwrap_or_else(|| {
+            Err(JsonRpcError {
+                code: -32601,
+                message: format!("Method not found: {}", method),
+            })
         }),
     }
 }
 
 /// Process a single JSON-RPC line and return the response JSON string.
+///
+/// Returns an empty string when no response must be sent: for blank lines and
+/// for JSON-RPC *notifications* (messages without an `id`), which per the
+/// JSON-RPC 2.0 spec MUST NOT be answered.
 pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> String {
     if line.trim().is_empty() {
         return String::new();
@@ -250,7 +130,14 @@ pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> S
         }
     };
 
-    let id = request.id.clone().unwrap_or(Value::Null);
+    // JSON-RPC 2.0: a message with NO `id` member is a notification and gets
+    // no response (we ignore them entirely — none of ours have side effects).
+    // An explicit `"id": null` is a regular request and MUST be answered.
+    let id = match request.id.clone() {
+        Some(id) => id,
+        None => return String::new(),
+    };
+
     let response = match dispatch(store, engine, &request.method, request.params) {
         Ok(result) => JsonRpcResponse {
             jsonrpc: "2.0".into(),

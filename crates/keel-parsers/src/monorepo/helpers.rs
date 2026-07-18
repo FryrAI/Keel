@@ -116,6 +116,127 @@ pub(crate) fn expand_glob_pattern(
     }
 }
 
+/// Directory names to skip during downward scans: build output and
+/// dependency caches that are never themselves a project root.
+const SKIP_DIR_NAMES: [&str; 5] = ["target", "node_modules", "dist", "build", "__pycache__"];
+
+/// Manifest file name paired with the language it implies.
+const NESTED_MANIFESTS: [(&str, &str); 3] = [
+    ("Cargo.toml", "rust"),
+    ("package.json", "typescript"),
+    ("pyproject.toml", "python"),
+];
+
+/// Recursively scan for nested project manifests (`Cargo.toml`,
+/// `package.json`, `pyproject.toml`) up to `max_depth` directory levels
+/// below `dir`. Hidden directories (dotfiles) and [`SKIP_DIR_NAMES`] are
+/// skipped. A directory containing a manifest is recorded and not recursed
+/// into further, mirroring [`scan_for_project_json`]'s stop-at-boundary
+/// behavior.
+pub(crate) fn scan_for_nested_manifests(
+    dir: &Path,
+    packages: &mut Vec<PackageInfo>,
+    max_depth: u32,
+) {
+    if max_depth == 0 {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if name.starts_with('.') || SKIP_DIR_NAMES.contains(&name) {
+            continue;
+        }
+
+        let manifest = NESTED_MANIFESTS
+            .iter()
+            .find(|(file_name, _)| path.join(file_name).exists());
+
+        if let Some((_, language)) = manifest {
+            packages.push(PackageInfo {
+                name: name.to_string(),
+                path: path.clone(),
+                kind: MonorepoKind::NestedProjects,
+                language: language.to_string(),
+            });
+            continue;
+        }
+
+        scan_for_nested_manifests(&path, packages, max_depth - 1);
+    }
+}
+
+/// Parse the `packages:` block sequence from a `pnpm-workspace.yaml` file.
+///
+/// This is a hand-rolled parser for the constrained YAML subset pnpm
+/// workspace files actually use, not a general YAML parser. It supports:
+/// - A top-level `packages:` key (exact match after trimming).
+/// - A following block sequence of scalar entries: `- 'glob'`, `- "glob"`,
+///   or a bare `- glob`, one per line, indented or at column 0 (both are
+///   valid YAML and both occur in the wild).
+/// - Blank lines and full-line `#` comments anywhere, plus inline
+///   ` # comment` suffixes on sequence items, which are ignored.
+///
+/// Parsing stops at end of input or at the first non-item line after the
+/// key (the start of another key such as `onlyBuiltDependencies:`).
+/// Flow sequences (`packages: [a, b]`), nested maps, anchors, and multi-line
+/// scalars are NOT supported — none of these appear in real pnpm workspace
+/// files.
+pub(crate) fn parse_pnpm_packages_yaml(content: &str) -> Vec<String> {
+    let mut globs = Vec::new();
+    let mut in_packages = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if !in_packages {
+            if trimmed == "packages:" {
+                in_packages = true;
+            }
+            continue;
+        }
+
+        // Sequence items may sit at column 0 (valid YAML); any non-item line
+        // after `packages:` is the next top-level key, so stop there.
+        if let Some(item) = trimmed.strip_prefix('-') {
+            if let Some(value) = parse_pnpm_sequence_value(item) {
+                globs.push(value);
+            }
+        } else {
+            break;
+        }
+    }
+
+    globs
+}
+
+/// Extract the glob from one `- <glob>` sequence item: unwrap a
+/// single/double-quoted value, or take an unquoted value up to the first
+/// whitespace (globs contain none, and YAML inline comments are whitespace
+/// followed by `#`). Returns `None` for empty or comment-only values.
+fn parse_pnpm_sequence_value(item: &str) -> Option<String> {
+    let item = item.trim();
+    let value = match item.chars().next() {
+        Some(q @ ('"' | '\'')) => item[1..].split(q).next().unwrap_or(""),
+        _ => item.split_whitespace().next().unwrap_or(""),
+    };
+    (!value.is_empty() && !value.starts_with('#')).then(|| value.to_string())
+}
+
 /// Recursively scan for Nx `project.json` files up to `max_depth`.
 pub(crate) fn scan_for_project_json(dir: &Path, packages: &mut Vec<PackageInfo>, max_depth: u32) {
     if max_depth == 0 {

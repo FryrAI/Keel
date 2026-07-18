@@ -29,6 +29,11 @@ impl SqliteGraphStore {
     }
 
     /// Apply SQLite performance pragmas for faster reads and writes.
+    ///
+    /// `busy_timeout` is critical for multi-writer scenarios: many parallel
+    /// Claude Code sessions (hooks + MCP server + manual `keel map`) may open
+    /// the same `graph.db` concurrently. Without it, a second writer hits
+    /// `SQLITE_BUSY` immediately instead of waiting for the lock to clear.
     fn set_performance_pragmas(conn: &Connection) -> Result<(), GraphError> {
         conn.execute_batch(
             "
@@ -38,6 +43,7 @@ impl SqliteGraphStore {
             PRAGMA temp_store = MEMORY;
             PRAGMA mmap_size = 268435456;
             PRAGMA foreign_keys = ON;
+            PRAGMA busy_timeout = 5000;
             ",
         )?;
         Ok(())

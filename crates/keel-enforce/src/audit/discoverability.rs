@@ -11,8 +11,11 @@ use crate::types::{AuditFinding, AuditSeverity};
 fn comment_prefix(file_path: &str) -> Option<&'static str> {
     let ext = file_path.rsplit('.').next()?;
     match ext {
-        "py" => Some("#"),
-        "rs" | "ts" | "tsx" | "js" | "jsx" | "go" => Some("//"),
+        "py" | "pyi" => Some("#"),
+        // .svelte headers live in the <script> block, which is TS/JS.
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" | "go" | "svelte" => {
+            Some("//")
+        }
         _ => None,
     }
 }
@@ -87,6 +90,8 @@ fn is_generic_module(path: &str) -> bool {
     )
 }
 
+/// Audit discoverability: file headers, related-file hints, and naming
+/// quality for every module in the graph (optionally scoped to `files`).
 pub fn check_discoverability(
     store: &dyn GraphStore,
     root_dir: &Path,

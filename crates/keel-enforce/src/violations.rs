@@ -5,7 +5,7 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
-use crate::violations_util::is_test_file;
+use crate::violations_util::{is_stub_file, is_test_file, normalize_signature};
 
 // Re-export E004, E005, W001, W002 checkers so engine.rs keeps using violations::*
 pub use crate::violations_extended::{
@@ -60,8 +60,10 @@ pub fn check_broken_callers_with_cache(
             continue; // No change
         }
 
-        // Body/docstring-only changes cannot break callers
-        if existing.signature == def.signature {
+        // Body/docstring-only changes cannot break callers. Compare signatures
+        // whitespace-normalized so a pure reformat (rustfmt/prettier line wrap)
+        // doesn't read as a signature change and fire E001 against every caller.
+        if normalize_signature(&existing.signature) == normalize_signature(&def.signature) {
             continue;
         }
 
@@ -118,8 +120,8 @@ pub fn check_broken_callers_with_cache(
                 confidence: 0.92,
                 resolution_tier: "tree-sitter".to_string(),
                 fix_hint: Some(format!(
-                    "Update callers of `{}` to match new signature",
-                    def.name
+                    "Update callers of `{}` to match new signature: {}",
+                    def.name, def.signature
                 )),
                 suppressed: false,
                 suppress_hint: None,
@@ -160,8 +162,8 @@ pub fn check_broken_callers_with_cache(
                 confidence: min_confidence,
                 resolution_tier: "tree-sitter".to_string(),
                 fix_hint: Some(format!(
-                    "Check if dynamic dispatch callers of `{}` need updating",
-                    def.name
+                    "Check if dynamic dispatch callers of `{}` need updating for new signature: {}",
+                    def.name, def.signature
                 )),
                 suppressed: false,
                 suppress_hint: None,
@@ -181,8 +183,9 @@ pub fn check_broken_callers_with_cache(
 pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
     let mut violations = Vec::new();
 
-    // Skip test files: test helpers rarely need full type annotations
-    if is_test_file(&file.file_path) {
+    // Skip test files (helpers rarely need full annotations) and stub files
+    // (signature-only by definition).
+    if is_test_file(&file.file_path) || is_stub_file(&file.file_path) {
         return violations;
     }
 
@@ -241,8 +244,9 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
 pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
     let mut violations = Vec::new();
 
-    // Skip test files: test functions are self-documenting by name
-    if is_test_file(&file.file_path) {
+    // Skip test files (self-documenting by name) and stub files (there is
+    // no body to document — E003 on a .pyi stub is pure noise).
+    if is_test_file(&file.file_path) || is_stub_file(&file.file_path) {
         return violations;
     }
 

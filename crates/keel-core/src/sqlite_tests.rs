@@ -302,6 +302,19 @@ fn test_batch_loaded_nodes_match_individual() {
 }
 
 #[test]
+fn test_busy_timeout_pragma_set() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let timeout_ms: i64 = store
+        .conn
+        .pragma_query_value(None, "busy_timeout", |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        timeout_ms, 5000,
+        "busy_timeout must be set so concurrent writers wait instead of failing with SQLITE_BUSY"
+    );
+}
+
+#[test]
 fn test_find_nodes_by_name_empty_kind_wildcard() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
 

@@ -10,8 +10,12 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
 /// Directories to ignore when watching for file changes.
+/// Keep in sync with the CLI watcher's list (keel-cli commands/watch.rs).
+/// `.svelte-kit` is load-bearing: SvelteKit regenerates .ts files there on
+/// every build, and watching them causes a recompile loop.
 const IGNORED_DIRS: &[&str] = &[
     ".keel",
+    ".svelte-kit",
     ".git",
     "node_modules",
     "__pycache__",
@@ -20,9 +24,6 @@ const IGNORED_DIRS: &[&str] = &[
     "build",
     ".next",
 ];
-
-/// File extensions to watch.
-const WATCHED_EXTENSIONS: &[&str] = &["ts", "tsx", "js", "jsx", "py", "go", "rs"];
 
 /// Start watching the given root directory for file changes.
 ///
@@ -87,11 +88,9 @@ pub fn start_watching(
 
 /// Check if a path should trigger a recompile.
 fn should_watch(root: &Path, path: &Path) -> bool {
-    let ext_ok = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| WATCHED_EXTENSIONS.contains(&e))
-        .unwrap_or(false);
+    // Canonical language table, so watch mode never disagrees with the
+    // parsers about which files exist (e.g. .svelte, .mts).
+    let ext_ok = keel_parsers::treesitter::detect_language(path).is_some();
 
     if !ext_ok {
         return false;

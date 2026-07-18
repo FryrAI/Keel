@@ -111,6 +111,9 @@ fn language_for_name(name: &str) -> Result<Language, ParseError> {
     match name {
         "typescript" | "javascript" => Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         "tsx" => Ok(tree_sitter_typescript::LANGUAGE_TSX.into()),
+        // Svelte script blocks are parsed with the TypeScript grammar after the
+        // markup is blanked out (see `typescript::svelte`).
+        "svelte" => Ok(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         "python" => Ok(tree_sitter_python::LANGUAGE.into()),
         "go" => Ok(tree_sitter_go::LANGUAGE.into()),
         "rust" => Ok(tree_sitter_rust::LANGUAGE.into()),
@@ -191,12 +194,12 @@ fn extract_definitions(
                 | "def.impl.type"
                 | "def.trait_impl.trait_name"
                 | "def.trait_impl.type_name"
-                | "def.trait_impl.body" => {
-                    if def_node.is_none() {
-                        line_start = cap.node.start_position().row as u32 + 1;
-                        line_end = cap.node.end_position().row as u32 + 1;
-                        def_node = Some(cap.node);
-                    }
+                | "def.trait_impl.body"
+                    if def_node.is_none() =>
+                {
+                    line_start = cap.node.start_position().row as u32 + 1;
+                    line_end = cap.node.end_position().row as u32 + 1;
+                    def_node = Some(cap.node);
                 }
                 _ => {}
             }
@@ -307,13 +310,21 @@ fn extract_references(
     refs
 }
 
+/// Returns true when `lang` (a [`detect_language`] result) belongs to the
+/// TypeScript resolver family — TS/TSX grammars plus extracted Svelte
+/// script blocks. The single source of truth for the family collapse.
+pub fn is_typescript_family(lang: &str) -> bool {
+    matches!(lang, "typescript" | "tsx" | "javascript" | "svelte")
+}
+
 /// Detects the programming language from a file's extension.
 pub fn detect_language(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()? {
-        "ts" => Some("typescript"),
+        "ts" | "mts" | "cts" => Some("typescript"),
         "tsx" => Some("tsx"),
         "js" | "mjs" | "cjs" => Some("javascript"),
         "jsx" => Some("tsx"),
+        "svelte" => Some("svelte"),
         "py" | "pyi" => Some("python"),
         "go" => Some("go"),
         "rs" => Some("rust"),

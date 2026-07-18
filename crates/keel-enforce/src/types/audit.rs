@@ -31,7 +31,9 @@ pub struct AuditFinding {
     pub count: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// Declaration order defines severity ordering: Pass < Tip < Warn < Fail,
+// so worst-first sorting is `Reverse(severity)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum AuditSeverity {
     Pass,

@@ -3,7 +3,10 @@
 use std::fs;
 use std::path::Path;
 
-use super::helpers::{expand_glob_pattern, extract_toml_array, scan_for_project_json};
+use super::helpers::{
+    expand_glob_pattern, extract_toml_array, parse_pnpm_packages_yaml, scan_for_nested_manifests,
+    scan_for_project_json,
+};
 use super::{MonorepoKind, MonorepoLayout, PackageInfo};
 
 /// Detect Cargo workspace from `[workspace]` section in Cargo.toml.
@@ -40,39 +43,28 @@ pub(crate) fn detect_cargo_workspace(root: &Path) -> Option<MonorepoLayout> {
     })
 }
 
-/// Detect npm/yarn/pnpm workspaces from package.json.
+/// Detect npm/yarn/pnpm workspaces.
+///
+/// Prefers the `workspaces` field in `package.json` (npm/yarn convention).
+/// If that is absent or empty, falls back to `pnpm-workspace.yaml`'s
+/// `packages:` list — the canonical pnpm workspace mechanism, which pnpm
+/// does not require mirroring into `package.json` at all.
 pub(crate) fn detect_npm_workspaces(root: &Path) -> Option<MonorepoLayout> {
-    let pkg_json = root.join("package.json");
-    let content = fs::read_to_string(&pkg_json).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let workspace_globs = package_json_workspace_globs(root)
+        .filter(|globs| !globs.is_empty())
+        .or_else(|| pnpm_workspace_globs(root))?;
 
-    let workspace_globs = match parsed.get("workspaces") {
-        Some(serde_json::Value::Array(arr)) => arr
-            .iter()
-            .filter_map(|v| v.as_str().map(String::from))
-            .collect::<Vec<_>>(),
-        Some(serde_json::Value::Object(obj)) => {
-            // Yarn-style: { packages: [...] }
-            obj.get("packages")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default()
-        }
-        _ => return None,
-    };
-
-    if workspace_globs.is_empty() {
-        return None;
-    }
-
+    // pnpm supports `!glob` exclusion entries; expand inclusions first, then
+    // subtract everything an exclusion glob matches.
     let mut packages = Vec::new();
-    for glob in &workspace_globs {
+    for glob in workspace_globs.iter().filter(|g| !g.starts_with('!')) {
         expand_glob_pattern(root, glob, &mut packages, "typescript");
     }
+    let mut excluded = Vec::new();
+    for glob in workspace_globs.iter().filter(|g| g.starts_with('!')) {
+        expand_glob_pattern(root, &glob[1..], &mut excluded, "typescript");
+    }
+    packages.retain(|p| !excluded.iter().any(|e| e.path == p.path));
 
     if packages.is_empty() {
         return None;
@@ -82,6 +74,43 @@ pub(crate) fn detect_npm_workspaces(root: &Path) -> Option<MonorepoLayout> {
         kind: MonorepoKind::NpmWorkspaces,
         packages,
     })
+}
+
+/// Read the `workspaces` field from a root `package.json`, if present.
+///
+/// Handles both the npm array form (`"workspaces": ["a", "b"]`) and the
+/// legacy yarn object form (`"workspaces": { "packages": [...] }`).
+fn package_json_workspace_globs(root: &Path) -> Option<Vec<String>> {
+    let pkg_json = root.join("package.json");
+    let content = fs::read_to_string(&pkg_json).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    match parsed.get("workspaces") {
+        Some(serde_json::Value::Array(arr)) => Some(
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>(),
+        ),
+        Some(serde_json::Value::Object(obj)) => Some(
+            obj.get("packages")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ),
+        _ => None,
+    }
+}
+
+/// Read the `packages:` glob list from a root `pnpm-workspace.yaml`, if present.
+fn pnpm_workspace_globs(root: &Path) -> Option<Vec<String>> {
+    let yaml_path = root.join("pnpm-workspace.yaml");
+    let content = fs::read_to_string(&yaml_path).ok()?;
+    let globs = parse_pnpm_packages_yaml(&content);
+    (!globs.is_empty()).then_some(globs)
 }
 
 /// Detect Go workspace from go.work file.
@@ -238,6 +267,39 @@ pub(crate) fn detect_lerna(root: &Path) -> Option<MonorepoLayout> {
 
     Some(MonorepoLayout {
         kind: MonorepoKind::LernaMonorepo,
+        packages,
+    })
+}
+
+/// Detect a root-less monorepo by scanning downward for nested project manifests.
+///
+/// Runs only after every root-level strategy above has failed to match. Some
+/// real-world repos (notably ones that grew organically, e.g. `server/` +
+/// `frontend/` + `worker/` added independently) never gain a root
+/// `Cargo.toml [workspace]`, `package.json workspaces`, or
+/// `pnpm-workspace.yaml` — but are still polyglot multi-package repos, and
+/// treating them as a single flat package produces a boundary-less graph.
+///
+/// Scans up to two directory levels below `root` for `Cargo.toml`,
+/// `package.json`, or `pyproject.toml`, skipping hidden directories and
+/// common build/dependency output (`target`, `node_modules`, `dist`,
+/// `build`, `__pycache__`). A directory containing a manifest is recorded as
+/// a package and not recursed into further.
+///
+/// Requires at least two discovered packages to report
+/// [`MonorepoKind::NestedProjects`] — a single nested manifest is an
+/// ordinary single-language project with an unconventional root, not a
+/// monorepo.
+pub(crate) fn detect_nested_projects(root: &Path) -> Option<MonorepoLayout> {
+    let mut packages = Vec::new();
+    scan_for_nested_manifests(root, &mut packages, 2);
+
+    if packages.len() < 2 {
+        return None;
+    }
+
+    Some(MonorepoLayout {
+        kind: MonorepoKind::NestedProjects,
         packages,
     })
 }
