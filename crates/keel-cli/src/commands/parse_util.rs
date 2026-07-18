@@ -17,7 +17,7 @@ pub fn parse_files_to_indices(
     file_paths: &[std::path::PathBuf],
     root_dir: &Path,
 ) -> Vec<FileIndex> {
-    let ts = TsResolver::new();
+    let ts = TsResolver::with_project_root(root_dir);
     let py = PyResolver::new();
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();
@@ -36,7 +36,7 @@ pub fn parse_files_to_indices(
         };
 
         let resolver: &dyn LanguageResolver = match lang {
-            "typescript" | "javascript" | "tsx" => &ts,
+            l if keel_parsers::treesitter::is_typescript_family(l) => &ts,
             "python" => &py,
             "go" => &go_resolver,
             "rust" => &rs,

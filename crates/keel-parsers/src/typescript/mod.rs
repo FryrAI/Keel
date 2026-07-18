@@ -1,8 +1,14 @@
 pub(crate) mod helpers;
 pub(crate) mod semantic;
+pub(crate) mod svelte;
+pub(crate) mod tsconfig;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "frontend_tests.rs"]
+mod frontend_tests;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -47,6 +53,7 @@ impl TsResolver {
                 ".mjs".into(),
                 ".cjs".into(),
                 ".json".into(),
+                ".svelte".into(),
             ],
             condition_names: vec!["import".into(), "require".into(), "default".into()],
             main_fields: vec!["module".into(), "main".into()],
@@ -61,68 +68,41 @@ impl TsResolver {
         }
     }
 
-    /// Loads tsconfig.json path aliases from a project root, including referenced projects.
-    pub fn load_tsconfig_paths(&self, project_root: &Path) {
-        self.load_tsconfig_paths_inner(project_root, false);
+    /// Creates a `TsResolver` with path aliases loaded from `project_root`.
+    ///
+    /// Discovers `<project_root>/tsconfig.json` (or `jsconfig.json`), follows its
+    /// `extends` chain and project `references`, and merges every
+    /// `compilerOptions.paths` block. For SvelteKit apps without a generated
+    /// `.svelte-kit/tsconfig.json`, the default `$lib -> src/lib` is registered.
+    pub fn with_project_root(project_root: &Path) -> Self {
+        let resolver = Self::new();
+        resolver.load_tsconfig_paths(project_root);
+        resolver
     }
 
-    /// Inner implementation with recursion guard. When `is_ref` is true,
-    /// we skip following nested `"references"` to prevent infinite loops.
-    fn load_tsconfig_paths_inner(&self, project_root: &Path, is_ref: bool) {
-        let tsconfig_path = project_root.join("tsconfig.json");
-        let content = match std::fs::read_to_string(&tsconfig_path) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let json: serde_json::Value = match serde_json::from_str(&content) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-
-        // Load path aliases from compilerOptions.paths (if present)
-        if let Some(paths) = json
-            .get("compilerOptions")
-            .and_then(|co| co.get("paths"))
-            .and_then(|p| p.as_object())
-        {
-            let base_url = json
-                .get("compilerOptions")
-                .and_then(|co| co.get("baseUrl"))
-                .and_then(|b| b.as_str())
-                .unwrap_or(".");
-            let base = project_root.join(base_url);
-
-            let mut aliases = self.path_aliases.lock().unwrap();
-            for (alias, targets) in paths {
-                if let Some(target) = targets.as_array().and_then(|a| a.first()) {
-                    if let Some(target_str) = target.as_str() {
-                        let clean_alias = alias.trim_end_matches("/*");
-                        let clean_target = target_str.trim_end_matches("/*");
-                        let resolved = base.join(clean_target).to_string_lossy().to_string();
-                        aliases.entry(clean_alias.to_string()).or_insert(resolved);
-                    }
-                }
-            }
-        }
-
-        // Load project references (only from the top-level tsconfig, not recursively)
-        if !is_ref {
-            if let Some(refs) = json.get("references").and_then(|r| r.as_array()) {
-                for reference in refs {
-                    if let Some(ref_path) = reference.get("path").and_then(|p| p.as_str()) {
-                        let ref_root = project_root.join(ref_path);
-                        if ref_root.join("tsconfig.json").exists() {
-                            self.load_tsconfig_paths_inner(&ref_root, true);
-                        }
-                    }
-                }
-            }
+    /// Loads tsconfig.json path aliases from a project root, including
+    /// `extends` ancestors and referenced projects.
+    pub fn load_tsconfig_paths(&self, project_root: &Path) {
+        let loaded = tsconfig::load_aliases(project_root);
+        let mut aliases = self.path_aliases.lock().unwrap();
+        for (alias, target) in loaded {
+            aliases.entry(alias).or_insert(target);
         }
     }
 
     fn parse_and_cache(&self, path: &Path, content: &str) -> ParseResult {
+        // Svelte components: keep only the <script> bodies, blanked in place so
+        // byte offsets and line numbers still match the original file.
+        let svelte_source;
+        let content = if svelte::is_svelte_file(path) {
+            svelte_source = svelte::extract_script_source(content);
+            svelte_source.as_str()
+        } else {
+            content
+        };
+
         let mut parser = self.parser.lock().unwrap();
-        let mut result = match parser.parse_file("typescript", path, content) {
+        let mut result = match parser.parse_file(grammar_for_path(path), path, content) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("keel: warning: failed to parse {}: {}", path.display(), e);
@@ -171,6 +151,12 @@ impl TsResolver {
         let dir = path.parent().unwrap_or(Path::new("."));
         let aliases = self.path_aliases.lock().unwrap();
         for imp in &mut result.imports {
+            // SvelteKit virtual modules ($app/*, $env/*) are framework-provided
+            // and never exist on disk — leave them as external specifiers.
+            if tsconfig::is_sveltekit_framework_module(&imp.source) {
+                continue;
+            }
+
             // Apply path alias resolution first
             let resolved_source = resolve_path_alias(&imp.source, &aliases);
             let source_to_resolve = resolved_source.as_deref().unwrap_or(&imp.source);
@@ -211,13 +197,29 @@ impl Default for TsResolver {
     }
 }
 
+/// Selects the tree-sitter grammar for a TS-family file.
+///
+/// `.tsx` and `.jsx` need the TSX grammar — the TypeScript grammar cannot parse
+/// JSX elements, and parsing them with it silently drops every definition in the
+/// file. Everything else (`.ts`, `.js`, `.mjs`, `.cjs`, `.svelte` script blocks)
+/// uses the TypeScript grammar.
+pub(crate) fn grammar_for_path(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("tsx") | Some("jsx") => "tsx",
+        _ => "typescript",
+    }
+}
+
 impl LanguageResolver for TsResolver {
     fn language(&self) -> &str {
         "typescript"
     }
 
     fn supported_extensions(&self) -> &[&str] {
-        &["ts", "tsx", "js", "jsx"]
+        // Keep in sync with the TS-family rows of `treesitter::detect_language`.
+        &[
+            "ts", "mts", "cts", "tsx", "js", "mjs", "cjs", "jsx", "svelte",
+        ]
     }
 
     fn parse_file(&self, path: &Path, content: &str) -> ParseResult {

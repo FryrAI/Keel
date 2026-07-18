@@ -73,7 +73,7 @@ pub fn run(
     }
 
     // Create resolvers for each language
-    let ts = TsResolver::new();
+    let ts = TsResolver::with_project_root(&cwd);
     let py = PyResolver::new();
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();

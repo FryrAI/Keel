@@ -96,7 +96,7 @@ impl OutputFormatter for LlmFormatter {
     }
 
     fn format_audit(&self, result: &AuditResult) -> String {
-        audit::format_audit(result)
+        audit::format_audit(result, self.max_tokens)
     }
 }
 

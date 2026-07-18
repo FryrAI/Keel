@@ -1,7 +1,9 @@
 //! Monorepo detection and package enumeration.
 //!
-//! Detects Cargo workspaces, npm workspaces, Go workspaces, Nx, Turbo, and Lerna
-//! monorepos by inspecting config files at the project root.
+//! Detects Cargo workspaces, npm/pnpm workspaces, Go workspaces, Nx, Turbo, and
+//! Lerna monorepos by inspecting config files at the project root. Falls back
+//! to a bounded downward scan for root-less polyglot repos (see
+//! [`MonorepoKind::NestedProjects`]).
 
 mod detect;
 mod helpers;
@@ -22,6 +24,12 @@ pub enum MonorepoKind {
     NxMonorepo,
     TurboMonorepo,
     LernaMonorepo,
+    /// No root-level workspace manifest was found, but a bounded downward
+    /// scan discovered two or more independent project manifests
+    /// (`Cargo.toml`, `package.json`, `pyproject.toml`) nested under the
+    /// root — e.g. `server/Cargo.toml` + `frontend/package.json`. Common for
+    /// polyglot repos that were never wired into a workspace manager.
+    NestedProjects,
     None,
 }
 
@@ -71,6 +79,9 @@ pub fn detect_monorepo(root: &Path) -> MonorepoLayout {
     if let Some(layout) = detect_lerna(root) {
         return layout;
     }
+    if let Some(layout) = detect_nested_projects(root) {
+        return layout;
+    }
     MonorepoLayout::default()
 }
 
@@ -83,6 +94,7 @@ impl std::fmt::Display for MonorepoKind {
             MonorepoKind::NxMonorepo => write!(f, "Nx monorepo"),
             MonorepoKind::TurboMonorepo => write!(f, "Turbo monorepo"),
             MonorepoKind::LernaMonorepo => write!(f, "Lerna monorepo"),
+            MonorepoKind::NestedProjects => write!(f, "nested projects (no root manifest)"),
             MonorepoKind::None => write!(f, "none"),
         }
     }

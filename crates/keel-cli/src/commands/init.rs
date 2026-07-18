@@ -1,6 +1,7 @@
 //! `keel init` command — detect languages, create .keel/ directory, write config,
 //! detect AI coding tools, and generate appropriate hook configs and instruction files.
 
+mod compile_note;
 pub(crate) mod detection;
 mod generators;
 mod helpers;

@@ -18,7 +18,7 @@ fn test_store() -> SharedStore {
     Arc::new(Mutex::new(store))
 }
 
-fn store_with_node() -> SharedStore {
+fn populated_node_store() -> SqliteGraphStore {
     let store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
@@ -40,7 +40,19 @@ fn store_with_node() -> SharedStore {
             package: None,
         })
         .unwrap();
-    Arc::new(Mutex::new(store))
+    store
+}
+
+fn store_with_node() -> SharedStore {
+    Arc::new(Mutex::new(populated_node_store()))
+}
+
+/// Engine backed by the same node as `store_with_node` — needed by handlers
+/// that resolve through the engine rather than the raw store.
+fn engine_with_node() -> SharedEngine {
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(
+        populated_node_store(),
+    ))))
 }
 
 fn store_with_graph() -> SharedStore {
@@ -178,7 +190,8 @@ fn test_mcp_server_registers_all_tools() {
         &rpc("tools/list", None),
     ));
 
-    let tools = resp["result"].as_array().unwrap();
+    // MCP requires the manifest wrapped as {"tools": [...]} (issue #27).
+    let tools = resp["result"]["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 12);
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -289,21 +302,23 @@ fn test_mcp_map_tool_triggers_full_remap() {
 
 #[test]
 fn test_mcp_explain_tool_returns_resolution_chain() {
+    // MCP explain now delegates to the engine (as the CLI and HTTP paths do),
+    // so the engine must hold the node — and the chain is built from real graph
+    // edges rather than a fabricated "lookup" step (issue #27).
     let store = store_with_node();
+    let engine = engine_with_node();
     let params = serde_json::json!({"error_code": "E001", "hash": "testHash1234"});
     let resp = parse_response(&process_line(
         &store,
-        &test_engine(),
+        &engine,
         &rpc("keel/explain", Some(params)),
     ));
 
     let result = &resp["result"];
     assert_eq!(result["error_code"], "E001");
     assert_eq!(result["hash"], "testHash1234");
-
-    let chain = result["resolution_chain"].as_array().unwrap();
-    assert!(!chain.is_empty());
-    assert_eq!(chain[0]["kind"], "lookup");
+    assert!(result["resolution_chain"].is_array());
+    assert_eq!(result["resolution_tier"], "tree-sitter");
 
     assert!(result["summary"].as_str().unwrap().contains("processData"));
 }

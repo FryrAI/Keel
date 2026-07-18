@@ -119,7 +119,8 @@ impl LanguageResolver for PyResolver {
     }
 
     fn supported_extensions(&self) -> &[&str] {
-        &["py"]
+        // Keep in sync with the Python rows of `treesitter::detect_language`.
+        &["py", "pyi"]
     }
 
     fn parse_file(&self, path: &Path, content: &str) -> ParseResult {

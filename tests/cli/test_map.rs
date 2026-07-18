@@ -190,6 +190,116 @@ fn test_map_uninitialized_error() {
 }
 
 #[test]
+/// `keel map --cached` on a project that was `keel init`-ed but never
+/// `keel map`-ped (graph.db exists but is empty) must fall back to a full
+/// map instead of erroring — this is exactly the cold-start state a fresh
+/// clone/worktree is in when a session-start hook first fires.
+fn test_map_cached_fresh_init_falls_back() {
+    let dir = init_ts_project(3, 2);
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["map", "--cached"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --cached");
+
+    assert!(
+        output.status.success(),
+        "keel map --cached on an empty graph should fall back to a full map, not error:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let db_size = fs::metadata(dir.path().join(".keel/graph.db"))
+        .unwrap()
+        .len();
+    assert!(
+        db_size > 4096,
+        "fallback full map should have populated graph.db"
+    );
+}
+
+#[test]
+/// `keel map --cached` when a cache already exists should stay on the fast
+/// (read-only) path and still succeed.
+fn test_map_cached_uses_existing_cache() {
+    let dir = init_ts_project(3, 2);
+    let keel = keel_bin();
+
+    // Populate the cache first.
+    let map_output = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map");
+    assert!(map_output.status.success());
+
+    let output = Command::new(&keel)
+        .args(["map", "--cached", "--verbose"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --cached");
+
+    assert!(
+        output.status.success(),
+        "keel map --cached should succeed when a cache exists: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("falling back to full map"),
+        "should not fall back when the cache is populated: {}",
+        stderr
+    );
+}
+
+#[test]
+/// `keel map --cached` must report the same `summary.languages` as a fresh
+/// `keel map` — the cached path reconstructs the list from file extensions
+/// and must not collapse or rename what the fresh walk reports.
+fn test_map_cached_languages_match_fresh_map() {
+    let dir = init_ts_project(2, 1);
+    let src = dir.path().join("src");
+    fs::write(
+        src.join("Widget.svelte"),
+        "<script lang=\"ts\">\nexport function widgetName(): string { return \"w\"; }\n</script>\n<div>hi</div>\n",
+    )
+    .unwrap();
+    fs::write(
+        src.join("legacy.js"),
+        "export function legacy(x) { return x; }\n",
+    )
+    .unwrap();
+    let keel = keel_bin();
+
+    let languages = |raw: &[u8]| -> Vec<String> {
+        let v: serde_json::Value = serde_json::from_slice(raw).expect("map output is JSON");
+        serde_json::from_value(v["summary"]["languages"].clone()).expect("summary.languages array")
+    };
+
+    let fresh = Command::new(&keel)
+        .args(["map", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map");
+    assert!(fresh.status.success());
+
+    let cached = Command::new(&keel)
+        .args(["map", "--cached", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --cached");
+    assert!(cached.status.success());
+
+    assert_eq!(
+        languages(&fresh.stdout),
+        languages(&cached.stdout),
+        "cached and fresh map must agree on the language list"
+    );
+}
+
+#[test]
 /// `keel map` should handle file deletions (remove orphaned nodes).
 fn test_map_handles_deleted_files() {
     let dir = init_ts_project(5, 2);

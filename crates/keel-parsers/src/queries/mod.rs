@@ -8,7 +8,7 @@ pub const RUST_QUERIES: &str = include_str!("rust.scm");
 /// Compiles the tree-sitter query for the given language name.
 pub fn query_for_language(lang: &Language, lang_name: &str) -> Result<Query, String> {
     let source = match lang_name {
-        "typescript" | "tsx" | "javascript" => TYPESCRIPT_QUERIES,
+        l if crate::treesitter::is_typescript_family(l) => TYPESCRIPT_QUERIES,
         "python" => PYTHON_QUERIES,
         "go" => GO_QUERIES,
         "rust" => RUST_QUERIES,

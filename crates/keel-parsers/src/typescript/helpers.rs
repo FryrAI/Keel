@@ -60,21 +60,25 @@ pub(crate) fn extract_decl_name(s: &str) -> Option<String> {
 
 /// Apply tsconfig path alias resolution.
 /// E.g., `@components/Button` -> `/abs/path/src/components/Button`
+///
+/// The longest (most specific) matching alias wins, as in TypeScript itself;
+/// ties break lexicographically so resolution never depends on `HashMap`
+/// iteration order.
 pub(crate) fn resolve_path_alias(
     source: &str,
     aliases: &HashMap<String, String>,
 ) -> Option<String> {
-    for (alias, target) in aliases {
-        if source == alias {
-            return Some(target.clone());
-        }
-        let prefix = format!("{alias}/");
-        if source.starts_with(&prefix) {
-            let rest = &source[prefix.len()..];
-            return Some(format!("{target}/{rest}"));
-        }
-    }
-    None
+    let (alias, target) = aliases
+        .iter()
+        .filter(|(alias, _)| {
+            source
+                .strip_prefix(alias.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+        .min_by_key(|(alias, _)| (std::cmp::Reverse(alias.len()), alias.as_str()))?;
+
+    let rest = source.strip_prefix(alias.as_str()).unwrap_or_default();
+    Some(format!("{target}{rest}"))
 }
 
 /// Extract `/// <reference path="..." />` directives from TypeScript source.

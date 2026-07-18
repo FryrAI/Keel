@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+use crate::types::Violation;
 
 /// Tracks consecutive failures per (error_code, identifier) pair.
 /// The identifier is normally the node hash, but when hash is empty
@@ -95,6 +97,72 @@ impl CircuitBreaker {
     pub fn record_success(&mut self, error_code: &str, hash: &str, file_path: &str) {
         let key = Self::make_key(error_code, hash, file_path);
         self.state.remove(&key);
+    }
+
+    /// Reset (record success for) tracked failures that have been resolved.
+    ///
+    /// For each of `codes`, clears any `(code, identifier)` entry whose
+    /// identifier is in `scope` (i.e. it was actually checked this compile)
+    /// but absent from `active` (i.e. it did not fire this time). This is
+    /// what makes a fixed violation's counter clear — and any prior
+    /// downgrade lift — instead of the counter only ever climbing across
+    /// compiles, which previously auto-downgraded any violation that merely
+    /// persisted for 3 compiles regardless of whether it was ever addressed.
+    ///
+    /// `scope` and `active` must use the same identifier convention as
+    /// `CircuitBreaker::make_key` (hash, or file path when hash is empty).
+    fn reset_resolved(
+        &mut self,
+        codes: &[&str],
+        scope: &HashSet<String>,
+        active: &HashSet<(String, String)>,
+    ) {
+        let stale: Vec<(String, String)> = self
+            .state
+            .keys()
+            .filter(|(code, ident)| codes.contains(&code.as_str()) && scope.contains(ident))
+            .filter(|key| !active.contains(*key))
+            .cloned()
+            .collect();
+        for key in stale {
+            self.state.remove(&key);
+        }
+    }
+
+    /// Reconcile one file's breaker state against its violations from this
+    /// compile — the engine-facing wrapper around `reset_resolved`.
+    ///
+    /// - E001/E002/E003/E004 are scoped to hashes of nodes already in the
+    ///   file (plus the file path itself, for the empty-hash fallback).
+    /// - E005 is scoped to the hashes this file's call references resolve to.
+    ///
+    /// Disabled checks (e.g. type_hints off) need no special-casing: their
+    /// counters can never fire again, so clearing them is harmless.
+    pub fn reconcile_file(
+        &mut self,
+        file_path: &str,
+        existing_hashes: impl Iterator<Item = String>,
+        ref_resolved_hashes: impl Iterator<Item = String>,
+        violations: &[Violation],
+    ) {
+        // Nothing tracked → nothing to reconcile; skip the scope-set builds
+        // that would otherwise run for every file on the clean common path.
+        if self.state.is_empty() {
+            return;
+        }
+
+        let mut node_scope: HashSet<String> = existing_hashes.collect();
+        node_scope.insert(file_path.to_string());
+        let ref_scope: HashSet<String> = ref_resolved_hashes.collect();
+
+        let active: HashSet<(String, String)> = violations
+            .iter()
+            .filter(|v| v.severity == "ERROR")
+            .map(|v| Self::make_key(&v.code, &v.hash, &v.file))
+            .collect();
+
+        self.reset_resolved(&["E001", "E002", "E003", "E004"], &node_scope, &active);
+        self.reset_resolved(&["E005"], &ref_scope, &active);
     }
 
     /// Check if a (error_code, hash/file) pair has been downgraded.
@@ -207,6 +275,88 @@ mod tests {
         assert!(!cb2.is_downgraded("E001", "abc", "file.rs"));
         assert_eq!(cb2.failure_count("E002", "def", "file.rs"), 3);
         assert!(cb2.is_downgraded("E002", "def", "file.rs"));
+    }
+
+    #[test]
+    fn test_reset_resolved_clears_stale_entry_not_in_active() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "app.py");
+        assert_eq!(cb.failure_count("E002", "hash1", "app.py"), 2);
+
+        // hash1 was in scope (checked this round) but did not fire (not active) => resolved
+        let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
+        let active: HashSet<(String, String)> = HashSet::new();
+        cb.reset_resolved(&["E002"], &scope, &active);
+
+        assert_eq!(cb.failure_count("E002", "hash1", "app.py"), 0);
+        assert!(!cb.is_downgraded("E002", "hash1", "app.py"));
+    }
+
+    #[test]
+    fn test_reset_resolved_leaves_still_active_entry() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "app.py");
+
+        // hash1 is in scope AND still active (still firing) => must NOT be cleared
+        let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
+        let active: HashSet<(String, String)> = [("E002".to_string(), "hash1".to_string())]
+            .into_iter()
+            .collect();
+        cb.reset_resolved(&["E002"], &scope, &active);
+
+        assert_eq!(cb.failure_count("E002", "hash1", "app.py"), 2);
+    }
+
+    #[test]
+    fn test_reset_resolved_ignores_entries_outside_scope() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "app.py");
+
+        // hash1 was not checked this round (not in scope) => leave it alone,
+        // since we can't tell whether it's resolved or simply not compiled.
+        let scope: HashSet<String> = HashSet::new();
+        let active: HashSet<(String, String)> = HashSet::new();
+        cb.reset_resolved(&["E002"], &scope, &active);
+
+        assert_eq!(cb.failure_count("E002", "hash1", "app.py"), 2);
+    }
+
+    #[test]
+    fn test_reset_resolved_only_touches_given_codes() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E003", "hash1", "app.py");
+
+        let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
+        let active: HashSet<(String, String)> = HashSet::new();
+        // Only reset E002, not E003
+        cb.reset_resolved(&["E002"], &scope, &active);
+
+        assert_eq!(cb.failure_count("E002", "hash1", "app.py"), 0);
+        assert_eq!(cb.failure_count("E003", "hash1", "app.py"), 1);
+    }
+
+    #[test]
+    fn test_reset_resolved_lifts_prior_downgrade() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "app.py"); // downgraded
+        assert!(cb.is_downgraded("E002", "hash1", "app.py"));
+
+        let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
+        let active: HashSet<(String, String)> = HashSet::new();
+        cb.reset_resolved(&["E002"], &scope, &active);
+
+        assert!(!cb.is_downgraded("E002", "hash1", "app.py"));
+        // Next failure starts a fresh escalation cycle
+        assert_eq!(
+            cb.record_failure("E002", "hash1", "app.py"),
+            BreakerAction::FixHint
+        );
     }
 
     #[test]

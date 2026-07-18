@@ -109,6 +109,17 @@ impl EnforcementEngine {
             // Downgrade low-confidence violations (dynamic dispatch) to WARNING
             file_violations = Self::apply_dynamic_dispatch_threshold(file_violations);
 
+            // Reset circuit breaker state for violations that were checked again
+            // this compile but no longer fire — they were resolved, so their
+            // counter should clear instead of only ever climbing toward
+            // auto-downgrade regardless of whether anyone fixed anything.
+            self.circuit_breaker.reconcile_file(
+                &file.file_path,
+                existing_nodes.iter().map(|n| n.hash.clone()),
+                file.references.iter().filter_map(|r| r.resolved_to.clone()),
+                &file_violations,
+            );
+
             // Apply circuit breaker
             file_violations = self.apply_circuit_breaker(file_violations);
 

@@ -60,7 +60,7 @@ pub fn first_pass(
         };
 
         let resolver: &dyn LanguageResolver = match entry.language.as_str() {
-            "typescript" | "javascript" | "tsx" => ts,
+            l if keel_parsers::treesitter::is_typescript_family(l) => ts,
             "python" => py,
             "go" => go_resolver,
             "rust" => rs,
