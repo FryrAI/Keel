@@ -73,9 +73,14 @@ impl SqliteGraphStore {
     }
 
     /// Load circuit breaker state from the database.
-    pub fn load_circuit_breaker(&self) -> Result<Vec<(String, String, u32, bool)>, GraphError> {
+    /// Each tuple is (error_code, hash, consecutive_failures, downgraded,
+    /// provenance_file).
+    pub fn load_circuit_breaker(
+        &self,
+    ) -> Result<Vec<crate::sqlite::CircuitBreakerEntry>, GraphError> {
         let mut stmt = self.conn.prepare(
-            "SELECT error_code, hash, consecutive_failures, downgraded FROM circuit_breaker",
+            "SELECT error_code, hash, consecutive_failures, downgraded, provenance_file \
+             FROM circuit_breaker",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -84,6 +89,7 @@ impl SqliteGraphStore {
                     row.get::<_, String>(1)?,
                     row.get::<_, u32>(2)?,
                     row.get::<_, i32>(3)? != 0,
+                    row.get::<_, String>(4)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -94,15 +100,16 @@ impl SqliteGraphStore {
     /// Save circuit breaker state, replacing all existing rows.
     pub fn save_circuit_breaker(
         &self,
-        state: &[(String, String, u32, bool)],
+        state: &[crate::sqlite::CircuitBreakerEntry],
     ) -> Result<(), GraphError> {
         self.conn.execute("DELETE FROM circuit_breaker", [])?;
         let mut stmt = self.conn.prepare(
-            "INSERT INTO circuit_breaker (error_code, hash, consecutive_failures, downgraded) \
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO circuit_breaker \
+             (error_code, hash, consecutive_failures, downgraded, provenance_file) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
-        for (code, hash, consecutive, downgraded) in state {
-            stmt.execute(params![code, hash, consecutive, *downgraded as i32])?;
+        for (code, hash, consecutive, downgraded, file) in state {
+            stmt.execute(params![code, hash, consecutive, *downgraded as i32, file])?;
         }
         Ok(())
     }

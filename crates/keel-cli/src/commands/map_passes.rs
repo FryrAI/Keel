@@ -99,15 +99,16 @@ pub fn first_pass(
 
         // Create definition nodes
         for def in &result.definitions {
+            let body_normalized = def.body_for_hash();
             let mut hash = compute_hash(
                 &def.signature,
-                &def.body_text,
+                &body_normalized,
                 def.docstring.as_deref().unwrap_or(""),
             );
             if assigned_hashes.contains(&hash) {
                 hash = compute_hash_disambiguated(
                     &def.signature,
-                    &def.body_text,
+                    &body_normalized,
                     def.docstring.as_deref().unwrap_or(""),
                     &file_path,
                 );

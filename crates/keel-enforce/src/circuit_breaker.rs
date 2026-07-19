@@ -21,6 +21,12 @@ pub struct CircuitBreaker {
 pub struct FailureState {
     pub consecutive: u32,
     pub downgraded: bool,
+    /// Provenance: the file that hosted the offending node/call when this entry
+    /// was last recorded. Lets a later compile of that file clear the entry even
+    /// after the node is deleted (issue #36) — scope alone can't, since a deleted
+    /// node's hash is no longer among the file's hashes. Empty when unknown (e.g.
+    /// state persisted before provenance existed).
+    pub file: String,
 }
 
 /// What the circuit breaker recommends for a given failure.
@@ -80,8 +86,12 @@ impl CircuitBreaker {
         let entry = self.state.entry(key).or_insert(FailureState {
             consecutive: 0,
             downgraded: false,
+            file: String::new(),
         });
         entry.consecutive += 1;
+        // Record where the violation currently lives so a compile of that file
+        // can clear this entry even if the node is later deleted.
+        entry.file = file_path.to_string();
 
         if entry.consecutive >= self.max_failures {
             entry.downgraded = true;
@@ -129,6 +139,31 @@ impl CircuitBreaker {
         }
     }
 
+    /// Clear tracked entries whose provenance is `file_path` but that did not
+    /// fire this compile — regardless of whether their hash is still in scope.
+    ///
+    /// This covers the deleted-node case (issue #36): fixing a violation by
+    /// removing the offending node leaves its hash out of the file's scope, so
+    /// [`reset_resolved`](Self::reset_resolved) alone would leave the entry (and
+    /// any downgrade) sticky. Since we are compiling the very file the entry
+    /// came from and it did not re-fire, it is resolved whether the node was
+    /// fixed in place or deleted outright.
+    fn clear_resolved_by_provenance(
+        &mut self,
+        file_path: &str,
+        active: &HashSet<(String, String)>,
+    ) {
+        let stale: Vec<(String, String)> = self
+            .state
+            .iter()
+            .filter(|(key, st)| st.file == file_path && !active.contains(*key))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in stale {
+            self.state.remove(&key);
+        }
+    }
+
     /// Reconcile one file's breaker state against its violations from this
     /// compile — the engine-facing wrapper around `reset_resolved`.
     ///
@@ -163,6 +198,11 @@ impl CircuitBreaker {
 
         self.reset_resolved(&["E001", "E002", "E003", "E004"], &node_scope, &active);
         self.reset_resolved(&["E005"], &ref_scope, &active);
+
+        // Provenance sweep: clear any entry that originated in this file but did
+        // not re-fire — catches nodes/calls deleted from the file, whose hash is
+        // gone from the scope sets above (issue #36).
+        self.clear_resolved_by_provenance(file_path, &active);
     }
 
     /// Check if a (error_code, hash/file) pair has been downgraded.
@@ -178,23 +218,34 @@ impl CircuitBreaker {
     }
 
     /// Export all circuit breaker state as tuples for persistence.
-    /// Returns Vec of (error_code, hash, consecutive_failures, downgraded).
-    pub fn export_state(&self) -> Vec<(String, String, u32, bool)> {
+    /// Returns Vec of (error_code, hash, consecutive_failures, downgraded,
+    /// provenance_file).
+    pub fn export_state(&self) -> Vec<keel_core::sqlite::CircuitBreakerEntry> {
         self.state
             .iter()
-            .map(|((code, hash), st)| (code.clone(), hash.clone(), st.consecutive, st.downgraded))
+            .map(|((code, hash), st)| {
+                (
+                    code.clone(),
+                    hash.clone(),
+                    st.consecutive,
+                    st.downgraded,
+                    st.file.clone(),
+                )
+            })
             .collect()
     }
 
     /// Import circuit breaker state from persistence.
-    /// Each tuple is (error_code, hash, consecutive_failures, downgraded).
-    pub fn import_state(&mut self, rows: &[(String, String, u32, bool)]) {
-        for (code, hash, consecutive, downgraded) in rows {
+    /// Each tuple is (error_code, hash, consecutive_failures, downgraded,
+    /// provenance_file).
+    pub fn import_state(&mut self, rows: &[keel_core::sqlite::CircuitBreakerEntry]) {
+        for (code, hash, consecutive, downgraded, file) in rows {
             self.state.insert(
                 (code.clone(), hash.clone()),
                 FailureState {
                     consecutive: *consecutive,
                     downgraded: *downgraded,
+                    file: file.clone(),
                 },
             );
         }
@@ -389,5 +440,126 @@ mod tests {
         let action = cb2.record_failure("E001", "hash1", "src/a.rs");
         assert_eq!(action, BreakerAction::Downgrade);
         assert!(cb2.is_downgraded("E001", "hash1", "src/a.rs"));
+    }
+
+    // --- provenance-based clearing (issue #36, part B) ---
+
+    /// Minimal ERROR violation for reconcile tests.
+    fn err_violation(code: &str, hash: &str, file: &str) -> Violation {
+        Violation {
+            code: code.to_string(),
+            severity: "ERROR".to_string(),
+            category: String::new(),
+            message: String::new(),
+            file: file.to_string(),
+            line: 1,
+            hash: hash.to_string(),
+            confidence: 1.0,
+            resolution_tier: "tree-sitter".to_string(),
+            fix_hint: None,
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![],
+            suggested_module: None,
+            existing: None,
+        }
+    }
+
+    /// Fixing a violation by DELETING the offending node clears the downgrade,
+    /// even though the node's hash is gone from the file's scope. A fresh
+    /// violation on the same pair then starts a new ERROR escalation.
+    #[test]
+    fn test_reconcile_clears_downgraded_entry_when_node_deleted() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E001", "hashX", "src/f.rs");
+        cb.record_failure("E001", "hashX", "src/f.rs");
+        cb.record_failure("E001", "hashX", "src/f.rs"); // downgraded
+        assert!(cb.is_downgraded("E001", "hashX", "src/f.rs"));
+
+        // Recompile src/f.rs with the node deleted: hashX is not among the
+        // file's node hashes, and nothing fires.
+        let none: Vec<Violation> = vec![];
+        cb.reconcile_file(
+            "src/f.rs",
+            std::iter::empty::<String>(),
+            std::iter::empty::<String>(),
+            &none,
+        );
+
+        assert_eq!(cb.failure_count("E001", "hashX", "src/f.rs"), 0);
+        assert!(!cb.is_downgraded("E001", "hashX", "src/f.rs"));
+        assert_eq!(
+            cb.record_failure("E001", "hashX", "src/f.rs"),
+            BreakerAction::FixHint,
+            "a fresh violation must start as ERROR, not WARNING"
+        );
+    }
+
+    /// Provenance clearing is scoped to the compiled file: an entry from a
+    /// different file is left untouched.
+    #[test]
+    fn test_reconcile_provenance_leaves_other_files_entries() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E001", "hashX", "src/other.rs");
+        cb.record_failure("E001", "hashX", "src/other.rs");
+
+        let none: Vec<Violation> = vec![];
+        cb.reconcile_file(
+            "src/f.rs",
+            std::iter::empty::<String>(),
+            std::iter::empty::<String>(),
+            &none,
+        );
+
+        assert_eq!(cb.failure_count("E001", "hashX", "src/other.rs"), 2);
+    }
+
+    /// A violation that still fires (deleted node's hash absent from scope but
+    /// the same pair is active again elsewhere) must NOT be cleared.
+    #[test]
+    fn test_reconcile_provenance_keeps_still_firing_entry() {
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E001", "hashX", "src/f.rs");
+        cb.record_failure("E001", "hashX", "src/f.rs");
+
+        let still = vec![err_violation("E001", "hashX", "src/f.rs")];
+        cb.reconcile_file(
+            "src/f.rs",
+            std::iter::empty::<String>(),
+            std::iter::empty::<String>(),
+            &still,
+        );
+
+        assert_eq!(cb.failure_count("E001", "hashX", "src/f.rs"), 2);
+    }
+
+    /// Provenance survives SQLite persistence, so the deleted-node clearing
+    /// still works after the state is reloaded in a fresh process.
+    #[test]
+    fn test_provenance_persists_through_sqlite() {
+        let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
+
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E001", "hashX", "src/f.rs");
+        cb.record_failure("E001", "hashX", "src/f.rs");
+        cb.record_failure("E001", "hashX", "src/f.rs"); // downgraded
+        store.save_circuit_breaker(&cb.export_state()).unwrap();
+
+        // Fresh process: reload, then compile src/f.rs with the node deleted.
+        let mut cb2 = CircuitBreaker::new();
+        cb2.import_state(&store.load_circuit_breaker().unwrap());
+        assert!(cb2.is_downgraded("E001", "hashX", "src/f.rs"));
+
+        let none: Vec<Violation> = vec![];
+        cb2.reconcile_file(
+            "src/f.rs",
+            std::iter::empty::<String>(),
+            std::iter::empty::<String>(),
+            &none,
+        );
+        assert!(
+            !cb2.is_downgraded("E001", "hashX", "src/f.rs"),
+            "provenance must survive persistence so the downgrade clears on delete"
+        );
     }
 }

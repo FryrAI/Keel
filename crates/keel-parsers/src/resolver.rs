@@ -78,6 +78,20 @@ pub struct Definition {
     pub body_text: String,
 }
 
+impl Definition {
+    /// Body text normalized for node-hash computation (issue #36).
+    ///
+    /// Strips comments and collapses whitespace in a language-aware way (see
+    /// [`keel_core::hash::normalize_body_for_hash`]) so that reformatting and
+    /// non-doc comment edits leave the hash stable, while any token-level code
+    /// change moves it. The language is derived from the definition's file
+    /// extension, so `keel map` and `keel compile` normalize identically.
+    pub fn body_for_hash(&self) -> String {
+        let lang = crate::treesitter::detect_language(Path::new(&self.file_path)).unwrap_or("");
+        keel_core::hash::normalize_body_for_hash(&self.body_text, lang)
+    }
+}
+
 /// The flavour of a reference occurrence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReferenceKind {

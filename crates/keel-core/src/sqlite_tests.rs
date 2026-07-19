@@ -160,8 +160,20 @@ fn test_readd_same_edge_no_unique_constraint_error() {
 fn test_circuit_breaker_save_and_load() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let state = vec![
-        ("E001".to_string(), "abc123".to_string(), 2u32, false),
-        ("E002".to_string(), "def456".to_string(), 3u32, true),
+        (
+            "E001".to_string(),
+            "abc123".to_string(),
+            2u32,
+            false,
+            "src/a.rs".to_string(),
+        ),
+        (
+            "E002".to_string(),
+            "def456".to_string(),
+            3u32,
+            true,
+            "src/b.rs".to_string(),
+        ),
     ];
     store.save_circuit_breaker(&state).unwrap();
 
@@ -171,16 +183,34 @@ fn test_circuit_breaker_save_and_load() {
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
         sorted[0],
-        ("E001".to_string(), "abc123".to_string(), 2, false)
+        (
+            "E001".to_string(),
+            "abc123".to_string(),
+            2,
+            false,
+            "src/a.rs".to_string()
+        )
     );
     assert_eq!(
         sorted[1],
-        ("E002".to_string(), "def456".to_string(), 3, true)
+        (
+            "E002".to_string(),
+            "def456".to_string(),
+            3,
+            true,
+            "src/b.rs".to_string()
+        )
     );
 
     // Save again — should fully replace
     store
-        .save_circuit_breaker(&[("E003".to_string(), "ghi789".to_string(), 1, false)])
+        .save_circuit_breaker(&[(
+            "E003".to_string(),
+            "ghi789".to_string(),
+            1,
+            false,
+            "src/c.rs".to_string(),
+        )])
         .unwrap();
     let reloaded = store.load_circuit_breaker().unwrap();
     assert_eq!(reloaded.len(), 1);
