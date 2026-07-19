@@ -23,3 +23,7 @@ mod test_multi_lang_setup;
 // Monorepo tests
 #[path = "integration/test_monorepo.rs"]
 mod test_monorepo;
+
+// BAML boundary awareness (issue #32)
+#[path = "integration/test_baml_boundary.rs"]
+mod test_baml_boundary;
