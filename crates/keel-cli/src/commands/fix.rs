@@ -21,7 +21,7 @@ pub fn run(
         }
     };
 
-    let db_path = cwd.join(".keel").join("graph.db");
+    let db_path = keel_core::paths::keel_dir(&cwd).join("graph.db");
     let store = match keel_core::sqlite::SqliteGraphStore::open(&db_path.to_string_lossy()) {
         Ok(s) => s,
         Err(e) => {
@@ -231,7 +231,7 @@ fn apply_single_action(
 
 /// Re-compile after applying fixes and return (is_clean, error_count).
 fn recompile_verify(cwd: &std::path::Path, verbose: bool) -> (bool, u32) {
-    let db_path = cwd.join(".keel").join("graph.db");
+    let db_path = keel_core::paths::keel_dir(cwd).join("graph.db");
     let store = match keel_core::sqlite::SqliteGraphStore::open(&db_path.to_string_lossy()) {
         Ok(s) => s,
         Err(_) => return (false, 0),

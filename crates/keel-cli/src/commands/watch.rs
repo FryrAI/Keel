@@ -43,7 +43,7 @@ pub fn run(verbose: bool) -> i32 {
         }
     };
 
-    if !cwd.join(".keel").exists() {
+    if !keel_core::paths::keel_dir(&cwd).exists() {
         eprintln!("[keel watch] not initialized. Run `keel init` first.");
         return 2;
     }

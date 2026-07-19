@@ -1,0 +1,70 @@
+//! Tests for `.keel` directory resolution (issue #29 — worktree-aware graph).
+
+use super::keel_dir;
+use std::path::Path;
+use std::process::Command;
+use tempfile::TempDir;
+
+/// Run a git command in `cwd`, asserting success.
+fn git(args: &[&str], cwd: &Path) {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .expect("failed to spawn git");
+    assert!(
+        out.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&out.stderr),
+    );
+}
+
+/// (a) A normal checkout resolves `.keel` to the repo root.
+#[test]
+fn normal_repo_resolves_to_repo_root_keel() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    git(&["init"], root);
+
+    assert_eq!(keel_dir(root), root.join(".keel"));
+}
+
+/// (c) With no `.git` anywhere, fall back to `<start>/.keel`.
+#[test]
+fn no_git_falls_back_to_cwd_keel() {
+    let dir = TempDir::new().unwrap();
+    let start = dir.path();
+
+    assert_eq!(keel_dir(start), start.join(".keel"));
+}
+
+/// (b) A linked worktree resolves `.keel` to the MAIN checkout, so every
+/// worktree of the repo shares one `.keel/graph.db`.
+#[test]
+fn linked_worktree_resolves_to_main_checkout_keel() {
+    let dir = TempDir::new().unwrap();
+
+    // Main checkout with one commit (required before `git worktree add`).
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&["init"], &main);
+    git(&["config", "user.email", "test@test.com"], &main);
+    git(&["config", "user.name", "Test"], &main);
+    std::fs::write(main.join("f.txt"), "hi").unwrap();
+    git(&["add", "."], &main);
+    git(&["commit", "-m", "init"], &main);
+
+    // Add a linked worktree (creates a `.git` FILE inside `wt/`).
+    let wt = dir.path().join("wt");
+    git(&["worktree", "add", wt.to_str().unwrap()], &main);
+    assert!(wt.join(".git").is_file(), "worktree .git should be a file");
+
+    let resolved = keel_dir(&wt);
+    assert_eq!(resolved.file_name().unwrap(), ".keel");
+    assert_eq!(
+        resolved.parent().unwrap(),
+        main.canonicalize().unwrap(),
+        "worktree must share the main checkout's .keel",
+    );
+}

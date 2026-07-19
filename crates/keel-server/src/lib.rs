@@ -43,7 +43,7 @@ impl KeelServer {
     /// Create a new server instance from an existing database path.
     pub fn open(db_path: &str, root_dir: PathBuf) -> Result<Self, keel_core::types::GraphError> {
         let store = SqliteGraphStore::open(db_path)?;
-        let keel_dir = root_dir.join(".keel");
+        let keel_dir = keel_core::paths::keel_dir(&root_dir);
         let config = keel_core::config::KeelConfig::load(&keel_dir);
         let engine = EnforcementEngine::with_config(Box::new(store), &config);
         Ok(Self {

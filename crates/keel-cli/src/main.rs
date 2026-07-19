@@ -212,7 +212,7 @@ fn main() {
     // The remote thread has a 2s timeout so the CLI never hangs.
     let telemetry_handle = if !no_telemetry {
         if let Ok(cwd) = std::env::current_dir() {
-            let keel_dir = cwd.join(".keel");
+            let keel_dir = keel_core::paths::keel_dir(&cwd);
             if keel_dir.exists() {
                 let config = keel_core::config::KeelConfig::load(&keel_dir);
                 let mut metrics = metrics;

@@ -13,7 +13,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, query: String, name_m
         }
     };
 
-    let keel_dir = cwd.join(".keel");
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
     if !keel_dir.exists() {
         eprintln!("keel check: not initialized. Run `keel init` first.");
         return 2;
