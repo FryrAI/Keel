@@ -251,3 +251,125 @@ fn test_compile_refreshes_edges_and_fires_e001_without_remap() {
         "expected an E001 broken-caller violation, output: {combined}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Graph attribution (fix/graph-attribution): exactly one module node per file,
+// call edges attributed to the enclosing function, and same-file method-call
+// resolution.
+// ---------------------------------------------------------------------------
+
+/// Name of the node an edge originates from.
+fn source_name(
+    store: &keel_core::sqlite::SqliteGraphStore,
+    edge: &keel_core::types::GraphEdge,
+) -> String {
+    store
+        .get_node_by_id(edge.source_id)
+        .map(|n| n.name)
+        .unwrap_or_default()
+}
+
+#[test]
+fn test_one_module_node_per_file() {
+    let dir = TempDir::new().unwrap();
+    // Three source files -> three module nodes, never six. The old synthetic
+    // whole-file module def doubled every module row.
+    write(&dir, "a.py", "def a() -> int:\n    return 1\n");
+    write(&dir, "b.py", "def b() -> int:\n    return 2\n");
+    write(&dir, "c.py", "def c() -> int:\n    return 3\n");
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let modules = store.get_all_modules();
+    assert_eq!(
+        modules.len(),
+        3,
+        "expected exactly one module node per file, got {:?}",
+        modules.iter().map(|m| &m.file_path).collect::<Vec<_>>()
+    );
+    let mut files: Vec<&String> = modules.iter().map(|m| &m.file_path).collect();
+    files.sort();
+    files.dedup();
+    assert_eq!(files.len(), 3, "each file must own a single module node");
+}
+
+#[test]
+fn test_call_edge_attributes_to_enclosing_function() {
+    let dir = TempDir::new().unwrap();
+    // `caller` calls `helper` in the same file. The incoming edge on `helper`
+    // must originate from the `caller` FUNCTION, not the file's module node.
+    write(
+        &dir,
+        "lib.py",
+        "def helper() -> int:\n    return 1\n\n\ndef caller() -> int:\n    return helper()\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "lib.py", "helper");
+    assert!(
+        !edges.is_empty(),
+        "same-file function->function call must produce a Calls edge"
+    );
+    assert!(
+        edges.iter().any(|e| source_name(&store, e) == "caller"),
+        "call edge must be attributed to the `caller` function, got sources {:?}",
+        edges
+            .iter()
+            .map(|e| source_name(&store, e))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_self_method_call_resolves_high_confidence() {
+    let dir = TempDir::new().unwrap();
+    // `this.compute()` inside a method binds to the same-file `compute` at 0.9.
+    write(
+        &dir,
+        "widget.ts",
+        "export class Widget {\n  render(): number {\n    return this.compute();\n  }\n  compute(): number {\n    return 42;\n  }\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "widget.ts", "compute");
+    assert!(
+        !edges.is_empty(),
+        "this.compute() must resolve to a same-file Calls edge"
+    );
+    assert!(
+        edges.iter().any(|e| (e.confidence - 0.9).abs() < 1e-6),
+        "self/this method call must resolve at 0.9, got {:?}",
+        edges.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_obj_method_call_resolves_warning_tier() {
+    let dir = TempDir::new().unwrap();
+    // `w.compute()` on an unfamiliar receiver, with a UNIQUE same-file
+    // `compute`, resolves only at warning-tier (<= 0.7) — never a hard error.
+    write(
+        &dir,
+        "app.ts",
+        "class Widget {\n  compute(): number {\n    return 42;\n  }\n}\nexport function run(w: Widget): number {\n  return w.compute();\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "app.ts", "compute");
+    assert!(
+        !edges.is_empty(),
+        "w.compute() with a unique same-file target must resolve to an edge"
+    );
+    assert!(
+        edges.iter().any(|e| e.confidence <= 0.7 + 1e-6),
+        "unfamiliar-receiver method call must be warning-tier (<= 0.7), got {:?}",
+        edges.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}

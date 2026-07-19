@@ -25,6 +25,33 @@ function greet(name: string): string {
 }
 
 #[test]
+fn test_typescript_return_type_has_no_leading_colon() {
+    // The TS type-annotation node includes the leading `:`; the signature must
+    // render `add(...) -> number`, never `-> : number` (leaks into E001
+    // fix_hints and discover output).
+    let mut parser = TreeSitterParser::new();
+    let source = "function add(a: number, b: number): number {\n  return a + b;\n}\n";
+    let result = parser
+        .parse_file("typescript", Path::new("math.ts"), source)
+        .unwrap();
+    let add = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "add")
+        .expect("add function");
+    assert!(
+        add.signature.contains("-> number"),
+        "signature should render a clean return type, got {:?}",
+        add.signature
+    );
+    assert!(
+        !add.signature.contains("-> :") && !add.signature.contains(": number ->"),
+        "return type must not carry a leading colon, got {:?}",
+        add.signature
+    );
+}
+
+#[test]
 fn test_parse_python_function() {
     let mut parser = TreeSitterParser::new();
     let source = r#"

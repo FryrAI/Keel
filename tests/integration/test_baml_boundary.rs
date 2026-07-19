@@ -155,20 +155,20 @@ fn test_python_call_resolves_to_baml_boundary() {
         "expected a resolved Calls edge into the BAML boundary function"
     );
 
-    // The resolved call must originate from the calling source file (app.py),
-    // proving the `b.ExtractResume(...)` reference resolved into the boundary
-    // instead of remaining a silent unresolved edge. (keel attributes the
-    // caller to the containing top-level definition, which for the whole-file
-    // scope is the module node of `src/app.py`.)
-    let from_app = call_edges.iter().any(|e| {
+    // The resolved call must originate from `process` in src/app.py — the
+    // function whose body contains `b.ExtractResume(text)`. This proves the
+    // reference resolved into the boundary AND is attributed to the enclosing
+    // function: before the graph-attribution fix, in-function calls were
+    // mis-attributed to the whole-file module node.
+    let from_process = call_edges.iter().any(|e| {
         store
             .get_node_by_id(e.source_id)
-            .map(|n| n.file_path == "src/app.py")
+            .map(|n| n.name == "process" && n.file_path == "src/app.py")
             .unwrap_or(false)
     });
     assert!(
-        from_app,
-        "the resolved BAML call should originate from src/app.py"
+        from_process,
+        "the resolved BAML call should originate from the `process` function in src/app.py"
     );
 
     // Boundary edges are intentionally sub-0.80 confidence so they never

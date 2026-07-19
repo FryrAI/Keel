@@ -25,8 +25,19 @@ const MIN_DUPLICATE_BODY_LEN: usize = 60;
 // which gates on the (lower) MIN_INDEXED_BODY_LEN.
 const _: () = assert!(MIN_DUPLICATE_BODY_LEN >= keel_core::hash::MIN_INDEXED_BODY_LEN);
 
-/// Names that are entrypoints or conventionally uncalled — never dead.
+/// Names that are entrypoints or conventionally uncalled in every language —
+/// never dead.
 const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
+
+/// True when `name` is an auto-invoked entrypoint and therefore never dead.
+///
+/// Language-aware so Go's `func init()` (run at package load) and `TestMain`
+/// (the test entry) are exempt WITHOUT blanket-exempting `init` in languages
+/// where an uncalled `init` really is dead code.
+fn is_entrypoint(name: &str, lang: Option<&str>) -> bool {
+    ENTRYPOINT_NAMES.contains(&name)
+        || (matches!(lang, Some("go")) && matches!(name, "init" | "TestMain"))
+}
 
 /// Collect every symbol name referenced anywhere in the compile batch,
 /// including the final segment of qualified references (`obj.method` → both
@@ -65,6 +76,8 @@ pub fn check_dead_code(
         return violations;
     }
 
+    let lang = keel_parsers::treesitter::detect_language(std::path::Path::new(&file.file_path));
+
     for def in &file.definitions {
         if def.kind != NodeKind::Function
             || def.is_public
@@ -78,7 +91,7 @@ pub fn check_dead_code(
             || def.name.starts_with("test_")
             || def.name.starts_with("bench_")
             || def.name.contains('.')
-            || ENTRYPOINT_NAMES.contains(&def.name.as_str())
+            || is_entrypoint(&def.name, lang)
         {
             continue;
         }

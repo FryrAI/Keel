@@ -54,32 +54,14 @@ impl TreeSitterParser {
         let bytes = source.as_bytes();
         let root = tree.root_node();
 
-        let mut definitions = extract_definitions(&query, root, bytes, &file_path, lang_name);
+        let definitions = extract_definitions(&query, root, bytes, &file_path, lang_name);
         let references = extract_references(&query, root, bytes, &file_path);
         let imports = imports::extract_imports(&query, root, bytes, &file_path);
 
-        // Auto-create a Module node for each parsed file
-        let line_count = source.lines().count().max(1) as u32;
-        let module_name = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| file_path.clone());
-        definitions.insert(
-            0,
-            Definition {
-                name: module_name,
-                kind: NodeKind::Module,
-                signature: String::new(),
-                file_path: file_path.clone(),
-                line_start: 1,
-                line_end: line_count,
-                docstring: None,
-                is_public: true,
-                type_hints_present: false,
-                body_text: String::new(),
-                in_test_context: false,
-            },
-        );
+        // The whole-file Module node is owned by `map_passes::first_pass`
+        // (path-named, one per file). Emitting a second file-stem-named Module
+        // here duplicated every module row and made `find_containing_def`
+        // attribute call edges to the file instead of the enclosing function.
 
         Ok(ParseResult {
             definitions,
@@ -223,7 +205,14 @@ fn extract_definitions(
                     params_text = node_text(cap.node, source).to_string();
                 }
                 "def.func.return_type" | "def.method.return_type" => {
-                    return_type_text = node_text(cap.node, source).to_string();
+                    // TS annotation nodes include the leading `:` (e.g. `: number`);
+                    // strip it (and surrounding space) so the signature renders
+                    // `add(...) -> number`, not `-> : number`. Harmless for the
+                    // already-bare Rust/Python/Go return types.
+                    return_type_text = node_text(cap.node, source)
+                        .trim_start_matches(':')
+                        .trim()
+                        .to_string();
                 }
                 "def.func.body" | "def.method.body" | "def.class.body" | "def.type.body"
                 | "def.struct.body" | "def.enum.body" | "def.trait.body" | "def.impl.body" => {
