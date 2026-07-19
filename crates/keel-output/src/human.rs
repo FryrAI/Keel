@@ -2,7 +2,7 @@ use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
 };
 
 pub struct HumanFormatter;
@@ -95,6 +95,27 @@ impl OutputFormatter for HumanFormatter {
             out.push_str(&format!("{}\n{}\n", header, ctx.lines));
         }
 
+        out
+    }
+
+    fn format_file_symbols(&self, result: &FileSymbols) -> String {
+        let mut out = String::new();
+        if let Some(path) = &result.path {
+            out.push_str(&format!("FILE {} symbols={}\n", path, result.symbols.len()));
+            for s in &result.symbols {
+                out.push_str(&format!(
+                    "  {} {} hash={} line={} callers={} callees={}\n",
+                    s.kind, s.name, s.hash, s.line, s.callers, s.callees,
+                ));
+            }
+        } else {
+            for s in &result.symbols {
+                out.push_str(&format!(
+                    "{} hash={} {}:{} callers={} callees={}\n",
+                    s.name, s.hash, s.file, s.line, s.callers, s.callees,
+                ));
+            }
+        }
         out
     }
 

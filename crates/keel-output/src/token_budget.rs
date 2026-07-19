@@ -9,8 +9,13 @@ pub fn estimate_tokens(text: &str) -> usize {
     text.len().div_ceil(CHARS_PER_TOKEN)
 }
 
-/// Truncate a list of formatted lines to fit within a token budget.
-/// Returns (kept_lines, overflow_count).
+/// Truncate a list of formatted items to fit within a token budget.
+///
+/// Truncation happens at item granularity: each element is kept or dropped
+/// whole, and `overflow_count` is the number of trailing items dropped. Pass
+/// one item per unit you want the "+N more" trailer to count (e.g. one item
+/// per violation, not one per file). At least one item is always kept.
+/// Returns (kept_items, overflow_count).
 pub fn truncate_to_budget(lines: &[String], max_tokens: usize) -> (Vec<String>, usize) {
     let mut kept = Vec::new();
     let mut total_chars = 0;

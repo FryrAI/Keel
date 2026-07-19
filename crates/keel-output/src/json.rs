@@ -1,7 +1,7 @@
 use crate::OutputFormatter;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
 };
 
 pub struct JsonFormatter;
@@ -11,6 +11,9 @@ impl OutputFormatter for JsonFormatter {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
     fn format_discover(&self, result: &DiscoverResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_file_symbols(&self, result: &FileSymbols) -> String {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
     fn format_explain(&self, result: &ExplainResult) -> String {
@@ -220,5 +223,49 @@ mod tests {
         assert_eq!(parsed["error_code"], "E001");
         assert_eq!(parsed["confidence"], 0.92);
         assert_eq!(parsed["resolution_chain"].as_array().unwrap().len(), 2);
+    }
+
+    fn sample_file_symbols() -> FileSymbols {
+        FileSymbols {
+            version: env!("CARGO_PKG_VERSION").into(),
+            command: "discover".into(),
+            path: Some("src/handler.rs".into()),
+            symbols: vec![FileSymbol {
+                kind: "function".into(),
+                name: "handleRequest".into(),
+                hash: "abc12345678".into(),
+                file: "src/handler.rs".into(),
+                line: 5,
+                callers: 2,
+                callees: 3,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_json_file_symbols() {
+        let fmt = JsonFormatter;
+        let out = fmt.format_file_symbols(&sample_file_symbols());
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["command"], "discover");
+        assert_eq!(parsed["path"], "src/handler.rs");
+        assert_eq!(parsed["symbols"].as_array().unwrap().len(), 1);
+        assert_eq!(parsed["symbols"][0]["name"], "handleRequest");
+        assert_eq!(parsed["symbols"][0]["hash"], "abc12345678");
+        assert_eq!(parsed["symbols"][0]["callers"], 2);
+    }
+
+    #[test]
+    fn test_json_file_symbols_name_mode_omits_path() {
+        let fmt = JsonFormatter;
+        let mut fs = sample_file_symbols();
+        fs.path = None;
+        let out = fmt.format_file_symbols(&fs);
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(
+            parsed.get("path").is_none(),
+            "path should be omitted in name mode"
+        );
+        assert_eq!(parsed["symbols"][0]["file"], "src/handler.rs");
     }
 }
