@@ -5,24 +5,36 @@
 //! commas). `serde_json` rejects both, so [`strip_jsonc_comments`] normalizes
 //! the text first.
 //!
-//! Alias resolution semantics follow TypeScript, with one deliberate
-//! narrowing:
+//! Alias resolution semantics follow TypeScript:
 //! - `compilerOptions.paths` entries are resolved against `compilerOptions.baseUrl`,
 //!   which is itself relative to the directory of the tsconfig that declares it.
 //! - A tsconfig that `extends` another inherits its `paths`; entries declared by
 //!   the child win over the parent.
-//! - Only the FIRST target of each `paths` array is used. TypeScript tries
-//!   every entry and falls through on missing files; keel does not (yet), so
-//!   fallback arrays (`["src/app/*", "generated/app/*"]`) resolve only via
-//!   their first entry.
+//! - EVERY target of a `paths` array is registered, in declaration order, so
+//!   fallback arrays (`["src/app/*", "generated/app/*"]`) can be tried in turn
+//!   with disk-existence fallback at resolution time.
+//!
+//! Discovery is per-file: [`load_aliases_for_file`] walks up from a source file
+//! to its nearest alias-declaring directory, so a monorepo package with its own
+//! `tsconfig.json` (and no root tsconfig) still gets its aliases.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// A path-alias map: alias prefix (e.g. `@app`, `$lib`) -> the resolved absolute
+/// target directories, in `paths`-declaration order. Multiple targets are a
+/// TypeScript fallback array, tried in turn at resolution time.
+pub(crate) type AliasMap = HashMap<String, Vec<String>>;
 
 /// Maximum number of `extends` hops followed before giving up.
 ///
 /// Guards against cyclic `extends` chains without needing a visited set.
 const MAX_EXTENDS_DEPTH: usize = 8;
+
+/// Maximum number of parent directories walked when searching for the nearest
+/// alias-declaring directory. A safety net against pathological paths when no
+/// project-root ceiling is known.
+const MAX_ALIAS_WALK_DEPTH: usize = 64;
 
 /// SvelteKit's virtual module prefixes. These are provided by the framework at
 /// build time and never correspond to a file in the repo, so they are treated
@@ -198,9 +210,10 @@ fn resolve_extends_target(from_dir: &Path, target: &str) -> Option<PathBuf> {
 /// Merges the `compilerOptions.paths` of a single tsconfig into `out`.
 ///
 /// Targets are made absolute against `baseUrl` (default `.`), itself relative to
-/// `config_dir`. Existing entries in `out` are overwritten, so callers must visit
-/// parents before children.
-fn merge_paths(json: &serde_json::Value, config_dir: &Path, out: &mut HashMap<String, String>) {
+/// `config_dir`. EVERY target of each alias is registered, in declaration order,
+/// so fallback arrays survive to resolution time. Existing entries in `out` are
+/// overwritten, so callers must visit parents before children.
+fn merge_paths(json: &serde_json::Value, config_dir: &Path, out: &mut AliasMap) {
     let Some(compiler_options) = json.get("compilerOptions") else {
         return;
     };
@@ -214,18 +227,23 @@ fn merge_paths(json: &serde_json::Value, config_dir: &Path, out: &mut HashMap<St
     let base = config_dir.join(base_url);
 
     for (alias, targets) in paths {
-        let Some(target) = targets
-            .as_array()
-            .and_then(|a| a.first())
-            .and_then(|t| t.as_str())
-        else {
+        let Some(target_array) = targets.as_array() else {
             continue;
         };
+        let resolved: Vec<String> = target_array
+            .iter()
+            .filter_map(|t| t.as_str())
+            .map(|target| {
+                let clean_target = target.trim_end_matches("/*");
+                normalize(&base.join(clean_target))
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        if resolved.is_empty() {
+            continue;
+        }
         let clean_alias = alias.trim_end_matches("/*").to_string();
-        let clean_target = target.trim_end_matches("/*");
-        let resolved = normalize(&base.join(clean_target))
-            .to_string_lossy()
-            .to_string();
         out.insert(clean_alias, resolved);
     }
 }
@@ -259,7 +277,7 @@ fn normalize(path: &Path) -> PathBuf {
 
 /// Walks the `extends` chain of `config_path` and merges every `paths` block,
 /// deepest ancestor first so that nearer configs win.
-fn collect_from_config(config_path: &Path, depth: usize, out: &mut HashMap<String, String>) {
+fn collect_from_config(config_path: &Path, depth: usize, out: &mut AliasMap) {
     if depth > MAX_EXTENDS_DEPTH {
         return;
     }
@@ -299,7 +317,7 @@ fn collect_from_config(config_path: &Path, depth: usize, out: &mut HashMap<Strin
                     ref_root
                 };
                 if ref_config.is_file() {
-                    let mut ref_aliases = HashMap::new();
+                    let mut ref_aliases = AliasMap::new();
                     collect_from_config(&ref_config, depth + 1, &mut ref_aliases);
                     for (alias, target) in ref_aliases {
                         out.entry(alias).or_insert(target);
@@ -320,8 +338,8 @@ fn collect_from_config(config_path: &Path, depth: usize, out: &mut HashMap<Strin
 /// and `$lib` was not supplied by any tsconfig — typically because
 /// `.svelte-kit/tsconfig.json` has not been generated yet — the SvelteKit
 /// default `$lib -> <project_root>/src/lib` is registered.
-pub(crate) fn load_aliases(project_root: &Path) -> HashMap<String, String> {
-    let mut aliases = HashMap::new();
+pub(crate) fn load_aliases(project_root: &Path) -> AliasMap {
+    let mut aliases = AliasMap::new();
 
     for name in ["tsconfig.json", "jsconfig.json"] {
         let candidate = project_root.join(name);
@@ -333,10 +351,44 @@ pub(crate) fn load_aliases(project_root: &Path) -> HashMap<String, String> {
 
     if is_sveltekit_project(project_root) && !aliases.contains_key("$lib") {
         let lib = normalize(&project_root.join("src").join("lib"));
-        aliases.insert("$lib".to_string(), lib.to_string_lossy().to_string());
+        aliases.insert("$lib".to_string(), vec![lib.to_string_lossy().to_string()]);
     }
 
     aliases
+}
+
+/// Loads the path aliases that apply to a source file, using the NEAREST
+/// alias-declaring directory at or above `start_dir` (bounded by `ceiling`,
+/// inclusive).
+///
+/// This is the per-file entry point that makes monorepos work: in a repo with
+/// no root tsconfig — e.g. `apps/web/tsconfig.json` plus a per-package
+/// `svelte.config.js` — a file under `apps/web/src` resolves its `$lib`/`paths`
+/// aliases against `apps/web`, not the alias-less repo root. The walk stops at
+/// the first directory that declares aliases; returns an empty map when none is
+/// found below the ceiling.
+pub(crate) fn load_aliases_for_file(start_dir: &Path, ceiling: Option<&Path>) -> AliasMap {
+    let mut cur = Some(start_dir);
+    let mut hops = 0usize;
+    while let Some(dir) = cur {
+        if declares_aliases(dir) {
+            return load_aliases(dir);
+        }
+        if ceiling == Some(dir) || hops >= MAX_ALIAS_WALK_DEPTH {
+            break;
+        }
+        hops += 1;
+        cur = dir.parent();
+    }
+    AliasMap::new()
+}
+
+/// Returns true if `dir` declares path aliases keel can load: a `tsconfig.json`,
+/// a `jsconfig.json`, or a SvelteKit config (which implies the `$lib` default).
+fn declares_aliases(dir: &Path) -> bool {
+    dir.join("tsconfig.json").is_file()
+        || dir.join("jsconfig.json").is_file()
+        || is_sveltekit_project(dir)
 }
 
 /// Returns true if `root` contains a SvelteKit config file.

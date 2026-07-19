@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use oxc_resolver::Resolver;
 
 use crate::resolver::Import;
+use crate::typescript::tsconfig::AliasMap;
 
 /// Check if a TS/JS function signature has type annotations.
 pub(crate) fn ts_has_type_hints(signature: &str) -> bool {
@@ -58,27 +58,33 @@ pub(crate) fn extract_decl_name(s: &str) -> Option<String> {
     }
 }
 
-/// Apply tsconfig path alias resolution.
-/// E.g., `@components/Button` -> `/abs/path/src/components/Button`
+/// Apply tsconfig path alias resolution, returning every candidate specifier.
+/// E.g., `@components/Button` -> `["/abs/path/src/components/Button"]`.
 ///
 /// The longest (most specific) matching alias wins, as in TypeScript itself;
 /// ties break lexicographically so resolution never depends on `HashMap`
-/// iteration order.
-pub(crate) fn resolve_path_alias(
-    source: &str,
-    aliases: &HashMap<String, String>,
-) -> Option<String> {
-    let (alias, target) = aliases
+/// iteration order. The matched alias may declare a fallback array of targets,
+/// so ALL of them are returned, in declaration order — the caller tries each in
+/// turn with disk-existence fallback. Returns an empty `Vec` when no alias
+/// matches.
+pub(crate) fn resolve_path_alias(source: &str, aliases: &AliasMap) -> Vec<String> {
+    let Some((alias, targets)) = aliases
         .iter()
         .filter(|(alias, _)| {
             source
                 .strip_prefix(alias.as_str())
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
         })
-        .min_by_key(|(alias, _)| (std::cmp::Reverse(alias.len()), alias.as_str()))?;
+        .min_by_key(|(alias, _)| (std::cmp::Reverse(alias.len()), alias.as_str()))
+    else {
+        return Vec::new();
+    };
 
     let rest = source.strip_prefix(alias.as_str()).unwrap_or_default();
-    Some(format!("{target}{rest}"))
+    targets
+        .iter()
+        .map(|target| format!("{target}{rest}"))
+        .collect()
 }
 
 /// Extract `/// <reference path="..." />` directives from TypeScript source.
