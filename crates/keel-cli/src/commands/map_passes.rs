@@ -215,12 +215,19 @@ pub fn first_pass(
 }
 
 /// Second pass: cross-file call edges and import edges.
+///
+/// `baml_fn_index` maps BAML boundary function names to their node ids; calls
+/// left unresolved by the normal pipeline are matched against it so calls into
+/// `.baml` functions resolve to the boundary surface. It is empty (and thus a
+/// no-op) for repos that use no BAML.
+#[allow(clippy::too_many_arguments)]
 pub fn second_pass(
     all_file_data: &[FileParseData],
     name_to_id: &HashMap<(String, String), u64>,
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     file_module_ids: &HashMap<String, u64>,
     package_node_index: &HashMap<String, HashMap<String, u64>>,
+    baml_fn_index: &HashMap<String, u64>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
 ) {
@@ -283,6 +290,16 @@ pub fn second_pass(
                         confidence = pkg_conf;
                         break;
                     }
+                }
+            }
+
+            // Last resort: a call into a BAML boundary function.
+            if target_id.is_none() {
+                if let Some(baml_id) =
+                    super::map_baml::resolve_baml_call(&reference.name, baml_fn_index)
+                {
+                    target_id = Some(baml_id);
+                    confidence = super::map_baml::baml_edge_confidence();
                 }
             }
 

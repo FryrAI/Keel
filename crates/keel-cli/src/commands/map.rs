@@ -119,6 +119,25 @@ pub fn run(
         &mut body_index,
     );
 
+    // === BAML boundary: materialise `.baml` function/class declarations as
+    // boundary nodes so calls into them (e.g. `b.ExtractResume(...)`) resolve
+    // instead of reading as silent unresolved edges. ===
+    let baml_boundary = keel_parsers::baml::scan(&cwd);
+    let baml_fn_index = super::map_baml::inject_baml_boundary(
+        &baml_boundary,
+        &mut node_changes,
+        &mut edge_changes,
+        &mut next_id,
+        &mut assigned_hashes,
+        &mut valid_node_ids,
+    );
+    if baml_boundary.baml_src_present && !baml_boundary.client_generated {
+        eprintln!(
+            "keel map: baml_src detected but no generated baml_client/baml_sdk found — run `baml generate` ({} BAML function(s) exposed as boundary stubs)",
+            baml_fn_index.len()
+        );
+    }
+
     // Build file -> package mapping and cross-package index for monorepo resolution
     let file_packages: HashMap<String, String> = all_file_data
         .iter()
@@ -146,6 +165,7 @@ pub fn run(
         &global_name_index,
         &file_module_ids,
         &package_node_index,
+        &baml_fn_index,
         &mut edge_changes,
         &mut next_id,
     );
