@@ -166,15 +166,22 @@ impl EnforcementEngine {
             // map (e.g. E004's removed function, E005's call site) falls back to
             // the violation's own hash, which is stable across passive recompiles
             // and so likewise never marches toward auto-downgrade on its own.
+            // Each def's (plain, disambiguated) content hash, computed ONCE for
+            // this file (the file path is constant across the loop) and shared
+            // by the circuit-breaker fingerprint map here and the hash-
+            // persistence loop below — both previously normalized and hashed
+            // every def independently, so each def was hashed twice per compile.
+            let def_hashes: Vec<(String, String)> = file
+                .definitions
+                .iter()
+                .map(|d| crate::violations_util::definition_hashes(d, &file.file_path))
+                .collect();
+
             let fresh_hashes: HashMap<(String, u32), String> = file
                 .definitions
                 .iter()
-                .map(|d| {
-                    (
-                        (file.file_path.clone(), d.line_start),
-                        crate::violations_util::definition_hashes(d, &file.file_path).0,
-                    )
-                })
+                .zip(&def_hashes)
+                .map(|(d, (plain, _))| ((file.file_path.clone(), d.line_start), plain.clone()))
                 .collect();
             file_violations = self.apply_circuit_breaker(file_violations, &fresh_hashes);
 
@@ -200,12 +207,13 @@ impl EnforcementEngine {
                 .map(|v| v.hash.clone())
                 .collect();
 
-            // Track changed hashes and collect node updates for persistence
-            for def in &file.definitions {
-                let (new_hash, new_hash_disambiguated) =
-                    crate::violations_util::definition_hashes(def, &file.file_path);
+            // Track changed hashes and collect node updates for persistence,
+            // reusing the per-def hashes computed above (no re-hashing).
+            for (def, (new_hash, new_hash_disambiguated)) in
+                file.definitions.iter().zip(&def_hashes)
+            {
                 if let Some(node) = existing_nodes.iter().find(|n| n.name == def.name) {
-                    if node.hash != new_hash && node.hash != new_hash_disambiguated {
+                    if node.hash != *new_hash && node.hash != *new_hash_disambiguated {
                         if deferred_e001.contains(&node.hash) {
                             continue; // keep pre-edit hash so E001 re-fires
                         }
@@ -216,7 +224,7 @@ impl EnforcementEngine {
                         // progressive adoption — a full map re-baselines).
                         let mut updated_node = node.clone();
                         updated_node.previous_hashes.push(node.hash.clone());
-                        updated_node.hash = new_hash;
+                        updated_node.hash = new_hash.clone();
                         updated_node.signature = def.signature.clone();
                         updated_node.docstring = def.docstring.clone();
                         updated_node.has_docstring = def.docstring.is_some();
@@ -231,24 +239,18 @@ impl EnforcementEngine {
                 }
             }
 
-            // Handle batch mode: defer non-structural violations
+            // Handle batch mode: defer non-structural (deferrable) violations;
+            // structural ones still fire immediately. Inactivity expiry is
+            // enforced by the CLI against the persisted batch *before* it enters
+            // batch mode, so the in-process state has no clock to check here.
             if let Some(batch) = &mut self.batch_state {
-                if batch.is_expired() {
-                    // Auto-expire: flush deferred
-                    let deferred = self.batch_state.take().unwrap().drain();
-                    Self::partition_violations(deferred, &mut all_errors, &mut all_warnings);
-                    // Non-deferred violations from this file
-                    Self::partition_violations(file_violations, &mut all_errors, &mut all_warnings);
-                } else {
-                    batch.touch();
-                    let (immediate, deferred): (Vec<_>, Vec<_>) = file_violations
-                        .into_iter()
-                        .partition(|v| !BatchState::is_deferrable(&v.code));
-                    for d in deferred {
-                        batch.defer(d);
-                    }
-                    Self::partition_violations(immediate, &mut all_errors, &mut all_warnings);
+                let (immediate, deferred): (Vec<_>, Vec<_>) = file_violations
+                    .into_iter()
+                    .partition(|v| !BatchState::is_deferrable(&v.code));
+                for d in deferred {
+                    batch.defer(d);
                 }
+                Self::partition_violations(immediate, &mut all_errors, &mut all_warnings);
             } else {
                 Self::partition_violations(file_violations, &mut all_errors, &mut all_warnings);
             }
@@ -290,8 +292,9 @@ impl EnforcementEngine {
     }
 
     /// Take the violations this engine deferred during a batch-mode compile,
-    /// ending its in-process batch. The CLI persists these to `.keel/batch.json`
-    /// so they survive to the eventual `--batch-end` in a later process.
+    /// ending its in-process batch. The CLI persists these to the SQLite-backed
+    /// [`PersistentBatch`](crate::batch::PersistentBatch) so they survive to the
+    /// eventual `--batch-end` in a later process.
     pub fn drain_batch_deferred(&mut self) -> Vec<Violation> {
         self.batch_state
             .take()

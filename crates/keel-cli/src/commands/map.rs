@@ -145,10 +145,10 @@ pub fn run(
     // `node_tiers` records which resolution tier resolved each caller node's
     // outgoing edges, persisted to `nodes.resolution_tier` after the nodes land.
     let resolver_set = super::map_lang_resolve::ResolverSet {
-        ts: &ts,
-        py: &py,
-        go: &go_resolver,
-        rs: &rs,
+        ts: Some(&ts),
+        py: Some(&py),
+        go: Some(&go_resolver),
+        rs: Some(&rs),
     };
     let mut node_tiers: HashMap<u64, (String, f64)> = HashMap::new();
     map_passes::second_pass(

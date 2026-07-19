@@ -6,6 +6,8 @@ pub fn definition_hashes(
     def: &keel_parsers::resolver::Definition,
     file_path: &str,
 ) -> (String, String) {
+    // Normalize the body once and reuse it for both identities — routing
+    // through `Definition::{hash, hash_disambiguated}` would normalize twice.
     let doc = def.docstring.as_deref().unwrap_or("");
     let body = def.body_for_hash();
     (

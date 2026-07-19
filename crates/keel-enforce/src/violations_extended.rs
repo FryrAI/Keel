@@ -173,11 +173,7 @@ pub fn check_placement(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violatio
                 ),
                 file: file.file_path.clone(),
                 line: def.line_start,
-                hash: keel_core::hash::compute_hash(
-                    &def.signature,
-                    &def.body_for_hash(),
-                    def.docstring.as_deref().unwrap_or(""),
-                ),
+                hash: def.hash(),
                 confidence: 0.6,
                 resolution_tier: "heuristic".to_string(),
                 fix_hint: Some(format!(
@@ -260,11 +256,7 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
             ),
             file: file.file_path.clone(),
             line: def.line_start,
-            hash: keel_core::hash::compute_hash(
-                &def.signature,
-                &def.body_for_hash(),
-                def.docstring.as_deref().unwrap_or(""),
-            ),
+            hash: def.hash(),
             confidence: 0.7,
             resolution_tier: "heuristic".to_string(),
             fix_hint: Some(format!(

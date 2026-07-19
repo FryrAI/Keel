@@ -6,8 +6,16 @@
 //!
 //! - insert nodes for definitions new since the last map,
 //! - remove nodes for definitions that vanished from a file,
-//! - re-resolve each compiled file's outgoing call edges (prune + re-add),
-//!   using the same per-language `resolve_call_edge` path as the map pipeline.
+//! - re-resolve each compiled file's outgoing call edges (prune + re-add).
+//!
+//! Re-resolution runs the SAME ladder as the map's second pass
+//! ([`super::call_resolve::resolve_call_reference`]), backed here by
+//! graph-backed lookups ([`GraphIndex`]) instead of the map's in-memory
+//! indices. That is the whole point: an earlier version re-implemented a weaker
+//! ladder and, because it prunes a file's call edges before re-resolving, every
+//! `keel compile` deleted the method-call, same-directory, package, and BAML
+//! edges the map had built. Running the map's own ladder makes the prune
+//! lossless.
 //!
 //! It runs *after* enforcement (on a separate store handle) so E001/E004 still
 //! diff against the pre-edit graph; the refreshed edges are then in place for
@@ -21,36 +29,110 @@ use keel_core::hash::{compute_hash, compute_hash_disambiguated};
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
-use keel_parsers::go::GoResolver;
-use keel_parsers::python::PyResolver;
-use keel_parsers::resolver::{Definition, FileIndex, LanguageResolver, ReferenceKind};
-use keel_parsers::rust_lang::RustLangResolver;
-use keel_parsers::treesitter::{detect_language, is_typescript_family};
-use keel_parsers::typescript::TsResolver;
+use keel_parsers::resolver::{Definition, FileIndex, ReferenceKind};
+use keel_parsers::treesitter::detect_language;
 
-use super::map_lang_resolve::resolve_with;
-use super::map_resolve::resolve_edge_to_node;
+use super::call_resolve::{resolve_call_reference, CallSiteCtx};
+use super::map_lang_resolve::ResolverSet;
+use super::map_resolve::CallIndex;
 
-/// The (possibly warm-cached) resolvers used to parse the compiled files.
-///
-/// Reusing the same instances the parse loop populated means
-/// `resolve_call_edge` sees the cached parse data for each caller.
-pub struct SyncResolvers<'a> {
-    pub ts: Option<&'a TsResolver>,
-    pub py: Option<&'a PyResolver>,
-    pub go: Option<&'a GoResolver>,
-    pub rs: Option<&'a RustLangResolver>,
+/// The parts of the graph-backed [`CallIndex`] that do not depend on which file
+/// is being resolved — built once per compile so a multi-file compile does not
+/// re-query the module list / package index / BAML surface per file.
+struct GraphIndexBase<'a> {
+    store: &'a SqliteGraphStore,
+    /// Every `relative_file_path -> module_id` in the graph (for import paths).
+    module_files: HashMap<String, u64>,
+    /// `package -> (symbol -> node id)`; empty unless the repo sets packages.
+    package_node_index: HashMap<String, HashMap<String, u64>>,
+    /// BAML boundary `function name -> node id`; empty unless `baml_src` exists.
+    baml_fn_index: HashMap<String, u64>,
 }
 
-impl<'a> SyncResolvers<'a> {
-    fn for_language(&self, language: &str) -> Option<&'a dyn LanguageResolver> {
-        match language {
-            l if is_typescript_family(l) => self.ts.map(|r| r as &dyn LanguageResolver),
-            "python" => self.py.map(|r| r as &dyn LanguageResolver),
-            "go" => self.go.map(|r| r as &dyn LanguageResolver),
-            "rust" => self.rs.map(|r| r as &dyn LanguageResolver),
-            _ => None,
+impl<'a> GraphIndexBase<'a> {
+    fn build(store: &'a SqliteGraphStore, cwd: &Path) -> Self {
+        let module_files = store
+            .get_all_modules()
+            .into_iter()
+            .map(|m| (m.file_path, m.id))
+            .collect();
+        let package_node_index = store.package_node_index();
+        // Only pay for the BAML lookup when the repo actually has a baml_src.
+        let baml_fn_index = if cwd.join("baml_src").exists() {
+            store.baml_function_nodes()
+        } else {
+            HashMap::new()
+        };
+        Self {
+            store,
+            module_files,
+            package_node_index,
+            baml_fn_index,
         }
+    }
+}
+
+/// Per-file [`CallIndex`] over the persisted graph: the shared base plus the
+/// file's freshly-parsed local definitions.
+struct GraphIndex<'a> {
+    base: &'a GraphIndexBase<'a>,
+    /// This file's `name -> node id` (the ids assigned/looked up this compile).
+    local: &'a HashMap<String, u64>,
+    /// The file these locals belong to, repo-relative.
+    file_path: &'a str,
+    /// `(file_path, name) -> id` for same-file method resolution.
+    name_to_id: HashMap<(String, String), u64>,
+}
+
+impl<'a> GraphIndex<'a> {
+    fn new(
+        base: &'a GraphIndexBase<'a>,
+        local: &'a HashMap<String, u64>,
+        file_path: &'a str,
+    ) -> Self {
+        let name_to_id = local
+            .iter()
+            .map(|(name, id)| ((file_path.to_string(), name.clone()), *id))
+            .collect();
+        Self {
+            base,
+            local,
+            file_path,
+            name_to_id,
+        }
+    }
+}
+
+impl CallIndex for GraphIndex<'_> {
+    fn candidates(&self, name: &str) -> Vec<(String, u64)> {
+        let mut out: Vec<(String, u64)> = self
+            .base
+            .store
+            .find_nodes_by_name(name, "", "")
+            .into_iter()
+            .filter(|n| n.kind != NodeKind::Module)
+            .map(|n| (n.file_path, n.id))
+            .collect();
+        // The current file's freshly-known def wins over any stale graph row for
+        // the same (file, name): this compile's node insert has not committed
+        // yet, so `local` holds the id the edge should point at.
+        if let Some(&id) = self.local.get(name) {
+            out.retain(|(f, _)| f != self.file_path);
+            out.push((self.file_path.to_string(), id));
+        }
+        out
+    }
+    fn module_files(&self) -> &HashMap<String, u64> {
+        &self.base.module_files
+    }
+    fn name_to_id(&self) -> &HashMap<(String, String), u64> {
+        &self.name_to_id
+    }
+    fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
+        &self.base.package_node_index
+    }
+    fn baml_index(&self) -> &HashMap<String, u64> {
+        &self.base.baml_fn_index
     }
 }
 
@@ -60,7 +142,7 @@ pub fn sync_compiled_files(
     store: &mut SqliteGraphStore,
     cwd: &Path,
     files: &[FileIndex],
-    resolvers: &SyncResolvers,
+    resolvers: &ResolverSet,
     verbose: bool,
 ) {
     let mut next_id = store.max_id() + 1;
@@ -74,22 +156,29 @@ pub fn sync_compiled_files(
     // so callee-side E004 re-fires until those callers are fixed (below).
     let batch_files: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
 
-    for file in files {
-        sync_one_file(
-            store,
-            cwd,
-            file,
-            resolvers,
-            &batch_files,
-            &mut next_id,
-            &mut node_changes,
-            &mut edge_changes,
-            &mut node_tiers,
-        );
+    // Read phase: build the graph-backed index once, then resolve every
+    // compiled file against it, collecting node/edge changes. Scoped so the
+    // immutable borrow of `store` ends before the mutable write phase below.
+    {
+        let base = GraphIndexBase::build(&*store, cwd);
+        for file in files {
+            sync_one_file(
+                &base,
+                cwd,
+                file,
+                resolvers,
+                &batch_files,
+                &mut next_id,
+                &mut node_changes,
+                &mut edge_changes,
+                &mut node_tiers,
+            );
+        }
     }
 
-    // Modules/definitions first (module_id + Contains FK), then removals last —
-    // `update_nodes` already sorts, but node inserts must land before edges.
+    // Write phase (same handle, now mutable). Modules/definitions land first
+    // (module_id + Contains FK) — `update_nodes` sorts, but node inserts must
+    // precede edges.
     if !node_changes.is_empty() {
         if let Err(e) = store.update_nodes(node_changes) {
             if verbose {
@@ -114,16 +203,17 @@ pub fn sync_compiled_files(
 
 #[allow(clippy::too_many_arguments)]
 fn sync_one_file(
-    store: &SqliteGraphStore,
+    base: &GraphIndexBase,
     cwd: &Path,
     file: &FileIndex,
-    resolvers: &SyncResolvers,
+    resolvers: &ResolverSet,
     batch_files: &HashSet<&str>,
     next_id: &mut u64,
     node_changes: &mut Vec<NodeChange>,
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
 ) {
+    let store = base.store;
     let rel_path = &file.file_path;
     let existing = store.get_nodes_in_file(rel_path);
 
@@ -199,7 +289,7 @@ fn sync_one_file(
         let _ = e; // best-effort; stale edges are re-added below regardless
     }
     resolve_outgoing_edges(
-        store,
+        base,
         cwd,
         file,
         resolvers,
@@ -210,13 +300,14 @@ fn sync_one_file(
     );
 }
 
-/// Resolve the compiled file's call references into `calls` edges.
+/// Resolve the compiled file's call references into `calls` edges, running the
+/// shared map/compile ladder so the re-added edges match map quality.
 #[allow(clippy::too_many_arguments)]
 fn resolve_outgoing_edges(
-    store: &SqliteGraphStore,
+    base: &GraphIndexBase,
     cwd: &Path,
     file: &FileIndex,
-    resolvers: &SyncResolvers,
+    resolvers: &ResolverSet,
     local: &HashMap<String, u64>,
     next_id: &mut u64,
     edge_changes: &mut Vec<EdgeChange>,
@@ -224,21 +315,33 @@ fn resolve_outgoing_edges(
 ) {
     let rel_path = &file.file_path;
     let language = detect_language(Path::new(rel_path)).unwrap_or("");
-    let resolver = resolvers.for_language(language);
     let abs_file = cwd.join(rel_path);
+
+    let idx = GraphIndex::new(base, local, rel_path);
+    let ctx = CallSiteCtx {
+        resolvers,
+        language,
+        file_path: rel_path,
+        abs_file: &abs_file,
+        imports: &file.imports,
+        definitions: &file.definitions,
+    };
 
     for reference in &file.references {
         if reference.kind != ReferenceKind::Call {
             continue;
         }
-        // Same-file call: resolve directly against this file's definitions.
+        // Same-file direct call: link against this file's own defs, exactly as
+        // the map's first pass does, at SAME_FILE_CALL confidence. The shared
+        // ladder only handles cross-file references (method calls still route
+        // through it via its same-file-method step).
         if let Some(&tgt) = local.get(&reference.name) {
             push_call_edge(
                 file,
                 local,
                 reference.line,
                 tgt,
-                0.95,
+                keel_core::confidence::SAME_FILE_CALL,
                 "tier1",
                 next_id,
                 edge_changes,
@@ -246,33 +349,14 @@ fn resolve_outgoing_edges(
             );
             continue;
         }
-
-        // Tier 2: the language resolver, then a graph-name fallback.
-        let mut resolved: Option<(u64, f64, String)> = resolver
-            .and_then(|r| resolve_with(r, &abs_file, reference))
-            .and_then(|edge| {
-                target_node_in_graph(store, local, &edge.target_file, &edge.target_name)
-                    .map(|id| (id, edge.confidence, edge.resolution_tier))
-            });
-
-        if resolved.is_none() {
-            // Fallback heuristic: the bare callee name, matched in the graph.
-            let bare = reference
-                .name
-                .rsplit(['.', ':'])
-                .next()
-                .unwrap_or(&reference.name);
-            resolved = graph_lookup_by_name(store, bare).map(|id| (id, 0.80, "tier1".to_string()));
-        }
-
-        if let Some((tgt, confidence, tier)) = resolved {
+        if let Some(resolved) = resolve_call_reference(&idx, &ctx, reference) {
             push_call_edge(
                 file,
                 local,
                 reference.line,
-                tgt,
-                confidence,
-                &tier,
+                resolved.target_id,
+                resolved.confidence,
+                &resolved.tier,
                 next_id,
                 edge_changes,
                 node_tiers,
@@ -340,44 +424,6 @@ fn containing_def(file: &FileIndex, local: &HashMap<String, u64>, line: u32) -> 
         .iter()
         .find(|d| line >= d.line_start && line <= d.line_end)
         .and_then(|d| local.get(&d.name).copied())
-}
-
-/// Map a resolver's `ResolvedEdge` target to a node id, checking this file's
-/// own definitions first (same-file targets) then the persisted graph.
-fn target_node_in_graph(
-    store: &SqliteGraphStore,
-    local: &HashMap<String, u64>,
-    target_file: &str,
-    target_name: &str,
-) -> Option<u64> {
-    if let Some(&id) = local.get(target_name) {
-        return Some(id);
-    }
-    // Reuse the map's index-based matcher over the graph's candidates.
-    let candidates = store.find_nodes_by_name(target_name, "", "");
-    let index: HashMap<String, Vec<(String, u64)>> = {
-        let mut m: HashMap<String, Vec<(String, u64)>> = HashMap::new();
-        for n in &candidates {
-            m.entry(n.name.clone())
-                .or_default()
-                .push((n.file_path.clone(), n.id));
-        }
-        m
-    };
-    resolve_edge_to_node(&index, target_file, target_name)
-}
-
-/// Fallback: resolve a bare callee name to a single graph node, if unambiguous.
-fn graph_lookup_by_name(store: &SqliteGraphStore, name: &str) -> Option<u64> {
-    let mut candidates: Vec<GraphNode> = store
-        .find_nodes_by_name(name, "", "")
-        .into_iter()
-        .filter(|n| n.kind != NodeKind::Module)
-        .collect();
-    match candidates.len() {
-        1 => Some(candidates.remove(0).id),
-        _ => None,
-    }
 }
 
 /// Content hash for a new node, disambiguated if the base hash collides with a

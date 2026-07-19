@@ -13,23 +13,28 @@ use std::path::Path;
 
 use keel_parsers::resolver::{CallSite, LanguageResolver, Reference, ResolvedEdge};
 
-/// The four language resolvers, borrowed for the duration of a resolution pass.
+/// The per-language resolvers, borrowed for the duration of a resolution pass.
+///
+/// Fields are `Option` so the same set serves both callers: `keel map` always
+/// has all four (each field `Some`), while `keel compile` lazily constructs
+/// only the resolvers for the languages it actually touched and leaves the rest
+/// `None`.
 pub struct ResolverSet<'a> {
-    pub ts: &'a dyn LanguageResolver,
-    pub py: &'a dyn LanguageResolver,
-    pub go: &'a dyn LanguageResolver,
-    pub rs: &'a dyn LanguageResolver,
+    pub ts: Option<&'a dyn LanguageResolver>,
+    pub py: Option<&'a dyn LanguageResolver>,
+    pub go: Option<&'a dyn LanguageResolver>,
+    pub rs: Option<&'a dyn LanguageResolver>,
 }
 
 impl<'a> ResolverSet<'a> {
     /// Pick the resolver for a `detect_language` result, or `None` for
-    /// languages without a dedicated Tier-2 enhancer.
+    /// languages without a dedicated Tier-2 enhancer (or not constructed).
     pub fn for_language(&self, language: &str) -> Option<&'a dyn LanguageResolver> {
         match language {
-            l if keel_parsers::treesitter::is_typescript_family(l) => Some(self.ts),
-            "python" => Some(self.py),
-            "go" => Some(self.go),
-            "rust" => Some(self.rs),
+            l if keel_parsers::treesitter::is_typescript_family(l) => self.ts,
+            "python" => self.py,
+            "go" => self.go,
+            "rust" => self.rs,
             _ => None,
         }
     }
@@ -66,18 +71,4 @@ pub fn resolve_with(
     reference: &Reference,
 ) -> Option<ResolvedEdge> {
     resolver.resolve_call_edge(&call_site_for(reference, abs_file))
-}
-
-/// Resolve a reference through the language-specific `resolve_call_edge`.
-///
-/// Returns `None` when there is no enhancer for the language or the resolver
-/// cannot resolve the call — the caller then falls back to the path heuristics.
-pub fn resolve_via_language(
-    resolvers: &ResolverSet,
-    language: &str,
-    abs_file: &Path,
-    reference: &Reference,
-) -> Option<ResolvedEdge> {
-    let resolver = resolvers.for_language(language)?;
-    resolve_with(resolver, abs_file, reference)
 }

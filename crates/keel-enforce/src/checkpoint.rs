@@ -11,7 +11,6 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use keel_core::hash::compute_hash;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
 use keel_parsers::resolver::FileIndex;
@@ -145,11 +144,7 @@ pub fn range_label(mode: &CheckpointMode) -> String {
 /// Compute the (un-disambiguated) content hash of a parsed definition, the
 /// same way `keel map` does for a non-colliding symbol.
 fn def_hash(def: &keel_parsers::resolver::Definition) -> String {
-    compute_hash(
-        &def.signature,
-        &def.body_for_hash(),
-        def.docstring.as_deref().unwrap_or(""),
-    )
+    def.hash()
 }
 
 /// Collect the stored callers of a symbol node.

@@ -5,6 +5,14 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
+/// The persisted batch-state blob (SQLite `keel_meta` row), or `None`.
+fn batch_state(dir: &TempDir) -> Option<String> {
+    let db = dir.path().join(".keel/graph.db");
+    keel_core::sqlite::SqliteGraphStore::open(db.to_str().unwrap())
+        .ok()
+        .and_then(|s| s.load_batch())
+}
+
 fn keel_bin() -> std::path::PathBuf {
     let mut path = std::env::current_exe().unwrap();
     path.pop();
@@ -190,9 +198,10 @@ fn test_compile_batch_accumulates_violations() {
 /// `--batch-end` each run as SEPARATE processes. The deferred violation must
 /// survive to fire at `--batch-end`.
 ///
-/// Before batch state was persisted to `.keel/batch.json`, `--batch-start` set
-/// state in a per-process engine that was dropped at exit: the second process
-/// saw no batch, fired E002 immediately, and `--batch-end` had nothing to fire.
+/// Before batch state was persisted (now in a SQLite `keel_meta` row),
+/// `--batch-start` set state in a per-process engine that was dropped at exit:
+/// the second process saw no batch, fired E002 immediately, and `--batch-end`
+/// had nothing to fire.
 #[test]
 fn test_compile_batch_persists_across_processes() {
     // A clean file so `map` has a baseline; the violating file is added later so
@@ -218,8 +227,8 @@ fn test_compile_batch_persists_across_processes() {
         .unwrap();
     assert!(start.status.success(), "batch-start should exit 0");
     assert!(
-        dir.path().join(".keel/batch.json").exists(),
-        "batch-start must persist .keel/batch.json"
+        batch_state(&dir).is_some(),
+        "batch-start must persist batch state to the store"
     );
 
     // Process 2: compile the violating file. Its E002 is deferrable, so it is
@@ -239,11 +248,10 @@ fn test_compile_batch_persists_across_processes() {
         mid_stdout.trim().is_empty(),
         "deferred violations must NOT print during the batch; stdout: {mid_stdout}"
     );
-    let batch_json =
-        fs::read_to_string(dir.path().join(".keel/batch.json")).expect("batch.json must persist");
+    let batch_blob = batch_state(&dir).expect("batch state must persist in the store");
     assert!(
-        batch_json.contains("E002"),
-        "the deferred E002 must be persisted in batch.json: {batch_json}"
+        batch_blob.contains("E002"),
+        "the deferred E002 must be persisted in the batch state: {batch_blob}"
     );
 
     // Process 3: end the batch — the deferred E002 fires now.
@@ -263,7 +271,7 @@ fn test_compile_batch_persists_across_processes() {
         "batch-end output must include the deferred E002: {end_stdout}"
     );
     assert!(
-        !dir.path().join(".keel/batch.json").exists(),
-        "batch-end must clear .keel/batch.json"
+        batch_state(&dir).is_none(),
+        "batch-end must clear the persisted batch state"
     );
 }
