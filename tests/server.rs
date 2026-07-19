@@ -3,6 +3,8 @@
 
 #[path = "server/test_http_server.rs"]
 mod test_http_server;
+#[path = "server/test_mcp_cli_parity.rs"]
+mod test_mcp_cli_parity;
 #[path = "server/test_mcp_integration.rs"]
 mod test_mcp_integration;
 #[path = "server/test_mcp_server.rs"]

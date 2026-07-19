@@ -19,6 +19,7 @@ pub mod engine;
 pub mod fix_generator;
 pub mod focus;
 pub mod hash_diff;
+pub mod map;
 pub mod naming;
 pub mod progressive;
 pub mod queries;

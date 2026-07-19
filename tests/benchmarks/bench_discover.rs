@@ -1,5 +1,11 @@
 // Benchmark tests for discover (adjacency lookup) performance
 // Uses SqliteGraphStore and EnforcementEngine directly for precise timing.
+//
+// Performance contract (CLAUDE.md "Key Commands" table): `keel discover <hash>`
+// adjacency-lookup target is <50ms. Timing here is in-process (no binary
+// spawn), so the documented 50ms applies directly. The unconditional asserts
+// stay loose for debug builds; the `#[cfg(not(debug_assertions))]` asserts
+// enforce the real 50ms contract when the suite is built `--release`.
 
 use keel_core::hash::compute_hash;
 use keel_core::sqlite::SqliteGraphStore;
@@ -79,6 +85,13 @@ fn bench_discover_node_under_50ms() {
     assert!(result.is_some(), "discover should find node");
     // Debug mode: allow 1s (release target: 50ms)
     assert!(elapsed.as_millis() < 1000, "discover took {:?}", elapsed);
+    // Release: enforce the documented <50ms adjacency-lookup contract.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 50,
+        "release discover took {:?} — exceeds documented 50ms",
+        elapsed
+    );
 }
 
 #[test]
@@ -119,6 +132,13 @@ fn bench_discover_highly_connected_node() {
         "highly-connected discover took {:?}",
         elapsed
     );
+    // Release: enforce the documented <50ms adjacency-lookup contract.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 50,
+        "release highly-connected discover took {:?} — exceeds documented 50ms",
+        elapsed
+    );
 }
 
 #[test]
@@ -135,6 +155,13 @@ fn bench_discover_leaf_node() {
     assert!(
         elapsed.as_millis() < 500,
         "leaf discover took {:?}",
+        elapsed
+    );
+    // Release: enforce the documented <50ms adjacency-lookup contract.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 50,
+        "release leaf discover took {:?} — exceeds documented 50ms",
         elapsed
     );
 }
@@ -155,6 +182,14 @@ fn bench_discover_sequential_100_lookups() {
     assert!(
         elapsed.as_secs() < 10,
         "100 sequential discovers took {:?}",
+        elapsed
+    );
+    // Release: enforce the documented <50ms-per-lookup contract on average
+    // (100 lookups within 100 * 50ms).
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 100 * 50,
+        "release 100 sequential discovers took {:?} — exceeds documented 50ms/lookup average",
         elapsed
     );
 }
