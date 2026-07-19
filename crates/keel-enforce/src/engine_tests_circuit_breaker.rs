@@ -266,3 +266,52 @@ fn test_e005_breaker_advances_only_on_the_containing_def() {
         "third failed attempt on the containing def must auto-downgrade E005"
     );
 }
+
+/// The hardest E004 shape: deleting a function shifts its NEIGHBOR up into the
+/// removed node's old line, so a line-geometry fingerprint would charge every
+/// body edit of that neighbor as an E004 fix attempt — three saves while
+/// iterating on the neighbor then auto-downgraded a live E004 to WARNING
+/// (exit 1 → 0, broken callers ship). E004 must key on the NAME SET only,
+/// even when a def now sits exactly at (or spans) the blamed line.
+#[test]
+fn test_e004_ignores_the_def_that_slid_into_the_removed_line() {
+    let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    // `neighbor` slid up and now starts EXACTLY at the E004's blamed line 400
+    // (and its range spans it) — the removed `gone` fn used to live there.
+    let neighbor = |body: &str| defs_at(&[("neighbor", body, 400, 450)]);
+
+    let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&neighbor("v1")));
+    assert_eq!(out[0].severity, "ERROR");
+
+    // Three body edits to the neighbor: name set unchanged → never advances.
+    for body in ["v2", "v3", "v4"] {
+        let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&neighbor(body)));
+        assert_eq!(
+            out[0].severity, "ERROR",
+            "body edits to the def at the removed line must not advance E004"
+        );
+        assert!(
+            !out[0]
+                .fix_hint
+                .as_deref()
+                .unwrap_or("")
+                .contains("2nd attempt"),
+            "body edit wrongly counted as an E004 fix attempt"
+        );
+    }
+
+    // A structural edit (a def added — name set changes) IS an attempt.
+    let structural = defs_at(&[("neighbor", "v4", 400, 450), ("gone", "restored", 460, 470)]);
+    let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&structural));
+    assert!(
+        out[0]
+            .fix_hint
+            .as_deref()
+            .unwrap_or("")
+            .contains("2nd attempt"),
+        "a name-set change must advance the E004 breaker, got: {:?}",
+        out[0].fix_hint
+    );
+}

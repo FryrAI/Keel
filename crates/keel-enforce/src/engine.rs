@@ -176,12 +176,11 @@ impl EnforcementEngine {
             );
 
             // Apply circuit breaker. The breaker counts fix ATTEMPTS, not
-            // compiles, so it needs each offending node's current body/signature
-            // fingerprint — keyed by (file, line) so a violation can look up the
-            // freshly-parsed hash of the def it points at. A def absent from the
-            // map (e.g. E004's removed function, E005's call site) falls back to
-            // the violation's own hash, which is stable across passive recompiles
-            // and so likewise never marches toward auto-downgrade on its own.
+            // compiles, so each violation is charged against a fingerprint that
+            // only moves when a relevant fix was attempted — chosen per
+            // violation code by `FileFingerprints::fingerprint_for` (exact def
+            // for most codes, containing def for E005's call site, the file's
+            // def NAME SET for E004's removed node).
             // Each def's (plain, disambiguated) content hash, computed ONCE for
             // this file (the file path is constant across the loop) and shared
             // by the circuit-breaker fingerprint map here and the hash-
@@ -228,8 +227,7 @@ impl EnforcementEngine {
             // same node: that node then received two conflicting hash updates
             // while its sibling was orphaned, and the second update tried to
             // claim the hash the sibling legitimately owns — aborting the whole
-            // persist with a HashCollision. Prefer an exact line match, then
-            // fall back to the first still-unclaimed node of that name.
+            // persist with a HashCollision.
             // Bind in TWO passes, not greedily per def. A single greedy pass
             // that prefers an exact (name, line) match but falls back to the
             // first unclaimed same-named node mis-pairs when two same-named defs
@@ -287,27 +285,39 @@ impl EnforcementEngine {
                         // duplicate sharing ONE disambiguated hash, and
                         // `update_nodes` then aborted the whole persist with a
                         // HashCollision.
-                        let mut target_hash = new_hash.clone();
+                        let mut candidate = Some(new_hash.clone());
                         let mut ordinal = 0u32;
-                        while self
-                            .store
-                            .get_node(&target_hash)
-                            .is_some_and(|owner| owner.id != node.id)
-                            || assigned_hashes.contains(&target_hash)
-                        {
-                            ordinal += 1;
-                            target_hash = if ordinal == 1 {
-                                new_hash_disambiguated.clone()
-                            } else {
-                                crate::violations_util::definition_hash_salted(
-                                    def,
-                                    &format!("{}#{}", file.file_path, ordinal),
-                                )
-                            };
-                            if ordinal > MAX_DISAMBIGUATION_ORDINAL {
+                        while let Some(ref h) = candidate {
+                            let taken = self
+                                .store
+                                .get_node(h)
+                                .is_some_and(|owner| owner.id != node.id)
+                                || assigned_hashes.contains(h);
+                            if !taken {
                                 break;
                             }
+                            ordinal += 1;
+                            candidate = if ordinal == 1 {
+                                Some(new_hash_disambiguated.clone())
+                            } else if ordinal <= MAX_DISAMBIGUATION_ORDINAL {
+                                Some(crate::violations_util::definition_hash_salted(
+                                    def,
+                                    &format!("{}#{}", file.file_path, ordinal),
+                                ))
+                            } else {
+                                // Exhausted (needs 65+ identical same-named
+                                // defs in one file): skip this node's
+                                // re-baseline rather than persist a hash that
+                                // was never verified free — an unverified write
+                                // is exactly the HashCollision full-persist
+                                // abort this loop exists to prevent.
+                                None
+                            };
                         }
+                        let target_hash = match candidate {
+                            Some(h) => h,
+                            None => continue,
+                        };
                         assigned_hashes.insert(target_hash.clone());
                         // Persist updated hash; record the old one so
                         // "modified since last map" survives the sync (see
@@ -625,30 +635,42 @@ impl FileFingerprints {
 
     /// The fingerprint to charge this violation's breaker attempt against.
     ///
-    /// The chain, narrowest first:
-    /// 1. A def starting exactly at `(file, line)` — the violation blames that
-    ///    def, so its content hash is the attempt fingerprint.
-    /// 2. A def whose line RANGE contains `line` — E005's shape: the violation
-    ///    points at a call site living inside some def, and a fix attempt edits
-    ///    that def.
-    /// 3. The file's def NAME SET — E004's shape: the blamed node was removed,
-    ///    so no def can contain its old line. Only a structural edit (restoring,
-    ///    renaming, or deleting a def) counts as an attempt. Using the file's
-    ///    full content fingerprint here was wrong: three unrelated body edits
-    ///    elsewhere in the file auto-downgraded a live E004 to WARNING, flipping
-    ///    exit 1 to 0 and shipping the broken callers.
-    /// 4. The violation's own hash, for a file with no definitions at all.
+    /// Discriminated by violation CODE, not line geometry — deleting a function
+    /// shifts the defs below it upward, so the removed node's old line usually
+    /// lands on (or inside) the neighboring def, and a line-based lookup would
+    /// charge E004 attempts to whatever slid into the hole (three body edits to
+    /// that neighbor then auto-downgraded a live E004 to WARNING, flipping exit
+    /// 1 to 0 and shipping the broken callers):
+    ///
+    /// - E004 (`function_removed`): the blamed node no longer exists, so ONLY
+    ///   the file's def NAME SET counts — a structural edit (restoring,
+    ///   renaming, or deleting a def) is an attempt; body edits never are.
+    /// - E005 (`arity_mismatch`): the violation points at a call site living
+    ///   inside some def — the def whose line RANGE contains it is the one a
+    ///   fix attempt edits.
+    /// - everything else: the def starting exactly at `(file, line)`.
+    ///
+    /// Fallbacks: name set (structure) when the specific lookup misses, then
+    /// the violation's own hash for a file with no definitions at all.
     fn fingerprint_for<'a>(&'a self, v: &'a Violation) -> &'a str {
         if v.file == self.file_path {
-            if let Some((_, _, h)) = self.defs.iter().find(|(start, _, _)| *start == v.line) {
-                return h;
-            }
-            if let Some((_, _, h)) = self
-                .defs
-                .iter()
-                .find(|(start, end, _)| v.line >= *start && v.line <= *end)
-            {
-                return h;
+            match v.code.as_str() {
+                "E004" => {}
+                "E005" => {
+                    if let Some((_, _, h)) = self
+                        .defs
+                        .iter()
+                        .find(|(start, end, _)| v.line >= *start && v.line <= *end)
+                    {
+                        return h;
+                    }
+                }
+                _ => {
+                    if let Some((_, _, h)) = self.defs.iter().find(|(start, _, _)| *start == v.line)
+                    {
+                        return h;
+                    }
+                }
             }
         }
         if !self.name_set.is_empty() {
