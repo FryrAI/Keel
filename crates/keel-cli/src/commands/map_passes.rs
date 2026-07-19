@@ -187,6 +187,7 @@ pub fn first_pass(
                         reference.line,
                         &file_path,
                         name_to_id,
+                        Some(module_id),
                     );
                     if let Some(src_id) = source_id {
                         if src_id != target_id {
@@ -305,6 +306,23 @@ pub fn second_pass(
                 );
             }
 
+            // Same-file method/field call (`self.m()`, `obj.m()`): resolve by
+            // the bare final segment before the dotted-name bypass below rejects
+            // it. `self`/`this` bind at 0.9; an unfamiliar receiver only when a
+            // unique same-file def matches, at 0.7 (warning-tier).
+            if target_id.is_none() && reference.name.contains('.') {
+                if let Some((id, conf)) = super::map_resolve::resolve_same_file_method(
+                    &reference.name,
+                    file_path,
+                    &file_data.definitions,
+                    name_to_id,
+                ) {
+                    target_id = Some(id);
+                    confidence = conf;
+                    tier = "tier1_method".to_string();
+                }
+            }
+
             if target_id.is_none()
                 && !reference.name.contains('.')
                 && !reference.name.contains("::")
@@ -341,6 +359,7 @@ pub fn second_pass(
                     reference.line,
                     file_path,
                     name_to_id,
+                    file_module_ids.get(file_path.as_str()).copied(),
                 );
                 if let Some(src_id) = source_id {
                     if src_id != tgt_id {

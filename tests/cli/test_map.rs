@@ -301,13 +301,10 @@ fn test_map_cached_languages_match_fresh_map() {
 
 #[test]
 /// `keel map --cached` must report the same node/edge/function/class counts
-/// as a fresh `keel map` (issue #40). The cached reconstruction
-/// (map_cached.rs) used to multiple-count non-module nodes: when a file has
-/// more than one module-kind row sharing its `file_path` (a file-level
-/// module node plus a resolver-emitted module definition for that same
-/// file), every non-module node in that file was pushed into `NodeChanges`
-/// once per co-located module row, inflating functions/classes several-fold
-/// versus the fresh summary.
+/// as a fresh `keel map` (issue #40). Each file now emits a single path-named
+/// module node (the duplicate resolver-emitted module def was removed in
+/// fix/graph-attribution), and the cached reconstruction keeps a defensive
+/// per-id dedup — together they guarantee cached and fresh summaries agree.
 fn test_map_cached_counts_match_fresh_map() {
     let dir = init_ts_project(3, 2);
     let src = dir.path().join("src");

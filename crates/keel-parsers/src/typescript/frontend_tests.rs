@@ -66,17 +66,23 @@ export function Card(props) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_svelte_component_is_a_module_node() {
+fn test_svelte_component_without_script_yields_no_definitions() {
+    // The whole-file Module node is created by `keel map`'s first pass (one
+    // path-named module per walked file), NOT by the parser. A script-less
+    // component therefore parses cleanly to zero definitions; it still becomes
+    // a module node in the graph via the map pass.
     let resolver = TsResolver::new();
     let source = "<h1>no script here</h1>\n";
     let result = resolver.parse_file(Path::new("src/lib/Plain.svelte"), source);
-    let modules: Vec<_> = result
-        .definitions
-        .iter()
-        .filter(|d| d.kind == keel_core::types::NodeKind::Module)
-        .collect();
-    assert_eq!(modules.len(), 1, "script-less component is still a module");
-    assert_eq!(modules[0].name, "Plain");
+    assert!(
+        result.definitions.is_empty(),
+        "parser must not inject a synthetic module def, got {:?}",
+        result
+            .definitions
+            .iter()
+            .map(|d| &d.name)
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

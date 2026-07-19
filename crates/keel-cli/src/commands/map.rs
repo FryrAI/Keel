@@ -190,6 +190,7 @@ pub fn run(
             .iter()
             .map(|fd| super::map_tier3::Tier3FileData {
                 file_path: &fd.file_path,
+                module_id: file_module_ids.get(&fd.file_path).copied(),
                 definitions: &fd.definitions,
                 references: &fd.references,
             })

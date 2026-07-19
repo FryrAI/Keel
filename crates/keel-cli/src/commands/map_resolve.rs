@@ -375,21 +375,78 @@ pub fn resolve_edge_to_node(
     None
 }
 
-/// Find which definition contains a given line number.
+/// Find the node a reference on `line` should be attributed to: the innermost
+/// (smallest-span) non-module definition enclosing the line, falling back to
+/// `module_id` (the file's single path-named module node) when no
+/// function/method/class contains the line — i.e. a top-level reference.
+///
+/// The whole-file module is intentionally never selected as an *enclosing*
+/// def: doing so (the old behaviour, driven by a synthetic whole-file module
+/// definition) mis-attributed every in-function call to the file itself.
 pub fn find_containing_def(
     definitions: &[keel_parsers::resolver::Definition],
     line: u32,
     file_path: &str,
     name_to_id: &HashMap<(String, String), u64>,
+    module_id: Option<u64>,
 ) -> Option<u64> {
+    let mut innermost: Option<&keel_parsers::resolver::Definition> = None;
     for def in definitions {
-        if line >= def.line_start && line <= def.line_end {
-            return name_to_id
-                .get(&(file_path.to_string(), def.name.clone()))
-                .copied();
+        if def.kind == keel_core::types::NodeKind::Module {
+            continue;
+        }
+        if line < def.line_start || line > def.line_end {
+            continue;
+        }
+        let span = def.line_end.saturating_sub(def.line_start);
+        match innermost {
+            Some(best) if best.line_end.saturating_sub(best.line_start) <= span => {}
+            _ => innermost = Some(def),
         }
     }
-    None
+    if let Some(def) = innermost {
+        if let Some(id) = name_to_id
+            .get(&(file_path.to_string(), def.name.clone()))
+            .copied()
+        {
+            return Some(id);
+        }
+    }
+    module_id
+}
+
+/// Resolve a dotted method/field call (`self.m()`, `obj.m()`) to a same-file
+/// definition by its bare final segment.
+///
+/// `self`/`this` receivers bind to a same-file method of that name at 0.9
+/// confidence. Any other receiver resolves only when exactly one same-file
+/// definition carries that name, at 0.7 (warning-tier) — never higher, because
+/// the receiver's type is unknown and the match is a heuristic.
+pub fn resolve_same_file_method(
+    reference_name: &str,
+    file_path: &str,
+    definitions: &[keel_parsers::resolver::Definition],
+    name_to_id: &HashMap<(String, String), u64>,
+) -> Option<(u64, f64)> {
+    let (receiver, method) = reference_name.rsplit_once('.')?;
+    let same_file_matches = definitions
+        .iter()
+        .filter(|d| d.kind != keel_core::types::NodeKind::Module && d.name == method)
+        .count();
+    if same_file_matches == 0 {
+        return None;
+    }
+    let confidence = if matches!(receiver, "self" | "this") {
+        0.9
+    } else if same_file_matches == 1 {
+        0.7
+    } else {
+        return None;
+    };
+    let id = name_to_id
+        .get(&(file_path.to_string(), method.to_string()))
+        .copied()?;
+    Some((id, confidence))
 }
 
 #[cfg(test)]

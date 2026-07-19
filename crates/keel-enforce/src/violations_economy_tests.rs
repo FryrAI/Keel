@@ -68,6 +68,35 @@ fn w005_silent_for_public_entrypoint_underscore_and_qualified() {
 }
 
 #[test]
+fn w005_go_init_is_entrypoint_not_dead() {
+    // Go runs `func init()` at package load — auto-invoked, never dead, even
+    // with zero call edges in the graph.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = definition("init", "src/app.go", false);
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/app.go", vec![def]);
+    let stored = store.get_nodes_in_file("src/app.go");
+    assert!(
+        check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
+        "Go `func init()` must be exempt from W005"
+    );
+}
+
+#[test]
+fn w005_rust_init_is_not_exempt() {
+    // The Go exemption must NOT leak into other languages: a private, uncalled
+    // `init` in Rust is ordinary dead code.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = definition("init", "src/a.rs", false);
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/a.rs", vec![def]);
+    let stored = store.get_nodes_in_file("src/a.rs");
+    let v = check_dead_code(&file, &store, &stored, &HashSet::new());
+    assert_eq!(v.len(), 1, "Rust `init` is not an entrypoint: {v:?}");
+    assert_eq!(v[0].code, "W005");
+}
+
+#[test]
 fn w005_silent_when_referenced_in_batch() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let def = definition("helper", "src/a.rs", false);

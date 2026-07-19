@@ -15,6 +15,9 @@ use super::map_resolve::find_containing_def;
 /// File parse data needed for Tier 3 resolution.
 pub(crate) struct Tier3FileData<'a> {
     pub file_path: &'a str,
+    /// The file's path-named module node id, used as the call-attribution
+    /// fallback for top-level references (see `find_containing_def`).
+    pub module_id: Option<u64>,
     pub definitions: &'a [resolver::Definition],
     pub references: &'a [resolver::Reference],
 }
@@ -97,6 +100,7 @@ pub(crate) fn run_tier3_pass(
                         reference.line,
                         fd.file_path,
                         name_to_id,
+                        fd.module_id,
                     );
                     if let Some(src_id) = source_id {
                         if src_id != tgt_id {

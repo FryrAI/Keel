@@ -41,12 +41,12 @@ pub fn run_cached(
 
     // Collect all nodes and edges from the DB
     let mut node_changes: Vec<NodeChange> = Vec::new();
-    // Nodes are deduplicated by ID: a file can have more than one module-kind
-    // row sharing the same file_path (e.g. a file-level module plus a
-    // resolver-emitted module definition for that same file). Without this
-    // guard, every non-module node in that file gets pushed into
-    // `node_changes` once per co-located module row, multiplying the
-    // reconstructed function/class counts vs. a fresh `keel map` (#40).
+    // Nodes are deduplicated by ID as a defensive guard: `get_all_modules`
+    // and `get_nodes_in_file` can surface the same node, and any node visited
+    // twice would otherwise multiply the reconstructed function/class counts
+    // vs. a fresh `keel map` (#40). (Each file now emits a single path-named
+    // module row, so co-located duplicate modules no longer occur — but the
+    // dedup keeps cached/fresh parity robust regardless.)
     let mut seen_node_ids: HashSet<u64> = HashSet::new();
     let mut edge_set: HashSet<u64> = HashSet::new();
     let mut edge_changes: Vec<EdgeChange> = Vec::new();

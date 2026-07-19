@@ -23,9 +23,7 @@ pub fn resolve_star_import(
     }
 
     if matches.len() > 1 {
-        let best = matches
-            .iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())?;
+        let best = best_by_confidence(&matches)?;
         return Some(ResolvedEdge {
             target_file: best.0.source.clone(),
             target_name: callee_name.to_string(),
@@ -50,6 +48,14 @@ pub fn resolve_star_import(
         confidence: 0.50,
         resolution_tier: "tier2_heuristic".into(),
     })
+}
+
+/// Pick the highest-confidence match using a *total* float ordering.
+///
+/// `f64::total_cmp` orders every value including NaN, so this can never panic
+/// the way `partial_cmp().unwrap()` would on a NaN confidence.
+fn best_by_confidence<'a>(matches: &'a [(&'a Import, f64)]) -> Option<&'a (&'a Import, f64)> {
+    matches.iter().max_by(|a, b| a.1.total_cmp(&b.1))
 }
 
 /// Look up a callee name in a cached target module.
@@ -123,4 +129,38 @@ fn find_cached_module<'a>(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn imp(source: &str) -> Import {
+        Import {
+            source: source.to_string(),
+            imported_names: vec!["*".to_string()],
+            file_path: "caller.py".to_string(),
+            line: 1,
+            is_relative: false,
+        }
+    }
+
+    #[test]
+    fn best_by_confidence_never_panics_on_nan() {
+        // A NaN confidence must not panic (the old partial_cmp().unwrap() did).
+        let a = imp("mod_a");
+        let b = imp("mod_b");
+        let matches = vec![(&a, f64::NAN), (&b, 0.5)];
+        let best = best_by_confidence(&matches);
+        assert!(best.is_some(), "NaN present must still yield a pick");
+    }
+
+    #[test]
+    fn best_by_confidence_picks_max() {
+        let a = imp("mod_a");
+        let b = imp("mod_b");
+        let matches = vec![(&a, 0.4), (&b, 0.65)];
+        let best = best_by_confidence(&matches).unwrap();
+        assert_eq!(best.0.source, "mod_b");
+    }
 }
