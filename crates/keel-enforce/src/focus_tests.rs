@@ -29,6 +29,12 @@ fn node(id: u64, hash: &str, name: &str, file: &str, line: u32) -> GraphNode {
     }
 }
 
+fn module_node(id: u64, hash: &str, file: &str) -> GraphNode {
+    let mut n = node(id, hash, "module", file, 1);
+    n.kind = NodeKind::Module;
+    n
+}
+
 fn call_edge(id: u64, src: u64, tgt: u64) -> GraphEdge {
     GraphEdge {
         id,
@@ -112,7 +118,9 @@ fn focus_files_ranked_target_first() {
     // Ranked by graph distance: the target file (distance 0) ranks first.
     assert_eq!(result.files[0].path, "src/target.rs");
     assert_eq!(result.files[0].distance, 0);
-    assert_eq!(result.files[0].role, "target");
+    assert_eq!(result.files[0].role, crate::types::Relation::Target);
+    // The role serializes to the unchanged lowercase wire string.
+    assert_eq!(result.files[0].role.as_str(), "target");
 }
 
 #[test]
@@ -125,7 +133,56 @@ fn focus_file_mode_resolves_symbols() {
 }
 
 #[test]
+fn focus_file_mode_resolves_absolute_path() {
+    // An editor may send an absolute path while the graph stored a relative
+    // one. focus must route through the same path-flexible lookup discover
+    // uses (nodes_in_file_flex), so a suffix-matching absolute path still
+    // resolves the file's symbols. That lookup enumerates module nodes to match
+    // by suffix, so the store needs one (a real graph always has a module node
+    // per file). Before FIX 6b the exact-only lookup returned nothing here.
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&module_node(1, "modtarget001", "src/target.rs"))
+        .unwrap();
+    store
+        .insert_node(&node(2, "targetxxxxx", "target", "src/target.rs", 20))
+        .unwrap();
+    store
+        .insert_node(&node(3, "caller1xxxx", "caller1", "src/caller1.rs", 10))
+        .unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(call_edge(1, 3, 2))]) // caller1 -> target
+        .unwrap();
+    let engine = EnforcementEngine::new(Box::new(store));
+
+    let result = engine
+        .focus("/abs/workspace/src/target.rs", 2)
+        .expect("absolute path should resolve via suffix match");
+    assert!(result.files.iter().any(|f| f.path == "src/target.rs"));
+    assert!(result.callers.iter().any(|s| s.name == "caller1"));
+}
+
+#[test]
 fn focus_unknown_target_is_none() {
     let engine = fixture();
     assert!(engine.focus("nope", 2).is_none());
+}
+
+#[test]
+fn focus_relation_serializes_lowercase() {
+    // The Relation enum must serialize to the exact lowercase wire strings the
+    // extension/server contract expects.
+    use crate::types::Relation;
+    assert_eq!(
+        serde_json::to_string(&Relation::Target).unwrap(),
+        "\"target\""
+    );
+    assert_eq!(
+        serde_json::to_string(&Relation::Callee).unwrap(),
+        "\"callee\""
+    );
+    assert_eq!(
+        serde_json::to_string(&Relation::Caller).unwrap(),
+        "\"caller\""
+    );
 }

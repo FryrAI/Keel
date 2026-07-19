@@ -11,6 +11,12 @@ use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult};
 use keel_server::http::{router, HealthResponse, SharedEngine, WhereResponse};
 
+/// A throwaway existing dir to anchor confinement for tests that don't
+/// exercise path rejection.
+fn root() -> std::path::PathBuf {
+    std::env::temp_dir()
+}
+
 fn test_engine() -> SharedEngine {
     let store = SqliteGraphStore::in_memory().unwrap();
     let engine = EnforcementEngine::new(Box::new(store));
@@ -45,7 +51,7 @@ fn engine_with_node() -> SharedEngine {
 
 #[tokio::test]
 async fn test_http_compile_endpoint() {
-    let app = router(test_engine());
+    let app = router(test_engine(), root());
     let req = Request::builder()
         .method(Method::POST)
         .uri("/compile")
@@ -63,7 +69,7 @@ async fn test_http_compile_endpoint() {
 
 #[tokio::test]
 async fn test_http_discover_endpoint() {
-    let app = router(engine_with_node());
+    let app = router(engine_with_node(), root());
     let req = Request::builder()
         .uri("/discover/httpTestHash")
         .body(Body::empty())
@@ -79,7 +85,7 @@ async fn test_http_discover_endpoint() {
 
 #[tokio::test]
 async fn test_http_health_endpoint() {
-    let app = router(test_engine());
+    let app = router(test_engine(), root());
     let req = Request::builder()
         .uri("/health")
         .body(Body::empty())
@@ -95,7 +101,7 @@ async fn test_http_health_endpoint() {
 
 #[tokio::test]
 async fn test_http_explain_endpoint() {
-    let app = router(engine_with_node());
+    let app = router(engine_with_node(), root());
     let req = Request::builder()
         .method(Method::POST)
         .uri("/explain")
@@ -113,7 +119,7 @@ async fn test_http_explain_endpoint() {
 
 #[tokio::test]
 async fn test_http_where_endpoint() {
-    let app = router(engine_with_node());
+    let app = router(engine_with_node(), root());
     let req = Request::builder()
         .uri("/where/httpTestHash")
         .body(Body::empty())
@@ -132,7 +138,7 @@ async fn test_http_no_cross_origin_allow() {
     // Hardening: the server is unauthenticated localhost tooling, so it must
     // NOT grant cross-origin access — otherwise any visited web page could
     // read and mutate the code graph. No wildcard/echoed allow-origin header.
-    let app = router(test_engine());
+    let app = router(test_engine(), root());
     let req = Request::builder()
         .uri("/health")
         .header(header::ORIGIN, "http://evil.example.com")
@@ -152,7 +158,7 @@ async fn test_http_no_cross_origin_allow() {
 
 #[tokio::test]
 async fn test_http_error_response_format() {
-    let app = router(test_engine());
+    let app = router(test_engine(), root());
     // Discover a non-existent hash
     let req = Request::builder()
         .uri("/discover/nonexistent_hash")
@@ -165,7 +171,7 @@ async fn test_http_error_response_format() {
 
 #[tokio::test]
 async fn test_http_unknown_endpoint_returns_404() {
-    let app = router(test_engine());
+    let app = router(test_engine(), root());
     let req = Request::builder()
         .uri("/api/nonexistent")
         .body(Body::empty())

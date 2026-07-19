@@ -7,56 +7,47 @@ use keel_enforce::types::{
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
+/// JSON formatter: pretty-printed serde output for every result type.
+///
+/// By contract this formatter ignores any output token budget (`--budget` /
+/// `--max-tokens`): machine-readable JSON must never be truncated mid-structure,
+/// so budget is an LLM-format-only concern (see [`crate::llm::LlmFormatter`]).
 pub struct JsonFormatter;
 
+/// Generate `OutputFormatter` methods whose body is a plain pretty-print.
+///
+/// Every JSON formatter method is byte-identical — serialize the result,
+/// falling back to an empty string on the (practically impossible) serde
+/// error. This collapses the 16 copies into one rule; a new result type is a
+/// one-line addition to the invocation below.
+macro_rules! json_format_methods {
+    ($($method:ident: $ty:ty),+ $(,)?) => {
+        $(
+            fn $method(&self, result: &$ty) -> String {
+                serde_json::to_string_pretty(result).unwrap_or_default()
+            }
+        )+
+    };
+}
+
 impl OutputFormatter for JsonFormatter {
-    fn format_compile(&self, result: &CompileResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_discover(&self, result: &DiscoverResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_file_symbols(&self, result: &FileSymbols) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_explain(&self, result: &ExplainResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_map(&self, result: &MapResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_fix(&self, result: &FixResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_name(&self, result: &NameResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_check(&self, result: &CheckResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_compile_delta(&self, delta: &CompileDelta) -> String {
-        serde_json::to_string_pretty(delta).unwrap_or_default()
-    }
-    fn format_analyze(&self, result: &AnalyzeResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_audit(&self, result: &AuditResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_skeleton(&self, result: &SkeletonResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_focus(&self, result: &FocusResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_checkpoint(&self, result: &CheckpointResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_validate_plan(&self, result: &PlanValidationResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_semantic_map(&self, result: &SemanticMapResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
+    json_format_methods! {
+        format_compile: CompileResult,
+        format_discover: DiscoverResult,
+        format_file_symbols: FileSymbols,
+        format_explain: ExplainResult,
+        format_map: MapResult,
+        format_fix: FixResult,
+        format_name: NameResult,
+        format_check: CheckResult,
+        format_compile_delta: CompileDelta,
+        format_analyze: AnalyzeResult,
+        format_audit: AuditResult,
+        format_skeleton: SkeletonResult,
+        format_focus: FocusResult,
+        format_checkpoint: CheckpointResult,
+        format_validate_plan: PlanValidationResult,
+        format_semantic_map: SemanticMapResult,
     }
 }
 

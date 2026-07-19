@@ -106,7 +106,7 @@ fn contract_engine() -> SharedEngine {
 }
 
 async fn get(uri: &str) -> (StatusCode, Vec<u8>, Option<String>) {
-    let resp = router(contract_engine())
+    let resp = router(contract_engine(), std::env::temp_dir())
         .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -121,7 +121,7 @@ async fn get(uri: &str) -> (StatusCode, Vec<u8>, Option<String>) {
 }
 
 async fn post_json(uri: &str, body: &str) -> (StatusCode, Vec<u8>) {
-    let resp = router(contract_engine())
+    let resp = router(contract_engine(), std::env::temp_dir())
         .oneshot(
             Request::builder()
                 .method(Method::POST)
@@ -230,7 +230,11 @@ async fn map_llm_returns_plain_text_listing() {
         "llm map is dumped verbatim into an editor doc, so it must be text"
     );
     let text = String::from_utf8(body).unwrap();
-    assert!(text.starts_with("MAP modules="), "got: {text}");
+    // Rendered by the shared keel-output LLM map formatter (same as `keel
+    // map --llm`): header is "MAP nodes=... modules=..." and each module is
+    // listed on its own MODULE line.
+    assert!(text.starts_with("MAP nodes="), "got: {text}");
+    assert!(text.contains("modules="));
     assert!(text.contains(API_FILE));
 }
 
@@ -239,9 +243,12 @@ async fn map_json_returns_module_summary() {
     let (status, body, _) = get("/map").await;
     assert_eq!(status, StatusCode::OK);
     let json = as_json(&body);
-    assert_eq!(json["module_count"], 1);
+    // /map now serializes the shared MapResult (same shape as `keel map
+    // --json` and MCP `keel/map`): counts live under `summary`, and each
+    // module carries its `path`.
+    assert_eq!(json["summary"]["modules"], 1);
     let modules = json["modules"].as_array().expect("modules array");
-    assert!(modules.iter().any(|m| m["file"] == API_FILE));
+    assert!(modules.iter().any(|m| m["path"] == API_FILE));
 }
 
 #[tokio::test]

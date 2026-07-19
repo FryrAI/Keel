@@ -67,9 +67,9 @@ fn render_file(f: &FocusFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keel_enforce::types::FocusSymbol;
+    use keel_enforce::types::{FocusSymbol, Relation};
 
-    fn fsym(name: &str, hash: &str, file: &str, distance: u32, relation: &str) -> FocusSymbol {
+    fn fsym(name: &str, hash: &str, file: &str, distance: u32, relation: Relation) -> FocusSymbol {
         FocusSymbol {
             name: name.into(),
             hash: hash.into(),
@@ -78,7 +78,7 @@ mod tests {
             callers: 2,
             callees: 1,
             distance,
-            relation: relation.into(),
+            relation,
         }
     }
 
@@ -91,15 +91,27 @@ mod tests {
             files: vec![
                 FocusFile {
                     path: "src/target.rs".into(),
-                    role: "target".into(),
+                    role: Relation::Target,
                     distance: 0,
-                    symbols: vec![fsym("target", "targetxxxxx", "src/target.rs", 0, "target")],
+                    symbols: vec![fsym(
+                        "target",
+                        "targetxxxxx",
+                        "src/target.rs",
+                        0,
+                        Relation::Target,
+                    )],
                 },
                 FocusFile {
                     path: "src/callee.rs".into(),
-                    role: "callee".into(),
+                    role: Relation::Callee,
                     distance: 1,
-                    symbols: vec![fsym("callee", "calleexxxxx", "src/callee.rs", 1, "callee")],
+                    symbols: vec![fsym(
+                        "callee",
+                        "calleexxxxx",
+                        "src/callee.rs",
+                        1,
+                        Relation::Callee,
+                    )],
                 },
             ],
             callers: vec![fsym(
@@ -107,7 +119,7 @@ mod tests {
                 "caller1xxxx",
                 "src/caller1.rs",
                 1,
-                "caller",
+                Relation::Caller,
             )],
             read_order: vec!["src/callee.rs".into(), "src/target.rs".into()],
         }
@@ -129,9 +141,9 @@ mod tests {
         r.files = (0..30)
             .map(|i| FocusFile {
                 path: format!("src/file_{i}.rs"),
-                role: "caller".into(),
+                role: Relation::Caller,
                 distance: 2,
-                symbols: vec![fsym("f", "hashhhhhhhh", "src/file.rs", 2, "caller")],
+                symbols: vec![fsym("f", "hashhhhhhhh", "src/file.rs", 2, Relation::Caller)],
             })
             .collect();
         let out = format_focus(&r, Some(20));

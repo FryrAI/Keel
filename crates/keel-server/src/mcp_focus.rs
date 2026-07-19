@@ -5,25 +5,15 @@
 
 use serde_json::Value;
 
-use crate::mcp::{internal_err, missing_param, not_found, JsonRpcError, SharedEngine};
+use crate::mcp::{internal_err, not_found, param_str, param_u32, JsonRpcError, SharedEngine};
 
 /// Handle the `keel/focus` MCP tool call.
 pub(crate) fn handle_focus(
     engine: &SharedEngine,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let target = params
-        .as_ref()
-        .and_then(|p| p.get("target"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| missing_param("target"))?
-        .to_string();
-
-    let depth = params
-        .as_ref()
-        .and_then(|p| p.get("depth"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(2) as u32;
+    let target = param_str(&params, "target")?.to_string();
+    let depth = param_u32(&params, "depth", 2);
 
     let engine = engine.lock().map_err(|_| JsonRpcError {
         code: -32603,

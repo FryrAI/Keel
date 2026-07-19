@@ -105,6 +105,33 @@ pub fn build_skeleton(
     })
 }
 
+/// Resolve `file` against `root`, read it, and build its skeleton.
+///
+/// The shared path+IO preamble for `keel skeleton` and the `keel/skeleton` MCP
+/// tool: an absolute `file` is used verbatim, a relative one is resolved under
+/// `root`, and the raw `file` path is what lands in the result (matching the
+/// bare `build_skeleton`). `Err` carries a human-readable message the caller
+/// renders — a CLI line or a JSON-RPC error — so the two never drift apart.
+pub fn build_skeleton_from_path(
+    root: &Path,
+    file: &str,
+    include_private: bool,
+    include_docs: bool,
+) -> Result<SkeletonResult, String> {
+    let path = Path::new(file);
+    let full = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+
+    let content =
+        std::fs::read_to_string(&full).map_err(|e| format!("cannot read {}: {}", file, e))?;
+
+    build_skeleton(root, path, &content, include_private, include_docs)
+        .ok_or_else(|| format!("unsupported file type: {}", file))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

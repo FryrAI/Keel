@@ -5,22 +5,14 @@ use serde_json::Value;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, NodeKind};
 
-use crate::mcp::{lock_store, JsonRpcError, SharedStore};
+use crate::mcp::{lock_store, param_str, JsonRpcError, SharedStore};
 
 /// Handle the `keel/context` MCP tool call to return symbols and their external callers/callees.
 pub(crate) fn handle_context(
     store: &SharedStore,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let file = params
-        .as_ref()
-        .and_then(|p| p.get("file"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError {
-            code: -32602,
-            message: "Missing 'file' parameter".into(),
-        })?
-        .to_string();
+    let file = param_str(&params, "file")?.to_string();
 
     let store = lock_store(store)?;
     let nodes = store.get_nodes_in_file(&file);

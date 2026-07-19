@@ -2,7 +2,9 @@ use rusqlite::{params, Result as SqlResult};
 
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
-use crate::types::{BodyIndexEntry, ExternalEndpoint, GraphError, GraphNode, NodeKind};
+use crate::types::{
+    BodyIndexEntry, EdgeKind, ExternalEndpoint, GraphEdge, GraphError, GraphNode, NodeKind,
+};
 
 impl SqliteGraphStore {
     /// Rebuild the body-hash index from `entries` in a single transaction.
@@ -339,5 +341,66 @@ impl SqliteGraphStore {
         node.external_endpoints = self.load_endpoints(node.id);
         node.previous_hashes = self.load_previous_hashes(node.id);
         node
+    }
+
+    /// Read every node in the graph in one query (relations batch-loaded).
+    ///
+    /// The bulk companion to per-file `get_nodes_in_file`: reconstructing a
+    /// whole-graph map from N modules previously issued N `get_nodes_in_file`
+    /// round-trips. This is a single scan, so `build_map_from_store` reads the
+    /// graph in two queries (nodes + edges) instead of N+M.
+    pub fn all_nodes(&self) -> Vec<GraphNode> {
+        let mut stmt = match self.conn.prepare("SELECT * FROM nodes") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] all_nodes: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let nodes: Vec<GraphNode> = match stmt.query_map([], Self::row_to_node) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] all_nodes: query failed: {e}");
+                return Vec::new();
+            }
+        };
+        self.nodes_with_relations_batch(nodes)
+    }
+
+    /// Read every edge in the graph in one query.
+    pub fn all_edges(&self) -> Vec<GraphEdge> {
+        let mut stmt = match self.conn.prepare("SELECT * FROM edges") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] all_edges: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map([], |row| {
+            let kind_str: String = row.get("kind")?;
+            let kind = match kind_str.as_str() {
+                "calls" => EdgeKind::Calls,
+                "imports" => EdgeKind::Imports,
+                "inherits" => EdgeKind::Inherits,
+                "contains" => EdgeKind::Contains,
+                _ => EdgeKind::Calls,
+            };
+            Ok(GraphEdge {
+                id: row.get("id")?,
+                source_id: row.get("source_id")?,
+                target_id: row.get("target_id")?,
+                kind,
+                file_path: row.get("file_path")?,
+                line: row.get("line")?,
+                confidence: row.get("confidence").unwrap_or(1.0),
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] all_edges: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 }

@@ -2,34 +2,16 @@
 
 use serde_json::Value;
 
-use crate::mcp::{lock_store, JsonRpcError, SharedStore};
+use crate::mcp::{lock_store, param_str, param_str_opt, param_u64, JsonRpcError, SharedStore};
 
 /// Handle the `keel/search` MCP tool call to search graph nodes by name substring.
 pub(crate) fn handle_search(
     store: &SharedStore,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let query = params
-        .as_ref()
-        .and_then(|p| p.get("query"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError {
-            code: -32602,
-            message: "Missing 'query' parameter".into(),
-        })?
-        .to_string();
-
-    let kind_filter = params
-        .as_ref()
-        .and_then(|p| p.get("kind"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let limit = params
-        .as_ref()
-        .and_then(|p| p.get("limit"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
+    let query = param_str(&params, "query")?.to_string();
+    let kind_filter = param_str_opt(&params, "kind").map(str::to_string);
+    let limit = param_u64(&params, "limit", 20) as usize;
 
     let store = lock_store(store)?;
 

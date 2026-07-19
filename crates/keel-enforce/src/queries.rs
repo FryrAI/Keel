@@ -10,9 +10,11 @@ use keel_core::types::{EdgeDirection, EdgeKind, GraphNode};
 use crate::engine::EnforcementEngine;
 use crate::types::DiscoverResult;
 
-/// Count incoming `Calls` edges to `node_id` — the call fan-in (how many
-/// functions call it). The single spelling of the
-/// `get_edges + filter(Calls) + count` idiom the CLI adjacency views share.
+/// Count the stored `Calls` edges INTO `node_id` — its fan-in (caller count).
+///
+/// The shared home for the `get_edges + filter(Calls) + count` idiom that was
+/// copy-pasted across focus, checkpoint, check, and the CLI. Callers hand it a
+/// `&dyn GraphStore` so every interface counts the same way.
 pub fn call_fan_in(store: &dyn GraphStore, node_id: u64) -> u32 {
     store
         .get_edges(node_id, EdgeDirection::Incoming)
@@ -21,8 +23,7 @@ pub fn call_fan_in(store: &dyn GraphStore, node_id: u64) -> u32 {
         .count() as u32
 }
 
-/// Count outgoing `Calls` edges from `node_id` — the call fan-out (how many
-/// functions it calls).
+/// Count the stored `Calls` edges OUT OF `node_id` — its fan-out (callee count).
 pub fn call_fan_out(store: &dyn GraphStore, node_id: u64) -> u32 {
     store
         .get_edges(node_id, EdgeDirection::Outgoing)
@@ -31,21 +32,16 @@ pub fn call_fan_out(store: &dyn GraphStore, node_id: u64) -> u32 {
         .count() as u32
 }
 
-/// One module entry in a graph-wide map: file path, module name, and how many
-/// nodes it contains.
-#[derive(Debug, Clone)]
-pub struct ModuleMapEntry {
-    pub name: String,
-    pub file: String,
-    pub node_count: usize,
-}
-
 /// Search graph nodes by name: exact `(name, kind)` match first, then a
 /// case-insensitive substring scan. Results are capped at `limit`.
 ///
 /// This is the single search implementation shared by every interface — the
 /// CLI `keel search`, the MCP `keel/search` tool, and the HTTP `/search`
 /// route all call it, so they return identical results in identical order.
+///
+/// The substring fallback stops the moment it has `limit` matches rather than
+/// materializing every node in the graph and truncating afterwards — the
+/// exact-match path is tried first and unchanged, so ranking is preserved.
 pub fn search_graph(
     store: &dyn GraphStore,
     term: &str,
@@ -55,14 +51,17 @@ pub fn search_graph(
     let kind_str = kind.unwrap_or("");
     let mut results = store.find_nodes_by_name(term, kind_str, "");
 
-    if results.is_empty() {
+    if results.is_empty() && limit > 0 {
         let term_lower = term.to_lowercase();
-        for module in store.get_all_modules() {
+        'scan: for module in store.get_all_modules() {
             for node in store.get_nodes_in_file(&module.file_path) {
                 if node.name.to_lowercase().contains(&term_lower)
                     && (kind_str.is_empty() || node.kind.as_str() == kind_str)
                 {
                     results.push(node);
+                    if results.len() >= limit {
+                        break 'scan;
+                    }
                 }
             }
         }
@@ -80,20 +79,13 @@ impl EnforcementEngine {
         search_graph(&*self.store, term, kind, limit)
     }
 
-    /// List every module with its node count, for a graph-wide map summary.
-    pub fn module_map(&self) -> Vec<ModuleMapEntry> {
-        self.store
-            .get_all_modules()
-            .into_iter()
-            .map(|m| {
-                let node_count = self.store.get_nodes_in_file(&m.file_path).len();
-                ModuleMapEntry {
-                    name: m.name,
-                    file: m.file_path,
-                    node_count,
-                }
-            })
-            .collect()
+    /// Reconstruct the full [`crate::types::MapResult`] from the engine's graph.
+    ///
+    /// Delegates to [`crate::map::build_map_from_store`] — the single map
+    /// assembly path — so the HTTP `/map` route reports the same summary,
+    /// hotspots, and module profiles as `keel map --cached` and MCP `keel/map`.
+    pub fn build_map(&self, depth: u32) -> crate::types::MapResult {
+        crate::map::build_map_from_store(&*self.store, depth)
     }
 
     /// Discover a symbol identified by name (and optional position), falling
@@ -138,7 +130,7 @@ impl EnforcementEngine {
     /// what a client sends and what the graph stored. Exact match wins; a
     /// suffix match is the fallback so a workspace-relative path from an editor
     /// still resolves against absolute stored paths (and vice versa).
-    fn nodes_in_file_flex(&self, file: &str) -> Vec<GraphNode> {
+    pub(crate) fn nodes_in_file_flex(&self, file: &str) -> Vec<GraphNode> {
         let exact = self.store.get_nodes_in_file(file);
         if !exact.is_empty() {
             return exact;

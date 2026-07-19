@@ -138,7 +138,13 @@ async fn run_async(
             if verbose {
                 eprintln!("keel serve: HTTP on http://127.0.0.1:{}", HTTP_PORT);
             }
-            match keel_server::http::serve(server.engine.clone(), HTTP_PORT).await {
+            match keel_server::http::serve(
+                server.engine.clone(),
+                server.root_dir.clone(),
+                HTTP_PORT,
+            )
+            .await
+            {
                 Ok(()) => 0,
                 Err(e) => {
                     eprintln!("keel serve: HTTP error: {}", e);

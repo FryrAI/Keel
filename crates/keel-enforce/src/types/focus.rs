@@ -1,7 +1,40 @@
 //! Result types for `keel focus` (issue #20) — the minimal context set for
 //! safely modifying a target.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
+
+/// A symbol's role relative to the focus target.
+///
+/// Replaces the earlier stringly `"target"|"callee"|"caller"` fields so a typo
+/// can no longer slip past a `_` match arm. The wire format is unchanged:
+/// `rename_all = "lowercase"` serializes to exactly those strings, and
+/// [`Relation::as_str`]/[`fmt::Display`] render them for the text formatters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Relation {
+    Target,
+    Callee,
+    Caller,
+}
+
+impl Relation {
+    /// The lowercase wire string for this relation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Relation::Target => "target",
+            Relation::Callee => "callee",
+            Relation::Caller => "caller",
+        }
+    }
+}
+
+impl fmt::Display for Relation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// Minimal context set for safely modifying a target: the files to read
 /// (ranked), the transitive callers at risk, and a suggested read order.
@@ -24,8 +57,8 @@ pub struct FocusResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FocusFile {
     pub path: String,
-    /// "target" | "callee" | "caller" — role of this file's nearest symbol.
-    pub role: String,
+    /// Role of this file's nearest symbol (target / callee / caller).
+    pub role: Relation,
     /// Minimum graph distance among this file's symbols (0 = target file).
     pub distance: u32,
     pub symbols: Vec<FocusSymbol>,
@@ -42,6 +75,6 @@ pub struct FocusSymbol {
     pub callees: u32,
     /// BFS distance from the target (0 = target).
     pub distance: u32,
-    /// "target" | "caller" | "callee".
-    pub relation: String,
+    /// This symbol's role relative to the target.
+    pub relation: Relation,
 }
