@@ -15,27 +15,9 @@ pub fn run(
     term: String,
     kind: Option<String>,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel search: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel search: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel search: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (_cwd, store) = match super::open_store("search") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
     // Route through the shared search implementation so the CLI, the MCP

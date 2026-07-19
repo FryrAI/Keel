@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::resolver::{
-    CallSite, Definition, LanguageResolver, ParseResult, Reference, ResolvedEdge,
+    CallSite, Definition, LanguageResolver, ParseCache, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
 use type_resolution::InterfaceInfo;
@@ -16,7 +16,7 @@ use type_resolution::InterfaceInfo;
 /// - Tier 2: package-path heuristics, receiver methods, embeddings, interfaces.
 pub struct GoResolver {
     parser: Mutex<TreeSitterParser>,
-    cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    cache: ParseCache,
     /// Maps type name -> vec of (method_name, is_pointer_receiver).
     type_methods: Mutex<HashMap<String, Vec<(String, bool)>>>,
     /// Maps outer struct -> vec of embedded type names.
@@ -30,7 +30,7 @@ impl GoResolver {
     pub fn new() -> Self {
         GoResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             type_methods: Mutex::new(HashMap::new()),
             embeddings: Mutex::new(HashMap::new()),
             interfaces: Mutex::new(Vec::new()),
@@ -84,15 +84,8 @@ impl GoResolver {
             interfaces.extend(ifaces);
         }
 
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), result.clone());
+        self.cache.insert(path, result.clone());
         result
-    }
-
-    fn get_cached(&self, path: &Path) -> Option<ParseResult> {
-        self.cache.lock().unwrap().get(path).cloned()
     }
 
     /// Resolve a receiver.method() call using type-aware heuristics.
@@ -136,19 +129,15 @@ impl LanguageResolver for GoResolver {
     }
 
     fn resolve_definitions(&self, file: &Path) -> Vec<Definition> {
-        self.get_cached(file)
-            .map(|r| r.definitions)
-            .unwrap_or_default()
+        self.cache.definitions_for(file)
     }
 
     fn resolve_references(&self, file: &Path) -> Vec<Reference> {
-        self.get_cached(file)
-            .map(|r| r.references)
-            .unwrap_or_default()
+        self.cache.references_for(file)
     }
 
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock();
         let caller_file = PathBuf::from(&call_site.file_path);
         // Verify the caller file is in cache (early return if not)
         let _ = cache.get(&caller_file)?;
@@ -167,7 +156,7 @@ impl LanguageResolver for GoResolver {
             {
                 return Some(edge);
             }
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock();
             let caller_result = cache.get(&caller_file)?;
 
             // Second: try import-based package resolution
@@ -204,7 +193,7 @@ impl LanguageResolver for GoResolver {
         }
 
         // Re-acquire for unqualified calls
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock();
         let caller_result = cache.get(&caller_file)?;
 
         // Unqualified call -- check same file definitions first

@@ -20,31 +20,14 @@ pub fn run(
     staged: bool,
     output: Option<String>,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel checkpoint: failed to get current directory: {}", e);
-            return 2;
-        }
+    // Read handle for the diff/caller lookups.
+    let (cwd, store) = match super::open_store("checkpoint") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
-
     let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel checkpoint: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
     let db_path = keel_dir.join("graph.db");
     let db_str = db_path.to_str().unwrap_or("");
-
-    // Read handle for the diff/caller lookups.
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_str) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel checkpoint: failed to open graph database: {}", e);
-            return 2;
-        }
-    };
 
     // Separate handle owned by the enforcement engine (mirrors `keel compile`).
     let engine_store = match keel_core::sqlite::SqliteGraphStore::open(db_str) {

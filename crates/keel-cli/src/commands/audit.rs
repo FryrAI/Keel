@@ -9,14 +9,6 @@ pub fn run(
     min_score: Option<u32>,
     dimension: Option<String>,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel audit: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
     const VALID_DIMENSIONS: &[&str] = &[
         "structure",
         "discoverability",
@@ -35,19 +27,9 @@ pub fn run(
         }
     }
 
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel audit: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel audit: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (cwd, store) = match super::open_store("audit") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
     // Resolve changed files if --changed

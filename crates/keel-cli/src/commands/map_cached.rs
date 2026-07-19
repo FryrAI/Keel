@@ -25,13 +25,10 @@ pub fn run_cached(
         // repo parse, and a silent slow path is undebuggable from a hook.
         eprintln!("keel map --cached: graph.db is empty, falling back to full map");
         // Delegate to the existing non-cached map path, which opens its own
-        // store and performs a full parse. `llm_verbose`/`scope`/`strict` are
-        // unused by that path (see its `_`-prefixed params); `tier3_enabled`
-        // is left off here — project-level tier3 config (.keel/keel.json)
-        // still applies via that path's own config load.
-        return super::map::run(
-            formatter, verbose, false, None, false, depth, false, false, false,
-        );
+        // store and performs a full parse. `tier3_enabled` is left off here —
+        // project-level tier3 config (.keel/keel.json) still applies via that
+        // path's own config load. `cached` is false to avoid re-entering here.
+        return super::map::run(formatter, verbose, depth, false, false, false);
     }
 
     // Reconstruct the MapResult from the store using the same shared assembly

@@ -45,15 +45,6 @@ pub(crate) enum Commands {
 
     /// Full re-map of the codebase
     Map {
-        /// LLM format with full signatures
-        #[arg(long)]
-        llm_verbose: bool,
-        /// Comma-separated module names for scoped maps
-        #[arg(long)]
-        scope: Option<String>,
-        /// Exit non-zero on any ERROR-level violations
-        #[arg(long)]
-        strict: bool,
         /// Output depth: 0=summary, 1=modules+hotspots (default), 2=functions, 3=full graph
         #[arg(long, default_value = "1")]
         depth: u32,
@@ -75,9 +66,6 @@ pub(crate) enum Commands {
         /// Number of hops to traverse (default: 1)
         #[arg(long, default_value = "1")]
         depth: u32,
-        /// Return top 3 placement suggestions
-        #[arg(long)]
-        suggest_placement: bool,
         /// Look up by function name instead of hash
         #[arg(long)]
         name: bool,
@@ -108,9 +96,6 @@ pub(crate) enum Commands {
         /// Treat warnings as errors
         #[arg(long)]
         strict: bool,
-        /// Enable Tier 3 (LSP/SCIP) resolution for unresolved references
-        #[arg(long)]
-        tier3: bool,
         /// Suppress a specific error/warning code
         #[arg(long)]
         suppress: Option<String>,

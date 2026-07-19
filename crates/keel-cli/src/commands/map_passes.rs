@@ -9,6 +9,7 @@ use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, N
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::walker::WalkEntry;
 
+use super::map_helpers::make_relative;
 use super::map_lang_resolve::{resolve_via_language, ResolverSet};
 use super::map_resolve::{
     find_containing_def, resolve_cross_file_call, resolve_edge_to_node, resolve_import_to_module,
@@ -23,11 +24,6 @@ pub struct FileParseData {
     pub definitions: Vec<keel_parsers::resolver::Definition>,
     pub references: Vec<keel_parsers::resolver::Reference>,
     pub imports: Vec<keel_parsers::resolver::Import>,
-}
-
-/// Make a path relative to the cwd.
-fn make_relative(cwd: &Path, path: &Path) -> String {
-    super::map_helpers::make_relative(cwd, path)
 }
 
 /// First pass: create nodes and same-file edges, collecting parse data for cross-file resolution.

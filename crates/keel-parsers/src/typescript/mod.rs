@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use oxc_resolver::{ResolveOptions, Resolver};
 
 use crate::resolver::{
-    CallSite, Definition, LanguageResolver, ParseResult, Reference, ResolvedEdge,
+    CallSite, Definition, LanguageResolver, ParseCache, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
 
@@ -34,7 +34,7 @@ use self::tsconfig::AliasMap;
 /// - Tier 2: oxc_semantic for symbol table + oxc_resolver for module resolution.
 pub struct TsResolver {
     parser: Mutex<TreeSitterParser>,
-    cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    cache: ParseCache,
     /// Per-file oxc semantic symbol data for Tier 2 resolution.
     semantic_cache: Mutex<HashMap<PathBuf, OxcSymbolInfo>>,
     module_resolver: Resolver,
@@ -70,7 +70,7 @@ impl TsResolver {
         };
         TsResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             semantic_cache: Mutex::new(HashMap::new()),
             module_resolver: Resolver::new(options),
             path_aliases: Mutex::new(AliasMap::new()),
@@ -270,15 +270,8 @@ impl TsResolver {
             .unwrap()
             .insert(path.to_path_buf(), oxc_info);
 
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), result.clone());
+        self.cache.insert(path, result.clone());
         result
-    }
-
-    fn get_cached(&self, path: &Path) -> Option<ParseResult> {
-        self.cache.lock().unwrap().get(path).cloned()
     }
 }
 
@@ -318,19 +311,15 @@ impl LanguageResolver for TsResolver {
     }
 
     fn resolve_definitions(&self, file: &Path) -> Vec<Definition> {
-        self.get_cached(file)
-            .map(|r| r.definitions)
-            .unwrap_or_default()
+        self.cache.definitions_for(file)
     }
 
     fn resolve_references(&self, file: &Path) -> Vec<Reference> {
-        self.get_cached(file)
-            .map(|r| r.references)
-            .unwrap_or_default()
+        self.cache.references_for(file)
     }
 
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock();
         let caller_file = PathBuf::from(&call_site.file_path);
         let caller_result = cache.get(&caller_file)?;
 

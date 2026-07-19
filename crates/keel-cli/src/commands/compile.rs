@@ -13,6 +13,7 @@ use keel_parsers::typescript::TsResolver;
 
 use super::compile_lock::acquire_compile_lock;
 use super::compile_metrics::build_compile_metrics;
+use super::map_helpers::make_relative;
 use crate::telemetry_recorder::EventMetrics;
 
 /// Run `keel compile` — incremental validation of changed files.
@@ -451,12 +452,4 @@ fn output_result(
     } else {
         0
     }
-}
-
-/// Make a path relative to the project root.
-fn make_relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .to_string()
 }

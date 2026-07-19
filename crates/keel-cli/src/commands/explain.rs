@@ -9,27 +9,9 @@ pub fn run(
     _tree: bool,
     depth: u32,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel explain: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel explain: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel explain: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (_cwd, store) = match super::open_store("explain") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
     let engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));

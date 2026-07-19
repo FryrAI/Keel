@@ -1,4 +1,6 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
 use keel_core::types::{ExternalEndpoint, NodeKind};
 
@@ -184,4 +186,95 @@ pub struct FileIndex {
     pub external_endpoints: Vec<ExternalEndpoint>,
     /// Wall-clock microseconds spent parsing this file.
     pub parse_duration_us: u64,
+}
+
+/// Thread-safe per-file parse cache shared by every language resolver.
+///
+/// Each `LanguageResolver` used to hand-roll an identical
+/// `Mutex<HashMap<PathBuf, ParseResult>>` field plus the same
+/// `get_cached`/`resolve_definitions`/`resolve_references` bodies. This newtype
+/// is the single source of truth for that storage and its lookups, so the
+/// per-language resolvers reduce to one-line delegations.
+#[derive(Default)]
+pub struct ParseCache {
+    inner: Mutex<HashMap<PathBuf, ParseResult>>,
+}
+
+impl ParseCache {
+    /// Insert (or replace) the cached parse result for `path`.
+    pub fn insert(&self, path: &Path, result: ParseResult) {
+        self.inner
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), result);
+    }
+
+    /// Return a clone of the cached parse result for `path`, if present.
+    pub fn get(&self, path: &Path) -> Option<ParseResult> {
+        self.inner.lock().unwrap().get(path).cloned()
+    }
+
+    /// Cached definitions for `path`, or empty when the file was never parsed.
+    pub fn definitions_for(&self, path: &Path) -> Vec<Definition> {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(path)
+            .map(|r| r.definitions.clone())
+            .unwrap_or_default()
+    }
+
+    /// Cached references for `path`, or empty when the file was never parsed.
+    pub fn references_for(&self, path: &Path) -> Vec<Reference> {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(path)
+            .map(|r| r.references.clone())
+            .unwrap_or_default()
+    }
+
+    /// Lock the underlying map for the multi-step lookups `resolve_call_edge`
+    /// performs (a `get` plus iteration held under one guard).
+    pub fn lock(&self) -> MutexGuard<'_, HashMap<PathBuf, ParseResult>> {
+        self.inner.lock().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cache_insert_get_roundtrip() {
+        let cache = ParseCache::default();
+        let path = Path::new("src/foo.rs");
+        assert!(cache.get(path).is_none());
+
+        let result = ParseResult {
+            definitions: vec![Definition {
+                name: "foo".to_string(),
+                kind: NodeKind::Function,
+                signature: "fn foo()".to_string(),
+                file_path: "src/foo.rs".to_string(),
+                line_start: 1,
+                line_end: 3,
+                docstring: None,
+                is_public: true,
+                type_hints_present: true,
+                body_text: String::new(),
+                in_test_context: false,
+            }],
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+        };
+        cache.insert(path, result);
+
+        let got = cache.get(path).expect("value should be cached");
+        assert_eq!(got.definitions.len(), 1);
+        assert_eq!(cache.definitions_for(path).len(), 1);
+        assert_eq!(cache.definitions_for(path)[0].name, "foo");
+        assert!(cache.references_for(path).is_empty());
+    }
 }

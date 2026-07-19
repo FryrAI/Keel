@@ -3,11 +3,10 @@ use crate::token_budget;
 use keel_enforce::types::{CompileDelta, CompileResult, PressureLevel, Violation};
 use std::collections::BTreeMap;
 
-/// Format compile result at depth 0: counts only (1 line).
-pub fn format_compile_depth0(result: &CompileResult) -> String {
-    if result.errors.is_empty() && result.warnings.is_empty() {
-        return String::new();
-    }
+/// The `COMPILE files=… errors=… warnings=… PRESSURE=… BUDGET=…` summary line
+/// that heads every non-delta compile report — shared verbatim by all three
+/// depths so the header can only be worded in one place.
+fn compile_summary_header(result: &CompileResult) -> String {
     let pressure = PressureLevel::from_error_count(result.errors.len());
     format!(
         "COMPILE files={} errors={} warnings={} PRESSURE={} BUDGET={}\n",
@@ -19,21 +18,21 @@ pub fn format_compile_depth0(result: &CompileResult) -> String {
     )
 }
 
+/// Format compile result at depth 0: counts only (1 line).
+pub fn format_compile_depth0(result: &CompileResult) -> String {
+    if result.errors.is_empty() && result.warnings.is_empty() {
+        return String::new();
+    }
+    compile_summary_header(result)
+}
+
 /// Format compile result at depth 1: grouped by file with truncation.
 pub fn format_compile_depth1(result: &CompileResult, max_tokens: usize) -> String {
     if result.errors.is_empty() && result.warnings.is_empty() {
         return String::new();
     }
 
-    let pressure = PressureLevel::from_error_count(result.errors.len());
-    let mut out = format!(
-        "COMPILE files={} errors={} warnings={} PRESSURE={} BUDGET={}\n",
-        result.files_analyzed.len(),
-        result.errors.len(),
-        result.warnings.len(),
-        pressure,
-        pressure.budget_directive(),
-    );
+    let mut out = compile_summary_header(result);
 
     // Group violations by file
     let mut by_file: BTreeMap<&str, Vec<&Violation>> = BTreeMap::new();
@@ -89,15 +88,7 @@ pub fn format_compile_depth2(result: &CompileResult) -> String {
         return String::new();
     }
 
-    let pressure = PressureLevel::from_error_count(result.errors.len());
-    let mut out = format!(
-        "COMPILE files={} errors={} warnings={} PRESSURE={} BUDGET={}\n",
-        result.files_analyzed.len(),
-        result.errors.len(),
-        result.warnings.len(),
-        pressure,
-        pressure.budget_directive(),
-    );
+    let mut out = compile_summary_header(result);
 
     for v in &result.errors {
         out.push_str(&format_violation_llm(v));

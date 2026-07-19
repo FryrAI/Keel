@@ -3,12 +3,11 @@ pub mod package_resolution;
 mod star_imports;
 pub mod ty;
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::resolver::{
-    CallSite, Definition, LanguageResolver, ParseResult, Reference, ResolvedEdge,
+    CallSite, Definition, LanguageResolver, ParseCache, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
 use helpers::{
@@ -22,7 +21,7 @@ use helpers::{
 /// - Tier 2: heuristic resolution (ty subprocess used when available).
 pub struct PyResolver {
     parser: Mutex<TreeSitterParser>,
-    cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    cache: ParseCache,
     ty_client: Option<Box<dyn ty::TyClient>>,
 }
 
@@ -31,7 +30,7 @@ impl PyResolver {
     pub fn new() -> Self {
         PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             ty_client: None,
         }
     }
@@ -40,7 +39,7 @@ impl PyResolver {
     pub fn with_ty(ty_client: Box<dyn ty::TyClient>) -> Self {
         PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             ty_client: Some(ty_client),
         }
     }
@@ -105,15 +104,8 @@ impl PyResolver {
             }
         }
 
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), result.clone());
+        self.cache.insert(path, result.clone());
         result
-    }
-
-    fn get_cached(&self, path: &Path) -> Option<ParseResult> {
-        self.cache.lock().unwrap().get(path).cloned()
     }
 }
 
@@ -138,19 +130,15 @@ impl LanguageResolver for PyResolver {
     }
 
     fn resolve_definitions(&self, file: &Path) -> Vec<Definition> {
-        self.get_cached(file)
-            .map(|r| r.definitions)
-            .unwrap_or_default()
+        self.cache.definitions_for(file)
     }
 
     fn resolve_references(&self, file: &Path) -> Vec<Reference> {
-        self.get_cached(file)
-            .map(|r| r.references)
-            .unwrap_or_default()
+        self.cache.references_for(file)
     }
 
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock();
         let caller_file = PathBuf::from(&call_site.file_path);
         let caller_result = cache.get(&caller_file)?;
 

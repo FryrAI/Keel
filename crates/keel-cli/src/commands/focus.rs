@@ -8,27 +8,9 @@ use keel_output::OutputFormatter;
 
 /// Run `keel focus <target>`.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, target: String, depth: u32) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel focus: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel focus: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel focus: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (cwd, store) = match super::open_store("focus") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
     // Normalize a file target to the relative path the graph stores.

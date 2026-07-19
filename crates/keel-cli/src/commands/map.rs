@@ -23,38 +23,16 @@ use crate::telemetry_recorder::EventMetrics;
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
-    _llm_verbose: bool,
-    _scope: Option<String>,
-    _strict: bool,
     _depth: u32,
     tier3_enabled: bool,
     cached: bool,
     semantic: bool,
 ) -> (i32, EventMetrics) {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel map: failed to get current directory: {}", e);
-            return (2, EventMetrics::default());
-        }
+    let (cwd, mut store) = match super::open_store("map") {
+        Ok(x) => x,
+        Err(code) => return (code, EventMetrics::default()),
     };
-
     let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel map: not initialized. Run `keel init` first.");
-        return (2, EventMetrics::default());
-    }
-
-    // Open graph store
-    let db_path = keel_dir.join("graph.db");
-    let mut store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
-    {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel map: failed to open graph database: {}", e);
-            return (2, EventMetrics::default());
-        }
-    };
 
     // --cached: read from existing graph.db instead of re-parsing
     if cached {

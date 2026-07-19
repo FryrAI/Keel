@@ -9,33 +9,15 @@ use keel_output::OutputFormatter;
 /// Run `keel validate-plan <file|->`. Always exits 0 — the report is the
 /// product, not a gate.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, plan: String) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel validate-plan: failed to get current directory: {}", e);
-            return 2;
-        }
+    let (_cwd, store) = match super::open_store("validate-plan") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
-
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel validate-plan: not initialized. Run `keel init` first.");
-        return 2;
-    }
 
     let plan_text = match read_plan(&plan) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("keel validate-plan: failed to read plan: {}", e);
-            return 2;
-        }
-    };
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel validate-plan: failed to open graph database: {}", e);
             return 2;
         }
     };

@@ -86,7 +86,6 @@ fn command_name_compile() {
         batch_start: false,
         batch_end: false,
         strict: false,
-        tier3: false,
         suppress: None,
         depth: 1,
         changed: false,
