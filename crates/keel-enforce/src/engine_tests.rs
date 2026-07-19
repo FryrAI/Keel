@@ -65,3 +65,5 @@ mod e001;
 mod e002_e003;
 #[path = "engine_tests_e004_misc.rs"]
 mod e004_misc;
+#[path = "engine_tests_economy.rs"]
+mod economy;

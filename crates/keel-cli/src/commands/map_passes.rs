@@ -45,6 +45,7 @@ pub fn first_pass(
     file_module_ids: &mut HashMap<String, u64>,
     assigned_hashes: &mut HashSet<String>,
     valid_node_ids: &mut HashSet<u64>,
+    body_index: &mut Vec<keel_core::types::BodyIndexEntry>,
 ) -> Vec<FileParseData> {
     let mut all_file_data: Vec<FileParseData> = Vec::new();
 
@@ -121,6 +122,22 @@ pub fn first_pass(
                 .entry(def.name.clone())
                 .or_default()
                 .push((file_path.clone(), node_id));
+
+            // Feed the W006 duplicate-implementation index. Trivial bodies
+            // are skipped here only to bound index size; enforcement applies
+            // its own (higher, compile-time-asserted) similarity threshold.
+            if def.kind == NodeKind::Function {
+                let normalized = keel_core::hash::normalize_body(&def.body_text);
+                if normalized.len() >= keel_core::hash::MIN_INDEXED_BODY_LEN {
+                    body_index.push(keel_core::types::BodyIndexEntry {
+                        body_hash: keel_core::hash::hash_normalized_body(&normalized),
+                        node_hash: hash.clone(),
+                        name: def.name.clone(),
+                        file_path: file_path.clone(),
+                        line: def.line_start,
+                    });
+                }
+            }
 
             node_changes.push(NodeChange::Add(GraphNode {
                 id: node_id,

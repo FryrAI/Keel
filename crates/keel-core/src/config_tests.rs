@@ -24,9 +24,14 @@ fn test_roundtrip_all_non_default_values() {
             "rust".to_string(),
         ],
         enforce: EnforceConfig {
-            type_hints: false, // default is true
-            docstrings: false, // default is true
-            placement: false,  // default is true
+            type_hints: false,      // default is true
+            docstrings: false,      // default is true
+            placement: false,       // default is true
+            progressive: false,     // default is true
+            dead_code: false,       // default is true
+            duplication: false,     // default is true
+            oversized_files: false, // default is true
+            max_file_lines: 123,    // default is 400
         },
         circuit_breaker: CircuitBreakerConfig {
             max_failures: 42, // default is 3

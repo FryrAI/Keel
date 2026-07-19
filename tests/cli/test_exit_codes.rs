@@ -55,9 +55,13 @@ fn init_and_map(files: &[(&str, &str)]) -> TempDir {
 #[test]
 /// Exit code 0 on successful compile with no violations.
 fn test_exit_code_0_clean_compile() {
+    // The fixture must be GENUINELY clean (docstring included): under
+    // progressive adoption, debt on untouched code is a WARNING, which
+    // exits 0 with warning output — only a zero-violation compile promises
+    // the empty-stdout contract this test asserts.
     let dir = init_and_map(&[(
         "src/clean.ts",
-        "export function clean(x: number): number { return x; }\n",
+        "/** Returns the input unchanged. */\nexport function clean(x: number): number { return x; }\n",
     )]);
     let keel = keel_bin();
 

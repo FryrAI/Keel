@@ -1,8 +1,35 @@
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection};
 
-use crate::types::{ExternalEndpoint, GraphError, GraphNode, NodeKind};
+use crate::types::GraphError;
 
-const SCHEMA_VERSION: u32 = 4;
+/// Module-profile persistence, split out to keep this file under 400 lines.
+#[path = "sqlite_profiles.rs"]
+mod profiles;
+
+const SCHEMA_VERSION: u32 = 5;
+
+/// DDL for the body-hash duplicate index (schema v5).
+///
+/// Shared by `initialize_schema` (fresh databases) and `migrate_v4_to_v5`
+/// (existing ones) so the two can never drift apart. Lookups are by
+/// `body_hash`, so that column carries the index.
+///
+/// The primary key is the composite `(node_hash, file_path, line)`, not
+/// `node_hash` alone: hash disambiguation salts with the file path only, so
+/// two byte-identical definitions in the *same* file share a node hash. A
+/// bare `node_hash` key would let one silently replace the other and make
+/// W006 attribution nondeterministic.
+const BODY_INDEX_DDL: &str = "
+    CREATE TABLE IF NOT EXISTS body_index (
+        node_hash TEXT NOT NULL,
+        body_hash TEXT NOT NULL,
+        name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        line INTEGER NOT NULL,
+        PRIMARY KEY (node_hash, file_path, line)
+    );
+    CREATE INDEX IF NOT EXISTS idx_body_index_body_hash ON body_index(body_hash);
+";
 
 /// SQLite-backed implementation of the GraphStore trait.
 pub struct SqliteGraphStore {
@@ -168,6 +195,10 @@ impl SqliteGraphStore {
             ",
         )?;
 
+        // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
+        self.drop_stale_body_index()?;
+        self.conn.execute_batch(BODY_INDEX_DDL)?;
+
         // Set schema version if not present (new databases get current version)
         self.conn.execute(
             "INSERT OR IGNORE INTO keel_meta (key, value) VALUES ('schema_version', ?1)",
@@ -200,6 +231,9 @@ impl SqliteGraphStore {
         }
         if current < 4 {
             self.migrate_v3_to_v4()?;
+        }
+        if current < 5 {
+            self.migrate_v4_to_v5()?;
         }
         Ok(())
     }
@@ -258,6 +292,54 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Drop `body_index` if it predates the composite primary key.
+    ///
+    /// v5 briefly carried a bare `node_hash` primary key, which silently drops
+    /// duplicate definitions that share a node hash — precisely the case the
+    /// index exists to catch. `CREATE TABLE IF NOT EXISTS` cannot fix an
+    /// existing table, and a v5 database skips migrations entirely, so detect
+    /// the old shape and recreate it.
+    ///
+    /// Cheap and safe: the index is a derived cache that `keel map` rebuilds.
+    /// Removable once v5 has shipped and no stale databases remain.
+    fn drop_stale_body_index(&self) -> Result<(), GraphError> {
+        let existing: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'body_index'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(sql) = existing {
+            if !sql.contains("PRIMARY KEY (node_hash, file_path, line)") {
+                self.conn.execute_batch("DROP TABLE body_index")?;
+                // Otherwise W006 goes silent until the next map and reads
+                // as a regression instead of a schema refresh.
+                eprintln!(
+                    "keel: body index schema updated — run `keel map` to \
+                     rebuild duplicate detection"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Migrate from schema v4 to v5: add the body-hash duplicate index.
+    ///
+    /// Purely additive. `initialize_schema` has already run its
+    /// `CREATE TABLE IF NOT EXISTS`, so the table and index exist by the time
+    /// migrations run; they are repeated here so the step is self-contained
+    /// and safe to run against a v4 database opened by any path.
+    fn migrate_v4_to_v5(&self) -> Result<(), GraphError> {
+        self.conn.execute_batch(BODY_INDEX_DDL)?;
+        self.conn.execute(
+            "UPDATE keel_meta SET value = '5' WHERE key = 'schema_version'",
+            [],
+        )?;
+        Ok(())
+    }
+
     /// Get the current schema version.
     pub fn schema_version(&self) -> Result<u32, GraphError> {
         let version: String = self.conn.query_row(
@@ -290,152 +372,10 @@ impl SqliteGraphStore {
             DELETE FROM module_profiles;
             DELETE FROM external_endpoints;
             DELETE FROM previous_hashes;
+            DELETE FROM body_index;
             DELETE FROM nodes;
             ",
         )?;
-        Ok(())
-    }
-
-    /// Convert a SQLite row into a `GraphNode` (without relations loaded).
-    pub(crate) fn row_to_node(row: &rusqlite::Row) -> SqlResult<GraphNode> {
-        let kind_str: String = row.get("kind")?;
-        let kind = match kind_str.as_str() {
-            "module" => NodeKind::Module,
-            "class" => NodeKind::Class,
-            "function" => NodeKind::Function,
-            _ => NodeKind::Function, // fallback
-        };
-        Ok(GraphNode {
-            id: row.get("id")?,
-            hash: row.get("hash")?,
-            kind,
-            name: row.get("name")?,
-            signature: row.get("signature")?,
-            file_path: row.get("file_path")?,
-            line_start: row.get("line_start")?,
-            line_end: row.get("line_end")?,
-            docstring: row.get("docstring")?,
-            is_public: row.get::<_, i32>("is_public")? != 0,
-            type_hints_present: row.get::<_, i32>("type_hints_present")? != 0,
-            has_docstring: row.get::<_, i32>("has_docstring")? != 0,
-            external_endpoints: Vec::new(), // loaded separately
-            previous_hashes: Vec::new(),    // loaded separately
-            module_id: row.get::<_, Option<u64>>("module_id")?.unwrap_or(0),
-            package: row.get::<_, Option<String>>("package").unwrap_or(None),
-        })
-    }
-
-    /// Load all external endpoints associated with a given node.
-    pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
-        let mut stmt = match self.conn.prepare(
-            "SELECT kind, method, path, direction FROM external_endpoints WHERE node_id = ?1",
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[keel] load_endpoints: prepare failed: {e}");
-                return Vec::new();
-            }
-        };
-
-        let result = match stmt.query_map(params![node_id], |row| {
-            Ok(ExternalEndpoint {
-                kind: row.get(0)?,
-                method: row.get(1)?,
-                path: row.get(2)?,
-                direction: row.get(3)?,
-            })
-        }) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
-            Err(e) => {
-                eprintln!("[keel] load_endpoints: query failed: {e}");
-                Vec::new()
-            }
-        };
-        result
-    }
-
-    /// Load the most recent previous hashes for a node (up to 3, newest first).
-    pub(crate) fn load_previous_hashes(&self, node_id: u64) -> Vec<String> {
-        let mut stmt = match self.conn.prepare(
-            "SELECT hash FROM previous_hashes WHERE node_id = ?1 ORDER BY created_at DESC LIMIT 3",
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[keel] load_previous_hashes: prepare failed: {e}");
-                return Vec::new();
-            }
-        };
-
-        let result = match stmt.query_map(params![node_id], |row| row.get(0)) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
-            Err(e) => {
-                eprintln!("[keel] load_previous_hashes: query failed: {e}");
-                Vec::new()
-            }
-        };
-        result
-    }
-
-    /// Attach endpoints and previous hashes to a node, returning the enriched node.
-    pub(crate) fn node_with_relations(&self, mut node: GraphNode) -> GraphNode {
-        node.external_endpoints = self.load_endpoints(node.id);
-        node.previous_hashes = self.load_previous_hashes(node.id);
-        node
-    }
-
-    /// Insert or update module profiles in bulk.
-    /// Uses INSERT ... ON CONFLICT DO UPDATE for upsert semantics.
-    pub fn upsert_module_profiles(
-        &self,
-        profiles: Vec<crate::types::ModuleProfile>,
-    ) -> Result<(), GraphError> {
-        let tx = self.conn.unchecked_transaction()?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT INTO module_profiles (
-                    module_id, path, function_count, class_count, line_count,
-                    function_name_prefixes, primary_types, import_sources,
-                    export_targets, external_endpoint_count, responsibility_keywords
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                ON CONFLICT(module_id) DO UPDATE SET
-                    path = excluded.path,
-                    function_count = excluded.function_count,
-                    class_count = excluded.class_count,
-                    line_count = excluded.line_count,
-                    function_name_prefixes = excluded.function_name_prefixes,
-                    primary_types = excluded.primary_types,
-                    import_sources = excluded.import_sources,
-                    export_targets = excluded.export_targets,
-                    external_endpoint_count = excluded.external_endpoint_count,
-                    responsibility_keywords = excluded.responsibility_keywords",
-            )?;
-            for p in &profiles {
-                let prefixes_json = serde_json::to_string(&p.function_name_prefixes)
-                    .unwrap_or_else(|_| "[]".to_string());
-                let types_json =
-                    serde_json::to_string(&p.primary_types).unwrap_or_else(|_| "[]".to_string());
-                let imports_json =
-                    serde_json::to_string(&p.import_sources).unwrap_or_else(|_| "[]".to_string());
-                let exports_json =
-                    serde_json::to_string(&p.export_targets).unwrap_or_else(|_| "[]".to_string());
-                let keywords_json = serde_json::to_string(&p.responsibility_keywords)
-                    .unwrap_or_else(|_| "[]".to_string());
-                stmt.execute(params![
-                    p.module_id,
-                    p.path,
-                    p.function_count,
-                    p.class_count,
-                    p.line_count,
-                    prefixes_json,
-                    types_json,
-                    imports_json,
-                    exports_json,
-                    p.external_endpoint_count,
-                    keywords_json,
-                ])?;
-            }
-        }
-        tx.commit()?;
         Ok(())
     }
 }

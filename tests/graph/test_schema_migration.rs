@@ -5,7 +5,7 @@ use keel_core::sqlite::SqliteGraphStore;
 #[test]
 /// Opening an existing database should report its current schema version.
 fn test_schema_version_tracking() {
-    // GIVEN a fresh in-memory SQLite database (auto-creates schema v2)
+    // GIVEN a fresh in-memory SQLite database (auto-creates the current schema)
     let store = SqliteGraphStore::in_memory().expect("in-memory store");
 
     // WHEN schema_version is queried
@@ -13,8 +13,8 @@ fn test_schema_version_tracking() {
         .schema_version()
         .expect("schema_version should succeed");
 
-    // THEN it reports version 2
-    assert_eq!(version, 4, "initial schema version should be 4");
+    // THEN it reports the current version
+    assert_eq!(version, 5, "initial schema version should be 5");
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn test_v1_to_v2_migration() {
 
     // THEN schema version is now 2
     let version = store.schema_version().unwrap();
-    assert_eq!(version, 4, "v1 database should be migrated to v4");
+    assert_eq!(version, 5, "v1 database should be migrated to v5");
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn test_migrated_data_accessible() {
     let store = SqliteGraphStore::open(db_str).unwrap();
 
     // THEN the migrated data is queryable
-    assert_eq!(store.schema_version().unwrap(), 4);
+    assert_eq!(store.schema_version().unwrap(), 5);
 
     // Drop store so we can open raw connection
     drop(store);
@@ -168,7 +168,7 @@ fn test_future_schema_version_not_rejected() {
     // First create a valid database
     {
         let store = SqliteGraphStore::open(db_str).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 4);
+        assert_eq!(store.schema_version().unwrap(), 5);
     }
 
     // Manually set schema_version to 99 via raw SQL
@@ -202,7 +202,7 @@ fn test_migration_idempotency() {
     {
         let store = SqliteGraphStore::open(db_path_str).expect("first open");
         let v = store.schema_version().expect("version check");
-        assert_eq!(v, 4, "first open should be v4");
+        assert_eq!(v, 5, "first open should be v5");
     }
 
     // AND the store is opened again at the same path
@@ -210,7 +210,7 @@ fn test_migration_idempotency() {
         let store = SqliteGraphStore::open(db_path_str).expect("second open");
         let v = store.schema_version().expect("version check");
 
-        // THEN the schema version is still 2 (no corruption or double-migration)
-        assert_eq!(v, 4, "second open should still be v4");
+        // THEN the schema version is unchanged (no corruption or double-migration)
+        assert_eq!(v, 5, "second open should still be v5");
     }
 }

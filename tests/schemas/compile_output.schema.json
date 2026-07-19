@@ -71,6 +71,9 @@
             "arity_mismatch",
             "placement",
             "duplicate_name",
+            "dead_code",
+            "duplicate_implementation",
+            "oversized_file",
             "suppressed"
           ],
           "description": "Violation category"

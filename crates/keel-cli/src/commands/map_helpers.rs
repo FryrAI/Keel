@@ -158,17 +158,26 @@ pub fn make_relative(root: &Path, path: &Path) -> String {
 }
 
 /// Populate hotspot entries by ranking non-module nodes by total connectivity.
+///
+/// Test files are excluded before ranking: test suites routinely call
+/// everything under test, so their functions rack up huge caller counts that
+/// crowd out genuine hotspots (e.g. a test-helper file outranking the actual
+/// most-connected production code) without telling the agent anything useful
+/// about the codebase's real structure.
 pub fn populate_hotspots(
     result: &mut keel_enforce::types::MapResult,
     node_changes: &[NodeChange],
     valid_edges: &[EdgeChange],
 ) {
     use keel_enforce::types::HotspotEntry;
+    use keel_enforce::violations_util::is_test_file;
 
     let nodes: Vec<_> = node_changes
         .iter()
         .filter_map(|c| match c {
-            NodeChange::Add(n) if n.kind != NodeKind::Module => Some(n),
+            NodeChange::Add(n) if n.kind != NodeKind::Module && !is_test_file(&n.file_path) => {
+                Some(n)
+            }
             _ => None,
         })
         .collect();

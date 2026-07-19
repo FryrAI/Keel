@@ -1,6 +1,14 @@
 use super::*;
 use crate::store::GraphStore;
-use crate::types::{EdgeChange, EdgeDirection, EdgeKind, GraphEdge, NodeChange, NodeKind};
+use crate::types::{
+    EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind,
+};
+
+#[path = "sqlite_body_index_tests.rs"]
+mod body_index;
+
+#[path = "sqlite_previous_hashes_tests.rs"]
+mod previous_hashes;
 
 fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
     GraphNode {

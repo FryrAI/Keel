@@ -99,7 +99,12 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | E005 | arity_mismatch | ERROR |
 | W001 | placement | WARNING |
 | W002 | duplicate_name | WARNING |
+| W005 | dead_code | WARNING |
+| W006 | duplicate_implementation | WARNING |
+| W007 | oversized_file | WARNING |
 | S001 | suppressed | INFO |
+
+W005-W007 are the v0.5 "economy" additions — additive only; existing codes/severities/exit codes unchanged.
 
 Every ERROR has `fix_hint`. Every violation has `confidence` (0.0-1.0) and `resolution_tier`.
 

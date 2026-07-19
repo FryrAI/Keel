@@ -5,7 +5,9 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
-use crate::violations_util::{count_call_args, count_params, extract_prefix, is_test_file};
+use crate::violations_util::{
+    count_call_args, count_params, extract_prefix, is_test_file, normalize_signature,
+};
 
 /// Check E004: function_removed — a function was removed but callers still exist.
 /// Compares existing nodes in the store against current file definitions.
@@ -194,7 +196,26 @@ pub fn check_placement(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violatio
     violations
 }
 
-/// Check W002: duplicate_name — same function name in multiple modules.
+/// Check W002: duplicate_name — same function name AND same (whitespace-
+/// normalized) signature exists in **exactly one** other module.
+///
+/// Matching by name alone over-fires on idiomatic namespacing — e.g. every
+/// CLI subcommand module defining its own `run(args) -> Result<()>` isn't a
+/// naming collision, it's the pattern working as intended. Requiring the
+/// signature to match too keeps the warning for genuine accidental
+/// duplicates (same name, same shape) while staying silent on same-name/
+/// different-signature functions that just happen to share a verb.
+///
+/// Name+signature equality alone still isn't enough, though: trait/interface
+/// conformance produces the exact same signature at every impl site by
+/// construction (e.g. four `LanguageResolver` impls all defining an
+/// identically-shaped `parse_file`, or every type's `Default`/`fmt` impl).
+/// That's a deliberate pattern, not a collision. The discriminator is count:
+/// an accidental duplicate comes in a **pair** (one copy-pasted from the
+/// other); three or more identical sites is conformance to a shared
+/// contract. So this only fires when exactly one other matching site
+/// exists — 2 total copies. 3+ copies stay silent here (W006's body-hash
+/// check still catches genuine multi-copy duplication independent of name).
 /// Uses indexed SQL query instead of triple-nested loop. O(F) not O(F*M*N).
 pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
@@ -211,44 +232,55 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
 
         // Single SQL query per function — finds same-named functions elsewhere
         let duplicates = store.find_nodes_by_name(&def.name, "function", &file.file_path);
-        for node in &duplicates {
+        let normalized_def_sig = normalize_signature(&def.signature);
+        let same_shape: Vec<_> = duplicates
+            .iter()
             // Skip test files in results
-            if is_test_file(&node.file_path) {
-                continue;
-            }
-            violations.push(Violation {
-                code: "W002".to_string(),
-                severity: "WARNING".to_string(),
-                category: "duplicate_name".to_string(),
-                message: format!(
-                    "Function `{}` also exists in `{}`",
-                    def.name, node.file_path
-                ),
-                file: file.file_path.clone(),
-                line: def.line_start,
-                hash: keel_core::hash::compute_hash(
-                    &def.signature,
-                    &def.body_text,
-                    def.docstring.as_deref().unwrap_or(""),
-                ),
-                confidence: 0.7,
-                resolution_tier: "heuristic".to_string(),
-                fix_hint: Some(format!(
-                    "Rename one of the `{}` functions to avoid ambiguity",
-                    def.name
-                )),
-                suppressed: false,
-                suppress_hint: None,
-                affected: vec![],
-                suggested_module: None,
-                existing: Some(crate::types::ExistingNode {
-                    hash: node.hash.clone(),
-                    file: node.file_path.clone(),
-                    line: node.line_start,
-                }),
-            });
-            break; // One per definition
+            .filter(|node| !is_test_file(&node.file_path))
+            // Same name but a different shape is idiomatic namespacing, not
+            // a duplicate — only consider sites where the signature matches.
+            .filter(|node| normalize_signature(&node.signature) == normalized_def_sig)
+            .collect();
+
+        // Exactly one other matching site = suspect pair. Zero = no
+        // collision. Two or more = a shared contract (trait/interface
+        // conformance) — deliberate, not accidental — stay silent.
+        if same_shape.len() != 1 {
+            continue;
         }
+        let node = same_shape[0];
+
+        violations.push(Violation {
+            code: "W002".to_string(),
+            severity: "WARNING".to_string(),
+            category: "duplicate_name".to_string(),
+            message: format!(
+                "Function `{}` also exists in `{}`",
+                def.name, node.file_path
+            ),
+            file: file.file_path.clone(),
+            line: def.line_start,
+            hash: keel_core::hash::compute_hash(
+                &def.signature,
+                &def.body_text,
+                def.docstring.as_deref().unwrap_or(""),
+            ),
+            confidence: 0.7,
+            resolution_tier: "heuristic".to_string(),
+            fix_hint: Some(format!(
+                "Rename `{}` here or its duplicate in `{}` to avoid ambiguity",
+                def.name, node.file_path
+            )),
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![],
+            suggested_module: None,
+            existing: Some(crate::types::ExistingNode {
+                hash: node.hash.clone(),
+                file: node.file_path.clone(),
+                line: node.line_start,
+            }),
+        });
     }
 
     violations

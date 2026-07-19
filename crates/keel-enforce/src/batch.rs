@@ -5,7 +5,9 @@ use crate::types::Violation;
 /// Codes that are deferrable in batch mode.
 /// Structural errors (E001, E004, E005) fire immediately.
 /// Type hints (E002), docstrings (E003), placement (W001), duplicates (W002) are deferred.
-const DEFERRABLE_CODES: &[&str] = &["E002", "E003", "W001", "W002"];
+// Economy checks (W005-W007) defer too: mid-scaffold, "no callers yet" and
+// "file still growing" are expected states, not violations.
+const DEFERRABLE_CODES: &[&str] = &["E002", "E003", "W001", "W002", "W005", "W006", "W007"];
 
 /// Maximum time batch mode stays active before auto-expiring.
 const BATCH_TIMEOUT: Duration = Duration::from_secs(60);

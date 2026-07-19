@@ -129,6 +129,24 @@ pub struct EnforceConfig {
     pub docstrings: bool,
     #[serde(default = "default_true")]
     pub placement: bool,
+    /// Progressive adoption: E002/E003 on functions the current change did
+    /// NOT touch (stored hash unchanged) are reported as WARNING instead of
+    /// ERROR, so adopting keel on a legacy repo doesn't flood errors.
+    #[serde(default = "default_true")]
+    pub progressive: bool,
+    /// W005: warn on private functions with no callers in the graph.
+    #[serde(default = "default_true")]
+    pub dead_code: bool,
+    /// W006: warn when a function body is identical (whitespace-normalized)
+    /// to an existing function elsewhere in the graph.
+    #[serde(default = "default_true")]
+    pub duplication: bool,
+    /// W007: warn when a compiled file exceeds `max_file_lines` and grew.
+    #[serde(default = "default_true")]
+    pub oversized_files: bool,
+    /// Line budget used by the W007 oversized-file check.
+    #[serde(default = "default_max_file_lines")]
+    pub max_file_lines: u32,
 }
 
 /// Circuit breaker tuning.
@@ -154,6 +172,9 @@ fn default_max_failures() -> u32 {
 fn default_timeout_seconds() -> u64 {
     60
 }
+fn default_max_file_lines() -> u32 {
+    400
+}
 
 impl Default for EnforceConfig {
     fn default() -> Self {
@@ -161,6 +182,11 @@ impl Default for EnforceConfig {
             type_hints: true,
             docstrings: true,
             placement: true,
+            progressive: true,
+            dead_code: true,
+            duplication: true,
+            oversized_files: true,
+            max_file_lines: 400,
         }
     }
 }
