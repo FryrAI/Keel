@@ -123,12 +123,15 @@ fn test_svelte_component_definitions_enter_graph() {
     let source = std::fs::read_to_string(&path).unwrap();
     let result = resolver.parse_file(&path, &source);
 
-    let module = result
-        .definitions
-        .iter()
-        .find(|d| d.kind == keel_core::types::NodeKind::Module)
-        .expect("component must be a module node");
-    assert_eq!(module.name, "Card");
+    // Module nodes are owned by the map pass (one per file, path-named); the
+    // parser no longer injects a synthetic whole-file module definition.
+    assert!(
+        !result
+            .definitions
+            .iter()
+            .any(|d| d.kind == keel_core::types::NodeKind::Module),
+        "parser must not emit a synthetic module definition"
+    );
 
     let label = result
         .definitions
