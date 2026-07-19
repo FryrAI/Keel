@@ -9,9 +9,11 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::FileWalker;
 
-use super::map_helpers::{
-    build_map_result, build_module_profiles, make_relative, populate_functions, populate_hotspots,
+use keel_enforce::map::{
+    build_map_result, build_module_profiles, populate_functions, populate_hotspots,
 };
+
+use super::map_helpers::make_relative;
 use super::map_passes;
 use super::map_resolve::build_package_node_index;
 use crate::telemetry_recorder::EventMetrics;

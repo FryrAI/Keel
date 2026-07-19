@@ -1,13 +1,9 @@
 //! Cached map: read from existing graph.db without re-parsing.
 //! Used by `keel map --cached` for fast session-start hooks.
 
-use std::collections::HashSet;
-
 use keel_core::store::GraphStore;
-use keel_core::types::NodeKind;
 use keel_output::OutputFormatter;
 
-use super::map_helpers::{build_map_result, populate_functions, populate_hotspots};
 use crate::telemetry_recorder::EventMetrics;
 
 /// Read map from existing graph.db without re-parsing.
@@ -24,10 +20,7 @@ pub fn run_cached(
     verbose: bool,
     depth: u32,
 ) -> (i32, EventMetrics) {
-    use keel_core::types::{EdgeChange, EdgeDirection, NodeChange};
-
-    let modules = store.get_all_modules();
-    if modules.is_empty() {
+    if store.get_all_modules().is_empty() {
         // Always announce the fallback: it swaps a fast cache read for a full
         // repo parse, and a silent slow path is undebuggable from a hook.
         eprintln!("keel map --cached: graph.db is empty, falling back to full map");
@@ -39,73 +32,15 @@ pub fn run_cached(
         return super::map::run(formatter, verbose, false, None, false, depth, false, false);
     }
 
-    // Collect all nodes and edges from the DB
-    let mut node_changes: Vec<NodeChange> = Vec::new();
-    // Nodes are deduplicated by ID as a defensive guard: `get_all_modules`
-    // and `get_nodes_in_file` can surface the same node, and any node visited
-    // twice would otherwise multiply the reconstructed function/class counts
-    // vs. a fresh `keel map` (#40). (Each file now emits a single path-named
-    // module row, so co-located duplicate modules no longer occur — but the
-    // dedup keeps cached/fresh parity robust regardless.)
-    let mut seen_node_ids: HashSet<u64> = HashSet::new();
-    let mut edge_set: HashSet<u64> = HashSet::new();
-    let mut edge_changes: Vec<EdgeChange> = Vec::new();
-
-    for module in &modules {
-        if seen_node_ids.insert(module.id) {
-            node_changes.push(NodeChange::Add(module.clone()));
-        }
-
-        // Get all nodes in this module's file
-        let file_nodes = store.get_nodes_in_file(&module.file_path);
-        for node in &file_nodes {
-            if node.kind != NodeKind::Module && seen_node_ids.insert(node.id) {
-                node_changes.push(NodeChange::Add(node.clone()));
-            }
-            // Collect edges for this node (deduplicated by edge ID). Fetched
-            // unconditionally, regardless of node dedup above, so edges
-            // sourced from/targeting a repeated module row are still found.
-            let edges = store.get_edges(node.id, EdgeDirection::Both);
-            for edge in edges {
-                if edge_set.insert(edge.id) {
-                    edge_changes.push(EdgeChange::Add(edge));
-                }
-            }
-        }
-    }
+    // Reconstruct the MapResult from the store using the same shared assembly
+    // the MCP server uses, so cached output matches a fresh `keel map`.
+    let map_result = keel_enforce::map::build_map_from_store(store, depth);
 
     if verbose {
         eprintln!(
             "keel map --cached: read {} nodes, {} edges from graph.db",
-            node_changes.len(),
-            edge_changes.len()
+            map_result.summary.total_nodes, map_result.summary.total_edges
         );
-    }
-
-    // Build MapResult using same helpers as full map
-    let entries: Vec<keel_parsers::walker::WalkEntry> = Vec::new();
-    let mut map_result = build_map_result(&node_changes, &edge_changes, &entries);
-    map_result.depth = depth;
-
-    // Reconstruct language list from file extensions in module paths, using
-    // the canonical table verbatim so cached output matches a fresh `keel map`
-    // (which reports the walker's raw language strings, e.g. "svelte").
-    let mut languages: HashSet<String> = HashSet::new();
-    for module in &modules {
-        let path = std::path::Path::new(&module.file_path);
-        if let Some(lang) = keel_parsers::treesitter::detect_language(path) {
-            languages.insert(lang.to_string());
-        }
-    }
-    let mut langs: Vec<String> = languages.into_iter().collect();
-    langs.sort();
-    map_result.summary.languages = langs;
-
-    if depth >= 1 {
-        populate_hotspots(&mut map_result, &node_changes, &edge_changes);
-    }
-    if depth >= 2 {
-        populate_functions(&mut map_result, &node_changes, &edge_changes);
     }
 
     let metrics = EventMetrics {

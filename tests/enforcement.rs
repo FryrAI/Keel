@@ -16,6 +16,8 @@ mod test_clean_compile;
 mod test_docstrings;
 #[path = "enforcement/test_duplicate_detection.rs"]
 mod test_duplicate_detection;
+#[path = "enforcement/test_economy.rs"]
+mod test_economy;
 #[path = "enforcement/test_explain.rs"]
 mod test_explain;
 #[path = "enforcement/test_function_removed.rs"]

@@ -104,6 +104,13 @@ pub(crate) fn handle_map(
         .and_then(|v| v.as_str())
         .unwrap_or("json");
 
+    // Matches the CLI `keel map` default (1 = modules + hotspots).
+    let depth = params
+        .as_ref()
+        .and_then(|p| p.get("depth"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as u32;
+
     let scope: Vec<String> = params
         .as_ref()
         .and_then(|p| p.get("scope").cloned())
@@ -184,27 +191,19 @@ pub(crate) fn handle_map(
                 "text": format!("{}{}", header, text),
             }))
         } else {
-            let module_entries: Vec<Value> = modules
-                .iter()
-                .map(|m| {
-                    let nodes = store.get_nodes_in_file(&m.file_path);
-                    total_nodes += nodes.len();
-                    serde_json::json!({
-                        "name": m.name,
-                        "file": m.file_path,
-                        "node_count": nodes.len(),
-                    })
-                })
-                .collect();
-
-            Ok(serde_json::json!({
-                "status": "ok",
-                "format": "json",
-                "scope": scope,
-                "module_count": modules.len(),
-                "total_nodes": total_nodes,
-                "modules": module_entries,
-            }))
+            // Full-graph JSON: reconstruct the same MapResult the CLI
+            // serializes (summary counts, module profiles, hotspots) through
+            // the shared assembly, so `keel/map` and `keel map --json` report
+            // an identical graph. `status`/`format`/`scope` are layered on for
+            // MCP clients.
+            let map_result = keel_enforce::map::build_map_from_store(&*store, depth);
+            let mut value = serde_json::to_value(&map_result).map_err(internal_err)?;
+            if let Value::Object(obj) = &mut value {
+                obj.insert("status".into(), Value::from("ok"));
+                obj.insert("format".into(), Value::from("json"));
+                obj.insert("scope".into(), serde_json::json!(scope));
+            }
+            Ok(value)
         }
     }
 }
