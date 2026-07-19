@@ -155,6 +155,69 @@ Multiple symbols share the same name in overlapping scope.
 
 **Fix:** Rename one of the symbols to be more specific. Use `keel name "<description>"` for naming suggestions.
 
+### W005 — Dead Code
+
+**Severity:** WARNING
+
+A private function has no callers anywhere in the graph and isn't referenced in the current compile batch.
+
+```json
+{
+  "code": "W005",
+  "message": "Function `computeLegacyDiscount` has no callers",
+  "file": "src/pricing.ts",
+  "line": 88,
+  "hash": "h1Sx4kV2f6Q",
+  "fix_hint": "No callers found for `computeLegacyDiscount` — delete it, or wire it in and re-run `keel map` to refresh call edges",
+  "confidence": 0.7,
+  "resolution_tier": "heuristic"
+}
+```
+
+**Fix:** Delete the function, or call it from somewhere and re-run `keel map` to refresh call edges. Public functions, entrypoints, tests, and underscore-prefixed names are exempt. Disable with `enforce.dead_code: false` in `keel.json`.
+
+### W006 — Duplicate Implementation
+
+**Severity:** WARNING
+
+A function body is identical (whitespace-normalized) to a function already defined in another file.
+
+```json
+{
+  "code": "W006",
+  "message": "Body of `formatCurrency` is identical to `formatMoney` at src/utils/money.ts:12",
+  "file": "src/checkout/format.ts",
+  "line": 30,
+  "hash": "",
+  "fix_hint": "Call `formatMoney` (src/utils/money.ts:12) instead of duplicating it, or extract a shared helper",
+  "confidence": 0.85,
+  "resolution_tier": "heuristic"
+}
+```
+
+**Fix:** Call the existing implementation instead of duplicating it, or extract a shared helper both call. Trivial bodies (under ~60 normalized characters, e.g. one-line getters) are exempt. Disable with `enforce.duplication: false` in `keel.json`.
+
+### W007 — Oversized File
+
+**Severity:** WARNING
+
+A compiled file exceeds the configured line budget (`enforce.max_file_lines`, default 400) and grew relative to the last `keel map`.
+
+```json
+{
+  "code": "W007",
+  "message": "File is ~512 lines (budget 400) and growing",
+  "file": "src/services/order_service.ts",
+  "line": 1,
+  "hash": "i3Tx7kW9f0Q",
+  "fix_hint": "Split src/services/order_service.ts into focused modules under 400 lines — run `keel analyze src/services/order_service.ts` for split suggestions, or delete what's no longer needed",
+  "confidence": 0.8,
+  "resolution_tier": "heuristic"
+}
+```
+
+**Fix:** Split the file into focused modules, or delete unused code. Run `keel analyze <file>` for split suggestions. Shrinking a file that's already over budget doesn't re-trigger the warning. Disable with `enforce.oversized_files: false` in `keel.json`, or raise the budget with `enforce.max_file_lines`.
+
 ## Info
 
 ### S001 — Suppressed
