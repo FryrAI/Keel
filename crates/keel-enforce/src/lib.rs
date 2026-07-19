@@ -16,10 +16,12 @@ pub mod check;
 pub mod circuit_breaker;
 pub mod engine;
 pub mod fix_generator;
+pub mod focus;
 pub mod hash_diff;
 pub mod naming;
 pub mod progressive;
 pub mod queries;
+pub mod skeleton;
 pub mod snapshot;
 pub mod suppress;
 #[cfg(test)]

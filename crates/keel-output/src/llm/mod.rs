@@ -5,14 +5,16 @@ pub mod compile;
 pub mod discover;
 pub mod explain;
 pub mod fix;
+pub mod focus;
 pub mod map;
 pub mod name;
+pub mod skeleton;
 pub mod violation;
 
 use crate::OutputFormatter;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
 };
 
 pub struct LlmFormatter {
@@ -22,6 +24,8 @@ pub struct LlmFormatter {
     pub compile_depth: u32,
     /// Max token budget for output truncation. Default: 500.
     pub max_tokens: usize,
+    /// Explicit `--budget` for skeleton/focus. `None` = no truncation.
+    pub budget: Option<usize>,
 }
 
 impl LlmFormatter {
@@ -31,6 +35,7 @@ impl LlmFormatter {
             map_depth: 1,
             compile_depth: 1,
             max_tokens: 500,
+            budget: None,
         }
     }
 
@@ -40,6 +45,7 @@ impl LlmFormatter {
             map_depth,
             compile_depth,
             max_tokens: 500,
+            budget: None,
         }
     }
 
@@ -48,6 +54,12 @@ impl LlmFormatter {
         if let Some(t) = max_tokens {
             self.max_tokens = t;
         }
+        self
+    }
+
+    /// Sets the explicit `--budget` used by skeleton/focus truncation.
+    pub fn with_budget(mut self, budget: Option<usize>) -> Self {
+        self.budget = budget;
         self
     }
 }
@@ -101,6 +113,14 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_audit(&self, result: &AuditResult) -> String {
         audit::format_audit(result, self.max_tokens)
+    }
+
+    fn format_skeleton(&self, result: &SkeletonResult) -> String {
+        skeleton::format_skeleton(result, self.budget)
+    }
+
+    fn format_focus(&self, result: &FocusResult) -> String {
+        focus::format_focus(result, self.budget)
     }
 }
 

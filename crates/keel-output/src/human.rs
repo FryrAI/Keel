@@ -2,7 +2,7 @@ use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
 };
 
 pub struct HumanFormatter;
@@ -345,6 +345,67 @@ impl OutputFormatter for HumanFormatter {
                 out.push_str(&format!("  {}\n", r.message));
             }
         }
+        out
+    }
+
+    fn format_skeleton(&self, result: &SkeletonResult) -> String {
+        let mut out = format!(
+            "Skeleton: {} ({}, {} symbols)\n",
+            result.file,
+            result.language,
+            result.symbols.len(),
+        );
+        if !result.imports.is_empty() {
+            out.push_str(&format!("Imports: {}\n", result.imports.join(", ")));
+        }
+        for s in &result.symbols {
+            out.push_str(&format!(
+                "  {}{}  L{}\n",
+                if s.is_public { "" } else { "[private] " },
+                s.signature,
+                s.line,
+            ));
+            if let Some(doc) = &s.docstring {
+                out.push_str(&format!("    doc: {}\n", doc));
+            }
+        }
+        out
+    }
+
+    fn format_focus(&self, result: &FocusResult) -> String {
+        let mut out = format!(
+            "Focus: {} (depth {}, {} files, {} callers at risk)\n",
+            result.target,
+            result.depth,
+            result.files.len(),
+            result.callers.len(),
+        );
+        out.push_str("\nFiles to read (ranked):\n");
+        for f in &result.files {
+            out.push_str(&format!(
+                "  {} [{}] distance={}\n",
+                f.path, f.role, f.distance,
+            ));
+            for s in &f.symbols {
+                out.push_str(&format!(
+                    "    {} [{}] L{} callers={} callees={}\n",
+                    s.name, s.hash, s.line, s.callers, s.callees,
+                ));
+            }
+        }
+        if !result.callers.is_empty() {
+            out.push_str("\nSymbols at risk (callers):\n");
+            for c in &result.callers {
+                out.push_str(&format!(
+                    "  {} [{}] {}:{} distance={} callers={}\n",
+                    c.name, c.hash, c.file, c.line, c.distance, c.callers,
+                ));
+            }
+        }
+        out.push_str(&format!(
+            "\nSuggested read order: {}\n",
+            result.read_order.join(" -> "),
+        ));
         out
     }
 }

@@ -164,6 +164,31 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/skeleton".into(),
+            description: "Compressed signature-only view of a file (no bodies): imports and function/class signatures".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string" },
+                    "docs": { "type": "boolean", "description": "Include docstrings" },
+                    "private": { "type": "boolean", "description": "Include private symbols" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/focus".into(),
+            description: "Minimal context set for safely modifying a target (hash or file): ranked files to read, callers at risk, and a read order".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["target"],
+                "properties": {
+                    "target": { "type": "string", "description": "Node hash or file path" },
+                    "depth": { "type": "integer", "default": 2 }
+                }
+            }),
+        },
     ]
 }
 
@@ -191,6 +216,8 @@ pub(crate) fn dispatch_tool(
         "keel/analyze" => crate::mcp_analyze::handle_analyze(store, arguments),
         "keel/audit" => crate::mcp_audit::handle_audit(store, arguments),
         "keel/context" => crate::mcp_context::handle_context(store, arguments),
+        "keel/skeleton" => crate::mcp_skeleton::handle_skeleton(arguments),
+        "keel/focus" => crate::mcp_focus::handle_focus(engine, arguments),
         _ => return None,
     })
 }

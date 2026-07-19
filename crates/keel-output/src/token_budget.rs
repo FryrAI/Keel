@@ -33,6 +33,32 @@ pub fn truncate_to_budget(lines: &[String], max_tokens: usize) -> (Vec<String>, 
     (kept, 0)
 }
 
+/// Render an always-kept `header` followed by entry blocks, dropping trailing
+/// whole entries to fit `max_tokens` and appending a `... +N more (raise
+/// --budget)` trailer when any are dropped.
+///
+/// Each entry is a self-contained block (it may span multiple lines) so
+/// truncation never splits an entry. Used by `skeleton` and `focus` LLM output.
+pub fn render_with_budget(header: &str, entries: &[String], max_tokens: usize) -> String {
+    let remaining = max_tokens.saturating_sub(estimate_tokens(header)).max(1);
+    let (kept, overflow) = truncate_to_budget(entries, remaining);
+
+    let mut out = String::from(header);
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    for entry in &kept {
+        out.push_str(entry);
+        if !entry.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    if overflow > 0 {
+        out.push_str(&format!("... +{} more (raise --budget)\n", overflow));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +97,33 @@ mod tests {
         ];
         let (kept, _overflow) = truncate_to_budget(&lines, 1);
         assert!(!kept.is_empty()); // Always keeps at least one
+    }
+
+    #[test]
+    fn test_render_with_budget_fits() {
+        let entries = vec!["fn a()".into(), "fn b()".into()];
+        let out = render_with_budget("HEADER", &entries, 500);
+        assert!(out.starts_with("HEADER\n"));
+        assert!(out.contains("fn a()"));
+        assert!(out.contains("fn b()"));
+        assert!(!out.contains("more (raise --budget)"));
+    }
+
+    #[test]
+    fn test_render_with_budget_truncates_with_trailer() {
+        let entries: Vec<String> = (0..20)
+            .map(|i| format!("fn function_number_{i}(arg: SomeLongType) -> ResultType"))
+            .collect();
+        let out = render_with_budget("HEADER symbols=20", &entries, 30);
+        assert!(out.contains("more (raise --budget)"));
+        // Header is always present even under a tiny budget.
+        assert!(out.starts_with("HEADER symbols=20\n"));
+        // Complete entries only: every kept line is a full entry (no partials).
+        for line in out.lines().skip(1) {
+            if line.contains("more (raise --budget)") {
+                continue;
+            }
+            assert!(line.starts_with("fn function_number_"));
+        }
     }
 }

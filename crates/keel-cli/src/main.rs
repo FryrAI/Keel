@@ -25,12 +25,20 @@ fn main() {
         _ => (1, 1),
     };
 
+    // `--budget` on skeleton/focus drives LLM truncation for those commands.
+    let budget = match &cli.command {
+        Commands::Skeleton { budget, .. } => *budget,
+        Commands::Focus { budget, .. } => *budget,
+        _ => None,
+    };
+
     let formatter: Box<dyn keel_output::OutputFormatter> = if cli.json {
         Box::new(keel_output::json::JsonFormatter)
     } else if cli.llm {
         Box::new(
             keel_output::llm::LlmFormatter::with_depths(map_depth, compile_depth)
-                .with_max_tokens(cli.max_tokens),
+                .with_max_tokens(cli.max_tokens)
+                .with_budget(budget),
         )
     } else {
         Box::new(keel_output::human::HumanFormatter)
@@ -174,6 +182,23 @@ fn main() {
         ),
         Commands::Context { file } => (
             commands::context::run(&*formatter, cli.verbose, file, cli.json, cli.llm),
+            Default::default(),
+        ),
+        Commands::Skeleton {
+            file,
+            docs,
+            private,
+            budget: _,
+        } => (
+            commands::skeleton::run(&*formatter, cli.verbose, file, docs, private),
+            Default::default(),
+        ),
+        Commands::Focus {
+            target,
+            depth,
+            budget: _,
+        } => (
+            commands::focus::run(&*formatter, cli.verbose, target, depth),
             Default::default(),
         ),
         Commands::Serve { mcp, http, watch } => (

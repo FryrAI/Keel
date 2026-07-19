@@ -3,12 +3,16 @@ mod audit;
 mod check;
 mod delta;
 mod fix_name;
+mod focus;
+mod skeleton;
 
 pub use analyze::*;
 pub use audit::*;
 pub use check::*;
 pub use delta::*;
 pub use fix_name::*;
+pub use focus::*;
+pub use skeleton::*;
 
 use serde::{Deserialize, Serialize};
 

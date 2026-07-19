@@ -147,6 +147,8 @@ keel where a7Bx3kM9f2Q
 | `keel map [--depth 0-3]` | Depth-aware structural map | <5s for 100k LOC |
 | `keel compile [--depth 0-2] [file...]` | Validation with backpressure | <200ms single file |
 | `keel discover <hash>` | Adjacency lookup (callers, callees) | <50ms |
+| `keel skeleton <file>` | Compressed signature-only view (no bodies) | <50ms |
+| `keel focus <hash\|file>` | Minimal context set to safely modify a target | <50ms |
 | `keel where <hash>` | Hash → file:line resolution | <50ms |
 | `keel explain <code> <hash>` | Resolution chain explanation | <50ms |
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |

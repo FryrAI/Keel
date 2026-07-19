@@ -14,7 +14,7 @@ pub mod token_budget;
 
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
 };
 
 pub trait OutputFormatter {
@@ -29,4 +29,6 @@ pub trait OutputFormatter {
     fn format_compile_delta(&self, delta: &CompileDelta) -> String;
     fn format_analyze(&self, result: &AnalyzeResult) -> String;
     fn format_audit(&self, result: &AuditResult) -> String;
+    fn format_skeleton(&self, result: &SkeletonResult) -> String;
+    fn format_focus(&self, result: &FocusResult) -> String;
 }

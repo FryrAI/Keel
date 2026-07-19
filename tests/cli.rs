@@ -19,6 +19,8 @@ mod test_exit_codes;
 mod test_explain;
 #[path = "cli/test_fix.rs"]
 mod test_fix;
+#[path = "cli/test_focus.rs"]
+mod test_focus;
 #[path = "cli/test_init.rs"]
 mod test_init;
 #[path = "cli/test_init_merge.rs"]
@@ -29,6 +31,8 @@ mod test_map;
 mod test_name;
 #[path = "cli/test_search.rs"]
 mod test_search;
+#[path = "cli/test_skeleton.rs"]
+mod test_skeleton;
 #[path = "cli/test_stats.rs"]
 mod test_stats;
 #[path = "cli/test_where.rs"]

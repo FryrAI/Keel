@@ -225,6 +225,33 @@ pub(crate) enum Commands {
         file: String,
     },
 
+    /// Compressed signature-only view of a file (no bodies)
+    Skeleton {
+        /// File path to summarize
+        file: String,
+        /// Include docstrings
+        #[arg(long)]
+        docs: bool,
+        /// Include private symbols (default: public only)
+        #[arg(long)]
+        private: bool,
+        /// Token budget for LLM output (truncates, keeping whole entries)
+        #[arg(long)]
+        budget: Option<usize>,
+    },
+
+    /// Minimal context set for safely modifying a target (hash or file)
+    Focus {
+        /// Hash or file path to focus on
+        target: String,
+        /// Transitive-caller traversal depth (default: 2)
+        #[arg(long, default_value = "2")]
+        depth: u32,
+        /// Token budget for LLM output (truncates, keeping whole entries)
+        #[arg(long)]
+        budget: Option<usize>,
+    },
+
     /// Remove all keel-generated files
     Deinit,
 
@@ -271,3 +298,7 @@ pub(crate) enum Commands {
 #[cfg(test)]
 #[path = "cli_args_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cli_args_context_tests.rs"]
+mod context_tests;
