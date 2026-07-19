@@ -14,12 +14,13 @@ pub mod token_budget;
 
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
 };
 
 pub trait OutputFormatter {
     fn format_compile(&self, result: &CompileResult) -> String;
     fn format_discover(&self, result: &DiscoverResult) -> String;
+    fn format_file_symbols(&self, result: &FileSymbols) -> String;
     fn format_explain(&self, result: &ExplainResult) -> String;
     fn format_map(&self, result: &MapResult) -> String;
     fn format_fix(&self, result: &FixResult) -> String;

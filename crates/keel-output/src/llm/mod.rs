@@ -12,7 +12,7 @@ pub mod violation;
 use crate::OutputFormatter;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
 };
 
 pub struct LlmFormatter {
@@ -65,6 +65,10 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_discover(&self, result: &DiscoverResult) -> String {
         discover::format_discover(result)
+    }
+
+    fn format_file_symbols(&self, result: &FileSymbols) -> String {
+        discover::format_file_symbols(result)
     }
 
     fn format_explain(&self, result: &ExplainResult) -> String {
@@ -212,6 +216,50 @@ mod tests {
         assert!(out.contains("CALLERS count=1"));
         assert!(out.contains("d=1 cal11111111@src/main.rs:8"));
         assert!(out.contains("MODULE src/h.rs fns=1"));
+    }
+
+    #[test]
+    fn test_llm_file_symbols_file_mode() {
+        let fmt = LlmFormatter::new();
+        let result = FileSymbols {
+            version: env!("CARGO_PKG_VERSION").into(),
+            command: "discover".into(),
+            path: Some("src/handler.rs".into()),
+            symbols: vec![FileSymbol {
+                kind: "function".into(),
+                name: "handle".into(),
+                hash: "abc12345678".into(),
+                file: "src/handler.rs".into(),
+                line: 5,
+                callers: 2,
+                callees: 3,
+            }],
+        };
+        let out = fmt.format_file_symbols(&result);
+        assert!(out.contains("FILE src/handler.rs symbols=1"));
+        assert!(out.contains("  function handle hash=abc12345678 line=5 callers=2 callees=3"));
+    }
+
+    #[test]
+    fn test_llm_file_symbols_name_mode() {
+        let fmt = LlmFormatter::new();
+        let result = FileSymbols {
+            version: env!("CARGO_PKG_VERSION").into(),
+            command: "discover".into(),
+            path: None,
+            symbols: vec![FileSymbol {
+                kind: "function".into(),
+                name: "handle".into(),
+                hash: "abc12345678".into(),
+                file: "src/handler.rs".into(),
+                line: 5,
+                callers: 2,
+                callees: 3,
+            }],
+        };
+        let out = fmt.format_file_symbols(&result);
+        assert!(!out.contains("FILE "));
+        assert!(out.contains("handle hash=abc12345678 src/handler.rs:5 callers=2 callees=3"));
     }
 
     #[test]

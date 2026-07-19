@@ -249,6 +249,43 @@ fn test_discover_shows_both_directions() {
 }
 
 #[test]
+/// `keel discover <file> --json` must route through the formatter and emit valid JSON.
+fn test_discover_file_mode_json_is_valid() {
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n\
+         export function bye(name: string): string { return name; }\n",
+    )]);
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["discover", "src/index.ts", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel discover");
+
+    assert!(
+        output.status.success(),
+        "discover file --json should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("invalid JSON: {e}\n---\n{stdout}"));
+    assert_eq!(parsed["command"], "discover");
+    assert_eq!(parsed["path"], "src/index.ts");
+    let symbols = parsed["symbols"]
+        .as_array()
+        .expect("symbols should be an array");
+    assert!(!symbols.is_empty(), "expected at least one symbol");
+    assert!(
+        symbols[0]["hash"].as_str().is_some(),
+        "each symbol should carry a hash"
+    );
+}
+
+#[test]
 /// `keel discover` should include edge confidence and resolution tier.
 fn test_discover_includes_edge_metadata() {
     let dir = init_and_map_project(&[(

@@ -22,7 +22,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
-    /// Max token budget for LLM output (default: 500)
+    /// Max token budget for LLM output of compile/map/audit (default: 500)
     #[arg(long, global = true)]
     pub max_tokens: Option<usize>,
 
