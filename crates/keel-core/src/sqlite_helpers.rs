@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{params, Result as SqlResult};
 
 use crate::sqlite::SqliteGraphStore;
@@ -72,6 +74,85 @@ impl SqliteGraphStore {
             }
         };
         result
+    }
+
+    /// Build the monorepo package index straight from the graph:
+    /// `package -> (symbol name -> node id)`. Empty for repos that set no
+    /// `package` column. Lets `keel compile`'s incremental sync reproduce the
+    /// map's cross-package call edges instead of dropping them on prune.
+    pub fn package_node_index(&self) -> HashMap<String, HashMap<String, u64>> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT package, name, id FROM nodes WHERE package IS NOT NULL AND kind != 'module'",
+        ) {
+            Ok(s) => s,
+            Err(_) => return HashMap::new(),
+        };
+        let mut index: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? as u64,
+            ))
+        }) {
+            for (pkg, name, id) in rows.flatten() {
+                index.entry(pkg).or_default().insert(name, id);
+            }
+        }
+        index
+    }
+
+    /// BAML boundary function nodes as `name -> node id`, read from the graph
+    /// the last `keel map` populated. Used by the compile sync to re-resolve
+    /// calls into `.baml` functions; callers gate this on `baml_src` existing
+    /// so non-BAML repos never run the query.
+    pub fn baml_function_nodes(&self) -> HashMap<String, u64> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT name, id FROM nodes WHERE kind = 'function' AND file_path LIKE '%.baml'",
+        ) {
+            Ok(s) => s,
+            Err(_) => return HashMap::new(),
+        };
+        let mut index: HashMap<String, u64> = HashMap::new();
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+        }) {
+            for (name, id) in rows.flatten() {
+                index.entry(name).or_insert(id);
+            }
+        }
+        index
+    }
+
+    /// Load the persisted batch-mode state blob (opaque JSON owned by
+    /// `keel-enforce`), or `None` when no batch is active. Stored as a single
+    /// `keel_meta` row so batch mode persists the same way circuit-breaker
+    /// state does — one atomic SQLite write, no stray `.keel/batch.json`.
+    pub fn load_batch(&self) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT value FROM keel_meta WHERE key = 'batch'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    }
+
+    /// Persist the batch-mode state blob, replacing any previous one atomically.
+    pub fn save_batch(&self, json: &str) -> Result<(), GraphError> {
+        self.conn.execute(
+            "INSERT INTO keel_meta (key, value) VALUES ('batch', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![json],
+        )?;
+        Ok(())
+    }
+
+    /// Remove any persisted batch-mode state (batch ended or expired).
+    pub fn clear_batch(&self) -> Result<(), GraphError> {
+        self.conn
+            .execute("DELETE FROM keel_meta WHERE key = 'batch'", [])?;
+        Ok(())
     }
 
     /// Load circuit breaker state from the database.

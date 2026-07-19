@@ -118,17 +118,9 @@ fn test_batch_engine_defers_and_fires() {
 }
 
 #[test]
-fn test_batch_not_expired_immediately() {
-    let batch = BatchState::new();
-    assert!(!batch.is_expired());
-}
-
-#[test]
-fn test_batch_expired_state() {
-    // Can't directly test 60s timeout, but we can test the expired constructor
-    // The `new_expired()` method is cfg(test) only within the crate.
-    // Instead, verify the BatchState API contract.
+fn test_batch_state_starts_empty() {
+    // Inactivity expiry now lives on the SQLite-backed `PersistentBatch`, not on
+    // the in-process `BatchState` — which is just the deferred queue.
     let batch = BatchState::new();
     assert_eq!(batch.deferred_count(), 0);
-    assert!(!batch.is_expired());
 }

@@ -98,6 +98,30 @@ impl Definition {
         let lang = crate::treesitter::detect_language(Path::new(&self.file_path)).unwrap_or("");
         keel_core::hash::normalize_body_for_hash(&self.body_text, lang)
     }
+
+    /// The canonical content hash of this definition: `compute_hash` over the
+    /// signature, normalized body, and docstring — exactly the triple
+    /// `keel map` stores for a non-colliding symbol. Single source of truth
+    /// for the several call sites that previously inlined this expression.
+    pub fn hash(&self) -> String {
+        keel_core::hash::compute_hash(
+            &self.signature,
+            &self.body_for_hash(),
+            self.docstring.as_deref().unwrap_or(""),
+        )
+    }
+
+    /// The disambiguated content hash, salted with `file_path` — the identity
+    /// `keel map` falls back to when a symbol's base [`hash`](Self::hash)
+    /// collides with a different node.
+    pub fn hash_disambiguated(&self, file_path: &str) -> String {
+        keel_core::hash::compute_hash_disambiguated(
+            &self.signature,
+            &self.body_for_hash(),
+            self.docstring.as_deref().unwrap_or(""),
+            file_path,
+        )
+    }
 }
 
 /// The flavour of a reference occurrence.

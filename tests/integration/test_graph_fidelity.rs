@@ -349,6 +349,75 @@ fn test_self_method_call_resolves_high_confidence() {
 }
 
 #[test]
+fn test_compile_preserves_method_and_baml_edges() {
+    // Regression for the shared-ladder fix. `keel compile` prunes a file's
+    // outgoing call edges and re-resolves them. The old compile ladder was a
+    // weaker copy of the map's (same-file local -> tier-2 -> unique bare name),
+    // so it could not reproduce the map's BAML boundary edges at their
+    // warning-tier confidence — every compile either dropped them or promoted
+    // them to an error-tier bare-name match. The compile now runs the map's own
+    // ladder, so both the same-file method edge and the BAML edge survive a
+    // compile at map quality.
+    let dir = TempDir::new().unwrap();
+    // A BAML boundary function.
+    write(
+        &dir,
+        "baml_src/main.baml",
+        "function ExtractResume(text: string) -> Resume {\n  client GPT4\n}\n",
+    );
+    // A caller with BOTH a same-file method call (this.compute) and a call into
+    // the BAML surface (b.ExtractResume).
+    write(
+        &dir,
+        "app.ts",
+        "export class Widget {\n  render(): number {\n    return this.compute();\n  }\n  compute(): number {\n    return 42;\n  }\n}\n\nexport function callModel(): number {\n  return b.ExtractResume();\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    // After the map both edges exist; the BAML edge is warning-tier (< 0.80).
+    {
+        let store = open_db(&dir);
+        assert!(
+            !incoming_calls(&store, "app.ts", "compute").is_empty(),
+            "map: this.compute() edge missing"
+        );
+        let baml = incoming_calls(&store, "baml_src/main.baml", "ExtractResume");
+        assert!(!baml.is_empty(), "map: BAML call edge missing");
+        assert!(
+            baml.iter().all(|e| e.confidence < 0.80),
+            "map: BAML edge must be warning-tier, got {:?}",
+            baml.iter().map(|e| e.confidence).collect::<Vec<_>>()
+        );
+    }
+
+    // Compile ONLY the caller file — this prunes and re-resolves app.ts's edges.
+    let out = run(&dir, &["compile", "app.ts"]);
+    assert!(
+        out.status.code() != Some(2),
+        "compile internal error: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let store = open_db(&dir);
+    assert!(
+        !incoming_calls(&store, "app.ts", "compute").is_empty(),
+        "compile destroyed the same-file method edge"
+    );
+    let baml = incoming_calls(&store, "baml_src/main.baml", "ExtractResume");
+    assert!(
+        !baml.is_empty(),
+        "compile destroyed the BAML boundary edge (the bug this fix targets)"
+    );
+    assert!(
+        baml.iter().all(|e| e.confidence < 0.80),
+        "compile must re-resolve the BAML edge at warning-tier (< 0.80); a 0.80 \
+         bare-name edge would falsely make the BAML call E001-eligible. got {:?}",
+        baml.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_obj_method_call_resolves_warning_tier() {
     let dir = TempDir::new().unwrap();
     // `w.compute()` on an unfamiliar receiver, with a UNIQUE same-file

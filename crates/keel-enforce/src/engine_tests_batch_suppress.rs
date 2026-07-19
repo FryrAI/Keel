@@ -138,38 +138,8 @@ fn test_suppression_prevents_circuit_breaker_escalation() {
     }
 }
 
-#[test]
-fn test_batch_expired_flushes_deferred() {
-    let store = SqliteGraphStore::in_memory().unwrap();
-    let mut engine = EnforcementEngine::new(Box::new(store));
-
-    // Set batch state to already expired
-    engine.batch_state = Some(crate::batch::BatchState::new_expired());
-
-    let mut def = make_definition("process", "def process(x)", "pass", "app.py");
-    def.type_hints_present = false;
-
-    let file = FileIndex {
-        file_path: "app.py".to_string(),
-        content_hash: 0,
-        definitions: vec![def],
-        references: vec![],
-        imports: vec![],
-        external_endpoints: vec![],
-        parse_duration_us: 0,
-    };
-
-    // Compile with expired batch -- should flush and include E002 immediately
-    let result = engine.compile(&[file]);
-    assert_eq!(result.status, "error");
-    let e002 = result.errors.iter().filter(|v| v.code == "E002").count();
-    assert!(
-        e002 > 0,
-        "E002 should fire immediately when batch is expired"
-    );
-    // Batch state should be consumed
-    assert!(
-        engine.batch_state.is_none(),
-        "Expired batch should be consumed"
-    );
-}
+// Batch inactivity expiry moved off the engine: it is enforced by the CLI
+// against the persisted `PersistentBatch` before batch mode is ever entered
+// (see `keel-enforce::batch` tests + the CLI `test_compile_batch` suite), so the
+// engine no longer carries a clock and the old auto-expire-on-compile test is
+// gone with it.

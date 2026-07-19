@@ -42,21 +42,24 @@ pub fn check_broken_callers_with_cache(
 
         let Some(existing) = existing else { continue };
 
-        // Compute expected hash from current definition. `definition_hashes`
-        // is the single source of truth for the plain + disambiguated pair
-        // (and applies issue-#36 body normalization).
-        let (new_hash, new_hash_disambiguated) =
-            crate::violations_util::definition_hashes(def, &file.file_path);
-
-        if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
-            continue; // No change
-        }
-
         // Body/docstring-only changes cannot break callers. Compare signatures
-        // whitespace-normalized so a pure reformat (rustfmt/prettier line wrap)
-        // doesn't read as a signature change and fire E001 against every caller.
+        // whitespace-normalized (a pure reformat — rustfmt/prettier line wrap —
+        // must not read as a signature change) FIRST, so this common case skips
+        // the definition_hashes normalize+hash below entirely. When signatures
+        // match, E001 never fires regardless of the hash, so the hashing was
+        // pure waste here.
         if normalize_signature(&existing.signature) == normalize_signature(&def.signature) {
             continue;
+        }
+
+        // Signature changed. Confirm it is a real content change (not a hash
+        // collision) before treating callers as broken. `definition_hashes` is
+        // the single source of truth for the plain + disambiguated pair (and
+        // applies issue-#36 body normalization).
+        let (new_hash, new_hash_disambiguated) =
+            crate::violations_util::definition_hashes(def, &file.file_path);
+        if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
+            continue; // No change
         }
 
         // Signature changed — find all callers with their edge confidence

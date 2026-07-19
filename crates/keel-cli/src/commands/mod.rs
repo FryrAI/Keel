@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod audit;
+pub mod call_resolve;
 pub mod check;
 pub mod checkpoint;
 pub mod compile;

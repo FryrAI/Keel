@@ -66,6 +66,40 @@ pub fn run(
         }
     };
 
+    // Handle batch mode. State is persisted in SQLite (a `keel_meta` row next
+    // to the circuit-breaker state) so it survives across separate `keel
+    // compile` processes — otherwise `--batch-start` sets state in a per-process
+    // engine that is dropped at exit, silently losing every deferred violation.
+    // These run on `store` before it is handed to the engine.
+    if batch_start {
+        if let Err(e) = PersistentBatch::new().save(&store) {
+            eprintln!("keel compile: failed to start batch: {}", e);
+            return (2, EventMetrics::default());
+        }
+        if verbose {
+            eprintln!("keel compile: batch mode started");
+        }
+        return (0, EventMetrics::default());
+    }
+
+    if batch_end {
+        let deferred = PersistentBatch::load(&store)
+            .map(|b| b.deferred)
+            .unwrap_or_default();
+        PersistentBatch::clear(&store);
+        let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
+        let exit = output_result(formatter, &result, strict, verbose);
+        let metrics = build_compile_metrics(&result, &[]);
+        return (exit, metrics);
+    }
+
+    // If a batch is active and not expired, this compile defers its deferrable
+    // violations into the persisted batch rather than firing them now. Reading
+    // it is a query on the already-open handle — no file I/O — and on the common
+    // no-batch path it is a single lookup that returns `None`.
+    let active_batch = PersistentBatch::load(&store);
+    let batch_deferring = active_batch.as_ref().is_some_and(|b| !b.is_expired());
+
     // Load persisted circuit breaker state
     let cb_state = store.load_circuit_breaker().unwrap_or_default();
 
@@ -78,36 +112,6 @@ pub fn run(
         engine.suppress(code);
     }
 
-    // Handle batch mode. State is persisted to `.keel/batch.json` so it survives
-    // across separate `keel compile` processes — otherwise `--batch-start` sets
-    // state in a per-process engine that is dropped at exit, silently losing
-    // every deferred violation.
-    if batch_start {
-        if let Err(e) = PersistentBatch::new().save(&keel_dir) {
-            eprintln!("keel compile: failed to start batch: {}", e);
-            return (2, EventMetrics::default());
-        }
-        if verbose {
-            eprintln!("keel compile: batch mode started");
-        }
-        return (0, EventMetrics::default());
-    }
-
-    if batch_end {
-        let deferred = PersistentBatch::load(&keel_dir)
-            .map(|b| b.deferred)
-            .unwrap_or_default();
-        PersistentBatch::clear(&keel_dir);
-        let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
-        let exit = output_result(formatter, &result, strict, verbose);
-        let metrics = build_compile_metrics(&result, &[]);
-        return (exit, metrics);
-    }
-
-    // If a batch is active and not expired, this compile defers its deferrable
-    // violations into the persisted batch rather than firing them now.
-    let active_batch = PersistentBatch::load(&keel_dir);
-    let batch_deferring = active_batch.as_ref().is_some_and(|b| !b.is_expired());
     if batch_deferring {
         engine.batch_start();
     }
@@ -235,43 +239,54 @@ pub fn run(
 
     let result = engine.compile(&file_indices);
 
-    // Persist circuit breaker state back to SQLite
+    // Persist circuit-breaker state and run the incremental graph sync. Both
+    // run *after* enforcement, sequentially, so they share ONE post-enforcement
+    // SQLite handle instead of opening (and re-initializing the schema on) a
+    // separate connection each. It is a fresh handle rather than the engine's
+    // own because the engine still owns its connection here and the sync needs
+    // `SqliteGraphStore` inherent methods the frozen `GraphStore` trait does not
+    // expose; E001/E004 already diffed against the pre-edit graph.
     let cb_out = engine.export_circuit_breaker();
     let cb_events = cb_out.len() as u32;
-    if !cb_out.is_empty() {
-        if let Ok(cb_store) =
-            keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
-        {
-            if let Err(e) = cb_store.save_circuit_breaker(&cb_out) {
+    let need_sync = !full_repo_compile && !file_indices.is_empty();
+    // One post-enforcement handle, reused for circuit-breaker persistence, the
+    // incremental sync, and the batch-state writes below. Opened only when
+    // something actually needs it, so the clean no-work path adds no connection.
+    let mut post_store = if !cb_out.is_empty() || need_sync || active_batch.is_some() {
+        match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "keel compile: failed to open graph for post-compile work: {}",
+                        e
+                    );
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(ps) = post_store.as_mut() {
+        if !cb_out.is_empty() {
+            if let Err(e) = ps.save_circuit_breaker(&cb_out) {
                 if verbose {
                     eprintln!("keel compile: failed to persist circuit breaker: {}", e);
                 }
             }
         }
-    }
-
-    // Incremental graph sync (issue #30): refresh nodes and outgoing edges for
-    // the compiled files so the *next* compile's E001 broken-caller checks run
-    // against fresh data — no full `keel map` required. Runs after enforcement,
-    // on a fresh store handle (the engine owns the original), so E001/E004 still
-    // diff against the pre-edit graph. Best-effort: failures never block output.
-    if !full_repo_compile && !file_indices.is_empty() {
-        if let Ok(mut sync_store) =
-            keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
-        {
-            let resolvers = super::compile_sync::SyncResolvers {
-                ts: ts.as_ref(),
-                py: py.as_ref(),
-                go: go_resolver.as_ref(),
-                rs: rs.as_ref(),
+        if need_sync {
+            // The same `ResolverSet` the map uses; `keel compile` only
+            // constructs resolvers for the languages it touched, so the
+            // untouched fields stay `None`.
+            let resolvers = super::map_lang_resolve::ResolverSet {
+                ts: ts.as_ref().map(|r| r as &dyn LanguageResolver),
+                py: py.as_ref().map(|r| r as &dyn LanguageResolver),
+                go: go_resolver.as_ref().map(|r| r as &dyn LanguageResolver),
+                rs: rs.as_ref().map(|r| r as &dyn LanguageResolver),
             };
-            super::compile_sync::sync_compiled_files(
-                &mut sync_store,
-                &cwd,
-                &file_indices,
-                &resolvers,
-                verbose,
-            );
+            super::compile_sync::sync_compiled_files(ps, &cwd, &file_indices, &resolvers, verbose);
         }
     }
 
@@ -279,14 +294,18 @@ pub fn run(
     let mut metrics = build_compile_metrics(&result, &target_files);
     metrics.circuit_breaker_events = cb_events;
 
-    // Batch-mode bookkeeping (ITEM 3): persist this compile's deferred
-    // violations, honoring the documented 60s inactivity auto-expire.
+    // Batch-mode bookkeeping: persist this compile's deferred violations,
+    // honoring the documented 60s inactivity auto-expire. Reuses the
+    // `post_store` handle opened above (guaranteed present when a batch is
+    // active, unless the reopen failed).
     if let Some(mut batch) = active_batch {
         if batch.is_expired() {
             // Expired: end the batch and fire the accumulated deferred alongside
             // this compile's own violations (which were NOT deferred, since
             // `batch_deferring` was false above).
-            PersistentBatch::clear(&keel_dir);
+            if let Some(ps) = post_store.as_ref() {
+                PersistentBatch::clear(ps);
+            }
             if verbose {
                 eprintln!("keel compile: batch expired (60s inactivity); firing deferred");
             }
@@ -300,9 +319,11 @@ pub fn run(
         // Still batching: stash this compile's deferred, keep the timer warm.
         batch.deferred.extend(engine.drain_batch_deferred());
         batch.touch();
-        if let Err(e) = batch.save(&keel_dir) {
-            if verbose {
-                eprintln!("keel compile: failed to persist batch: {}", e);
+        if let Some(ps) = post_store.as_ref() {
+            if let Err(e) = batch.save(ps) {
+                if verbose {
+                    eprintln!("keel compile: failed to persist batch: {}", e);
+                }
             }
         }
         // Only immediate (structural) violations fire during a batch.

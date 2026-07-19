@@ -10,13 +10,6 @@ use keel_core::hash::{compute_hash, compute_hash_disambiguated};
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::baml::{BamlBoundary, BamlSymbol};
 
-/// Confidence for a resolved BAML boundary call edge.
-///
-/// Deliberately below the 0.80 ERROR threshold: BAML resolution is a
-/// name-match heuristic across a language boundary, so its edges should never
-/// escalate to hard errors — they exist to make the surface visible.
-const BAML_EDGE_CONFIDENCE: f64 = 0.75;
-
 /// Materialise the BAML surface as boundary nodes and return an index of
 /// `function name -> node id` used to resolve calls into it.
 ///
@@ -120,11 +113,6 @@ pub fn resolve_baml_call(callee_name: &str, fn_index: &HashMap<String, u64>) -> 
         .map(|(_, s)| s)
         .unwrap_or(callee_name);
     fn_index.get(segment).copied()
-}
-
-/// The confidence assigned to a BAML boundary call edge.
-pub fn baml_edge_confidence() -> f64 {
-    BAML_EDGE_CONFIDENCE
 }
 
 /// Allocate a graph node, register its id/hash, and push the `Add` change.

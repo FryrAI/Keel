@@ -1,12 +1,34 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Resolve a cross-file call reference by matching imports to the global name index.
+/// Candidate provider for the shared call-resolution ladder
+/// ([`super::call_resolve::resolve_call_reference`]).
+///
+/// The two pipelines that resolve call edges — `keel map`'s second pass and
+/// `keel compile`'s incremental sync — differ only in where candidates come
+/// from: the map holds them in the in-memory indices it built during the walk,
+/// while the compile sync looks them up in the persisted graph. This trait is
+/// that seam, so both run the identical ladder instead of drifting copies.
+pub trait CallIndex {
+    /// Definitions carrying this bare name: `(relative_file_path, node_id)`.
+    fn candidates(&self, name: &str) -> Vec<(String, u64)>;
+    /// Every known `relative_file_path -> module_id` mapping, for matching an
+    /// import specifier to the module it resolves to.
+    fn module_files(&self) -> &HashMap<String, u64>;
+    /// `(file_path, name) -> node id` for definitions the pipeline knows
+    /// locally, used to resolve same-file method calls.
+    fn name_to_id(&self) -> &HashMap<(String, String), u64>;
+    /// `package -> (symbol -> node id)` for monorepo cross-package resolution.
+    fn package_index(&self) -> &HashMap<String, HashMap<String, u64>>;
+    /// BAML boundary function name -> node id.
+    fn baml_index(&self) -> &HashMap<String, u64>;
+}
+
+/// Resolve a cross-file call reference by matching imports to the candidate index.
 pub fn resolve_cross_file_call(
     callee_name: &str,
     imports: &[keel_parsers::resolver::Import],
-    global_name_index: &HashMap<String, Vec<(String, u64)>>,
-    file_module_ids: &HashMap<String, u64>,
+    idx: &dyn CallIndex,
 ) -> Option<u64> {
     // Handle qualified calls: "fmt.Println" (Go) or "module::func" (Rust)
     let (qualifier, func_name) = if let Some(dot_pos) = callee_name.find('.') {
@@ -18,6 +40,10 @@ pub fn resolve_cross_file_call(
     } else {
         (None, callee_name)
     };
+
+    // Candidates for the callee's bare name, and the module map, once.
+    let candidates = idx.candidates(func_name);
+    let file_module_ids = idx.module_files();
 
     // For qualified calls, find the import matching the qualifier
     if let Some(qual) = qualifier {
@@ -32,7 +58,7 @@ pub fn resolve_cross_file_call(
             }
 
             // Look for the function name in the imported module
-            if let Some(candidates) = global_name_index.get(func_name) {
+            if !candidates.is_empty() {
                 // Resolve the import to a module file
                 if let Some(resolved_module) =
                     resolve_import_to_module(&imp.source, file_module_ids)
@@ -42,7 +68,7 @@ pub fn resolve_cross_file_call(
                         .find(|(_, &id)| id == resolved_module)
                         .map(|(f, _)| f.as_str());
                     if let Some(rf) = resolved_file {
-                        for (file, node_id) in candidates {
+                        for (file, node_id) in &candidates {
                             if file == rf {
                                 return Some(*node_id);
                             }
@@ -52,7 +78,7 @@ pub fn resolve_cross_file_call(
                 // Fallback: match candidates from files in the package directory
                 let source = &imp.source;
                 let last_seg = source.rsplit('/').next().unwrap_or(source);
-                for (file, node_id) in candidates {
+                for (file, node_id) in &candidates {
                     if let Some(parent) = Path::new(file.as_str()).parent() {
                         if parent.file_name().and_then(|n| n.to_str()) == Some(last_seg) {
                             return Some(*node_id);
@@ -72,9 +98,9 @@ pub fn resolve_cross_file_call(
         if !names_match {
             continue;
         }
-        if let Some(candidates) = global_name_index.get(func_name) {
+        if !candidates.is_empty() {
             let source = &imp.source;
-            for (file, node_id) in candidates {
+            for (file, node_id) in &candidates {
                 if file == source {
                     return Some(*node_id);
                 }
@@ -85,14 +111,14 @@ pub fn resolve_cross_file_call(
                     .find(|(_, &id)| id == resolved_module)
                     .map(|(f, _)| f.as_str());
                 if let Some(rf) = resolved_file {
-                    for (file, node_id) in candidates {
+                    for (file, node_id) in &candidates {
                         if file == rf {
                             return Some(*node_id);
                         }
                     }
                 }
             }
-            for (file, node_id) in candidates {
+            for (file, node_id) in &candidates {
                 if file_module_ids.contains_key(file.as_str()) && source.contains(file.as_str()) {
                     return Some(*node_id);
                 }
@@ -228,19 +254,13 @@ pub fn resolve_import_to_module(
 
 /// Resolve an unqualified cross-file call by looking in the same directory.
 /// In Go, all files in the same directory share a package namespace.
-pub fn resolve_same_directory_call(
-    callee_name: &str,
-    caller_file: &str,
-    global_name_index: &HashMap<String, Vec<(String, u64)>>,
-) -> Option<u64> {
+pub fn resolve_same_directory_call(candidates: &[(String, u64)], caller_file: &str) -> Option<u64> {
     let caller_dir = Path::new(caller_file).parent()?.to_str()?;
-    if let Some(candidates) = global_name_index.get(callee_name) {
-        for (file, node_id) in candidates {
-            if file != caller_file {
-                if let Some(dir) = Path::new(file.as_str()).parent().and_then(|p| p.to_str()) {
-                    if dir == caller_dir {
-                        return Some(*node_id);
-                    }
+    for (file, node_id) in candidates {
+        if file != caller_file {
+            if let Some(dir) = Path::new(file.as_str()).parent().and_then(|p| p.to_str()) {
+                if dir == caller_dir {
+                    return Some(*node_id);
                 }
             }
         }
@@ -349,13 +369,7 @@ pub fn build_package_node_index(
 /// specifier (Go/Rust), while the map's `global_name_index` is keyed on
 /// repo-relative paths. This reconciles the two by matching the target name and
 /// a path suffix, falling back to a single unambiguous candidate.
-pub fn resolve_edge_to_node(
-    global_name_index: &HashMap<String, Vec<(String, u64)>>,
-    target_file: &str,
-    target_name: &str,
-) -> Option<u64> {
-    let candidates = global_name_index.get(target_name)?;
-
+pub fn resolve_edge_to_node(candidates: &[(String, u64)], target_file: &str) -> Option<u64> {
     // 1. Exact (already-relative) match.
     if let Some((_, id)) = candidates.iter().find(|(f, _)| f == target_file) {
         return Some(*id);
