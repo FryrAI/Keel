@@ -4,6 +4,7 @@
 //! These delegate to the same `GraphStore` the CLI uses, so the server never
 //! grows its own copy of graph-traversal logic — HTTP handlers stay thin.
 
+use keel_core::store::GraphStore;
 use keel_core::types::GraphNode;
 
 use crate::engine::EnforcementEngine;
@@ -18,29 +19,44 @@ pub struct ModuleMapEntry {
     pub node_count: usize,
 }
 
-impl EnforcementEngine {
-    /// Search graph nodes by name: exact `(name, kind)` match first, then a
-    /// case-insensitive substring scan. Mirrors the CLI `keel search` fallback
-    /// so all interfaces rank results identically. Results are capped at `limit`.
-    pub fn search_graph(&self, term: &str, kind: Option<&str>, limit: usize) -> Vec<GraphNode> {
-        let kind_str = kind.unwrap_or("");
-        let mut results = self.store.find_nodes_by_name(term, kind_str, "");
+/// Search graph nodes by name: exact `(name, kind)` match first, then a
+/// case-insensitive substring scan. Results are capped at `limit`.
+///
+/// This is the single search implementation shared by every interface — the
+/// CLI `keel search`, the MCP `keel/search` tool, and the HTTP `/search`
+/// route all call it, so they return identical results in identical order.
+pub fn search_graph(
+    store: &dyn GraphStore,
+    term: &str,
+    kind: Option<&str>,
+    limit: usize,
+) -> Vec<GraphNode> {
+    let kind_str = kind.unwrap_or("");
+    let mut results = store.find_nodes_by_name(term, kind_str, "");
 
-        if results.is_empty() {
-            let term_lower = term.to_lowercase();
-            for module in self.store.get_all_modules() {
-                for node in self.store.get_nodes_in_file(&module.file_path) {
-                    if node.name.to_lowercase().contains(&term_lower)
-                        && (kind_str.is_empty() || node.kind.as_str() == kind_str)
-                    {
-                        results.push(node);
-                    }
+    if results.is_empty() {
+        let term_lower = term.to_lowercase();
+        for module in store.get_all_modules() {
+            for node in store.get_nodes_in_file(&module.file_path) {
+                if node.name.to_lowercase().contains(&term_lower)
+                    && (kind_str.is_empty() || node.kind.as_str() == kind_str)
+                {
+                    results.push(node);
                 }
             }
         }
+    }
 
-        results.truncate(limit);
-        results
+    results.truncate(limit);
+    results
+}
+
+impl EnforcementEngine {
+    /// Search graph nodes by name, delegating to the shared [`search_graph`]
+    /// so the engine-backed interfaces (HTTP) rank results identically to the
+    /// store-backed ones (CLI, MCP).
+    pub fn search_graph(&self, term: &str, kind: Option<&str>, limit: usize) -> Vec<GraphNode> {
+        search_graph(&*self.store, term, kind, limit)
     }
 
     /// List every module with its node count, for a graph-wide map summary.
@@ -119,5 +135,79 @@ impl EnforcementEngine {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keel_core::sqlite::SqliteGraphStore;
+    use keel_core::types::{GraphNode, NodeKind};
+
+    fn node(id: u64, name: &str, kind: NodeKind) -> GraphNode {
+        GraphNode {
+            id,
+            hash: format!("hash{id:08}"),
+            kind,
+            name: name.to_string(),
+            signature: format!("fn {name}()"),
+            file_path: "src/lib.rs".to_string(),
+            line_start: id as u32,
+            line_end: id as u32 + 1,
+            docstring: None,
+            is_public: true,
+            type_hints_present: true,
+            has_docstring: false,
+            external_endpoints: vec![],
+            previous_hashes: vec![],
+            module_id: 0,
+            package: None,
+        }
+    }
+
+    fn fixture_store() -> SqliteGraphStore {
+        let store = SqliteGraphStore::in_memory().unwrap();
+        // Module so the substring scan has a file to walk.
+        store
+            .insert_node(&node(1, "module_lib", NodeKind::Module))
+            .unwrap();
+        store
+            .insert_node(&node(2, "parse", NodeKind::Function))
+            .unwrap();
+        store
+            .insert_node(&node(3, "parse_body", NodeKind::Function))
+            .unwrap();
+        store
+            .insert_node(&node(4, "reparse_all", NodeKind::Function))
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn exact_match_ranks_first() {
+        let store = fixture_store();
+        // "parse" matches exactly, so the exact-match path returns only it —
+        // the substring scan (which would also catch parse_body/reparse_all)
+        // is skipped because the exact match is non-empty.
+        let results = search_graph(&store, "parse", None, 20);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "parse");
+    }
+
+    #[test]
+    fn substring_fallback_when_no_exact_match() {
+        let store = fixture_store();
+        let results = search_graph(&store, "pars", None, 20);
+        let names: Vec<&str> = results.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"parse"));
+        assert!(names.contains(&"parse_body"));
+        assert!(names.contains(&"reparse_all"));
+    }
+
+    #[test]
+    fn limit_caps_results() {
+        let store = fixture_store();
+        let results = search_graph(&store, "pars", None, 2);
+        assert_eq!(results.len(), 2);
     }
 }

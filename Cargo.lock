@@ -1311,7 +1311,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
- "tower-http",
  "xxhash-rust",
 ]
 

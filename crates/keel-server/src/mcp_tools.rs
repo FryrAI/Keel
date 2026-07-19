@@ -76,7 +76,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 "properties": {
                     "format": { "type": "string", "enum": ["json", "llm"] },
                     "scope": { "type": "array", "items": { "type": "string" } },
-                    "file_path": { "type": "string", "description": "Scope map to a single file" }
+                    "file": { "type": "string", "description": "Scope map to a single file" }
                 }
             }),
         },

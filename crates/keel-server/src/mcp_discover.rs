@@ -55,7 +55,6 @@ pub(crate) fn handle_where(
         "file": node.file_path,
         "line_start": node.line_start,
         "line_end": node.line_end,
-        "stale": false,
     }))
     .map_err(internal_err)
 }
@@ -113,7 +112,7 @@ pub(crate) fn handle_map(
 
     let file_path = params
         .as_ref()
-        .and_then(|p| p.get("file_path"))
+        .and_then(|p| p.get("file"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -162,7 +161,7 @@ pub(crate) fn handle_map(
                 "status": "ok",
                 "format": "json",
                 "scope": scope,
-                "file_path": path,
+                "file": path,
                 "nodes": node_entries,
             }))
         }
