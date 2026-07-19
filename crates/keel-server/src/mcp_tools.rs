@@ -4,6 +4,8 @@
 //! maps a tool name to its handler. Split out of `mcp.rs` to keep both files
 //! under the 400-line cap.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -222,6 +224,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
 pub(crate) fn dispatch_tool(
     store: &SharedStore,
     engine: &SharedEngine,
+    root: &Path,
     name: &str,
     arguments: Option<Value>,
 ) -> Option<Result<Value, JsonRpcError>> {
@@ -236,11 +239,13 @@ pub(crate) fn dispatch_tool(
         "keel/search" => crate::mcp_search::handle_search(store, arguments),
         "keel/name" => crate::mcp_name::handle_name(store, arguments),
         "keel/analyze" => crate::mcp_analyze::handle_analyze(store, arguments),
-        "keel/audit" => crate::mcp_audit::handle_audit(store, arguments),
+        "keel/audit" => crate::mcp_audit::handle_audit(store, root, arguments),
         "keel/context" => crate::mcp_context::handle_context(store, arguments),
-        "keel/skeleton" => crate::mcp_skeleton::handle_skeleton(arguments),
+        "keel/skeleton" => crate::mcp_skeleton::handle_skeleton(root, arguments),
         "keel/focus" => crate::mcp_focus::handle_focus(engine, arguments),
-        "keel/checkpoint" => crate::mcp_checkpoint::handle_checkpoint(store, engine, arguments),
+        "keel/checkpoint" => {
+            crate::mcp_checkpoint::handle_checkpoint(store, engine, root, arguments)
+        }
         "keel/validate-plan" => crate::mcp_validate_plan::handle_validate_plan(store, arguments),
         _ => return None,
     })
@@ -257,21 +262,18 @@ pub(crate) fn dispatch_tool(
 pub(crate) fn handle_tools_call(
     store: &SharedStore,
     engine: &SharedEngine,
+    root: &Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let name = params
-        .as_ref()
-        .and_then(|p| p.get("name"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| crate::mcp::missing_param("name"))?
-        .to_string();
+    let name = crate::mcp::param_str(&params, "name")?.to_string();
 
     let arguments = params.as_ref().and_then(|p| p.get("arguments").cloned());
 
-    let outcome = dispatch_tool(store, engine, &name, arguments).ok_or_else(|| JsonRpcError {
-        code: -32602,
-        message: format!("Unknown tool: {}", name),
-    })?;
+    let outcome =
+        dispatch_tool(store, engine, root, &name, arguments).ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: format!("Unknown tool: {}", name),
+        })?;
 
     match outcome {
         // `Value`'s `Display` is compact JSON — no human reads it, and the

@@ -1,6 +1,7 @@
 //! MCP (Model Context Protocol) JSON-RPC server over stdin/stdout.
 
 use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -84,6 +85,7 @@ fn handle_initialize(params: Option<Value>) -> Value {
 fn dispatch(
     store: &SharedStore,
     engine: &SharedEngine,
+    root: &Path,
     method: &str,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
@@ -93,9 +95,9 @@ fn dispatch(
         "tools/list" => Ok(serde_json::json!({
             "tools": serde_json::to_value(tool_list()).map_err(internal_err)?
         })),
-        "tools/call" => crate::mcp_tools::handle_tools_call(store, engine, params),
+        "tools/call" => crate::mcp_tools::handle_tools_call(store, engine, root, params),
         // Legacy back-compat: tool names accepted as direct JSON-RPC methods.
-        _ => dispatch_tool(store, engine, method, params).unwrap_or_else(|| {
+        _ => dispatch_tool(store, engine, root, method, params).unwrap_or_else(|| {
             Err(JsonRpcError {
                 code: -32601,
                 message: format!("Method not found: {}", method),
@@ -110,6 +112,22 @@ fn dispatch(
 /// for JSON-RPC *notifications* (messages without an `id`), which per the
 /// JSON-RPC 2.0 spec MUST NOT be answered.
 pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> String {
+    // Legacy/test entry point: anchor filesystem-touching tools to the process
+    // cwd. The instrumented loop calls `process_line_with_root` with the
+    // server's authoritative root instead.
+    let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    process_line_with_root(store, engine, &root, line)
+}
+
+/// Like [`process_line`], but confines filesystem-touching tools (audit,
+/// skeleton, checkpoint) to an explicit project `root` rather than the ambient
+/// process cwd.
+pub(crate) fn process_line_with_root(
+    store: &SharedStore,
+    engine: &SharedEngine,
+    root: &Path,
+    line: &str,
+) -> String {
     if line.trim().is_empty() {
         return String::new();
     }
@@ -138,7 +156,7 @@ pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> S
         None => return String::new(),
     };
 
-    let response = match dispatch(store, engine, &request.method, request.params) {
+    let response = match dispatch(store, engine, root, &request.method, request.params) {
         Ok(result) => JsonRpcResponse {
             jsonrpc: "2.0".into(),
             result: Some(result),
@@ -169,6 +187,57 @@ pub(crate) fn missing_param(name: &str) -> JsonRpcError {
         code: -32602,
         message: format!("Missing '{}' parameter", name),
     }
+}
+
+// --- Typed parameter accessors ---
+//
+// Every tool handler pulls its arguments out of the same `Option<Value>` params
+// object. These four helpers replace the ~35 hand-rolled
+// `params.as_ref().and_then(|p| p.get(..)).and_then(..)` chains so a required
+// param always fails with the same `-32602` error and defaults are applied
+// uniformly.
+
+/// A required string param, or a `-32602` "missing" error.
+pub(crate) fn param_str<'a>(
+    params: &'a Option<Value>,
+    name: &str,
+) -> Result<&'a str, JsonRpcError> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(name))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| missing_param(name))
+}
+
+/// An optional string param (absent or non-string → `None`).
+pub(crate) fn param_str_opt<'a>(params: &'a Option<Value>, name: &str) -> Option<&'a str> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(name))
+        .and_then(|v| v.as_str())
+}
+
+/// A boolean param with a default when absent or non-boolean.
+pub(crate) fn param_bool(params: &Option<Value>, name: &str, default: bool) -> bool {
+    params
+        .as_ref()
+        .and_then(|p| p.get(name))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(default)
+}
+
+/// A `u64` param with a default when absent or non-integer.
+pub(crate) fn param_u64(params: &Option<Value>, name: &str, default: u64) -> u64 {
+    params
+        .as_ref()
+        .and_then(|p| p.get(name))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(default)
+}
+
+/// A `u32` param with a default (JSON has no u32; read as u64 then narrow).
+pub(crate) fn param_u32(params: &Option<Value>, name: &str, default: u32) -> u32 {
+    param_u64(params, name, default as u64) as u32
 }
 
 pub(crate) fn not_found(hash: &str) -> JsonRpcError {

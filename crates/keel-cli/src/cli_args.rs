@@ -223,7 +223,8 @@ pub(crate) enum Commands {
         /// Include private symbols (default: public only)
         #[arg(long)]
         private: bool,
-        /// Token budget for LLM output (truncates, keeping whole entries)
+        /// Token budget for LLM output only (truncates, keeping whole entries);
+        /// ignored with --json/--human
         #[arg(long)]
         budget: Option<usize>,
     },
@@ -235,7 +236,8 @@ pub(crate) enum Commands {
         /// Transitive-caller traversal depth (default: 2)
         #[arg(long, default_value = "2")]
         depth: u32,
-        /// Token budget for LLM output (truncates, keeping whole entries)
+        /// Token budget for LLM output only (truncates, keeping whole entries);
+        /// ignored with --json/--human
         #[arg(long)]
         budget: Option<usize>,
     },

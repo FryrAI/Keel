@@ -23,24 +23,36 @@ use keel_enforce::types::{
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
+/// Default output token budget for the always-truncating commands
+/// (map / audit / compile) when no explicit budget is supplied.
+const DEFAULT_MAX_TOKENS: usize = 500;
+
 pub struct LlmFormatter {
     /// Depth for map output (0-3). Default: 1.
     pub map_depth: u32,
     /// Depth for compile output (0-2). Default: 1.
     pub compile_depth: u32,
-    /// Max token budget for output truncation. Default: 500.
-    pub max_tokens: usize,
-    /// Explicit `--budget` for skeleton/focus. `None` = no truncation.
+    /// The single output token budget.
+    ///
+    /// One knob, two policies that the per-command formatters apply:
+    /// - **map / audit / compile** always truncate, falling back to
+    ///   [`DEFAULT_MAX_TOKENS`] via [`Self::budget_or_default`] when this is
+    ///   unset — so their default output stays bounded.
+    /// - **skeleton / focus** truncate *only* when this is set; unset means the
+    ///   full view. This is why `--budget` is documented as LLM-format-only.
+    ///
+    /// Both `--max-tokens` (global) and `--budget` (skeleton/focus) feed this
+    /// field; the human and JSON formatters ignore it entirely by contract.
     pub budget: Option<usize>,
 }
 
 impl LlmFormatter {
-    /// Creates a new LlmFormatter with default depths (map=1, compile=1) and token budget (500).
+    /// Creates a new LlmFormatter with default depths (map=1, compile=1) and no
+    /// explicit budget (map/audit/compile still fall back to the default).
     pub fn new() -> Self {
         Self {
             map_depth: 1,
             compile_depth: 1,
-            max_tokens: 500,
             budget: None,
         }
     }
@@ -50,23 +62,33 @@ impl LlmFormatter {
         Self {
             map_depth,
             compile_depth,
-            max_tokens: 500,
             budget: None,
         }
     }
 
-    /// Sets the maximum token budget for output truncation, if provided.
+    /// Sets the token budget from the global `--max-tokens`, if provided.
+    /// A `None` leaves the current budget untouched (no-op).
     pub fn with_max_tokens(mut self, max_tokens: Option<usize>) -> Self {
         if let Some(t) = max_tokens {
-            self.max_tokens = t;
+            self.budget = Some(t);
         }
         self
     }
 
-    /// Sets the explicit `--budget` used by skeleton/focus truncation.
+    /// Sets the token budget from a command's `--budget`, if provided.
+    /// A `None` leaves the current budget untouched, so it never clobbers a
+    /// value already set by `--max-tokens`.
     pub fn with_budget(mut self, budget: Option<usize>) -> Self {
-        self.budget = budget;
+        if let Some(b) = budget {
+            self.budget = Some(b);
+        }
         self
+    }
+
+    /// The budget for the always-truncating commands: the explicit budget, or
+    /// [`DEFAULT_MAX_TOKENS`] when none was set.
+    fn budget_or_default(&self) -> usize {
+        self.budget.unwrap_or(DEFAULT_MAX_TOKENS)
     }
 }
 
@@ -78,7 +100,7 @@ impl Default for LlmFormatter {
 
 impl OutputFormatter for LlmFormatter {
     fn format_compile(&self, result: &CompileResult) -> String {
-        compile::format_compile(result, self.compile_depth, self.max_tokens)
+        compile::format_compile(result, self.compile_depth, self.budget_or_default())
     }
 
     fn format_discover(&self, result: &DiscoverResult) -> String {
@@ -94,7 +116,7 @@ impl OutputFormatter for LlmFormatter {
     }
 
     fn format_map(&self, result: &MapResult) -> String {
-        map::format_map(result, self.map_depth, self.max_tokens)
+        map::format_map(result, self.map_depth, self.budget_or_default())
     }
 
     fn format_fix(&self, result: &FixResult) -> String {
@@ -118,7 +140,7 @@ impl OutputFormatter for LlmFormatter {
     }
 
     fn format_audit(&self, result: &AuditResult) -> String {
-        audit::format_audit(result, self.max_tokens)
+        audit::format_audit(result, self.budget_or_default())
     }
 
     fn format_skeleton(&self, result: &SkeletonResult) -> String {

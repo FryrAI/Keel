@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use keel_enforce::types::{CompileInfo, CompileResult};
 
-use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
+use crate::mcp::{internal_err, param_bool, JsonRpcError, SharedEngine};
 use crate::parse_shared::FileParser;
 
 /// Handle the `keel/compile` MCP tool call to parse files and run enforcement checks.
@@ -21,17 +21,8 @@ pub(crate) fn handle_compile(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
-    let batch_start = params
-        .as_ref()
-        .and_then(|p| p.get("batch_start"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let batch_end = params
-        .as_ref()
-        .and_then(|p| p.get("batch_end"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let batch_start = param_bool(&params, "batch_start", false);
+    let batch_end = param_bool(&params, "batch_end", false);
 
     // Parse files that exist on disk into FileIndexes
     let mut parser = FileParser::new();

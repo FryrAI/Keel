@@ -1294,6 +1294,7 @@ dependencies = [
  "axum",
  "keel-core",
  "keel-enforce",
+ "keel-output",
  "keel-parsers",
  "notify",
  "serde",

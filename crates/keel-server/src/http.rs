@@ -11,6 +11,9 @@ use serde_json::Value;
 
 use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::{DiscoverResult, ExplainResult};
+use keel_output::json::JsonFormatter;
+use keel_output::llm::LlmFormatter;
+use keel_output::OutputFormatter;
 use keel_parsers::resolver::FileIndex;
 
 pub type SharedEngine = Arc<Mutex<EnforcementEngine>>;
@@ -30,14 +33,9 @@ impl FromRef<AppState> for SharedEngine {
     }
 }
 
-/// Build the axum router, confining compile targets to the current working
-/// directory (where `keel serve` was launched — the project root).
-pub fn router(engine: SharedEngine) -> Router {
-    router_with_root(engine, current_root())
-}
-
-/// Build the axum router with an explicit project root (used by tests).
-pub fn router_with_root(engine: SharedEngine, root: PathBuf) -> Router {
+/// Build the axum router, confining compile targets to `root` — the project
+/// root the server owns (`KeelServer::root_dir`), not the ambient process cwd.
+pub fn router(engine: SharedEngine, root: PathBuf) -> Router {
     let state = AppState {
         engine,
         root: Arc::new(root),
@@ -57,17 +55,17 @@ pub fn router_with_root(engine: SharedEngine, root: PathBuf) -> Router {
         .with_state(state)
 }
 
-/// The project root compile targets are confined to: the canonicalized current
-/// working directory, falling back to `.` if it can't be resolved.
-fn current_root() -> PathBuf {
-    std::env::current_dir()
-        .and_then(|d| d.canonicalize())
-        .unwrap_or_else(|_| PathBuf::from("."))
-}
-
 /// Start the HTTP server on the given port, bound to loopback only.
-pub async fn serve(engine: SharedEngine, port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    let app = router(engine);
+///
+/// `root` is the authoritative project root (`KeelServer::root_dir`) that all
+/// compile targets are confined to — passed in rather than re-derived from the
+/// process cwd, so confinement is anchored to the tree the server owns.
+pub async fn serve(
+    engine: SharedEngine,
+    root: PathBuf,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = router(engine, root);
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -244,39 +242,28 @@ fn flatten_discover(result: &DiscoverResult) -> Value {
     })
 }
 
-/// Graph-wide map. `?format=llm` returns a plain-text listing (for dumping into
-/// an editor document); the default `json` returns a structured summary.
+/// Graph-wide map, assembled through the single [`build_map`] path and rendered
+/// by the shared keel-output formatters, so `/map` matches `keel map` and the
+/// MCP `keel/map` tool. `?format=llm` returns the plain-text listing the VS Code
+/// extension dumps into a document; the default `json` returns the structured
+/// [`MapResult`].
+///
+/// [`build_map`]: keel_enforce::engine::EnforcementEngine::build_map
 async fn map(State(engine): State<SharedEngine>, Query(query): Query<MapQuery>) -> Response {
     let engine = match lock_engine(&engine) {
         Ok(g) => g,
         Err(code) => return code.into_response(),
     };
-    let modules = engine.module_map();
-    let total_nodes: usize = modules.iter().map(|m| m.node_count).sum();
+    // Depth 1 (modules + hotspots) matches the CLI/MCP default.
+    let map_result = engine.build_map(1);
+    drop(engine);
 
     if query.format.as_deref() == Some("llm") {
-        let mut text = format!("MAP modules={} nodes={}\n", modules.len(), total_nodes);
-        for m in &modules {
-            text.push_str(&format!("MODULE {} nodes={}\n", m.file, m.node_count));
-        }
+        let text = LlmFormatter::new().format_map(&map_result);
         ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
     } else {
-        let entries: Vec<Value> = modules
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "name": m.name, "file": m.file, "node_count": m.node_count
-                })
-            })
-            .collect();
-        Json(serde_json::json!({
-            "status": "ok",
-            "format": "json",
-            "module_count": modules.len(),
-            "total_nodes": total_nodes,
-            "modules": entries,
-        }))
-        .into_response()
+        let body = JsonFormatter.format_map(&map_result);
+        ([(header::CONTENT_TYPE, "application/json")], body).into_response()
     }
 }
 
@@ -390,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_endpoint() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .uri("/health")
             .body(Body::empty())
@@ -408,7 +395,7 @@ mod tests {
     async fn test_no_wildcard_cors() {
         // The server must NOT hand a cross-origin allow header to a browser:
         // any visited web page could otherwise read/mutate the graph.
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .uri("/health")
             .header(header::ORIGIN, "http://evil.example.com")
@@ -427,7 +414,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_compile_rejects_parent_escape() {
-        let app = router_with_root(test_engine(), canonical_temp_root());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .method(Method::POST)
             .uri("/compile")
@@ -440,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_compile_rejects_absolute_outside_root() {
-        let app = router_with_root(test_engine(), canonical_temp_root());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .method(Method::POST)
             .uri("/compile")
@@ -449,6 +436,59 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_compile_confinement_anchored_to_passed_root_not_cwd() {
+        // Confinement must key off the root passed to `router`, not the ambient
+        // process cwd. A file that exists under cwd but outside the passed root
+        // is an absolute-outside-root escape and must be rejected — and the very
+        // same absolute path is accepted when the root *does* contain it. Before
+        // this fix the root was re-derived from cwd, so the first request would
+        // have been accepted.
+        let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let cwd_file = cwd.join("Cargo.toml");
+        assert!(cwd_file.exists(), "expected crate Cargo.toml under cwd");
+
+        let other_root = canonical_temp_root();
+        // Guard: the test is only meaningful if cwd_file is outside other_root.
+        assert!(
+            !cwd_file.starts_with(&other_root),
+            "temp root unexpectedly contains the crate dir"
+        );
+
+        let body = format!(r#"{{"files":["{}"]}}"#, cwd_file.to_string_lossy());
+
+        // Root = unrelated temp dir → the cwd-relative absolute path is rejected.
+        let app = router(test_engine(), other_root);
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/compile")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.clone()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "confinement should reject a path outside the passed root"
+        );
+
+        // Root = the cwd → the identical absolute path is now inside the root
+        // and accepted (parses to nothing, so a clean 200).
+        let app = router(test_engine(), cwd);
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/compile")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "a path inside the passed root should be accepted"
+        );
     }
 
     #[tokio::test]
@@ -462,7 +502,7 @@ mod tests {
         })
         .join();
 
-        let app = router(engine);
+        let app = router(engine, canonical_temp_root());
         let req = Request::builder().uri("/map").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -470,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_compile_empty_files() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .method(Method::POST)
             .uri("/compile")
@@ -487,7 +527,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discover_not_found() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .uri("/discover/nonexistent")
             .body(Body::empty())
@@ -498,7 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discover_found() {
-        let app = router(test_engine_with_node());
+        let app = router(test_engine_with_node(), canonical_temp_root());
         let req = Request::builder()
             .uri("/discover/abc12345678")
             .body(Body::empty())
@@ -514,7 +554,7 @@ mod tests {
     #[tokio::test]
     async fn test_compile_accepts_path() {
         // The extension POSTs {"path": ...} rather than {"files": [...]}.
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .method(Method::POST)
             .uri("/compile")
@@ -530,7 +570,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discover_by_name_flat_shape() {
-        let app = router(test_engine_with_node());
+        let app = router(test_engine_with_node(), canonical_temp_root());
         let req = Request::builder()
             .uri("/discover/handleRequest?file=src/handler.rs&line=5")
             .body(Body::empty())
@@ -547,7 +587,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_map_llm_is_text() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .uri("/map?format=llm")
             .body(Body::empty())
@@ -561,12 +601,19 @@ mod tests {
             .unwrap_or("");
         assert!(content_type.starts_with("text/plain"));
         let body = to_bytes(resp.into_body(), 10_000).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).starts_with("MAP modules="));
+        // Now rendered by the shared keel-output LLM map formatter (same as
+        // `keel map --llm`): header is "MAP nodes=... modules=...".
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.starts_with("MAP nodes="),
+            "unexpected map header: {text:?}"
+        );
+        assert!(text.contains("modules="));
     }
 
     #[tokio::test]
     async fn test_search_requires_term() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .uri("/search")
             .body(Body::empty())
@@ -577,7 +624,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_where_not_found() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .uri("/where/nonexistent")
             .body(Body::empty())
@@ -588,7 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_where_found() {
-        let app = router(test_engine_with_node());
+        let app = router(test_engine_with_node(), canonical_temp_root());
         let req = Request::builder()
             .uri("/where/abc12345678")
             .body(Body::empty())
@@ -603,7 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_explain_not_found() {
-        let app = router(test_engine());
+        let app = router(test_engine(), canonical_temp_root());
         let req = Request::builder()
             .method(Method::POST)
             .uri("/explain")
@@ -616,7 +663,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_explain_found() {
-        let app = router(test_engine_with_node());
+        let app = router(test_engine_with_node(), canonical_temp_root());
         let req = Request::builder()
             .method(Method::POST)
             .uri("/explain")

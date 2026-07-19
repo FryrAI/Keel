@@ -4,31 +4,30 @@
 //! the two interfaces never diverge. Runs git in the server's working
 //! directory (the project root).
 
+use std::path::Path;
+
 use serde_json::Value;
 
 use keel_enforce::checkpoint::{self, CheckpointMode};
 
-use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedEngine, SharedStore};
+use crate::mcp::{
+    internal_err, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine, SharedStore,
+};
 use crate::parse_shared::FileParser;
 
 /// Handle the `keel/checkpoint` MCP tool call.
+///
+/// `root` is the server's authoritative project root; git and file parsing run
+/// there rather than in the ambient process cwd.
 pub(crate) fn handle_checkpoint(
     store: &SharedStore,
     engine: &SharedEngine,
+    root: &Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let since = params
-        .as_ref()
-        .and_then(|p| p.get("since"))
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let staged = params
-        .as_ref()
-        .and_then(|p| p.get("staged"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let since = param_str_opt(&params, "since").map(String::from);
+    let staged = param_bool(&params, "staged", false);
 
-    let cwd = std::env::current_dir().map_err(internal_err)?;
     let mode = if staged {
         CheckpointMode::Staged
     } else {
@@ -38,7 +37,7 @@ pub(crate) fn handle_checkpoint(
     // Parse changed files. Git returns repo-relative paths and the server runs
     // at the repo root, so pass them straight through — that keeps the parsed
     // `file_path` relative and matching the stored graph.
-    let changed = checkpoint::changed_files(&cwd, &mode);
+    let changed = checkpoint::changed_files(root, &mode);
     let mut parser = FileParser::new();
     let file_indices: Vec<_> = changed.iter().filter_map(|f| parser.parse(f)).collect();
 
@@ -57,7 +56,7 @@ pub(crate) fn handle_checkpoint(
         eng.compile(&file_indices)
     };
 
-    let commits = checkpoint::commit_subjects(&cwd, &mode);
+    let commits = checkpoint::commit_subjects(root, &mode);
     let range = checkpoint::range_label(&mode);
     let result = checkpoint::build_checkpoint(diff, &compile_result, range, commits);
 

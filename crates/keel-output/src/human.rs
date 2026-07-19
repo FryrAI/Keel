@@ -8,6 +8,11 @@ use keel_enforce::types::{
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
+/// Human-readable terminal formatter (colored, laid out for people).
+///
+/// By contract this formatter ignores any output token budget (`--budget` /
+/// `--max-tokens`): those tune LLM-directed output only (see
+/// [`crate::llm::LlmFormatter`]), so human output is never budget-truncated.
 pub struct HumanFormatter;
 
 impl OutputFormatter for HumanFormatter {

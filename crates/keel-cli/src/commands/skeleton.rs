@@ -22,23 +22,10 @@ pub fn run(
         }
     };
 
-    let path = std::path::Path::new(&file);
-    let full_path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
-    };
-
-    let content = match std::fs::read_to_string(&full_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("keel skeleton: cannot read {}: {}", file, e);
-            return 2;
-        }
-    };
-
-    match keel_enforce::skeleton::build_skeleton(&cwd, path, &content, private, docs) {
-        Some(result) => {
+    // The path-resolve → read → parse preamble lives in keel_enforce so the CLI
+    // and the `keel/skeleton` MCP tool share one implementation.
+    match keel_enforce::skeleton::build_skeleton_from_path(&cwd, &file, private, docs) {
+        Ok(result) => {
             if verbose {
                 eprintln!(
                     "keel skeleton: {} — {} symbols, {} imports",
@@ -53,8 +40,8 @@ pub fn run(
             }
             0
         }
-        None => {
-            eprintln!("keel skeleton: unsupported file type: {}", file);
+        Err(e) => {
+            eprintln!("keel skeleton: {}", e);
             2
         }
     }

@@ -2,22 +2,14 @@
 
 use serde_json::Value;
 
-use crate::mcp::{internal_err, JsonRpcError, SharedEngine};
+use crate::mcp::{internal_err, param_str, JsonRpcError, SharedEngine};
 
 /// Handle the `keel/check` MCP tool call to perform pre-edit risk assessment on a node.
 pub(crate) fn handle_check(
     engine: &SharedEngine,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let hash = params
-        .as_ref()
-        .and_then(|p| p.get("hash"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| JsonRpcError {
-            code: -32602,
-            message: "Missing 'hash' parameter".into(),
-        })?
-        .to_string();
+    let hash = param_str(&params, "hash")?.to_string();
 
     let engine = engine.lock().map_err(|_| JsonRpcError {
         code: -32603,

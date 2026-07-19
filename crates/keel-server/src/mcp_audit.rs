@@ -1,40 +1,29 @@
 //! MCP audit handler — AI-readiness scorecard via JSON-RPC.
 
+use std::path::Path;
+
 use serde_json::Value;
 
-use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedStore};
+use crate::mcp::{internal_err, lock_store, param_bool, param_str_opt, JsonRpcError, SharedStore};
 
 /// Handle the `keel/audit` MCP tool call.
+///
+/// `root` is the server's authoritative project root (not the ambient cwd), so
+/// the audit always scores the same tree the server was started against.
 pub(crate) fn handle_audit(
     store: &SharedStore,
+    root: &Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let dimension = params
-        .as_ref()
-        .and_then(|p| p.get("dimension"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let strict = params
-        .as_ref()
-        .and_then(|p| p.get("strict"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
     let options = keel_enforce::types::AuditOptions {
         changed_only: false,
-        strict,
+        strict: param_bool(&params, "strict", false),
         min_score: None,
-        dimension,
+        dimension: param_str_opt(&params, "dimension").map(str::to_string),
     };
 
-    let root_dir = std::env::current_dir().map_err(|e| JsonRpcError {
-        code: -32603,
-        message: format!("Failed to get current directory: {}", e),
-    })?;
-
     let store = lock_store(store)?;
-    let result = keel_enforce::audit::audit_repo(&*store, &root_dir, &options, None);
+    let result = keel_enforce::audit::audit_repo(&*store, root, &options, None);
 
     serde_json::to_value(result).map_err(internal_err)
 }

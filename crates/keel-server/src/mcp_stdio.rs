@@ -158,6 +158,17 @@ fn run_loop<R: BufRead, W: Write>(
     reader: R,
     mut writer: W,
 ) -> io::Result<()> {
+    // The authoritative project root: the parent of the server's `.keel`
+    // directory (worktree-aware), falling back to cwd. Filesystem-touching
+    // tools (audit/skeleton/checkpoint) resolve against this rather than the
+    // ambient process cwd.
+    let root = session
+        .keel_dir
+        .as_deref()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
     for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -180,7 +191,7 @@ fn run_loop<R: BufRead, W: Write>(
         }
 
         let call_start = Instant::now();
-        let response = mcp::process_line(store, engine, &line);
+        let response = mcp::process_line_with_root(store, engine, &root, &line);
         let call_duration = call_start.elapsed().as_millis() as u64;
 
         if response.is_empty() {
