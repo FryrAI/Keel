@@ -69,6 +69,10 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | `keel discover <hash>` | Adjacency lookup | <50ms |
 | `keel where <hash>` | Hash to file:line | <50ms |
 | `keel explain <code> <hash>` | Resolution chain | <50ms |
+| `keel skeleton <file>` | Signature-only view of a file | <100ms |
+| `keel focus <hash\|file>` | Minimal context set for an edit | <50ms |
+| `keel checkpoint` | Session-state summary (git + graph) | <1s |
+| `keel validate-plan <file\|->` | Pre-execution plan risk check | <100ms |
 | `keel serve` | MCP/HTTP/watch server | ~50-100MB memory |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |
@@ -197,11 +201,18 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel explain <error-code> <hash>` — inspect resolution reasoning
 - `keel where <hash>` — resolve hash to file:line
 - `keel map --llm` — regenerate the LLM-optimized map (includes function names)
+- `keel map --semantic` — per-file summaries, public API, and when_to_use guidance
+- `keel skeleton <file>` — compressed signature-only view (`--docs`, `--private`, `--budget <tokens>`)
+- `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
+- `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary for re-injection after context loss
+- `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, suggested order)
 - `keel watch` — auto-compile on file changes
 - `keel check <hash>` — pre-edit risk assessment (callers, risk level)
 - `keel fix [--apply]` — generate and optionally apply fix plans
 - `keel name <description>` — suggest names for new code
 - `keel analyze <file>` — architectural analysis of a file
+- `keel audit [dimension]` — repo-wide architectural audit
+- `keel context <file>` — module context for a file
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 
@@ -217,6 +228,12 @@ The keel MCP server exposes these tools directly to your IDE:
 - `keel/search` — search the graph by name
 - `keel/name` — suggest names for new code
 - `keel/analyze` — architectural analysis of a file
+- `keel/audit` — repo-wide architectural audit
+- `keel/context` — module context for a file
+- `keel/skeleton` — compressed signature-only view of a file
+- `keel/focus` — minimal context set to safely modify a target
+- `keel/checkpoint` — compact session-state summary for re-injection after context loss
+- `keel/validate-plan` — validate a plan against the graph before execution
 
 ### Common Mistakes:
 - **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.
