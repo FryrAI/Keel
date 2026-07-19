@@ -69,20 +69,25 @@ pub fn compute_hash_disambiguated(
 #[derive(Clone, Copy, PartialEq)]
 enum BodySyntax {
     /// C-family: `//` line comments, `/* */` block comments; `"`, `'`, and
-    /// backtick string literals. Covers TypeScript/JavaScript, Go, Rust, Svelte.
+    /// backtick string literals — a `'` ALWAYS opens a string (TypeScript/
+    /// JavaScript, Go, Svelte have no lifetimes).
     CFamily,
+    /// Rust: C-family comments, but `'` is a lifetime (`'a`) unless it forms a
+    /// char literal (`'x'` / `'\..'`), and there are no backtick strings.
+    Rust,
     /// Python: `#` line comments (no block comments); `"`, `'`, `"""`, `'''`
     /// string literals.
     Python,
 }
 
 /// Map a caller's language name (as produced by the parsers' `detect_language`)
-/// to its lexical comment/string family. Anything that is not Python is treated
-/// as C-family — the safe default for our four supported languages and for
-/// unknown extensions.
+/// to its lexical comment/string family. Anything that is not Python or Rust is
+/// treated as C-family — the safe default for the remaining supported languages
+/// and for unknown extensions.
 fn body_syntax(lang: &str) -> BodySyntax {
     match lang {
         "python" => BodySyntax::Python,
+        "rust" => BodySyntax::Rust,
         _ => BodySyntax::CFamily,
     }
 }
@@ -113,7 +118,7 @@ fn strip_comments(body: &str, syntax: BodySyntax) -> String {
             }
             continue;
         }
-        if syntax == BodySyntax::CFamily && c == b'/' && i + 1 < n && b[i + 1] == b'/' {
+        if syntax != BodySyntax::Python && c == b'/' && i + 1 < n && b[i + 1] == b'/' {
             i += 2;
             while i < n && b[i] != b'\n' {
                 i += 1;
@@ -121,8 +126,8 @@ fn strip_comments(body: &str, syntax: BodySyntax) -> String {
             continue;
         }
 
-        // Block comments (C-family only). Replace with a single space.
-        if syntax == BodySyntax::CFamily && c == b'/' && i + 1 < n && b[i + 1] == b'*' {
+        // Block comments (C-family and Rust). Replace with a single space.
+        if syntax != BodySyntax::Python && c == b'/' && i + 1 < n && b[i + 1] == b'*' {
             i += 2;
             while i + 1 < n && !(b[i] == b'*' && b[i + 1] == b'/') {
                 i += 1;
@@ -137,7 +142,12 @@ fn strip_comments(body: &str, syntax: BodySyntax) -> String {
         // (and any trailing comments), so emit the tick as an ordinary token
         // and keep scanning. A `'` is a char literal only when it is `'\..'`
         // (escaped) or `'x'` (a single char followed immediately by `'`).
-        if syntax == BodySyntax::CFamily && c == b'\'' {
+        // This heuristic is RUST-ONLY: in TS/JS/Go/Svelte a `'` always opens a
+        // string, and applying the lifetime rule there let the string's
+        // contents (e.g. a URL's `//`) be scanned as code (real bug: everything
+        // after the `//` was stripped as a comment, so code edits in the
+        // dropped tail did not change the hash).
+        if syntax == BodySyntax::Rust && c == b'\'' {
             let is_char_lit = (i + 1 < n && b[i + 1] == b'\\')
                 || (i + 2 < n && b[i + 1] != b'\'' && b[i + 2] == b'\'');
             if !is_char_lit {
@@ -224,7 +234,9 @@ pub fn normalize_body_for_hash(body: &str, lang: &str) -> String {
     let stripped = strip_comments(body, syntax);
     match syntax {
         BodySyntax::Python => normalize_body(&stripped),
-        BodySyntax::CFamily => stripped.split_whitespace().collect::<Vec<_>>().join(" "),
+        BodySyntax::CFamily | BodySyntax::Rust => {
+            stripped.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
     }
 }
 
@@ -602,6 +614,40 @@ mod tests {
             hbody(with, "rust"),
             hbody(without, "rust"),
             "a comment after a lifetime must still be stripped"
+        );
+    }
+
+    /// A TS/JS single-quoted string containing `//` (a URL) must not be scanned
+    /// as code: everything after it — including real code — used to be stripped
+    /// as a line comment, so edits in the tail did not change the hash.
+    #[test]
+    fn test_ts_single_quoted_url_does_not_swallow_trailing_code() {
+        let a = "{ const s = 'see http://example.com'; return s; }";
+        let b = "{ const s = 'see http://example.com'; return DIFFERENT; }";
+        assert_ne!(
+            hbody(a, "typescript"),
+            hbody(b, "typescript"),
+            "a code edit after a single-quoted URL string must change the hash"
+        );
+    }
+
+    /// The same guarantee for block-comment-looking text inside single quotes.
+    #[test]
+    fn test_ts_single_quoted_glob_does_not_open_block_comment() {
+        let a = "{ const g = 'src/*trick*/x'; run(g); }";
+        let b = "{ const g = 'src/*trick*/x'; halt(g); }";
+        assert_ne!(hbody(a, "typescript"), hbody(b, "typescript"));
+    }
+
+    /// Go rune literals still terminate correctly under the always-a-string rule.
+    #[test]
+    fn test_go_rune_literal_preserved() {
+        let a = "{ c := '\\n'; emit(c) }";
+        let b = "{ c := '\\t'; emit(c) }";
+        assert_ne!(
+            hbody(a, "go"),
+            hbody(b, "go"),
+            "rune content is part of the hash"
         );
     }
 

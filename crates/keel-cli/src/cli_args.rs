@@ -111,7 +111,7 @@ pub(crate) enum Commands {
         /// Show only new/resolved violations compared to last compile
         #[arg(long)]
         delta: bool,
-        /// Timeout in milliseconds (exit 0 if exceeded, don't block the agent)
+        /// Soft time budget in milliseconds (warns on stderr when exceeded; violations still report and set the exit code)
         #[arg(long)]
         timeout: Option<u64>,
     },

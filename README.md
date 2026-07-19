@@ -147,14 +147,14 @@ keel where a7Bx3kM9f2Q
 | `keel map [--depth 0-3]` | Depth-aware structural map | <5s for 100k LOC |
 | `keel compile [--depth 0-2] [file...]` | Validation with backpressure | <200ms single file |
 | `keel discover <hash>` | Adjacency lookup (callers, callees) | <50ms |
-| `keel skeleton <file>` | Compressed signature-only view (no bodies) | <50ms |
+| `keel skeleton <file>` | Compressed signature-only view (no bodies) | <100ms |
 | `keel focus <hash\|file>` | Minimal context set to safely modify a target | <50ms |
 | `keel where <hash>` | Hash → file:line resolution | <50ms |
 | `keel explain <code> <hash>` | Resolution chain explanation | <50ms |
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
-| `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <200ms |
+| `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <1s |
 | `keel validate-plan <file\|->` | Validate a plan against the graph before execution | <100ms |
 | `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |

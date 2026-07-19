@@ -21,7 +21,7 @@ A function calls another function that no longer exists or has been renamed.
   "hash": "a7Bx3kM9f2Q",
   "fix_hint": "Update login() to use the new verifyCredentials() function",
   "confidence": 0.95,
-  "resolution_tier": 1
+  "resolution_tier": "tree-sitter"
 }
 ```
 
