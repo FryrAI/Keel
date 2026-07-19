@@ -19,6 +19,7 @@ pub mod fix_generator;
 pub mod hash_diff;
 pub mod naming;
 pub mod progressive;
+pub mod queries;
 pub mod snapshot;
 pub mod suppress;
 #[cfg(test)]
