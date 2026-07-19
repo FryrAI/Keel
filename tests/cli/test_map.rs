@@ -300,6 +300,71 @@ fn test_map_cached_languages_match_fresh_map() {
 }
 
 #[test]
+/// `keel map --cached` must report the same node/edge/function/class counts
+/// as a fresh `keel map` (issue #40). The cached reconstruction
+/// (map_cached.rs) used to multiple-count non-module nodes: when a file has
+/// more than one module-kind row sharing its `file_path` (a file-level
+/// module node plus a resolver-emitted module definition for that same
+/// file), every non-module node in that file was pushed into `NodeChanges`
+/// once per co-located module row, inflating functions/classes several-fold
+/// versus the fresh summary.
+fn test_map_cached_counts_match_fresh_map() {
+    let dir = init_ts_project(3, 2);
+    let src = dir.path().join("src");
+    fs::write(
+        src.join("widget.ts"),
+        "export class Widget {\n  render(): string {\n    return \"widget\";\n  }\n  update(x: number): number {\n    return x + 1;\n  }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        src.join("thing.py"),
+        "class Thing:\n    def method_one(self, x: int) -> int:\n        return x + 1\n\n    def method_two(self, x: int) -> int:\n        return x * 2\n\n\ndef top_level_fn(x: int) -> int:\n    \"\"\"Docstring.\"\"\"\n    return x + 1\n",
+    )
+    .unwrap();
+    let keel = keel_bin();
+
+    let summary = |raw: &[u8]| -> serde_json::Value {
+        let v: serde_json::Value = serde_json::from_slice(raw).expect("map output is JSON");
+        v["summary"].clone()
+    };
+
+    let fresh = Command::new(&keel)
+        .args(["map", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map");
+    assert!(fresh.status.success());
+
+    let cached = Command::new(&keel)
+        .args(["map", "--cached", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --cached");
+    assert!(cached.status.success());
+
+    let fresh_summary = summary(&fresh.stdout);
+    let cached_summary = summary(&cached.stdout);
+
+    for field in [
+        "total_nodes",
+        "total_edges",
+        "modules",
+        "functions",
+        "classes",
+    ] {
+        assert_eq!(
+            fresh_summary[field], cached_summary[field],
+            "cached and fresh map must agree on summary.{field}"
+        );
+    }
+
+    // Sanity check: the fixture genuinely has classes and multiple functions,
+    // so a regression that zeroed everything out wouldn't slip through.
+    assert!(fresh_summary["classes"].as_u64().unwrap() > 0);
+    assert!(fresh_summary["functions"].as_u64().unwrap() > 1);
+}
+
+#[test]
 /// `keel map` should handle file deletions (remove orphaned nodes).
 fn test_map_handles_deleted_files() {
     let dir = init_ts_project(5, 2);

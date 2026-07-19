@@ -41,19 +41,30 @@ pub fn run_cached(
 
     // Collect all nodes and edges from the DB
     let mut node_changes: Vec<NodeChange> = Vec::new();
+    // Nodes are deduplicated by ID: a file can have more than one module-kind
+    // row sharing the same file_path (e.g. a file-level module plus a
+    // resolver-emitted module definition for that same file). Without this
+    // guard, every non-module node in that file gets pushed into
+    // `node_changes` once per co-located module row, multiplying the
+    // reconstructed function/class counts vs. a fresh `keel map` (#40).
+    let mut seen_node_ids: HashSet<u64> = HashSet::new();
     let mut edge_set: HashSet<u64> = HashSet::new();
     let mut edge_changes: Vec<EdgeChange> = Vec::new();
 
     for module in &modules {
-        node_changes.push(NodeChange::Add(module.clone()));
+        if seen_node_ids.insert(module.id) {
+            node_changes.push(NodeChange::Add(module.clone()));
+        }
 
         // Get all nodes in this module's file
         let file_nodes = store.get_nodes_in_file(&module.file_path);
         for node in &file_nodes {
-            if node.kind != NodeKind::Module {
+            if node.kind != NodeKind::Module && seen_node_ids.insert(node.id) {
                 node_changes.push(NodeChange::Add(node.clone()));
             }
-            // Collect edges for this node (deduplicated by edge ID)
+            // Collect edges for this node (deduplicated by edge ID). Fetched
+            // unconditionally, regardless of node dedup above, so edges
+            // sourced from/targeting a repeated module row are still found.
             let edges = store.get_edges(node.id, EdgeDirection::Both);
             for edge in edges {
                 if edge_set.insert(edge.id) {
