@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::StatusCode;
-use axum::response::Json;
+use axum::http::{header, StatusCode};
+use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tower_http::cors::{Any, CorsLayer};
 
 use keel_enforce::engine::EnforcementEngine;
@@ -24,9 +25,11 @@ pub fn router(engine: SharedEngine) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/compile", post(compile))
-        .route("/discover/{hash}", get(discover))
+        .route("/discover/{ident}", get(discover))
         .route("/where/{hash}", get(where_hash))
         .route("/explain", post(explain))
+        .route("/map", get(map))
+        .route("/search", get(search))
         .layer(cors)
         .with_state(engine)
 }
@@ -41,14 +44,39 @@ pub async fn serve(engine: SharedEngine, port: u16) -> Result<(), Box<dyn std::e
 
 // --- Request / Response types ---
 
+/// Compile request. Accepts both call shapes the tooling uses:
+/// `{"files":["a.rs","b.rs"]}` (explicit list) and `{"path":"src"}`
+/// (a single file, or a directory to walk).
 #[derive(Deserialize)]
 pub struct CompileRequest {
+    #[serde(default)]
     pub files: Vec<String>,
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct DiscoverQuery {
     pub depth: Option<u32>,
+    /// When present, `{ident}` is resolved as a symbol name scoped to this file
+    /// (name+position mode) rather than as a content hash.
+    pub file: Option<String>,
+    pub line: Option<u32>,
+}
+
+#[derive(Deserialize)]
+pub struct MapQuery {
+    /// `llm` for a plain-text map, `json` (default) for structured output.
+    pub format: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+    /// Search term. Accepted as `q` (used by the extension) or `query`.
+    pub q: Option<String>,
+    pub query: Option<String>,
+    pub kind: Option<String>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -82,9 +110,10 @@ async fn compile(
     State(engine): State<SharedEngine>,
     Json(req): Json<CompileRequest>,
 ) -> Json<CompileResult> {
+    let targets = collect_compile_targets(&req);
+
     let mut parser = FileParser::new();
-    let file_indexes: Vec<FileIndex> = req
-        .files
+    let file_indexes: Vec<FileIndex> = targets
         .iter()
         .filter_map(|path| parser.parse(path))
         .collect();
@@ -93,17 +122,142 @@ async fn compile(
     Json(engine.compile(&file_indexes))
 }
 
+/// Expand a compile request into a flat list of file paths: the explicit
+/// `files`, plus `path` — walked into its supported files when it is a
+/// directory, or used verbatim when it is a single file.
+fn collect_compile_targets(req: &CompileRequest) -> Vec<String> {
+    let mut targets = req.files.clone();
+    if let Some(path) = &req.path {
+        let p = std::path::Path::new(path);
+        if p.is_dir() {
+            for entry in keel_parsers::walker::FileWalker::new(p).walk() {
+                targets.push(entry.path.to_string_lossy().to_string());
+            }
+        } else {
+            targets.push(path.clone());
+        }
+    }
+    targets
+}
+
+/// Discover a node's callers/callees.
+///
+/// - `/discover/{hash}` (no `file` query): hash lookup, returns the full
+///   [`DiscoverResult`] — unchanged behavior.
+/// - `/discover/{name}?file=&line=`: name+position mode, returns a flat
+///   `{hash, name, callers, callees, module_context}` shape tailored to editor
+///   hover/CodeLens clients.
 async fn discover(
     State(engine): State<SharedEngine>,
-    AxumPath(hash): AxumPath<String>,
+    AxumPath(ident): AxumPath<String>,
     Query(query): Query<DiscoverQuery>,
-) -> Result<Json<DiscoverResult>, StatusCode> {
+) -> Result<Json<Value>, StatusCode> {
     let depth = query.depth.unwrap_or(1);
     let engine = engine.lock().unwrap();
-    engine
-        .discover(&hash, depth)
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+
+    if query.file.is_some() {
+        let result = engine
+            .discover_named(&ident, query.file.as_deref(), query.line, depth)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        Ok(Json(flatten_discover(&result)))
+    } else {
+        let result = engine
+            .discover(&ident, depth)
+            .ok_or(StatusCode::NOT_FOUND)?;
+        serde_json::to_value(result)
+            .map(Json)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    }
+}
+
+/// Flatten a [`DiscoverResult`] into the compact shape editor clients parse:
+/// top-level `hash`/`name`, `callers`/`callees` as `{name, file, line}`, and a
+/// scalar `module_context`.
+fn flatten_discover(result: &DiscoverResult) -> Value {
+    let callers: Vec<Value> = result
+        .upstream
+        .iter()
+        .map(|c| serde_json::json!({ "name": c.name, "file": c.file, "line": c.line }))
+        .collect();
+    let callees: Vec<Value> = result
+        .downstream
+        .iter()
+        .map(|c| serde_json::json!({ "name": c.name, "file": c.file, "line": c.line }))
+        .collect();
+
+    serde_json::json!({
+        "hash": result.target.hash,
+        "name": result.target.name,
+        "callers": callers,
+        "callees": callees,
+        "module_context": result.module_context.module,
+    })
+}
+
+/// Graph-wide map. `?format=llm` returns a plain-text listing (for dumping into
+/// an editor document); the default `json` returns a structured summary.
+async fn map(State(engine): State<SharedEngine>, Query(query): Query<MapQuery>) -> Response {
+    let engine = engine.lock().unwrap();
+    let modules = engine.module_map();
+    let total_nodes: usize = modules.iter().map(|m| m.node_count).sum();
+
+    if query.format.as_deref() == Some("llm") {
+        let mut text = format!("MAP modules={} nodes={}\n", modules.len(), total_nodes);
+        for m in &modules {
+            text.push_str(&format!("MODULE {} nodes={}\n", m.file, m.node_count));
+        }
+        ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
+    } else {
+        let entries: Vec<Value> = modules
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "name": m.name, "file": m.file, "node_count": m.node_count
+                })
+            })
+            .collect();
+        Json(serde_json::json!({
+            "status": "ok",
+            "format": "json",
+            "module_count": modules.len(),
+            "total_nodes": total_nodes,
+            "modules": entries,
+        }))
+        .into_response()
+    }
+}
+
+/// Search the graph by name substring: `/search?q=<term>&kind=&limit=`.
+async fn search(
+    State(engine): State<SharedEngine>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Value>, StatusCode> {
+    let term = query.q.or(query.query).ok_or(StatusCode::BAD_REQUEST)?;
+    let limit = query.limit.unwrap_or(20);
+
+    let engine = engine.lock().unwrap();
+    let nodes = engine.search_graph(&term, query.kind.as_deref(), limit);
+
+    let results: Vec<Value> = nodes
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "hash": n.hash,
+                "name": n.name,
+                "kind": n.kind.as_str(),
+                "file": n.file_path,
+                "line": n.line_start,
+                "signature": n.signature,
+                "is_public": n.is_public,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "query": term,
+        "count": results.len(),
+        "results": results,
+    })))
 }
 
 async fn where_hash(
@@ -247,6 +401,70 @@ mod tests {
         let result: DiscoverResult = serde_json::from_slice(&body).unwrap();
         assert_eq!(result.target.name, "handleRequest");
         assert_eq!(result.target.hash, "abc12345678");
+    }
+
+    #[tokio::test]
+    async fn test_compile_accepts_path() {
+        // The extension POSTs {"path": ...} rather than {"files": [...]}.
+        let app = router(test_engine());
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/compile")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"path":"does/not/exist.rs"}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 10_000).await.unwrap();
+        let result: CompileResult = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn test_discover_by_name_flat_shape() {
+        let app = router(test_engine_with_node());
+        let req = Request::builder()
+            .uri("/discover/handleRequest?file=src/handler.rs&line=5")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 10_000).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["hash"], "abc12345678");
+        assert_eq!(json["name"], "handleRequest");
+        assert!(json["callers"].is_array());
+        assert!(json["callees"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_map_llm_is_text() {
+        let app = router(test_engine());
+        let req = Request::builder()
+            .uri("/map?format=llm")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let content_type = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(content_type.starts_with("text/plain"));
+        let body = to_bytes(resp.into_body(), 10_000).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).starts_with("MAP modules="));
+    }
+
+    #[tokio::test]
+    async fn test_search_requires_term() {
+        let app = router(test_engine());
+        let req = Request::builder()
+            .uri("/search")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
