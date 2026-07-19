@@ -34,6 +34,8 @@
 - `keel context <file>` — minimal structural context for safely editing a file
 - `keel skeleton <file>` — compressed signature-only view (`--docs`, `--private`, `--budget <tokens>`)
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
+- `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
+- `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, risk level, callers-first order)
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 
@@ -53,6 +55,8 @@ The keel MCP server exposes these tools directly to your IDE:
 - `keel/context` — minimal structural context for a file
 - `keel/skeleton` — compressed signature-only view of a file
 - `keel/focus` — minimal context set to safely modify a target
+- `keel/checkpoint` — compact session-state summary for re-injection after context loss
+- `keel/validate-plan` — validate a plan against the graph before execution
 
 ### Common Mistakes:
 - **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.

@@ -65,6 +65,7 @@ fn main() {
             depth,
             tier3,
             cached,
+            semantic,
         } => commands::map::run(
             &*formatter,
             cli.verbose,
@@ -74,6 +75,7 @@ fn main() {
             depth,
             tier3,
             cached,
+            semantic,
         ),
         Commands::Discover {
             query,
@@ -199,6 +201,18 @@ fn main() {
             budget: _,
         } => (
             commands::focus::run(&*formatter, cli.verbose, target, depth),
+            Default::default(),
+        ),
+        Commands::Checkpoint {
+            since,
+            staged,
+            output,
+        } => (
+            commands::checkpoint::run(&*formatter, cli.verbose, since, staged, output),
+            Default::default(),
+        ),
+        Commands::ValidatePlan { plan } => (
+            commands::validate_plan::run(&*formatter, cli.verbose, plan),
             Default::default(),
         ),
         Commands::Serve { mcp, http, watch } => (

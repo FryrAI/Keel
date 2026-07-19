@@ -70,6 +70,7 @@ fn parse_map_defaults() {
             depth,
             tier3,
             cached,
+            semantic,
         } => {
             assert!(!llm_verbose);
             assert!(scope.is_none());
@@ -77,6 +78,7 @@ fn parse_map_defaults() {
             assert_eq!(depth, 1);
             assert!(!tier3);
             assert!(!cached);
+            assert!(!semantic);
         }
         _ => panic!("expected Map"),
     }
@@ -103,6 +105,7 @@ fn parse_map_all_flags() {
             depth,
             tier3,
             cached,
+            semantic,
         } => {
             assert!(llm_verbose);
             assert_eq!(scope.as_deref(), Some("auth,core"));
@@ -110,6 +113,7 @@ fn parse_map_all_flags() {
             assert_eq!(depth, 2);
             assert!(tier3);
             assert!(!cached);
+            assert!(!semantic);
         }
         _ => panic!("expected Map"),
     }

@@ -63,6 +63,9 @@ pub(crate) enum Commands {
         /// Read from existing graph.db instead of re-parsing (fast, for hooks)
         #[arg(long)]
         cached: bool,
+        /// Emit deterministic per-module semantic enrichment (summary, public API, when-to-use)
+        #[arg(long)]
+        semantic: bool,
     },
 
     /// Look up a function's callers, callees, and context (accepts hash, file path, or --name)
@@ -251,6 +254,24 @@ pub(crate) enum Commands {
         #[arg(long)]
         budget: Option<usize>,
     },
+    /// Compact session-state summary for re-injection after context loss
+    Checkpoint {
+        /// Diff base commit (default: HEAD — uncommitted working-tree changes)
+        #[arg(long)]
+        since: Option<String>,
+        /// Summarize staged (index) changes instead of the working tree
+        #[arg(long)]
+        staged: bool,
+        /// Write the checkpoint to a file instead of stdout
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+
+    /// Validate a plan against the dependency graph before executing it
+    ValidatePlan {
+        /// Plan file to read (markdown/text), or `-` for stdin
+        plan: String,
+    },
 
     /// Remove all keel-generated files
     Deinit,
@@ -302,3 +323,6 @@ mod tests;
 #[cfg(test)]
 #[path = "cli_args_context_tests.rs"]
 mod context_tests;
+#[cfg(test)]
+#[path = "cli_args_session_tests.rs"]
+mod session_tests;

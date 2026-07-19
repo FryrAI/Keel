@@ -189,6 +189,28 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/checkpoint".into(),
+            description: "Compact, compaction-resilient session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "since": { "type": "string", "description": "Diff base commit (default: HEAD)" },
+                    "staged": { "type": "boolean", "description": "Summarize staged changes instead of the working tree" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/validate-plan".into(),
+            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, and a callers-first suggested order".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["plan"],
+                "properties": {
+                    "plan": { "type": "string", "description": "Plan text (markdown/plain)" }
+                }
+            }),
+        },
     ]
 }
 
@@ -218,6 +240,8 @@ pub(crate) fn dispatch_tool(
         "keel/context" => crate::mcp_context::handle_context(store, arguments),
         "keel/skeleton" => crate::mcp_skeleton::handle_skeleton(arguments),
         "keel/focus" => crate::mcp_focus::handle_focus(engine, arguments),
+        "keel/checkpoint" => crate::mcp_checkpoint::handle_checkpoint(store, engine, arguments),
+        "keel/validate-plan" => crate::mcp_validate_plan::handle_validate_plan(store, arguments),
         _ => return None,
     })
 }

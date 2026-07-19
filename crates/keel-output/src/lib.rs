@@ -12,10 +12,13 @@ pub mod llm;
 pub mod radar;
 pub mod token_budget;
 
+use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
 };
+use keel_enforce::validate_plan::PlanValidationResult;
 
 pub trait OutputFormatter {
     fn format_compile(&self, result: &CompileResult) -> String;
@@ -31,4 +34,10 @@ pub trait OutputFormatter {
     fn format_audit(&self, result: &AuditResult) -> String;
     fn format_skeleton(&self, result: &SkeletonResult) -> String;
     fn format_focus(&self, result: &FocusResult) -> String;
+    /// Format a `keel checkpoint` session summary.
+    fn format_checkpoint(&self, result: &CheckpointResult) -> String;
+    /// Format a `keel validate-plan` report.
+    fn format_validate_plan(&self, result: &PlanValidationResult) -> String;
+    /// Format a `keel map --semantic` enriched map.
+    fn format_semantic_map(&self, result: &SemanticMapResult) -> String;
 }

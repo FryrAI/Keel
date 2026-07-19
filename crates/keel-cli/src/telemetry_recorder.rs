@@ -246,6 +246,8 @@ pub fn command_name(command: &crate::cli_args::Commands) -> &'static str {
         Commands::Context { .. } => "context",
         Commands::Skeleton { .. } => "skeleton",
         Commands::Focus { .. } => "focus",
+        Commands::Checkpoint { .. } => "checkpoint",
+        Commands::ValidatePlan { .. } => "validate-plan",
         Commands::Serve { .. } => "serve",
         Commands::Watch => "watch",
         Commands::Deinit => "deinit",

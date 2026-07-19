@@ -521,3 +521,70 @@ fn test_focus_returns_context_for_node() {
         .iter()
         .any(|p| p == "src/target.rs"));
 }
+
+// --- keel/validate-plan tests ---
+
+#[test]
+fn test_validate_plan_detects_removal_risk() {
+    let store = Arc::new(Mutex::new(populated_edge_store()));
+    let params = serde_json::json!({"plan": "Step 1: Remove handleRequest entirely."});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", Some(params)),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "validate-plan");
+    assert_eq!(result["unrecognized"], false);
+    let actions = result["actions"].as_array().unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0]["action"], "remove");
+    assert_eq!(actions[0]["symbol"], "handleRequest");
+    assert_eq!(actions[0]["risk"], "HIGH");
+    assert!(actions[0]["caller_count"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn test_validate_plan_nonsense_unrecognized() {
+    let store = test_store();
+    let params = serde_json::json!({"plan": "Water the plants and take a nap."});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", Some(params)),
+    ));
+    assert_eq!(resp["result"]["unrecognized"], true);
+    assert!(resp["result"]["actions"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_validate_plan_missing_param() {
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", None),
+    ));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("plan"));
+}
+
+// --- keel/checkpoint tests ---
+
+#[test]
+fn test_checkpoint_returns_shaped_result() {
+    // Runs git in the crate cwd; with an empty in-memory store and no matching
+    // files it returns a well-formed, empty checkpoint. We assert only shape.
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/checkpoint", None),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "checkpoint");
+    assert!(result["files"].is_array());
+    assert!(result["violations"].is_array());
+    assert!(result["commits"].is_array());
+    assert!(result["affected_callers"].is_array());
+}

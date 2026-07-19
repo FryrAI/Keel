@@ -1,6 +1,7 @@
 pub mod analyze;
 pub mod audit;
 pub mod check;
+pub mod checkpoint;
 pub mod compile;
 pub mod compile_lock;
 pub mod compile_metrics;
@@ -34,5 +35,6 @@ pub mod serve;
 pub mod skeleton;
 pub mod stats;
 pub mod upgrade;
+pub mod validate_plan;
 pub mod watch;
 pub mod where_cmd;
