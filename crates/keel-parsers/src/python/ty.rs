@@ -89,7 +89,7 @@ impl RealTyClient {
             .args(["check", "--output-format", "json"])
             .arg(path)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| err(format!("Failed to spawn ty: {e}")))?;
 
@@ -102,6 +102,17 @@ impl RealTyClient {
             let mut buf = String::new();
             let _ = stdout.read_to_string(&mut buf);
             let _ = tx.send(buf);
+        });
+        // Drain stderr on its own thread (same as stdout) so a full pipe can
+        // never deadlock the child; its content feeds the failure message.
+        let stderr_rx = child.stderr.take().map(|mut se| {
+            let (etx, erx) = mpsc::channel();
+            thread::spawn(move || {
+                let mut buf = String::new();
+                let _ = se.read_to_string(&mut buf);
+                let _ = etx.send(buf);
+            });
+            erx
         });
 
         let start = Instant::now();
@@ -124,7 +135,15 @@ impl RealTyClient {
         };
 
         if !status.success() {
-            return Err(err(format!("ty exited with status {status}")));
+            let stderr_text = stderr_rx
+                .and_then(|rx| rx.recv().ok())
+                .unwrap_or_default();
+            let detail = stderr_text.trim();
+            return Err(err(if detail.is_empty() {
+                format!("ty exited with status {status}")
+            } else {
+                format!("ty exited with status {status}: {detail}")
+            }));
         }
 
         rx.recv()

@@ -143,7 +143,9 @@ fn preceding_attrs_mark_test(item: tree_sitter::Node<'_>, source: &[u8]) -> bool
                     .collect();
                 if compact.contains("cfg(test")
                     || compact == "#[test]"
+                    || compact.starts_with("#[test(")
                     || compact.ends_with("::test]")
+                    || compact.contains("::test(")
                 {
                     return true;
                 }

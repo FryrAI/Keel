@@ -427,13 +427,14 @@ fn containing_def(file: &FileIndex, local: &HashMap<String, u64>, line: u32) -> 
 }
 
 /// Content hash for a new node, disambiguated if the base hash collides with a
-/// different node already in the graph (mirrors the map first pass).
+/// different node already in the graph (mirrors the map first pass, which uses
+/// the same normalized `Definition::hash` — raw-body hashing here would give
+/// compile-created nodes a different identity than map would assign).
 fn node_hash_for(store: &SqliteGraphStore, def: &Definition, rel_path: &str) -> String {
-    let doc = def.docstring.as_deref().unwrap_or("");
-    let base = compute_hash(&def.signature, &def.body_text, doc);
+    let base = def.hash();
     if let Some(existing) = store.get_node(&base) {
         if existing.file_path != rel_path || existing.name != def.name {
-            return compute_hash_disambiguated(&def.signature, &def.body_text, doc, rel_path);
+            return def.hash_disambiguated(rel_path);
         }
     }
     base

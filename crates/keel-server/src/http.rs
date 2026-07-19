@@ -179,7 +179,13 @@ fn collect_compile_targets(req: &CompileRequest, root: &Path) -> Result<Vec<Stri
         let confined = crate::http_confine::confine(root, path).ok_or(StatusCode::BAD_REQUEST)?;
         if confined.is_dir() {
             for entry in keel_parsers::walker::FileWalker::new(&confined).walk() {
-                targets.push(entry.path.to_string_lossy().to_string());
+                // Re-confine each walked file: a symlink nested deeper in the
+                // tree could otherwise smuggle in files from outside the root.
+                if let Some(ok) =
+                    crate::http_confine::confine(root, &entry.path.to_string_lossy())
+                {
+                    targets.push(ok.to_string_lossy().to_string());
+                }
             }
         } else {
             targets.push(confined.to_string_lossy().to_string());

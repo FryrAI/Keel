@@ -4,15 +4,19 @@
 //! must never be able to reach files outside the project root. Every candidate
 //! path is resolved against the root and lexically normalized (resolving `.`
 //! and `..` without touching the filesystem, so non-existent targets still
-//! validate) and rejected unless the result stays under the root.
+//! validate); when the target actually exists it is additionally canonicalized
+//! so a symlink inside the root pointing outside it cannot smuggle external
+//! files past the lexical check.
 
 use std::path::{Component, Path, PathBuf};
 
 /// Resolve `candidate` against `root` and confine it to the project tree.
 ///
 /// Returns the normalized absolute path when it stays under `root`, or `None`
-/// when `candidate` is absolute-outside-root or escapes via `..`. `root` is
-/// assumed already canonicalized (an existing directory).
+/// when `candidate` is absolute-outside-root, escapes via `..`, or is a
+/// symlink whose real target lies outside `root`. `root` is assumed already
+/// canonicalized (an existing directory). Non-existent targets pass on the
+/// lexical check alone (they cannot be read anyway).
 pub(crate) fn confine(root: &Path, candidate: &str) -> Option<PathBuf> {
     let raw = Path::new(candidate);
     let joined = if raw.is_absolute() {
@@ -21,7 +25,18 @@ pub(crate) fn confine(root: &Path, candidate: &str) -> Option<PathBuf> {
         root.join(raw)
     };
     let normalized = normalize_lexically(&joined);
-    normalized.starts_with(root).then_some(normalized)
+    if !normalized.starts_with(root) {
+        return None;
+    }
+    // Symlink guard: if the target exists, its canonical (symlink-resolved)
+    // form must also live under the root.
+    if normalized.exists() {
+        let real = std::fs::canonicalize(&normalized).ok()?;
+        if !real.starts_with(root) {
+            return None;
+        }
+    }
+    Some(normalized)
 }
 
 /// Resolve `.` and `..` components without consulting the filesystem.
@@ -83,5 +98,25 @@ mod tests {
     fn rejects_sneaky_prefix_sibling() {
         // A sibling dir that merely shares a name prefix must not pass.
         assert!(confine(&root(), "/home/user/project-evil/x.rs").is_none());
+    }
+
+    /// A symlink inside the root pointing outside it must be rejected even
+    /// though it passes the lexical check (the walker/read would follow it).
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_escaping_root() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "s").unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("evil")).unwrap();
+        std::fs::write(root.join("ok.rs"), "fn a() {}").unwrap();
+
+        assert!(confine(&root, "evil").is_none(), "symlinked dir must fail");
+        assert!(
+            confine(&root, "evil/secret.txt").is_none(),
+            "file through symlinked dir must fail"
+        );
+        assert!(confine(&root, "ok.rs").is_some(), "real file still passes");
     }
 }
