@@ -36,7 +36,7 @@ pub fn run(
 
     // Resolve project root and database path
     let root_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let db_path = root_dir.join(".keel").join("graph.db");
+    let db_path = keel_core::paths::keel_dir(&root_dir).join("graph.db");
 
     // MCP mode runs synchronously over stdio — no tokio needed
     if mcp && !http && !watch {
@@ -49,7 +49,7 @@ pub fn run(
         };
         let shared_store = Arc::new(Mutex::new(store));
         let db_str = db_path.to_string_lossy().to_string();
-        let keel_dir = root_dir.join(".keel");
+        let keel_dir = keel_core::paths::keel_dir(&root_dir);
         if let Err(e) = keel_server::mcp_stdio::run_stdio(
             shared_store,
             Some(&db_str),

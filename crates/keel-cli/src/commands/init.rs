@@ -51,7 +51,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
         }
     };
 
-    let keel_dir = cwd.join(".keel");
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
     if keel_dir.exists() && !merge {
         eprintln!("keel init: .keel/ directory already exists (use --merge to re-initialize)");
         return 2;
@@ -78,7 +78,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
         keel_core::config::MonorepoConfig::default()
     };
 
-    let config_path = cwd.join(".keel/keel.json");
+    let config_path = keel_dir.join("keel.json");
 
     if merge && config_path.exists() {
         // Merge mode: read existing config and deep-merge with new defaults
@@ -128,7 +128,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
 
     // Open (or create) the graph database.
     // On merge: reset circuit breaker state.
-    let db_path = cwd.join(".keel/graph.db");
+    let db_path = keel_dir.join("graph.db");
     match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(store) => {
             if merge {
@@ -269,6 +269,12 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
         file_count
     );
 
+    // When run from a linked git worktree, `.keel` is shared with the main
+    // checkout rather than living under the worktree — make that explicit.
+    if keel_dir.parent() != Some(cwd.as_path()) {
+        eprintln!("  shared graph location: {}", keel_dir.display());
+    }
+
     if monorepo_config.enabled {
         eprintln!(
             "  monorepo: {} ({} packages)",
@@ -290,8 +296,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
 
     if verbose {
         eprintln!("  languages: {:?}", languages);
-        eprintln!("  config: .keel/keel.json");
-        eprintln!("  database: .keel/graph.db");
+        eprintln!("  config: {}", config_path.display());
+        eprintln!("  database: {}", db_path.display());
     }
 
     eprintln!();

@@ -36,7 +36,7 @@ pub fn run(
         }
     };
 
-    let keel_dir = cwd.join(".keel");
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
     if !keel_dir.exists() {
         eprintln!("keel map: not initialized. Run `keel init` first.");
         return (2, EventMetrics::default());

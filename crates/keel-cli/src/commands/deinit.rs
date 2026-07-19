@@ -3,7 +3,7 @@ use std::fs;
 use keel_output::OutputFormatter;
 
 /// Run `keel deinit` — remove all keel-generated files.
-pub fn run(_formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
+pub fn run(_formatter: &dyn OutputFormatter, _verbose: bool) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -12,7 +12,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
         }
     };
 
-    let keel_dir = cwd.join(".keel");
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
     if !keel_dir.exists() {
         eprintln!("keel deinit: no .keel/ directory found — nothing to remove");
         return 0;
@@ -20,9 +20,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
 
     match fs::remove_dir_all(&keel_dir) {
         Ok(_) => {
-            if verbose {
-                eprintln!("keel deinit: removed {}", keel_dir.display());
-            }
+            eprintln!("keel deinit: removed {}", keel_dir.display());
             0
         }
         Err(e) => {

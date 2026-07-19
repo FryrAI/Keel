@@ -10,7 +10,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
         }
     };
 
-    let keel_dir = cwd.join(".keel");
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
     if !keel_dir.exists() {
         eprintln!("keel stats: not initialized. Run `keel init` first.");
         return 2;
