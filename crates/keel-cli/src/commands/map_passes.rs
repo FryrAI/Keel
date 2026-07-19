@@ -1,5 +1,6 @@
 //! First-pass and second-pass logic for `keel map`.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -187,7 +188,7 @@ pub fn first_pass(
                                 kind: EdgeKind::Calls,
                                 file_path: file_path.clone(),
                                 line: reference.line,
-                                confidence: 0.95,
+                                confidence: keel_core::confidence::SAME_FILE_CALL,
                             }));
                         }
                     }
@@ -333,11 +334,12 @@ struct MapIndex<'a> {
 }
 
 impl CallIndex for MapIndex<'_> {
-    fn candidates(&self, name: &str) -> Vec<(String, u64)> {
+    fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]> {
+        // Borrowed: the map's index already owns these lists.
         self.global_name_index
             .get(name)
-            .cloned()
-            .unwrap_or_default()
+            .map(|v| Cow::Borrowed(v.as_slice()))
+            .unwrap_or(Cow::Borrowed(&[]))
     }
     fn module_files(&self) -> &HashMap<String, u64> {
         self.file_module_ids

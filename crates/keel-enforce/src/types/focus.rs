@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 /// can no longer slip past a `_` match arm. The wire format is unchanged:
 /// `rename_all = "lowercase"` serializes to exactly those strings, and
 /// [`Relation::as_str`]/[`fmt::Display`] render them for the text formatters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+// No `PartialOrd`/`Ord`: the derived (declaration-order) ordering would read as
+// the ranking used for sorting focus entries, but that ranking lives in
+// `focus::role_rank` and deliberately differs. Nothing compares `Relation`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Relation {
     Target,

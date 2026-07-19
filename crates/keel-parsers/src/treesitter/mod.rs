@@ -108,103 +108,137 @@ fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
 }
 
-/// True when a Rust definition node sits in a test context: inside a
-/// `#[cfg(test)]`-annotated module, or is itself a `#[test]` / `#[tokio::test]`
-/// function. Walks ancestors (tree-sitter gives us the full ancestry here) and
-/// inspects the preceding `attribute_item` siblings of each enclosing item.
-///
-/// The node kinds checked (`function_item`, `mod_item`, `attribute_item`) are
-/// Rust-specific, so this returns `false` for every other grammar — callers
-/// gate on the language anyway.
-/// True when a definition node is an associated item: inside a Rust `impl` or
-/// `trait` block (inherent or trait), a TS/JS or Python class body, or a Go
-/// method (receiver func — detected via the `@def.method` capture upstream).
-/// Associated items are addressed through their type, so bare-name collisions
-/// across unrelated types are idiomatic; W002 skips them.
-fn in_associated_context(node: tree_sitter::Node<'_>, lang: &str) -> bool {
-    let mut current = node.parent();
-    while let Some(n) = current {
-        match (lang, n.kind()) {
-            ("rust", "impl_item") | ("rust", "trait_item") => return true,
-            (_, "class_body") | (_, "class_declaration") | (_, "class") => return true,
-            ("python", "class_definition") => return true,
-            _ => {}
-        }
-        current = n.parent();
-    }
-    false
+/// The three ancestry-derived flags a definition carries.
+#[derive(Default)]
+struct DefContexts {
+    /// Rust only: inside a `#[cfg(test)]` module or a `#[test]` function.
+    in_test: bool,
+    /// On a trait/interface contract surface (Rust trait or trait impl, TS
+    /// interface or `implements` class).
+    in_trait: bool,
+    /// An associated item — addressed through its type, so bare-name
+    /// collisions across unrelated types are idiomatic and W002 skips it.
+    is_associated: bool,
 }
 
-/// True when a Rust definition node sits on a trait's contract surface: a
-/// method declared in a `trait` block, or one defined in a trait
-/// implementation (`impl Trait for Type`). An inherent `impl Type` block is
-/// NOT a trait context.
+/// Node kinds that introduce a new function scope, per supported grammar.
 ///
-/// In tree-sitter-rust both impl forms are an `impl_item`; only the trait form
-/// carries a `trait` field (the `for` clause). Verified empirically against the
-/// grammar: `impl T for S { .. }` yields `trait=Some("T")`, `impl S { .. }`
-/// yields `trait=None`. Trait declarations are a distinct `trait_item`.
-///
-/// Both node kinds are Rust-specific, so this returns `false` for every other
-/// grammar — callers gate on the language anyway.
-fn in_rust_trait_context(node: tree_sitter::Node<'_>) -> bool {
-    let mut current = node.parent();
-    while let Some(n) = current {
-        match n.kind() {
-            // A method signature (or defaulted body) inside `trait T { .. }`.
-            "trait_item" => return true,
-            "impl_item" => return n.child_by_field_name("trait").is_some(),
-            _ => {}
-        }
-        current = n.parent();
-    }
-    false
+/// Used to BOUND the associated-item walk: a `fn` nested inside an `impl`
+/// method is a local helper, not an associated item, and must not inherit the
+/// enclosing `impl`'s associated-ness.
+fn is_function_scope(kind: &str) -> bool {
+    matches!(
+        kind,
+        // rust
+        "function_item"
+            // typescript / javascript
+            | "function_declaration"
+            | "method_definition"
+            | "arrow_function"
+            | "function_expression"
+            // python
+            | "function_definition"
+            // go (`function_declaration` shared with TS above)
+            | "method_declaration"
+    )
 }
 
-/// TypeScript's equivalent of [`in_rust_trait_context`]: a method declared in
-/// an `interface`, or defined in a `class X implements Y` body.
+/// Compute all three ancestry flags for a definition in ONE walk up the tree.
 ///
-/// A bare `class X { .. }` or one that only `extends` a base is NOT an
-/// interface context — those methods are ordinary owned code.
+/// These were three separate full walks over the same ancestor chain. They stop
+/// on different things, but nothing stops them from sharing the traversal.
 ///
-/// Verified empirically against tree-sitter-typescript: a `class_declaration`
-/// carries its `implements Y` as a `class_heritage` child containing an
-/// `implements_clause`, while `extends D` produces a `class_heritage` with no
-/// such clause.
-fn in_ts_interface_context(node: tree_sitter::Node<'_>) -> bool {
-    fn has_child_of_kind(node: tree_sitter::Node<'_>, kind: &str) -> bool {
-        (0..node.child_count()).any(|i| node.child(i).is_some_and(|c| c.kind() == kind))
-    }
+/// Note the deliberate asymmetry: only the associated-item flag stops at a
+/// function scope. A nested helper inside a `#[cfg(test)] mod` is still test
+/// code, and one inside a trait impl is still (transitively) trait-context
+/// code — but it is emphatically not itself an associated item.
+fn definition_contexts(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -> DefContexts {
+    let mut ctx = DefContexts::default();
+    let mut trait_decided = false;
+    let mut assoc_decided = false;
+    let is_ts = is_typescript_family(lang);
 
-    fn has_implements_clause(class: tree_sitter::Node<'_>) -> bool {
-        (0..class.child_count())
-            .filter_map(|i| class.child(i))
-            .filter(|c| c.kind() == "class_heritage")
-            .any(|heritage| has_child_of_kind(heritage, "implements_clause"))
-    }
-
-    let mut current = node.parent();
-    while let Some(n) = current {
-        match n.kind() {
-            "interface_declaration" => return true,
-            "class_declaration" | "class" => return has_implements_clause(n),
-            _ => {}
-        }
-        current = n.parent();
-    }
-    false
-}
-
-fn in_rust_test_context(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut current = Some(node);
+    let mut is_self = true;
     while let Some(n) = current {
-        if matches!(n.kind(), "function_item" | "mod_item") && preceding_attrs_mark_test(n, source)
+        let kind = n.kind();
+
+        // Test context (Rust only) — starts at the node ITSELF, since a `#[test]`
+        // attribute annotates the function being classified.
+        if lang == "rust"
+            && !ctx.in_test
+            && matches!(kind, "function_item" | "mod_item")
+            && preceding_attrs_mark_test(n, source)
         {
-            return true;
+            ctx.in_test = true;
         }
+
+        // The remaining two flags are about ANCESTRY, so skip the node itself.
+        if !is_self {
+            if !trait_decided {
+                match (lang, kind) {
+                    ("rust", "trait_item") => {
+                        ctx.in_trait = true;
+                        trait_decided = true;
+                    }
+                    // Both Rust impl forms are `impl_item`; only `impl T for S`
+                    // carries a `trait` field. Verified against the grammar.
+                    ("rust", "impl_item") => {
+                        ctx.in_trait = n.child_by_field_name("trait").is_some();
+                        trait_decided = true;
+                    }
+                    _ if is_ts && kind == "interface_declaration" => {
+                        ctx.in_trait = true;
+                        trait_decided = true;
+                    }
+                    // A bare class, or one that only `extends`, is ordinary
+                    // owned code; only `implements` is a contract surface.
+                    _ if is_ts && matches!(kind, "class_declaration" | "class") => {
+                        ctx.in_trait = has_implements_clause(n);
+                        trait_decided = true;
+                    }
+                    _ => {}
+                }
+            }
+
+            if !assoc_decided {
+                if is_function_scope(kind) {
+                    // A function scope encloses us before any type body does:
+                    // we are a local helper, not an associated item.
+                    assoc_decided = true;
+                } else if matches!(
+                    (lang, kind),
+                    ("rust", "impl_item") | ("rust", "trait_item") | ("python", "class_definition")
+                ) || matches!(kind, "class_body" | "class_declaration" | "class")
+                {
+                    ctx.is_associated = true;
+                    assoc_decided = true;
+                }
+            }
+        }
+
+        is_self = false;
         current = n.parent();
     }
-    false
+    ctx
+}
+
+/// True when a TS class node carries an `implements` clause.
+///
+/// tree-sitter-typescript hangs `implements Y` off the `class_heritage` child
+/// as an `implements_clause`, while `extends D` yields a `class_heritage` with
+/// no such clause.
+fn has_implements_clause(class: tree_sitter::Node<'_>) -> bool {
+    (0..class.child_count())
+        .filter_map(|i| class.child(i))
+        .filter(|c| c.kind() == "class_heritage")
+        .any(|heritage| {
+            (0..heritage.child_count()).any(|i| {
+                heritage
+                    .child(i)
+                    .is_some_and(|c| c.kind() == "implements_clause")
+            })
+        })
 }
 
 /// Scans the `attribute_item` siblings immediately preceding `item` for a
@@ -345,19 +379,12 @@ fn extract_definitions(
             let docstring =
                 def_node.and_then(|node| docstrings::extract_docstring(node, body_node, source));
 
-            let in_test_context =
-                lang == "rust" && def_node.is_some_and(|node| in_rust_test_context(node, source));
-
-            let in_trait_context = def_node.is_some_and(|node| match lang {
-                "rust" => in_rust_trait_context(node),
-                l if is_typescript_family(l) => in_ts_interface_context(node),
-                _ => false,
-            });
-
+            // One ancestor walk yields all three context flags.
+            let contexts = def_node
+                .map(|node| definition_contexts(node, lang, source))
+                .unwrap_or_default();
             // Go methods carry no class ancestry; the capture kind marks them.
             let is_go_method = lang == "go" && capture_was_method;
-            let is_associated =
-                is_go_method || def_node.is_some_and(|node| in_associated_context(node, lang));
 
             defs.push(Definition {
                 name: n,
@@ -370,9 +397,9 @@ fn extract_definitions(
                 is_public: true,
                 type_hints_present: has_type_hints,
                 body_text,
-                in_test_context,
-                in_trait_context,
-                is_associated,
+                in_test_context: contexts.in_test,
+                in_trait_context: contexts.in_trait,
+                is_associated: is_go_method || contexts.is_associated,
             });
         }
     }

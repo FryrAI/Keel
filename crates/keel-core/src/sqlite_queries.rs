@@ -3,8 +3,8 @@ use rusqlite::params;
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
-    BodyIndexEntry, EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphError, GraphNode,
-    ModuleProfile, NodeChange,
+    BodyIndexEntry, EdgeChange, EdgeDirection, GraphEdge, GraphError, GraphNode, ModuleProfile,
+    NodeChange,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -55,25 +55,7 @@ impl GraphStore for SqliteGraphStore {
                 return Vec::new();
             }
         };
-        let result = match stmt.query_map(params![node_id], |row| {
-            let kind_str: String = row.get("kind")?;
-            let kind = match kind_str.as_str() {
-                "calls" => EdgeKind::Calls,
-                "imports" => EdgeKind::Imports,
-                "inherits" => EdgeKind::Inherits,
-                "contains" => EdgeKind::Contains,
-                _ => EdgeKind::Calls,
-            };
-            Ok(GraphEdge {
-                id: row.get("id")?,
-                source_id: row.get("source_id")?,
-                target_id: row.get("target_id")?,
-                kind,
-                file_path: row.get("file_path")?,
-                line: row.get("line")?,
-                confidence: row.get("confidence").unwrap_or(1.0),
-            })
-        }) {
+        let result = match stmt.query_map(params![node_id], Self::row_to_edge) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(e) => {
                 eprintln!("[keel] get_edges: query failed: {e}");

@@ -322,3 +322,127 @@ fn same_named_defs_in_one_file_bind_to_distinct_nodes() {
     assert_ne!(a.hash, b.hash, "distinct bodies keep distinct hashes");
     assert_eq!(result.errors.len(), 0);
 }
+
+/// THREE identical same-named defs in one file — the idiomatic Rust shape of a
+/// trait declaration plus two impls, all with the same body. All three
+/// normalize to one content hash, so re-baselining needs three DISTINCT
+/// identities.
+///
+/// Disambiguating with the file path alone yields only a second identity, so
+/// defs 2 and 3 both landed on it and `update_nodes` aborted the entire
+/// persist with a `HashCollision` — leaving every node in the file stale.
+#[test]
+fn three_identical_defs_in_one_file_get_three_distinct_hashes() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let sig = "fn is_available(&self) -> bool";
+    for (id, hash, line) in [
+        (1u64, "stale111111", 10u32),
+        (2, "stale222222", 40),
+        (3, "stale333333", 70),
+    ] {
+        let mut node = make_node(id, hash, "is_available", sig, "src/ty.rs");
+        node.line_start = line;
+        store.insert_node(&node).unwrap();
+    }
+
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    // Byte-identical bodies: one content hash for all three.
+    let defs: Vec<Definition> = [10u32, 40, 70]
+        .iter()
+        .map(|&line| {
+            let mut d = make_definition("is_available", sig, "{ true }", "src/ty.rs");
+            d.line_start = line;
+            d
+        })
+        .collect();
+
+    let result = engine.compile(&[FileIndex {
+        file_path: "src/ty.rs".to_string(),
+        content_hash: 0,
+        definitions: defs,
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }]);
+
+    let hashes: Vec<String> = (1u64..=3)
+        .map(|id| {
+            engine
+                .store
+                .get_node_by_id(id)
+                .unwrap_or_else(|| panic!("node {id} survives"))
+                .hash
+        })
+        .collect();
+    for (id, h) in hashes.iter().enumerate() {
+        assert!(
+            !h.starts_with("stale"),
+            "node {} kept its stale hash — the persist aborted: {:?}",
+            id + 1,
+            hashes
+        );
+    }
+    let distinct: std::collections::HashSet<&String> = hashes.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        3,
+        "three defs must own three distinct hashes, got {:?}",
+        hashes
+    );
+    assert_eq!(result.errors.len(), 0);
+}
+
+/// When same-named defs shift lines, a def with an EXACT `(name, line)` match
+/// must get that node — even if another def, listed earlier, has no exact match
+/// and would otherwise grab it via the name-only fallback.
+///
+/// Here node 1 sits at line 10 and node 2 at line 40; after the edit one def is
+/// still at line 10 and the other has moved to line 55. A greedy one-pass bind
+/// visits the moved def first, finds nothing at line 55, and takes node 1 off
+/// the name-only fallback — leaving the line-10 def, whose exact match node 1
+/// was, to inherit node 2. Both nodes then carry the wrong body. Claiming ALL
+/// exact matches in a first pass, before any name-only fallback runs, fixes it.
+#[test]
+fn exact_line_matches_claim_their_node_before_name_only_fallback() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let sig = "fn handler(&self) -> bool";
+    for (id, hash, line) in [(1u64, "stale111111", 10u32), (2, "stale222222", 40)] {
+        let mut node = make_node(id, hash, "handler", sig, "src/h.rs");
+        node.line_start = line;
+        store.insert_node(&node).unwrap();
+    }
+
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    // The line-40 def moved to 55 (no exact match); the line-10 def did not.
+    let mut moved = make_definition("handler", sig, "{ self.moved }", "src/h.rs");
+    moved.line_start = 55;
+    let mut stayed = make_definition("handler", sig, "{ self.stayed }", "src/h.rs");
+    stayed.line_start = 10;
+
+    engine.compile(&[FileIndex {
+        file_path: "src/h.rs".to_string(),
+        content_hash: 0,
+        // The def WITHOUT an exact match is visited first — the trigger.
+        definitions: vec![moved, stayed],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }]);
+
+    let node1 = engine.store.get_node_by_id(1).expect("node 1 survives");
+    let node2 = engine.store.get_node_by_id(2).expect("node 2 survives");
+    assert_eq!(
+        node1.line_start, 10,
+        "node 1 had the exact line-10 match and must keep it, not be stolen by the moved def"
+    );
+    assert_eq!(
+        node2.line_start, 55,
+        "the moved def belongs to node 2, the node it left behind"
+    );
+    assert_ne!(
+        node1.hash, node2.hash,
+        "distinct bodies keep distinct hashes"
+    );
+}

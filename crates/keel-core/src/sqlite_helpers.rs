@@ -366,6 +366,31 @@ impl SqliteGraphStore {
         })
     }
 
+    /// Convert a SQLite row from `edges` into a [`GraphEdge`].
+    ///
+    /// Shared by every `SELECT * FROM edges` reader (`get_edges`, `all_edges`)
+    /// so the `kind` string table lives in exactly one place — the two used to
+    /// carry verbatim copies of this mapping.
+    pub(crate) fn row_to_edge(row: &rusqlite::Row) -> SqlResult<GraphEdge> {
+        let kind_str: String = row.get("kind")?;
+        let kind = match kind_str.as_str() {
+            "calls" => EdgeKind::Calls,
+            "imports" => EdgeKind::Imports,
+            "inherits" => EdgeKind::Inherits,
+            "contains" => EdgeKind::Contains,
+            _ => EdgeKind::Calls,
+        };
+        Ok(GraphEdge {
+            id: row.get("id")?,
+            source_id: row.get("source_id")?,
+            target_id: row.get("target_id")?,
+            kind,
+            file_path: row.get("file_path")?,
+            line: row.get("line")?,
+            confidence: row.get("confidence").unwrap_or(1.0),
+        })
+    }
+
     /// Load all external endpoints associated with a given node.
     pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
         let mut stmt = match self.conn.prepare(
@@ -457,25 +482,7 @@ impl SqliteGraphStore {
                 return Vec::new();
             }
         };
-        let result = match stmt.query_map([], |row| {
-            let kind_str: String = row.get("kind")?;
-            let kind = match kind_str.as_str() {
-                "calls" => EdgeKind::Calls,
-                "imports" => EdgeKind::Imports,
-                "inherits" => EdgeKind::Inherits,
-                "contains" => EdgeKind::Contains,
-                _ => EdgeKind::Calls,
-            };
-            Ok(GraphEdge {
-                id: row.get("id")?,
-                source_id: row.get("source_id")?,
-                target_id: row.get("target_id")?,
-                kind,
-                file_path: row.get("file_path")?,
-                line: row.get("line")?,
-                confidence: row.get("confidence").unwrap_or(1.0),
-            })
-        }) {
+        let result = match stmt.query_map([], Self::row_to_edge) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(e) => {
                 eprintln!("[keel] all_edges: query failed: {e}");

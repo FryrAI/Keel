@@ -94,25 +94,43 @@ fn test_passive_recompiles_never_downgrade_then_reset_on_fix() {
     );
 }
 
-/// E004/E005-shaped violations have no definition at (file, line) — E004
-/// points at a removed node's old line, E005 at a call site keyed by the
-/// callee's hash. Their breaker fingerprint must fall back to the WHOLE-FILE
-/// fingerprint so edits count as fix attempts; falling back to the violation's
-/// own static hash froze the counter at one strike forever.
-#[test]
-fn test_e004_breaker_advances_on_file_edits_via_file_fingerprint() {
-    use std::collections::HashMap;
+/// Build the fingerprints for a synthetic `src/lib.rs` holding `defs`.
+fn fingerprints(defs: &[Definition]) -> FileFingerprints {
+    let hashes: Vec<(String, String)> = defs
+        .iter()
+        .map(|d| crate::violations_util::definition_hashes(d, "src/lib.rs"))
+        .collect();
+    FileFingerprints::new("src/lib.rs", defs, &hashes)
+}
 
-    let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
-    let mut engine = EnforcementEngine::new(Box::new(store));
+fn def_at(name: &str, body: &str, line_start: u32, line_end: u32) -> Definition {
+    let mut d = make_definition(name, &format!("fn {}()", name), body, "src/lib.rs");
+    d.line_start = line_start;
+    d.line_end = line_end;
+    d
+}
 
-    let v = || Violation {
+/// `(name, body, line_start, line_end)` tuples -> definitions.
+fn defs_at(specs: &[(&str, &str, u32, u32)]) -> Vec<Definition> {
+    specs
+        .iter()
+        .map(|&(name, body, start, end)| def_at(name, body, start, end))
+        .collect()
+}
+
+/// One E004 violation, boxed in the single-element vec the breaker takes.
+fn e004_batch() -> Vec<Violation> {
+    Vec::from([e004()])
+}
+
+fn e004() -> Violation {
+    Violation {
         code: "E004".to_string(),
         severity: "ERROR".to_string(),
         category: "function_removed".to_string(),
         message: "function `gone` was removed".to_string(),
         file: "src/lib.rs".to_string(),
-        line: 40, // the REMOVED node's old line — nothing is defined here now
+        line: 400, // the REMOVED node's old line — nothing is defined there now
         hash: "removedhash".to_string(),
         confidence: 0.95,
         resolution_tier: "tree-sitter".to_string(),
@@ -122,42 +140,129 @@ fn test_e004_breaker_advances_on_file_edits_via_file_fingerprint() {
         affected: vec![],
         suggested_module: None,
         existing: None,
-    };
-    let empty: HashMap<(String, u32), String> = HashMap::new();
+    }
+}
+
+fn advanced(v: &Violation) -> bool {
+    v.fix_hint.as_deref().unwrap_or("").contains("2nd attempt")
+}
+
+/// E004 blames a node that no longer exists, so no def can sit at — or contain
+/// — its line. Its breaker fingerprint is the file's def NAME SET: only a
+/// structural edit (restoring, renaming, or deleting a definition) is a
+/// plausible fix attempt.
+///
+/// The whole-file CONTENT fingerprint used previously was far too wide: three
+/// saves while working on an unrelated function in the same file auto-
+/// downgraded a live E004 to WARNING, flipping exit 1 to 0 and shipping the
+/// broken callers.
+#[test]
+fn test_e004_breaker_advances_on_name_set_changes_only() {
+    let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let unrelated = |body: &str| defs_at(&[("unrelated", body, 10, 20)]);
 
     // Attempt 1: first sighting.
-    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-1");
+    let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&unrelated("v1")));
     assert_eq!(out[0].severity, "ERROR");
 
-    // Passive recompile (same file fingerprint): must NOT advance.
-    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-1");
-    assert_eq!(out[0].severity, "ERROR");
-    assert!(
-        !out[0]
-            .fix_hint
-            .as_deref()
-            .unwrap_or("")
-            .contains("2nd attempt"),
-        "passive recompile must not count as a fix attempt"
-    );
+    // Body edits to an UNRELATED function in the same file: the name set is
+    // unchanged, so none of these is a fix attempt for the removed function.
+    for body in ["v2", "v3", "v4", "v5"] {
+        let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&unrelated(body)));
+        let did_advance = advanced(&out[0]);
+        assert_eq!(
+            out[0].severity, "ERROR",
+            "unrelated body edits must never downgrade a live E004"
+        );
+        assert!(
+            !did_advance,
+            "editing a different function is not a fix attempt for E004, got: {:?}",
+            out[0].fix_hint
+        );
+    }
 
-    // Edit the file (fingerprint changes) with the violation still firing:
-    // that IS a failed fix attempt — 2nd strike.
-    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-2");
+    // A structural edit — a definition appears — IS a plausible fix attempt.
+    let with_helper = defs_at(&[("unrelated", "v5", 10, 20), ("helper", "h", 30, 40)]);
+    let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&with_helper));
+    let did_advance = advanced(&out[0]);
     assert!(
-        out[0]
-            .fix_hint
-            .as_deref()
-            .unwrap_or("")
-            .contains("2nd attempt"),
-        "an edit that leaves E004 firing must advance the breaker, got: {:?}",
+        did_advance,
+        "a change to the file's definition NAME SET must advance the breaker, got: {:?}",
         out[0].fix_hint
     );
 
-    // Third distinct edit: auto-downgrade.
-    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-3");
+    // A third distinct name set, still not resolving it: auto-downgrade.
+    let renamed = defs_at(&[("unrelated", "v5", 10, 20), ("helper2", "h", 30, 40)]);
+    let out = engine.apply_circuit_breaker(e004_batch(), &fingerprints(&renamed));
     assert_eq!(
         out[0].severity, "WARNING",
-        "third failed attempt must auto-downgrade E004"
+        "third failed structural attempt must auto-downgrade E004"
+    );
+}
+
+/// E005 blames a CALL SITE, which lives inside some definition's line range
+/// (the violation is keyed by the callee's hash, so no def starts at that
+/// line). A fix attempt edits the def that contains the call — and only that.
+#[test]
+fn test_e005_breaker_advances_only_on_the_containing_def() {
+    let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let e005 = || Violation {
+        code: "E005".to_string(),
+        severity: "ERROR".to_string(),
+        category: "arity_mismatch".to_string(),
+        message: "call to `target` passes 2 args, expects 3".to_string(),
+        file: "src/lib.rs".to_string(),
+        line: 15, // inside `caller` (10..20), not at any def's first line
+        hash: "calleehash".to_string(),
+        confidence: 0.95,
+        resolution_tier: "tree-sitter".to_string(),
+        fix_hint: Some("pass the missing argument".to_string()),
+        suppressed: false,
+        suppress_hint: None,
+        affected: vec![],
+        suggested_module: None,
+        existing: None,
+    };
+    // `caller` holds the call site at line 15; `other` is elsewhere in the file.
+    let file = |caller_body: &str, other_body: &str| {
+        defs_at(&[
+            ("caller", caller_body, 10, 20),
+            ("other", other_body, 30, 40),
+        ])
+    };
+
+    // Attempt 1: first sighting.
+    let out = engine.apply_circuit_breaker(Vec::from([e005()]), &fingerprints(&file("c1", "o1")));
+    assert_eq!(out[0].severity, "ERROR");
+
+    // Editing a DIFFERENT function is not an attempt at this call site.
+    for other in ["o2", "o3", "o4"] {
+        let out =
+            engine.apply_circuit_breaker(Vec::from([e005()]), &fingerprints(&file("c1", other)));
+        let did_advance = advanced(&out[0]);
+        assert_eq!(out[0].severity, "ERROR");
+        assert!(
+            !did_advance,
+            "editing a def that does not contain the call site is not a fix attempt"
+        );
+    }
+
+    // Editing the CONTAINING def with E005 still firing IS a failed attempt.
+    let out = engine.apply_circuit_breaker(Vec::from([e005()]), &fingerprints(&file("c2", "o4")));
+    let did_advance = advanced(&out[0]);
+    assert!(
+        did_advance,
+        "editing the def containing the call site must advance the breaker, got: {:?}",
+        out[0].fix_hint
+    );
+
+    let out = engine.apply_circuit_breaker(Vec::from([e005()]), &fingerprints(&file("c3", "o4")));
+    assert_eq!(
+        out[0].severity, "WARNING",
+        "third failed attempt on the containing def must auto-downgrade E005"
     );
 }

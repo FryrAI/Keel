@@ -634,3 +634,72 @@ fn associated_items_are_marked_across_languages() {
     assert!(assoc.is_associated, "Python class method is associated");
     assert!(!free.is_associated, "Python free fn is not associated");
 }
+
+/// A local `fn` nested INSIDE an impl method is a private helper, not an
+/// associated item — it is not reachable as `Type::name` and carries no
+/// contract. The associated-item walk previously ran all the way to the root,
+/// so it saw the enclosing `impl_item` and marked the helper associated, which
+/// made W002 silently skip genuine duplicate-name warnings on local helpers.
+#[test]
+fn nested_local_fn_inside_impl_method_is_not_associated() {
+    let mut parser = TreeSitterParser::new();
+    let rust = "struct S;\n\
+                impl S {\n\
+                \x20   pub fn outer(&self) -> u32 {\n\
+                \x20       fn helper(x: u32) -> u32 { x + 1 }\n\
+                \x20       helper(1)\n\
+                \x20   }\n\
+                }\n";
+    let result = parser
+        .parse_file("rust", std::path::Path::new("a.rs"), rust)
+        .unwrap();
+
+    let outer = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "outer")
+        .expect("the impl method is extracted");
+    let helper = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "helper")
+        .expect("the nested local fn is extracted");
+
+    assert!(
+        outer.is_associated,
+        "the impl method itself IS an associated item"
+    );
+    assert!(
+        !helper.is_associated,
+        "a local fn nested inside an impl method is NOT an associated item"
+    );
+}
+
+/// The asymmetry is deliberate: the test-context flag is NOT bounded by an
+/// enclosing function scope. A helper nested inside a `#[test]` fn is still
+/// test code, and E002/E003/W005 must keep skipping it.
+#[test]
+fn nested_fn_inside_test_fn_is_still_test_context() {
+    let mut parser = TreeSitterParser::new();
+    let rust = "#[cfg(test)]\n\
+                mod tests {\n\
+                \x20   #[test]\n\
+                \x20   fn outer_test() {\n\
+                \x20       fn helper(x: u32) -> u32 { x + 1 }\n\
+                \x20       assert_eq!(helper(1), 2);\n\
+                \x20   }\n\
+                }\n";
+    let result = parser
+        .parse_file("rust", std::path::Path::new("a.rs"), rust)
+        .unwrap();
+
+    let helper = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "helper")
+        .expect("the nested local fn is extracted");
+    assert!(
+        helper.in_test_context,
+        "a fn nested inside a #[test] fn is still test code"
+    );
+}

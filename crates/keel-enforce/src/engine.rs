@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
 
-use crate::batch::BatchState;
+use crate::batch::is_deferrable;
 use crate::circuit_breaker::{BreakerAction, CircuitBreaker};
 use crate::progressive::apply_progressive_adoption;
 use crate::suppress::SuppressionManager;
@@ -11,11 +11,20 @@ use crate::types::{CompileInfo, CompileResult, Violation};
 use crate::violations;
 use crate::violations_economy;
 
+/// Safety bound on the re-baseline disambiguation walk (see `compile`). Far
+/// above any real file's same-named-definition count; it exists only so a
+/// pathological store state cannot spin the loop forever.
+const MAX_DISAMBIGUATION_ORDINAL: u32 = 64;
+
 /// Core enforcement engine. Owns a GraphStore and orchestrates validation.
 pub struct EnforcementEngine {
     pub(crate) store: Box<dyn GraphStore + Send>,
     pub(crate) circuit_breaker: CircuitBreaker,
-    pub(crate) batch_state: Option<BatchState>,
+    /// `Some(queue)` while this engine is in batch mode; the queue holds the
+    /// violations deferred so far. Inactivity expiry lives entirely on
+    /// [`PersistentBatch`](crate::batch::PersistentBatch) (checked by the CLI
+    /// before it ever enters batch mode), so this carries no clock of its own.
+    pub(crate) batch_state: Option<Vec<Violation>>,
     pub(crate) suppressions: SuppressionManager,
     pub(crate) enforce_config: keel_core::config::EnforceConfig,
 }
@@ -184,25 +193,9 @@ impl EnforcementEngine {
                 .map(|d| crate::violations_util::definition_hashes(d, &file.file_path))
                 .collect();
 
-            let fresh_hashes: HashMap<(String, u32), String> = file
-                .definitions
-                .iter()
-                .zip(&def_hashes)
-                .map(|(d, (plain, _))| ((file.file_path.clone(), d.line_start), plain.clone()))
-                .collect();
-            // Whole-file fingerprint for violations with no definition at
-            // (file, line): E004 points at a REMOVED node's old line and E005
-            // at a call site keyed by the callee's hash, so the per-def lookup
-            // can never match them. Falling back to the violation's own static
-            // hash froze their breaker counter at one strike — any edit to the
-            // compiled file must count as a fix attempt instead.
-            let file_fingerprint: String = def_hashes
-                .iter()
-                .map(|(plain, _)| plain.as_str())
-                .collect::<Vec<_>>()
-                .join("|");
-            file_violations =
-                self.apply_circuit_breaker(file_violations, &fresh_hashes, &file_fingerprint);
+            let fingerprints =
+                FileFingerprints::new(&file.file_path, &file.definitions, &def_hashes);
+            file_violations = self.apply_circuit_breaker(file_violations, &fingerprints);
 
             // Apply suppressions
             file_violations = file_violations
@@ -237,47 +230,85 @@ impl EnforcementEngine {
             // claim the hash the sibling legitimately owns — aborting the whole
             // persist with a HashCollision. Prefer an exact line match, then
             // fall back to the first still-unclaimed node of that name.
+            // Bind in TWO passes, not greedily per def. A single greedy pass
+            // that prefers an exact (name, line) match but falls back to the
+            // first unclaimed same-named node mis-pairs when two same-named defs
+            // swap lines in one edit: the first def, whose exact match is now
+            // the SECOND node, is offered the first node by the name-only
+            // fallback and claims it — leaving each def bound to the other's
+            // node. So let every exact (name, line) match claim its node first,
+            // and only then bind the leftovers by name.
             let mut claimed_nodes: HashSet<u64> = HashSet::new();
-            for (def, (new_hash, new_hash_disambiguated)) in
-                file.definitions.iter().zip(&def_hashes)
-            {
-                let matched = existing_nodes
-                    .iter()
-                    .find(|n| {
-                        n.name == def.name
-                            && n.line_start == def.line_start
-                            && !claimed_nodes.contains(&n.id)
-                    })
-                    .or_else(|| {
-                        existing_nodes
-                            .iter()
-                            .find(|n| n.name == def.name && !claimed_nodes.contains(&n.id))
-                    });
-                if let Some(node) = matched {
+            let mut bindings: Vec<Option<&keel_core::types::GraphNode>> =
+                vec![None; file.definitions.len()];
+            for (slot, def) in bindings.iter_mut().zip(&file.definitions) {
+                if let Some(node) = existing_nodes.iter().find(|n| {
+                    n.name == def.name
+                        && n.line_start == def.line_start
+                        && !claimed_nodes.contains(&n.id)
+                }) {
                     claimed_nodes.insert(node.id);
+                    *slot = Some(node);
+                }
+            }
+            for (slot, def) in bindings.iter_mut().zip(&file.definitions) {
+                if slot.is_some() {
+                    continue;
+                }
+                if let Some(node) = existing_nodes
+                    .iter()
+                    .find(|n| n.name == def.name && !claimed_nodes.contains(&n.id))
+                {
+                    claimed_nodes.insert(node.id);
+                    *slot = Some(node);
+                }
+            }
+
+            for ((def, (new_hash, new_hash_disambiguated)), matched) in
+                file.definitions.iter().zip(&def_hashes).zip(&bindings)
+            {
+                if let Some(node) = *matched {
                     if node.hash != *new_hash && node.hash != *new_hash_disambiguated {
                         if deferred_e001.contains(&node.hash) {
                             continue; // keep pre-edit hash so E001 re-fires
                         }
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
-                        // Two identical definitions in DIFFERENT files (e.g.
-                        // `fn default() -> Self { Self::new() }`) normalize to
-                        // the same content hash. Salt with the file path when
-                        // the plain hash is already owned by another node —
-                        // either stored, or claimed earlier in this same pass —
-                        // exactly as the map pass does. Without this, both defs
-                        // re-baseline onto one hash and `update_nodes` aborts
-                        // the whole persist with a HashCollision.
+                        // Identical definitions (e.g. `fn is_available(&self)
+                        // -> bool { true }` on a trait decl and two impls)
+                        // normalize to the same content hash. Salt on collision
+                        // exactly as the map pass does, walking an ORDINAL until
+                        // the candidate is free both in the store and among the
+                        // hashes claimed earlier in this same pass. Ordinal 1 is
+                        // the plain file-path salt, so the common two-def case
+                        // still lands on the identity `keel map` would assign;
+                        // 2+ only appear once a third same-named def exists.
+                        // A single non-iterating fallback left every same-file
+                        // duplicate sharing ONE disambiguated hash, and
+                        // `update_nodes` then aborted the whole persist with a
+                        // HashCollision.
                         let mut target_hash = new_hash.clone();
-                        let taken_in_store = self
+                        let mut ordinal = 0u32;
+                        while self
                             .store
                             .get_node(&target_hash)
-                            .is_some_and(|owner| owner.id != node.id);
-                        if taken_in_store || !assigned_hashes.insert(target_hash.clone()) {
-                            target_hash = new_hash_disambiguated.clone();
-                            assigned_hashes.insert(target_hash.clone());
+                            .is_some_and(|owner| owner.id != node.id)
+                            || assigned_hashes.contains(&target_hash)
+                        {
+                            ordinal += 1;
+                            target_hash = if ordinal == 1 {
+                                new_hash_disambiguated.clone()
+                            } else {
+                                crate::violations_util::definition_hash_salted(
+                                    def,
+                                    &format!("{}#{}", file.file_path, ordinal),
+                                )
+                            };
+                            if ordinal > MAX_DISAMBIGUATION_ORDINAL {
+                                break;
+                            }
                         }
+                        assigned_hashes.insert(target_hash.clone());
                         // Persist updated hash; record the old one so
                         // "modified since last map" survives the sync (see
                         // progressive adoption — a full map re-baselines).
@@ -305,10 +336,8 @@ impl EnforcementEngine {
             if let Some(batch) = &mut self.batch_state {
                 let (immediate, deferred): (Vec<_>, Vec<_>) = file_violations
                     .into_iter()
-                    .partition(|v| !BatchState::is_deferrable(&v.code));
-                for d in deferred {
-                    batch.defer(d);
-                }
+                    .partition(|v| !is_deferrable(&v.code));
+                batch.extend(deferred);
                 Self::partition_violations(immediate, &mut all_errors, &mut all_warnings);
             } else {
                 Self::partition_violations(file_violations, &mut all_errors, &mut all_warnings);
@@ -347,7 +376,7 @@ impl EnforcementEngine {
 
     /// Enter batch mode: defer non-structural violations.
     pub fn batch_start(&mut self) {
-        self.batch_state = Some(BatchState::new());
+        self.batch_state = Some(Vec::new());
     }
 
     /// Take the violations this engine deferred during a batch-mode compile,
@@ -355,10 +384,7 @@ impl EnforcementEngine {
     /// [`PersistentBatch`](crate::batch::PersistentBatch) so they survive to the
     /// eventual `--batch-end` in a later process.
     pub fn drain_batch_deferred(&mut self) -> Vec<Violation> {
-        self.batch_state
-            .take()
-            .map(|b| b.drain())
-            .unwrap_or_default()
+        self.batch_state.take().unwrap_or_default()
     }
 
     /// Build a `CompileResult` from a set of (deferred) violations — used to
@@ -391,10 +417,7 @@ impl EnforcementEngine {
 
     /// End batch mode: fire all deferred violations.
     pub fn batch_end(&mut self) -> CompileResult {
-        let deferred = match self.batch_state.take() {
-            Some(batch) => batch.drain(),
-            None => Vec::new(),
-        };
+        let deferred = self.batch_state.take().unwrap_or_default();
 
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
@@ -507,34 +530,20 @@ impl EnforcementEngine {
     }
 
     /// Apply circuit breaker escalation (fix hint, wider context, or downgrade)
-    /// to ERROR violations. `fresh_hashes` maps each `(file, line)` to the
-    /// freshly-parsed body/signature fingerprint of the def there, so the
+    /// to ERROR violations. `fingerprints` supplies the freshly-parsed
+    /// body/signature fingerprint the offending code has right now, so the
     /// breaker can tell a real (still-failing) fix attempt from a passive
     /// recompile of untouched code.
     pub(crate) fn apply_circuit_breaker(
         &mut self,
         violations: Vec<Violation>,
-        fresh_hashes: &HashMap<(String, u32), String>,
-        file_fingerprint: &str,
+        fingerprints: &FileFingerprints,
     ) -> Vec<Violation> {
         violations
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
-                    // Per-def fingerprint when a definition sits at (file,
-                    // line); otherwise (E004 removed node, E005 call site) the
-                    // whole-file fingerprint, so the counter advances on any
-                    // edit to the file rather than freezing on the violation's
-                    // own static hash.
-                    let fallback = if file_fingerprint.is_empty() {
-                        &v.hash
-                    } else {
-                        file_fingerprint
-                    };
-                    let body_hash: &str = fresh_hashes
-                        .get(&(v.file.clone(), v.line))
-                        .map(String::as_str)
-                        .unwrap_or(fallback);
+                    let body_hash = fingerprints.fingerprint_for(&v);
                     let action = self
                         .circuit_breaker
                         .record_failure(&v.code, &v.hash, body_hash, &v.file);
@@ -573,6 +582,79 @@ impl EnforcementEngine {
                 _ => warnings.push(v),
             }
         }
+    }
+}
+
+/// The fingerprints a compiled file offers the circuit breaker.
+///
+/// The breaker counts fix ATTEMPTS, not compiles: it advances only when the
+/// code a violation blames actually changed since the last failure. Picking the
+/// right fingerprint for a violation is therefore the whole ballgame — too
+/// narrow and the counter freezes at one strike forever, too wide and unrelated
+/// edits march a live ERROR toward its auto-downgrade to WARNING.
+pub(crate) struct FileFingerprints {
+    file_path: String,
+    /// `(line_start, line_end, content hash)` per definition, in file order.
+    defs: Vec<(u32, u32, String)>,
+    /// The file's sorted definition NAMES, joined. Changes only when a def is
+    /// added, removed, or renamed — never when a body is edited.
+    name_set: String,
+}
+
+impl FileFingerprints {
+    /// Build the fingerprints for one file from its parsed definitions and the
+    /// `(plain, disambiguated)` hashes already computed for them.
+    pub(crate) fn new(
+        file_path: &str,
+        definitions: &[keel_parsers::resolver::Definition],
+        def_hashes: &[(String, String)],
+    ) -> Self {
+        let defs = definitions
+            .iter()
+            .zip(def_hashes)
+            .map(|(d, (plain, _))| (d.line_start, d.line_end, plain.clone()))
+            .collect();
+        let mut names: Vec<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
+        names.sort_unstable();
+        Self {
+            file_path: file_path.to_string(),
+            defs,
+            name_set: names.join("|"),
+        }
+    }
+
+    /// The fingerprint to charge this violation's breaker attempt against.
+    ///
+    /// The chain, narrowest first:
+    /// 1. A def starting exactly at `(file, line)` — the violation blames that
+    ///    def, so its content hash is the attempt fingerprint.
+    /// 2. A def whose line RANGE contains `line` — E005's shape: the violation
+    ///    points at a call site living inside some def, and a fix attempt edits
+    ///    that def.
+    /// 3. The file's def NAME SET — E004's shape: the blamed node was removed,
+    ///    so no def can contain its old line. Only a structural edit (restoring,
+    ///    renaming, or deleting a def) counts as an attempt. Using the file's
+    ///    full content fingerprint here was wrong: three unrelated body edits
+    ///    elsewhere in the file auto-downgraded a live E004 to WARNING, flipping
+    ///    exit 1 to 0 and shipping the broken callers.
+    /// 4. The violation's own hash, for a file with no definitions at all.
+    fn fingerprint_for<'a>(&'a self, v: &'a Violation) -> &'a str {
+        if v.file == self.file_path {
+            if let Some((_, _, h)) = self.defs.iter().find(|(start, _, _)| *start == v.line) {
+                return h;
+            }
+            if let Some((_, _, h)) = self
+                .defs
+                .iter()
+                .find(|(start, end, _)| v.line >= *start && v.line <= *end)
+            {
+                return h;
+            }
+        }
+        if !self.name_set.is_empty() {
+            return &self.name_set;
+        }
+        &v.hash
     }
 }
 

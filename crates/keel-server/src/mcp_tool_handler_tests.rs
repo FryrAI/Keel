@@ -433,7 +433,11 @@ fn test_skeleton_mcp_matches_cli() {
         false,
     )
     .unwrap();
-    let expected_value = serde_json::to_value(&expected).unwrap();
+    let mut expected_value = serde_json::to_value(&expected).unwrap();
+    // The CLI echoes the path as the user typed it; the MCP tool echoes the
+    // `file` param it was given. Confinement is an IO-time concern and must not
+    // leak the server's absolute path into the result (see `mcp_skeleton`).
+    expected_value["file"] = serde_json::json!("sample.ts");
 
     let store = test_store();
     // The MCP edge confines the file param to the served root, so anchor the
@@ -449,6 +453,12 @@ fn test_skeleton_mcp_matches_cli() {
 
     assert_eq!(resp["result"], expected_value);
     assert_eq!(resp["result"]["command"], "skeleton");
+    // Explicitly: the caller's own relative param comes back, not the confined
+    // absolute path the handler used to read the file.
+    assert_eq!(
+        resp["result"]["file"], "sample.ts",
+        "the result must echo the caller's `file` param, never the server's absolute path"
+    );
     // Signature-only: the exported function is present, private one filtered out.
     let names: Vec<&str> = resp["result"]["symbols"]
         .as_array()

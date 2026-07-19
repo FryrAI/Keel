@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -11,7 +12,13 @@ use std::path::Path;
 /// that seam, so both run the identical ladder instead of drifting copies.
 pub trait CallIndex {
     /// Definitions carrying this bare name: `(relative_file_path, node_id)`.
-    fn candidates(&self, name: &str) -> Vec<(String, u64)>;
+    ///
+    /// Returns a [`Cow`] because the ladder asks for candidates up to three
+    /// times per unresolved reference and the two implementations pay very
+    /// different costs: the map holds its candidate lists in RAM and lends them
+    /// out for free, while the graph-backed index has to query SQLite. Handing
+    /// back an owned `Vec` forced the map to clone on every call for nothing.
+    fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]>;
     /// Every known `relative_file_path -> module_id` mapping, for matching an
     /// import specifier to the module it resolves to.
     fn module_files(&self) -> &HashMap<String, u64>;
@@ -68,7 +75,7 @@ pub fn resolve_cross_file_call(
                         .find(|(_, &id)| id == resolved_module)
                         .map(|(f, _)| f.as_str());
                     if let Some(rf) = resolved_file {
-                        for (file, node_id) in &candidates {
+                        for (file, node_id) in candidates.iter() {
                             if file == rf {
                                 return Some(*node_id);
                             }
@@ -78,7 +85,7 @@ pub fn resolve_cross_file_call(
                 // Fallback: match candidates from files in the package directory
                 let source = &imp.source;
                 let last_seg = source.rsplit('/').next().unwrap_or(source);
-                for (file, node_id) in &candidates {
+                for (file, node_id) in candidates.iter() {
                     if let Some(parent) = Path::new(file.as_str()).parent() {
                         if parent.file_name().and_then(|n| n.to_str()) == Some(last_seg) {
                             return Some(*node_id);
@@ -100,7 +107,7 @@ pub fn resolve_cross_file_call(
         }
         if !candidates.is_empty() {
             let source = &imp.source;
-            for (file, node_id) in &candidates {
+            for (file, node_id) in candidates.iter() {
                 if file == source {
                     return Some(*node_id);
                 }
@@ -111,14 +118,14 @@ pub fn resolve_cross_file_call(
                     .find(|(_, &id)| id == resolved_module)
                     .map(|(f, _)| f.as_str());
                 if let Some(rf) = resolved_file {
-                    for (file, node_id) in &candidates {
+                    for (file, node_id) in candidates.iter() {
                         if file == rf {
                             return Some(*node_id);
                         }
                     }
                 }
             }
-            for (file, node_id) in &candidates {
+            for (file, node_id) in candidates.iter() {
                 if file_module_ids.contains_key(file.as_str()) && source.contains(file.as_str()) {
                     return Some(*node_id);
                 }
@@ -289,7 +296,7 @@ pub fn resolve_package_import(
 
     // Try to find the callee in this package's exported symbols
     if let Some(&node_id) = pkg_nodes.get(callee_name) {
-        return Some((node_id, 0.70)); // cross-package, lower confidence
+        return Some((node_id, keel_core::confidence::CROSS_PACKAGE));
     }
 
     // For qualified calls like "pkg.Func", extract the function part
@@ -301,7 +308,7 @@ pub fn resolve_package_import(
 
     if func_name != callee_name {
         if let Some(&node_id) = pkg_nodes.get(func_name) {
-            return Some((node_id, 0.70));
+            return Some((node_id, keel_core::confidence::CROSS_PACKAGE));
         }
     }
 
@@ -451,9 +458,9 @@ pub fn resolve_same_file_method(
         return None;
     }
     let confidence = if matches!(receiver, "self" | "this") {
-        0.9
+        keel_core::confidence::SELF_RECEIVER_METHOD
     } else if same_file_matches == 1 {
-        0.7
+        keel_core::confidence::UNFAMILIAR_RECEIVER_METHOD
     } else {
         return None;
     };

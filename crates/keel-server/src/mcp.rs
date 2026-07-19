@@ -193,7 +193,7 @@ pub(crate) fn missing_param(name: &str) -> JsonRpcError {
 // --- Typed parameter accessors ---
 //
 // Every tool handler pulls its arguments out of the same `Option<Value>` params
-// object. These four helpers replace the ~35 hand-rolled
+// object. These five helpers replace the ~35 hand-rolled
 // `params.as_ref().and_then(|p| p.get(..)).and_then(..)` chains so a required
 // param always fails with the same `-32602` error and defaults are applied
 // uniformly.

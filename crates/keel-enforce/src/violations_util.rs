@@ -16,6 +16,23 @@ pub fn definition_hashes(
     )
 }
 
+/// Compute one disambiguated hash for a definition under an arbitrary salt.
+///
+/// [`definition_hashes`] covers the two identities `keel map` assigns (plain,
+/// and file-path-salted). A file holding three or more identical same-named
+/// definitions needs more than two distinct identities, so the engine's
+/// re-baseline walks an ordinal (`"<file>#2"`, `"<file>#3"`, …) through this.
+/// Off the hot path — it re-normalizes the body — and only reached once a
+/// collision is already proven.
+pub fn definition_hash_salted(def: &keel_parsers::resolver::Definition, salt: &str) -> String {
+    keel_core::hash::compute_hash_disambiguated(
+        &def.signature,
+        &def.body_for_hash(),
+        def.docstring.as_deref().unwrap_or(""),
+        salt,
+    )
+}
+
 /// Whether a stored node's hash matches the definition under either of the
 /// two identities from [`definition_hashes`].
 pub fn node_hash_matches(

@@ -28,11 +28,18 @@ pub(crate) fn handle_skeleton(root: &Path, params: Option<Value>) -> Result<Valu
     })?;
     let confined = confined.to_string_lossy().to_string();
 
-    let result = keel_enforce::skeleton::build_skeleton_from_path(root, &confined, private, docs)
-        .map_err(|message| JsonRpcError {
+    let mut result = keel_enforce::skeleton::build_skeleton_from_path(
+        root, &confined, private, docs,
+    )
+    .map_err(|message| JsonRpcError {
         code: -32602,
         message,
     })?;
+    // Confinement is an IO-time concern only. Reporting the absolute confined
+    // path would break parity with the CLI (which echoes the path as typed) and
+    // leak the server's filesystem layout to the client, so echo the caller's
+    // original `file` string back instead.
+    result.file = file;
 
     serde_json::to_value(result).map_err(internal_err)
 }

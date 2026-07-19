@@ -23,12 +23,34 @@ pub const CROSS_FILE_HEURISTIC: f64 = 0.80;
 /// edges exist to make the surface visible, never to hard-error a caller.
 pub const BAML_BOUNDARY: f64 = 0.75;
 
+/// A call resolved to a symbol exported by another package in the monorepo
+/// package index. Warning-tier: the match is a bare-name lookup inside the
+/// package's export surface, with no import-graph proof the call reaches it.
+pub const CROSS_PACKAGE: f64 = 0.70;
+
+/// A same-file method call on `self`/`this` — the receiver provably denotes the
+/// enclosing file's own type, so the method binds with near-certainty.
+pub const SELF_RECEIVER_METHOD: f64 = 0.9;
+
+/// A same-file method call on an *unfamiliar* receiver (`obj.m()`), accepted
+/// only when exactly one same-file definition carries the name. Warning-tier:
+/// the receiver's type is unknown, so this is a uniqueness heuristic.
+pub const UNFAMILIAR_RECEIVER_METHOD: f64 = 0.7;
+
 /// Confidence at or above which a resolved call edge is treated as an ERROR
 /// source for broken-caller / removed-function checks. Values below it stay
 /// warning-tier (dynamic dispatch, cross-language heuristics).
 pub const ERROR_TIER_THRESHOLD: f64 = 0.80;
 
-// A warning-tier edge must never sit at or above the error threshold — that
-// would let a cross-language name-match escalate a caller to a hard ERROR.
+// Every warning-tier edge must stay below the error threshold — that would let
+// a heuristic (cross-language name-match, bare-name package export, unknown
+// receiver) escalate a caller to a hard ERROR.
 // Mirrors the `MIN_DUPLICATE_BODY_LEN` static assert in `keel-enforce`.
 const _: () = assert!(BAML_BOUNDARY < ERROR_TIER_THRESHOLD);
+const _: () = assert!(CROSS_PACKAGE < ERROR_TIER_THRESHOLD);
+const _: () = assert!(UNFAMILIAR_RECEIVER_METHOD < ERROR_TIER_THRESHOLD);
+// Error-tier constants must sit at or above it, or the ladder's most certain
+// resolutions would silently downgrade.
+const _: () = assert!(SAME_FILE_CALL >= ERROR_TIER_THRESHOLD);
+const _: () = assert!(SELF_RECEIVER_METHOD >= ERROR_TIER_THRESHOLD);
+const _: () = assert!(CROSS_FILE_HEURISTIC >= ERROR_TIER_THRESHOLD);

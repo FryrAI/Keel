@@ -8,7 +8,7 @@ use crate::types::Violation;
 /// Batch-mode state persisted to SQLite so it survives across separate `keel
 /// compile` processes.
 ///
-/// The in-process [`BatchState`] is dropped when a CLI process exits, so a
+/// An engine's in-process deferred queue is dropped when a CLI process exits, so a
 /// `--batch-start` in one invocation, a violating compile in a second, and a
 /// `--batch-end` in a third would otherwise lose every deferred violation — the
 /// feature would silently no-op. So deferred violations and the batch's start
@@ -110,45 +110,13 @@ fn now_unix() -> u64 {
 // "file still growing" are expected states, not violations.
 const DEFERRABLE_CODES: &[&str] = &["E002", "E003", "W001", "W002", "W005", "W006", "W007"];
 
+/// Returns true if this code should be deferred in batch mode.
+pub fn is_deferrable(code: &str) -> bool {
+    DEFERRABLE_CODES.contains(&code)
+}
+
 /// Maximum time batch mode stays active before auto-expiring.
 const BATCH_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// Tracks the violations deferred during an engine's in-process batch.
-///
-/// Inactivity expiry lives entirely on [`PersistentBatch`] (checked by the CLI
-/// against the persisted state before it ever enters batch mode), so this
-/// in-process state carries no clock of its own — it is just the deferred queue.
-#[derive(Debug, Default)]
-pub struct BatchState {
-    deferred: Vec<Violation>,
-}
-
-impl BatchState {
-    /// Create an empty batch state.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns true if this code should be deferred in batch mode.
-    pub fn is_deferrable(code: &str) -> bool {
-        DEFERRABLE_CODES.contains(&code)
-    }
-
-    /// Add a violation to the deferred queue.
-    pub fn defer(&mut self, violation: Violation) {
-        self.deferred.push(violation);
-    }
-
-    /// Consume this batch state and return all deferred violations.
-    pub fn drain(self) -> Vec<Violation> {
-        self.deferred
-    }
-
-    /// Number of deferred violations.
-    pub fn deferred_count(&self) -> usize {
-        self.deferred.len()
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -156,19 +124,19 @@ mod tests {
 
     #[test]
     fn test_deferrable_codes() {
-        assert!(BatchState::is_deferrable("E002"));
-        assert!(BatchState::is_deferrable("E003"));
-        assert!(BatchState::is_deferrable("W001"));
-        assert!(BatchState::is_deferrable("W002"));
+        assert!(is_deferrable("E002"));
+        assert!(is_deferrable("E003"));
+        assert!(is_deferrable("W001"));
+        assert!(is_deferrable("W002"));
         // Structural errors not deferrable
-        assert!(!BatchState::is_deferrable("E001"));
-        assert!(!BatchState::is_deferrable("E004"));
-        assert!(!BatchState::is_deferrable("E005"));
+        assert!(!is_deferrable("E001"));
+        assert!(!is_deferrable("E004"));
+        assert!(!is_deferrable("E005"));
     }
 
     #[test]
     fn test_batch_defer_and_drain() {
-        let mut batch = BatchState::new();
+        let mut batch = PersistentBatch::new();
         let v = Violation {
             code: "E002".to_string(),
             severity: "ERROR".to_string(),
@@ -194,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_e005_not_deferrable() {
-        assert!(!BatchState::is_deferrable("E005"));
+        assert!(!is_deferrable("E005"));
     }
 
     fn e002(msg: &str) -> Violation {

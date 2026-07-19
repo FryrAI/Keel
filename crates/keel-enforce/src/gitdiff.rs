@@ -10,7 +10,9 @@
 //!   the staged index;
 //! - an initial-commit fallback — a `Since` diff whose base cannot be resolved
 //!   (e.g. a repo with no commits, so `HEAD` does not exist) retries against the
-//!   staged index, so the very first commit's files are still reported;
+//!   staged index, so the very first commit's files are still reported. A
+//!   `Range` base is always explicit, so it does NOT fall back: an unresolvable
+//!   one is reported as an error rather than silently diffing something else;
 //! - an optional filter to only files keel can parse.
 
 use std::path::Path;
@@ -59,7 +61,10 @@ fn collect_lines(text: &str, only_supported: bool) -> Vec<String> {
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
-/// (it is already the staged diff). A total git failure yields an empty list.
+/// (it is already the staged diff), and neither does `Range` — its base is
+/// explicit, so an unresolvable one is an error. A total git failure (or an
+/// unresolvable `Range` base) yields an empty list here; use
+/// [`changed_files_checked`] to surface it.
 pub fn changed_files(dir: &Path, mode: &DiffMode, only_supported: bool) -> Vec<String> {
     changed_files_checked(dir, mode, only_supported).unwrap_or_default()
 }
@@ -78,8 +83,11 @@ pub fn changed_files_checked(
             let range = format!("{}..HEAD", base);
             match run_git_checked(dir, &["diff", "--name-only", &range])? {
                 Some(t) => Some(t),
-                // Unresolvable base / no HEAD: fall back to the index.
-                None => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+                // An explicit base that git cannot resolve is a user error, not
+                // an initial-commit repo: `--since typo` must NOT quietly become
+                // the staged diff (in CI that compiles zero files and exits 0,
+                // reading as "clean"). Only `Since` owns the index fallback.
+                None => return Err(format!("cannot resolve --since base '{}'", base)),
             }
         }
         DiffMode::Since(base) => {

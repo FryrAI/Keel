@@ -22,6 +22,8 @@
 //! the next compile. Only the compiled files' edges are re-resolved, keeping
 //! the single-file path well within its latency budget.
 
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -82,6 +84,14 @@ struct GraphIndex<'a> {
     file_path: &'a str,
     /// `(file_path, name) -> id` for same-file method resolution.
     name_to_id: HashMap<(String, String), u64>,
+    /// Memoized `candidates()` results for this file's resolution pass.
+    ///
+    /// The ladder asks for the same name up to three times per unresolved
+    /// reference, and each miss was a fresh `find_nodes_by_name` round-trip to
+    /// SQLite — squarely inside `keel compile`'s <200ms budget. The candidate
+    /// set cannot change mid-pass (nothing writes to the store until the sync
+    /// commits), so one query per distinct name is sufficient.
+    candidate_memo: RefCell<HashMap<String, Vec<(String, u64)>>>,
 }
 
 impl<'a> GraphIndex<'a> {
@@ -99,12 +109,12 @@ impl<'a> GraphIndex<'a> {
             local,
             file_path,
             name_to_id,
+            candidate_memo: RefCell::new(HashMap::new()),
         }
     }
-}
 
-impl CallIndex for GraphIndex<'_> {
-    fn candidates(&self, name: &str) -> Vec<(String, u64)> {
+    /// Query the store for `name` (uncached) — see [`Self::candidates`].
+    fn lookup_candidates(&self, name: &str) -> Vec<(String, u64)> {
         let mut out: Vec<(String, u64)> = self
             .base
             .store
@@ -121,6 +131,23 @@ impl CallIndex for GraphIndex<'_> {
             out.push((self.file_path.to_string(), id));
         }
         out
+    }
+}
+
+impl CallIndex for GraphIndex<'_> {
+    fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]> {
+        // Owned, not borrowed: a `RefCell` borrow cannot outlive this call. The
+        // memo still removes what actually costs — the SQLite round-trip. What
+        // remains is a clone of a list that is empty or a handful of entries for
+        // essentially every name.
+        if let Some(hit) = self.candidate_memo.borrow().get(name) {
+            return Cow::Owned(hit.clone());
+        }
+        let fresh = self.lookup_candidates(name);
+        self.candidate_memo
+            .borrow_mut()
+            .insert(name.to_string(), fresh.clone());
+        Cow::Owned(fresh)
     }
     fn module_files(&self) -> &HashMap<String, u64> {
         &self.base.module_files
