@@ -10,9 +10,9 @@ use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::walker::WalkEntry;
 
 use super::call_resolve::{resolve_call_reference, CallSiteCtx};
-use super::map_helpers::make_relative;
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::{find_containing_def, resolve_import_to_module, CallIndex};
+use keel_core::paths::make_relative;
 
 /// Per-file parse data collected during the first pass for use in the second pass.
 pub struct FileParseData {

@@ -441,3 +441,137 @@ fn non_rust_definitions_are_never_test_context() {
         .unwrap();
     assert!(result.definitions.iter().all(|d| !d.in_test_context));
 }
+
+#[test]
+fn rust_trait_context_covers_decls_and_trait_impls_only() {
+    let mut parser = TreeSitterParser::new();
+    let source = "\
+trait Store {\n\
+    fn required(&self) -> bool;\n\
+    fn defaulted(&self) -> bool { true }\n\
+}\n\
+struct S;\n\
+impl Store for S {\n\
+    fn required(&self) -> bool { false }\n\
+}\n\
+impl S {\n\
+    fn inherent(&self) -> bool { true }\n\
+}\n\
+fn free_fn() -> bool { true }\n";
+    let result = parser
+        .parse_file("rust", Path::new("src/store.rs"), source)
+        .unwrap();
+    let ctx = |name: &str| {
+        result
+            .definitions
+            .iter()
+            .filter(|d| d.name == name)
+            .map(|d| d.in_trait_context)
+            .collect::<Vec<_>>()
+    };
+
+    // A DEFAULTED trait method (it has a body) is extracted as a definition
+    // and is trait-context. This is the case that mattered in practice:
+    // `GraphStore::find_body_matches` and friends were being reported as dead
+    // code and as duplicate names before this flag existed.
+    assert_eq!(ctx("defaulted"), vec![true], "defaulted trait method");
+    // A bodyless trait declaration (`fn required(&self) -> bool;`) is not
+    // extracted as a definition at all — only the `impl Store for S` copy is,
+    // and that one is trait-context.
+    assert_eq!(
+        ctx("required"),
+        vec![true],
+        "only the trait impl is a definition, and it is trait-context"
+    );
+    // An inherent `impl S` block is NOT a trait context.
+    assert_eq!(ctx("inherent"), vec![false], "inherent method");
+    assert_eq!(ctx("free_fn"), vec![false], "free function");
+}
+
+#[test]
+fn ts_interface_context_requires_implements_or_interface() {
+    let mut parser = TreeSitterParser::new();
+    let source = "\
+class Provider implements vscode.HoverProvider {\n\
+    provideHover() { return undefined; }\n\
+}\n\
+class Plain {\n\
+    ordinary() { return 1; }\n\
+}\n\
+class Derived extends Base {\n\
+    inherited() { return 2; }\n\
+}\n";
+    let result = parser
+        .parse_file("typescript", Path::new("a.ts"), source)
+        .unwrap();
+    let ctx = |name: &str| {
+        result
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("missing def {name}"))
+            .in_trait_context
+    };
+
+    assert!(
+        ctx("provideHover"),
+        "`implements` body is interface-context"
+    );
+    assert!(!ctx("ordinary"), "plain class is not interface-context");
+    assert!(
+        !ctx("inherited"),
+        "`extends` alone is not interface-context"
+    );
+}
+
+#[test]
+fn go_and_python_are_never_trait_context() {
+    let mut parser = TreeSitterParser::new();
+    let go = parser
+        .parse_file("go", Path::new("a.go"), "func Handle() {}\n")
+        .unwrap();
+    assert!(go.definitions.iter().all(|d| !d.in_trait_context));
+    let py = parser
+        .parse_file("python", Path::new("a.py"), "def handle():\n    pass\n")
+        .unwrap();
+    assert!(py.definitions.iter().all(|d| !d.in_trait_context));
+}
+
+#[test]
+fn functions_named_as_values_are_captured_as_value_references() {
+    let mut parser = TreeSitterParser::new();
+    let source = "\
+fn wire() {\n\
+    let a: Vec<String> = xs.iter().map(render_file).collect();\n\
+    let r = Router::new().route(\"/health\", get(health));\n\
+}\n\
+struct C {\n\
+    #[serde(default = \"default_true\")]\n\
+    flag: bool,\n\
+}\n";
+    let result = parser
+        .parse_file("rust", Path::new("src/wire.rs"), source)
+        .unwrap();
+    let value_ref = |name: &str| {
+        result
+            .references
+            .iter()
+            .any(|r| r.name == name && r.kind == ReferenceKind::Value)
+    };
+
+    // Passed as an argument, never invoked — a real usage, not a call.
+    assert!(value_ref("render_file"), "`.map(render_file)`");
+    assert!(value_ref("health"), "`get(health)`");
+    // Named in a serde attribute string.
+    assert!(value_ref("default_true"), "#[serde(default = \"...\")]");
+
+    // Crucially NOT calls: a value reference must never build a `calls` edge
+    // or feed E005 arity checking (it has no argument list to count).
+    assert!(
+        !result
+            .references
+            .iter()
+            .any(|r| r.name == "render_file" && r.kind == ReferenceKind::Call),
+        "function reference must not be recorded as a call"
+    );
+}

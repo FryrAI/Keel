@@ -119,6 +119,10 @@ fn box_row(content: &str, w: usize) -> String {
 
 // ── Main display compositor ────────────────────────────────────────────────────
 
+/// Render a full audit result as the boxed, human-readable radar display.
+///
+/// Composes the header, the per-dimension score rows, and the findings list
+/// into one fixed-width block sized to [`INNER_W`].
 pub fn format_audit_display(result: &AuditResult) -> String {
     let w = INNER_W;
     let mut out = String::with_capacity(2048);

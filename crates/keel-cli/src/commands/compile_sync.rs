@@ -537,6 +537,7 @@ mod tests {
             type_hints_present: true,
             body_text: "{ return 42; }".to_string(),
             in_test_context: false,
+            in_trait_context: false,
         }
     }
 

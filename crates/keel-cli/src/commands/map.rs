@@ -13,10 +13,10 @@ use keel_enforce::map::{
     build_map_result, build_module_profiles, populate_functions, populate_hotspots,
 };
 
-use super::map_helpers::make_relative;
 use super::map_passes;
 use super::map_resolve::build_package_node_index;
 use crate::telemetry_recorder::EventMetrics;
+use keel_core::paths::make_relative;
 
 /// Run `keel map` — full re-parse of the codebase.
 #[allow(clippy::too_many_arguments)]

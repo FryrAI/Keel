@@ -39,6 +39,7 @@ fn def(name: &str, signature: &str, body: &str) -> Definition {
         type_hints_present: true,
         body_text: body.into(),
         in_test_context: false,
+        in_trait_context: false,
     }
 }
 

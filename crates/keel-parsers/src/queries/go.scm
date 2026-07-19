@@ -79,3 +79,9 @@
     (import_spec
       name: (dot) @ref.import.dot
       path: (interpreted_string_literal) @ref.import.source))) @ref.import
+
+; --- Functions named as values (not invoked) ---
+; A bare identifier in argument position is a function reference, not a call:
+; `http.HandleFunc("/", handler)`. Real usage for W005 dead-code analysis, but
+; never a `calls` edge.
+(argument_list (identifier) @ref.value.name) @ref.value

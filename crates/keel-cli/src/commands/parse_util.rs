@@ -10,7 +10,7 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::treesitter::detect_language;
 use keel_parsers::typescript::TsResolver;
 
-use super::map_helpers::make_relative;
+use keel_core::paths::make_relative;
 
 /// Parse a list of file paths into `FileIndex` entries suitable for `engine.compile()`.
 ///

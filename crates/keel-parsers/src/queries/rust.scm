@@ -75,3 +75,14 @@
 ; --- Mod declarations ---
 (mod_item
   name: (identifier) @def.mod.name) @def.mod
+
+; --- Functions named as values (not invoked) ---
+; A bare identifier in argument position is a function reference, not a call:
+; `.map(render_file)`, `.and_then(first_line)`, `get(health)`. Real usage, so
+; W005 dead-code analysis must see it — but it carries no argument list, so it
+; is captured as @ref.value and never becomes a `calls` edge.
+(arguments (identifier) @ref.value.name) @ref.value
+
+; Function names referenced from attribute strings, e.g. serde's
+; `#[serde(default = "default_true")]` / `deserialize_with = "..."`.
+(attribute (token_tree (string_literal) @ref.attr.name)) @ref.attr

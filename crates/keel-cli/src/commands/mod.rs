@@ -23,7 +23,6 @@ pub mod logout;
 pub mod map;
 pub mod map_baml;
 pub mod map_cached;
-pub mod map_helpers;
 pub mod map_lang_resolve;
 pub(crate) mod map_passes;
 pub mod map_resolve;

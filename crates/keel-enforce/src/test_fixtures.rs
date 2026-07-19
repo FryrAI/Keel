@@ -26,6 +26,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         type_hints_present: true,
         body_text: ECON_BODY.to_string(),
         in_test_context: false,
+        in_trait_context: false,
     }
 }
 
@@ -34,6 +35,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
 pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
     Definition {
         in_test_context: true,
+        in_trait_context: false,
         ..definition(name, file, false)
     }
 }

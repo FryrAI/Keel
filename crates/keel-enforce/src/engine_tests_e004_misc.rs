@@ -203,3 +203,122 @@ fn test_config_defaults_enable_all() {
         "E002 should fire with default config (backward compat)"
     );
 }
+
+/// Two identical `fn default() -> Self { Self::new() }` in DIFFERENT files
+/// normalize to the same content hash. `keel map` stores the second one under
+/// its file-salted (disambiguated) identity; the engine's re-baseline pass must
+/// do the same, or it hands both nodes one hash and `update_nodes` aborts the
+/// entire persist with `HashCollision`.
+///
+/// Regression: `keel compile` on this repo printed
+/// "failed to persist node updates: Hash collision detected for hash
+/// G3B2feLlDMW between functions 'default' and 'default'".
+#[test]
+fn identical_defs_in_different_files_persist_with_distinct_hashes() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+
+    // Both nodes start out stale (some earlier body), so BOTH re-baseline in
+    // one compile pass — the exact situation that collided.
+    store
+        .insert_node(&make_node(
+            1,
+            "stale111111",
+            "default",
+            "fn default() -> Self",
+            "src/a.rs",
+        ))
+        .unwrap();
+    store
+        .insert_node(&make_node(
+            2,
+            "stale222222",
+            "default",
+            "fn default() -> Self",
+            "src/b.rs",
+        ))
+        .unwrap();
+
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let body = "{ Self::new() }";
+    let files: Vec<FileIndex> = ["src/a.rs", "src/b.rs"]
+        .iter()
+        .map(|path| FileIndex {
+            file_path: path.to_string(),
+            content_hash: 0,
+            definitions: vec![make_definition(
+                "default",
+                "fn default() -> Self",
+                body,
+                path,
+            )],
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+            parse_duration_us: 0,
+        })
+        .collect();
+
+    let result = engine.compile(&files);
+    assert_eq!(
+        result.info.hashes_changed.len(),
+        2,
+        "both nodes re-baseline"
+    );
+
+    // The persist must have succeeded: both nodes keep their identity and now
+    // carry DISTINCT, non-stale hashes.
+    let a = engine.store.get_node_by_id(1).expect("node a survives");
+    let b = engine.store.get_node_by_id(2).expect("node b survives");
+    assert_ne!(a.hash, "stale111111", "node a re-baselined");
+    assert_ne!(b.hash, "stale222222", "node b re-baselined");
+    assert_ne!(
+        a.hash, b.hash,
+        "identical defs in different files must not share a hash"
+    );
+    assert_eq!(result.errors.len(), 0);
+}
+
+/// Two same-named defs in ONE file (e.g. the two `fn is_available(&self)`
+/// impls in `python/ty.rs`) must bind to two DISTINCT stored nodes. Matching
+/// stored nodes by name alone gave both defs the same node, so one node took
+/// two conflicting hash updates while its sibling was orphaned — and the
+/// second update tried to claim the hash the sibling legitimately owned.
+#[test]
+fn same_named_defs_in_one_file_bind_to_distinct_nodes() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let sig = "fn is_available(&self) -> bool";
+    for (id, hash, line) in [(1u64, "stale111111", 10u32), (2, "stale222222", 40)] {
+        let mut node = make_node(id, hash, "is_available", sig, "src/ty.rs");
+        node.line_start = line;
+        store.insert_node(&node).unwrap();
+    }
+
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let mut first = make_definition("is_available", sig, "{ self.a }", "src/ty.rs");
+    first.line_start = 10;
+    let mut second = make_definition("is_available", sig, "{ self.b }", "src/ty.rs");
+    second.line_start = 40;
+
+    let result = engine.compile(&[FileIndex {
+        file_path: "src/ty.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![first, second],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }]);
+
+    let a = engine.store.get_node_by_id(1).expect("node 1 survives");
+    let b = engine.store.get_node_by_id(2).expect("node 2 survives");
+    assert_ne!(
+        a.hash, "stale111111",
+        "line-10 def re-baselined its own node"
+    );
+    assert_ne!(
+        b.hash, "stale222222",
+        "line-40 def re-baselined its own node"
+    );
+    assert_ne!(a.hash, b.hash, "distinct bodies keep distinct hashes");
+    assert_eq!(result.errors.len(), 0);
+}

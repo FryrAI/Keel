@@ -116,6 +116,66 @@ fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
 /// The node kinds checked (`function_item`, `mod_item`, `attribute_item`) are
 /// Rust-specific, so this returns `false` for every other grammar — callers
 /// gate on the language anyway.
+/// True when a Rust definition node sits on a trait's contract surface: a
+/// method declared in a `trait` block, or one defined in a trait
+/// implementation (`impl Trait for Type`). An inherent `impl Type` block is
+/// NOT a trait context.
+///
+/// In tree-sitter-rust both impl forms are an `impl_item`; only the trait form
+/// carries a `trait` field (the `for` clause). Verified empirically against the
+/// grammar: `impl T for S { .. }` yields `trait=Some("T")`, `impl S { .. }`
+/// yields `trait=None`. Trait declarations are a distinct `trait_item`.
+///
+/// Both node kinds are Rust-specific, so this returns `false` for every other
+/// grammar — callers gate on the language anyway.
+fn in_rust_trait_context(node: tree_sitter::Node<'_>) -> bool {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        match n.kind() {
+            // A method signature (or defaulted body) inside `trait T { .. }`.
+            "trait_item" => return true,
+            "impl_item" => return n.child_by_field_name("trait").is_some(),
+            _ => {}
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// TypeScript's equivalent of [`in_rust_trait_context`]: a method declared in
+/// an `interface`, or defined in a `class X implements Y` body.
+///
+/// A bare `class X { .. }` or one that only `extends` a base is NOT an
+/// interface context — those methods are ordinary owned code.
+///
+/// Verified empirically against tree-sitter-typescript: a `class_declaration`
+/// carries its `implements Y` as a `class_heritage` child containing an
+/// `implements_clause`, while `extends D` produces a `class_heritage` with no
+/// such clause.
+fn in_ts_interface_context(node: tree_sitter::Node<'_>) -> bool {
+    fn has_child_of_kind(node: tree_sitter::Node<'_>, kind: &str) -> bool {
+        (0..node.child_count()).any(|i| node.child(i).is_some_and(|c| c.kind() == kind))
+    }
+
+    fn has_implements_clause(class: tree_sitter::Node<'_>) -> bool {
+        (0..class.child_count())
+            .filter_map(|i| class.child(i))
+            .filter(|c| c.kind() == "class_heritage")
+            .any(|heritage| has_child_of_kind(heritage, "implements_clause"))
+    }
+
+    let mut current = node.parent();
+    while let Some(n) = current {
+        match n.kind() {
+            "interface_declaration" => return true,
+            "class_declaration" | "class" => return has_implements_clause(n),
+            _ => {}
+        }
+        current = n.parent();
+    }
+    false
+}
+
 fn in_rust_test_context(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut current = Some(node);
     while let Some(n) = current {
@@ -267,6 +327,12 @@ fn extract_definitions(
             let in_test_context =
                 lang == "rust" && def_node.is_some_and(|node| in_rust_test_context(node, source));
 
+            let in_trait_context = def_node.is_some_and(|node| match lang {
+                "rust" => in_rust_trait_context(node),
+                l if is_typescript_family(l) => in_ts_interface_context(node),
+                _ => false,
+            });
+
             defs.push(Definition {
                 name: n,
                 kind: k,
@@ -279,6 +345,7 @@ fn extract_definitions(
                 type_hints_present: has_type_hints,
                 body_text,
                 in_test_context,
+                in_trait_context,
             });
         }
     }
@@ -304,10 +371,28 @@ fn extract_references(
         let mut receiver = None;
         let mut line = 0u32;
         let mut is_call = false;
+        // Functions named as values rather than invoked. Collected separately
+        // from calls so they never reach edge-building or E005 arity checks.
+        let mut value_names: Vec<(String, u32)> = Vec::new();
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize];
             match cap_name {
+                "ref.value.name" => {
+                    value_names.push((
+                        node_text(cap.node, source).to_string(),
+                        cap.node.start_position().row as u32 + 1,
+                    ));
+                }
+                "ref.attr.name" => {
+                    // `"default_true"` — the string literal keeps its quotes.
+                    let raw = node_text(cap.node, source);
+                    let name = raw.trim_matches(|c| c == '"' || c == '\'');
+                    if !name.is_empty() {
+                        value_names
+                            .push((name.to_string(), cap.node.start_position().row as u32 + 1));
+                    }
+                }
                 "ref.call.name" => {
                     call_name = Some(node_text(cap.node, source).to_string());
                     is_call = true;
@@ -328,6 +413,16 @@ fn extract_references(
                 }
                 _ => {}
             }
+        }
+
+        for (name, value_line) in value_names {
+            refs.push(Reference {
+                name,
+                file_path: file_path.to_string(),
+                line: value_line,
+                kind: ReferenceKind::Value,
+                resolved_to: None,
+            });
         }
 
         if let Some(n) = call_name {

@@ -203,8 +203,8 @@ fn w006_fires_on_batch_local_duplicate() {
     let file_a = file_index("src/a.rs", vec![definition("calc_a", "src/a.rs", true)]);
     let file_b = file_index("src/b.rs", vec![definition("calc_b", "src/b.rs", true)]);
 
-    assert!(check_duplicate_implementation(&file_a, &store, &mut seen).is_empty());
-    let v = check_duplicate_implementation(&file_b, &store, &mut seen);
+    assert!(check_duplicate_implementation(&file_a, &store, &mut seen, &HashMap::new()).is_empty());
+    let v = check_duplicate_implementation(&file_b, &store, &mut seen, &HashMap::new());
     assert_eq!(v.len(), 1);
     assert_eq!(v[0].code, "W006");
     assert!(v[0].message.contains("calc_a"));
@@ -220,9 +220,9 @@ fn w006_ignores_whitespace_differences() {
 
     let file_a = file_index("src/a.rs", vec![definition("calc_a", "src/a.rs", true)]);
     let file_b = file_index("src/b.rs", vec![reformatted]);
-    assert!(check_duplicate_implementation(&file_a, &store, &mut seen).is_empty());
+    assert!(check_duplicate_implementation(&file_a, &store, &mut seen, &HashMap::new()).is_empty());
     assert_eq!(
-        check_duplicate_implementation(&file_b, &store, &mut seen).len(),
+        check_duplicate_implementation(&file_b, &store, &mut seen, &HashMap::new()).len(),
         1
     );
 }
@@ -236,14 +236,20 @@ fn w006_silent_for_trivial_bodies() {
     let mut b = definition("get_b", "src/b.rs", true);
     b.body_text = "self.a".to_string();
 
-    assert!(
-        check_duplicate_implementation(&file_index("src/a.rs", vec![a]), &store, &mut seen)
-            .is_empty()
-    );
-    assert!(
-        check_duplicate_implementation(&file_index("src/b.rs", vec![b]), &store, &mut seen)
-            .is_empty()
-    );
+    assert!(check_duplicate_implementation(
+        &file_index("src/a.rs", vec![a]),
+        &store,
+        &mut seen,
+        &HashMap::new()
+    )
+    .is_empty());
+    assert!(check_duplicate_implementation(
+        &file_index("src/b.rs", vec![b]),
+        &store,
+        &mut seen,
+        &HashMap::new()
+    )
+    .is_empty());
 }
 
 #[test]
@@ -258,7 +264,7 @@ fn w006_silent_for_same_file_siblings() {
         "src/a.rs",
         vec![definition("calc_a", "src/a.rs", true), second],
     );
-    assert!(check_duplicate_implementation(&file, &store, &mut seen).is_empty());
+    assert!(check_duplicate_implementation(&file, &store, &mut seen, &HashMap::new()).is_empty());
 }
 
 #[test]
@@ -279,7 +285,7 @@ fn w006_fires_on_graph_index_match() {
         vec![definition("copied", "src/copy.rs", true)],
     );
     let mut seen = HashMap::new();
-    let v = check_duplicate_implementation(&file, &store, &mut seen);
+    let v = check_duplicate_implementation(&file, &store, &mut seen, &HashMap::new());
     assert_eq!(v.len(), 1);
     assert!(v[0].message.contains("original"));
     assert!(v[0].message.contains("src/orig.rs"));
@@ -300,7 +306,7 @@ fn w006_ignores_graph_matches_from_own_file() {
 
     let file = file_index("src/a.rs", vec![definition("calc", "src/a.rs", true)]);
     let mut seen = HashMap::new();
-    assert!(check_duplicate_implementation(&file, &store, &mut seen).is_empty());
+    assert!(check_duplicate_implementation(&file, &store, &mut seen, &HashMap::new()).is_empty());
 }
 
 // --- W007 oversized_file ---

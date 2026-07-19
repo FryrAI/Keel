@@ -151,6 +151,7 @@ fn def(
         type_hints_present: true,
         body_text: String::new(),
         in_test_context: false,
+        in_trait_context: false,
     }
 }
 

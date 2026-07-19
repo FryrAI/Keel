@@ -60,3 +60,9 @@
 
 ; --- Export statements ---
 (export_statement) @def.export
+
+; --- Functions named as values (not invoked) ---
+; A bare identifier in argument position is a function reference, not a call:
+; `registerCommand("keel.compile", cmdCompile)`, `arr.map(render)`. Real usage,
+; so W005 dead-code analysis must see it, but it is never a `calls` edge.
+(arguments (identifier) @ref.value.name) @ref.value

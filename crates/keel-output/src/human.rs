@@ -107,24 +107,10 @@ impl OutputFormatter for HumanFormatter {
     }
 
     fn format_file_symbols(&self, result: &FileSymbols) -> String {
-        let mut out = String::new();
-        if let Some(path) = &result.path {
-            out.push_str(&format!("FILE {} symbols={}\n", path, result.symbols.len()));
-            for s in &result.symbols {
-                out.push_str(&format!(
-                    "  {} {} hash={} line={} callers={} callees={}\n",
-                    s.kind, s.name, s.hash, s.line, s.callers, s.callees,
-                ));
-            }
-        } else {
-            for s in &result.symbols {
-                out.push_str(&format!(
-                    "{} hash={} {}:{} callers={} callees={}\n",
-                    s.name, s.hash, s.file, s.line, s.callers, s.callees,
-                ));
-            }
-        }
-        out
+        // A symbol listing is already a flat, human-legible table — the human
+        // and LLM renderings are byte-identical, so share the one implementation
+        // rather than letting two copies drift.
+        crate::llm::discover::format_file_symbols(result)
     }
 
     fn format_explain(&self, result: &ExplainResult) -> String {

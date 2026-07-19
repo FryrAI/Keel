@@ -13,8 +13,8 @@ use keel_parsers::typescript::TsResolver;
 
 use super::compile_lock::acquire_compile_lock;
 use super::compile_metrics::build_compile_metrics;
-use super::map_helpers::make_relative;
 use crate::telemetry_recorder::EventMetrics;
+use keel_core::paths::make_relative;
 
 /// Run `keel compile` — incremental validation of changed files.
 #[allow(clippy::too_many_arguments)]

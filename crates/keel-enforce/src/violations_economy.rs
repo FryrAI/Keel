@@ -48,12 +48,44 @@ pub fn batch_reference_names(files: &[FileIndex]) -> HashSet<String> {
     for file in files {
         for r in &file.references {
             names.insert(r.name.clone());
+            // Final segment of a qualified reference, for both separators:
+            // `obj.method` and `module::function` (the latter shows up in
+            // attribute-string references like `#[serde(with = "a::b")]`).
             if let Some(last) = r.name.rsplit('.').next() {
+                names.insert(last.to_string());
+            }
+            if let Some(last) = r.name.rsplit("::").next() {
                 names.insert(last.to_string());
             }
         }
     }
     names
+}
+
+/// Index the normalized-body hashes of every trait-context definition in the
+/// compile batch, mapped to the files that define them.
+///
+/// W006 consults this to answer "is the function my body matches ALSO a trait
+/// method?" — the graph does not persist trait-context provenance, so the
+/// answer has to come from the freshly parsed batch.
+pub fn batch_trait_context_bodies(files: &[FileIndex]) -> HashMap<String, HashSet<String>> {
+    let mut bodies: HashMap<String, HashSet<String>> = HashMap::new();
+    for file in files {
+        for def in &file.definitions {
+            if !def.in_trait_context || def.kind != NodeKind::Function {
+                continue;
+            }
+            let normalized = keel_core::hash::normalize_body(&def.body_text);
+            if normalized.len() < MIN_DUPLICATE_BODY_LEN {
+                continue;
+            }
+            bodies
+                .entry(keel_core::hash::hash_normalized_body(&normalized))
+                .or_default()
+                .insert(file.file_path.clone());
+        }
+    }
+    bodies
 }
 
 /// W005: private functions in this file with zero incoming call edges in the
@@ -86,6 +118,11 @@ pub fn check_dead_code(
             // function are invoked by the harness, not by production code —
             // "no callers" is vacuously true regardless of naming convention.
             || def.in_test_context
+            // Trait-impl methods are reached through static/dynamic dispatch
+            // (`&dyn Trait`, generic bounds, blanket impls) that the call graph
+            // resolves to the trait declaration, not to each implementor — so
+            // "no callers" is an artifact of the analysis, not dead code.
+            || def.in_trait_context
             // `test_*`/`bench_*` cover harness-invoked functions in
             // co-located #[cfg(test)] modules and criterion benches.
             || def.name.starts_with("test_")
@@ -165,6 +202,7 @@ pub fn check_duplicate_implementation(
     file: &FileIndex,
     store: &dyn GraphStore,
     seen_bodies: &mut HashMap<String, (String, String, u32)>,
+    trait_bodies: &HashMap<String, HashSet<String>>,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
     if is_test_file(&file.file_path) || is_stub_file(&file.file_path) {
@@ -175,11 +213,33 @@ pub fn check_duplicate_implementation(
         if def.kind != NodeKind::Function {
             continue;
         }
+        // Inline `#[cfg(test)] mod tests` fixtures (`fn node(..)`, `fn cs(..)`)
+        // are deliberately duplicated per test module so each stays readable
+        // and independently editable — sharing them across crates would couple
+        // unrelated test suites. `is_test_file` above only covers whole test
+        // FILES; these live inside production files.
+        if def.in_test_context {
+            continue;
+        }
         let normalized = keel_core::hash::normalize_body(&def.body_text);
         if normalized.len() < MIN_DUPLICATE_BODY_LEN {
             continue;
         }
         let body_hash = keel_core::hash::hash_normalized_body(&normalized);
+
+        // Both sides on a trait contract surface: two implementors of the same
+        // trait legitimately share a body shape (`fn as_str`, `fn fmt`, a
+        // defaulted trait method copied into an override). Deduping them is not
+        // possible — each impl must supply its own. Only skip when the
+        // COUNTERPART is also a trait method: a trait impl that duplicates a
+        // free function's body is still a real "extract a helper" finding.
+        if def.in_trait_context
+            && trait_bodies
+                .get(&body_hash)
+                .is_some_and(|files| files.iter().any(|f| f != &file.file_path))
+        {
+            continue;
+        }
 
         // Cross-FILE matches only: identical siblings within one file are
         // usually a deliberate dispatch pattern (trait impls, format_* fan-out),

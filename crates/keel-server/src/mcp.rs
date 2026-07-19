@@ -182,6 +182,7 @@ pub(crate) fn internal_err(e: impl std::fmt::Display) -> JsonRpcError {
     }
 }
 
+/// JSON-RPC "invalid params" error for a required parameter the caller omitted.
 pub(crate) fn missing_param(name: &str) -> JsonRpcError {
     JsonRpcError {
         code: -32602,
@@ -240,6 +241,7 @@ pub(crate) fn param_u32(params: &Option<Value>, name: &str, default: u32) -> u32
     param_u64(params, name, default as u64) as u32
 }
 
+/// JSON-RPC "invalid params" error for a hash with no matching graph node.
 pub(crate) fn not_found(hash: &str) -> JsonRpcError {
     JsonRpcError {
         code: -32602,

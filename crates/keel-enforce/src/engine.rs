@@ -54,6 +54,11 @@ impl EnforcementEngine {
         let mut nodes_updated: u32 = 0;
         let file_paths: Vec<String> = files.iter().map(|f| f.file_path.clone()).collect();
         let mut node_changes: Vec<keel_core::types::NodeChange> = Vec::new();
+        // Hashes claimed by re-baselined nodes earlier in THIS compile pass.
+        // Mirrors the map pass's assigned-hash set (see `map_passes.rs`): the
+        // store alone can't arbitrate, because these updates are batched and
+        // not visible to `get_node` until the transaction runs.
+        let mut assigned_hashes: HashSet<String> = HashSet::new();
 
         // Build batch file set: callers in the same compile batch are skipped
         // by E001/E004 since the user likely updated them in the same commit.
@@ -61,6 +66,7 @@ impl EnforcementEngine {
         // Economy-check state shared across the batch: names referenced
         // anywhere in it (W005) and body hashes seen so far (W006).
         let referenced_names = violations_economy::batch_reference_names(files);
+        let trait_bodies = violations_economy::batch_trait_context_bodies(files);
         let mut seen_bodies: HashMap<String, (String, String, u32)> = HashMap::new();
 
         for file in files {
@@ -114,6 +120,7 @@ impl EnforcementEngine {
                     file,
                     &*self.store,
                     &mut seen_bodies,
+                    &trait_bodies,
                 ));
             }
             // W007: oversized files (gated by config)
@@ -221,22 +228,62 @@ impl EnforcementEngine {
 
             // Track changed hashes and collect node updates for persistence,
             // reusing the per-def hashes computed above (no re-hashing).
+            //
+            // Each def must bind to a DISTINCT stored node. Matching on name
+            // alone bound every same-named def in a file (e.g. the two
+            // `fn is_available(&self) -> bool` impls in `python/ty.rs`) to the
+            // same node: that node then received two conflicting hash updates
+            // while its sibling was orphaned, and the second update tried to
+            // claim the hash the sibling legitimately owns — aborting the whole
+            // persist with a HashCollision. Prefer an exact line match, then
+            // fall back to the first still-unclaimed node of that name.
+            let mut claimed_nodes: HashSet<u64> = HashSet::new();
             for (def, (new_hash, new_hash_disambiguated)) in
                 file.definitions.iter().zip(&def_hashes)
             {
-                if let Some(node) = existing_nodes.iter().find(|n| n.name == def.name) {
+                let matched = existing_nodes
+                    .iter()
+                    .find(|n| {
+                        n.name == def.name
+                            && n.line_start == def.line_start
+                            && !claimed_nodes.contains(&n.id)
+                    })
+                    .or_else(|| {
+                        existing_nodes
+                            .iter()
+                            .find(|n| n.name == def.name && !claimed_nodes.contains(&n.id))
+                    });
+                if let Some(node) = matched {
+                    claimed_nodes.insert(node.id);
                     if node.hash != *new_hash && node.hash != *new_hash_disambiguated {
                         if deferred_e001.contains(&node.hash) {
                             continue; // keep pre-edit hash so E001 re-fires
                         }
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
+                        // Two identical definitions in DIFFERENT files (e.g.
+                        // `fn default() -> Self { Self::new() }`) normalize to
+                        // the same content hash. Salt with the file path when
+                        // the plain hash is already owned by another node —
+                        // either stored, or claimed earlier in this same pass —
+                        // exactly as the map pass does. Without this, both defs
+                        // re-baseline onto one hash and `update_nodes` aborts
+                        // the whole persist with a HashCollision.
+                        let mut target_hash = new_hash.clone();
+                        let taken_in_store = self
+                            .store
+                            .get_node(&target_hash)
+                            .is_some_and(|owner| owner.id != node.id);
+                        if taken_in_store || !assigned_hashes.insert(target_hash.clone()) {
+                            target_hash = new_hash_disambiguated.clone();
+                            assigned_hashes.insert(target_hash.clone());
+                        }
                         // Persist updated hash; record the old one so
                         // "modified since last map" survives the sync (see
                         // progressive adoption — a full map re-baselines).
                         let mut updated_node = node.clone();
                         updated_node.previous_hashes.push(node.hash.clone());
-                        updated_node.hash = new_hash.clone();
+                        updated_node.hash = target_hash;
                         updated_node.signature = def.signature.clone();
                         updated_node.docstring = def.docstring.clone();
                         updated_node.has_docstring = def.docstring.is_some();

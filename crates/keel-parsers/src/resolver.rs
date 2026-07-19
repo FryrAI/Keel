@@ -84,6 +84,27 @@ pub struct Definition {
     /// production code, so W005 (dead code), E002 (type hints), and E003
     /// (docstrings) skip them to avoid vacuous "no callers" noise.
     pub in_test_context: bool,
+    /// True when this definition sits on an abstract contract surface rather
+    /// than being ordinary owned code:
+    ///
+    /// - **Rust** — a method declared in a `trait` block, or defined in a trait
+    ///   implementation (`impl Trait for Type`). An inherent `impl Type` block
+    ///   is NOT a trait context; same-named inherent methods still get flagged.
+    /// - **TypeScript** — a method declared in an `interface`, or defined in a
+    ///   `class X implements Y` body. A plain class, or one that only
+    ///   `extends` a base, is NOT an interface context.
+    ///
+    /// Trait methods are *required* by the language to share their names and
+    /// often their shapes across every implementor, and are reached through
+    /// static/dynamic dispatch that the call graph resolves to the trait
+    /// declaration rather than to each implementor. W002 (duplicate name),
+    /// W005 (dead code), and W006 (duplicate implementation) therefore skip
+    /// them — renaming or deleting one is not a legal fix.
+    ///
+    /// Go and Python definitions always carry `false`: Go's interfaces are
+    /// satisfied structurally (there is no syntactic marker on the method to
+    /// key off), and Python has no static interface declaration.
+    pub in_trait_context: bool,
 }
 
 impl Definition {
@@ -133,6 +154,16 @@ pub enum ReferenceKind {
     Import,
     /// A type annotation or type-level reference.
     TypeRef,
+    /// A function named as a *value* rather than invoked — passed as an
+    /// argument (`.map(render_file)`, `get(health)`,
+    /// `registerCommand("keel.compile", cmdCompile)`) or named in an attribute
+    /// string (`#[serde(default = "default_true")]`).
+    ///
+    /// These are real usages, but they are not call sites: they carry no
+    /// argument list and must never produce a `calls` edge or feed E005 arity
+    /// checking. W005 dead-code analysis consumes them so a function that is
+    /// only ever handed around as a value is not reported as uncalled.
+    Value,
 }
 
 /// A reference (usage) of a symbol within a file.
@@ -288,6 +319,7 @@ mod tests {
                 type_hints_present: true,
                 body_text: String::new(),
                 in_test_context: false,
+                in_trait_context: false,
             }],
             references: vec![],
             imports: vec![],

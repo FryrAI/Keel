@@ -172,17 +172,16 @@ async fn compile(State(state): State<AppState>, Json(req): Json<CompileRequest>)
 fn collect_compile_targets(req: &CompileRequest, root: &Path) -> Result<Vec<String>, StatusCode> {
     let mut targets = Vec::new();
     for file in &req.files {
-        let confined = crate::http_confine::confine(root, file).ok_or(StatusCode::BAD_REQUEST)?;
+        let confined = keel_core::paths::confine(root, file).ok_or(StatusCode::BAD_REQUEST)?;
         targets.push(confined.to_string_lossy().to_string());
     }
     if let Some(path) = &req.path {
-        let confined = crate::http_confine::confine(root, path).ok_or(StatusCode::BAD_REQUEST)?;
+        let confined = keel_core::paths::confine(root, path).ok_or(StatusCode::BAD_REQUEST)?;
         if confined.is_dir() {
             for entry in keel_parsers::walker::FileWalker::new(&confined).walk() {
                 // Re-confine each walked file: a symlink nested deeper in the
                 // tree could otherwise smuggle in files from outside the root.
-                if let Some(ok) = crate::http_confine::confine(root, &entry.path.to_string_lossy())
-                {
+                if let Some(ok) = keel_core::paths::confine(root, &entry.path.to_string_lossy()) {
                     targets.push(ok.to_string_lossy().to_string());
                 }
             }

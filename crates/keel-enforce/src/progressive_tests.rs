@@ -15,6 +15,7 @@ fn undocumented_def(name: &str, file: &str) -> Definition {
         type_hints_present: true,
         body_text: "do_work()".to_string(),
         in_test_context: false,
+        in_trait_context: false,
     }
 }
 
