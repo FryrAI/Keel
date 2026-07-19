@@ -7,6 +7,7 @@
 //! Also includes a file watcher for automatic re-compilation on changes.
 
 pub mod http;
+mod http_confine;
 pub mod mcp;
 mod mcp_analyze;
 mod mcp_audit;

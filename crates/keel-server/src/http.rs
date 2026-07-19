@@ -1,27 +1,51 @@
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Path as AxumPath, Query, State};
+use axum::extract::{FromRef, Path as AxumPath, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tower_http::cors::{Any, CorsLayer};
 
 use keel_enforce::engine::EnforcementEngine;
-use keel_enforce::types::{CompileResult, DiscoverResult, ExplainResult};
+use keel_enforce::types::{DiscoverResult, ExplainResult};
 use keel_parsers::resolver::FileIndex;
 
 pub type SharedEngine = Arc<Mutex<EnforcementEngine>>;
 
-/// Build the axum router with all keel HTTP endpoints.
-pub fn router(engine: SharedEngine) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+/// Router state: the shared engine plus the project root that compile targets
+/// are confined to. `SharedEngine` is extractable on its own via [`FromRef`],
+/// so handlers that don't touch the filesystem keep taking `State<SharedEngine>`.
+#[derive(Clone)]
+struct AppState {
+    engine: SharedEngine,
+    root: Arc<PathBuf>,
+}
 
+impl FromRef<AppState> for SharedEngine {
+    fn from_ref(state: &AppState) -> Self {
+        state.engine.clone()
+    }
+}
+
+/// Build the axum router, confining compile targets to the current working
+/// directory (where `keel serve` was launched — the project root).
+pub fn router(engine: SharedEngine) -> Router {
+    router_with_root(engine, current_root())
+}
+
+/// Build the axum router with an explicit project root (used by tests).
+pub fn router_with_root(engine: SharedEngine, root: PathBuf) -> Router {
+    let state = AppState {
+        engine,
+        root: Arc::new(root),
+    };
+    // No CORS layer: this is unauthenticated localhost tooling for the CLI and
+    // the VS Code extension (neither is a browser bound by same-origin policy).
+    // Allowing arbitrary cross-origin access would let any visited web page
+    // read and mutate the code graph, so we simply don't permit it.
     Router::new()
         .route("/health", get(health))
         .route("/compile", post(compile))
@@ -30,16 +54,31 @@ pub fn router(engine: SharedEngine) -> Router {
         .route("/explain", post(explain))
         .route("/map", get(map))
         .route("/search", get(search))
-        .layer(cors)
-        .with_state(engine)
+        .with_state(state)
 }
 
-/// Start the HTTP server on the given port.
+/// The project root compile targets are confined to: the canonicalized current
+/// working directory, falling back to `.` if it can't be resolved.
+fn current_root() -> PathBuf {
+    std::env::current_dir()
+        .and_then(|d| d.canonicalize())
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Start the HTTP server on the given port, bound to loopback only.
 pub async fn serve(engine: SharedEngine, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let app = router(engine);
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Acquire the shared engine lock, mapping a poisoned mutex to a 500 rather
+/// than panicking — mirrors the MCP path's `lock_store`.
+fn lock_engine(
+    engine: &SharedEngine,
+) -> Result<std::sync::MutexGuard<'_, EnforcementEngine>, StatusCode> {
+    engine.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 // --- Request / Response types ---
@@ -106,11 +145,11 @@ async fn health() -> Json<HealthResponse> {
     })
 }
 
-async fn compile(
-    State(engine): State<SharedEngine>,
-    Json(req): Json<CompileRequest>,
-) -> Json<CompileResult> {
-    let targets = collect_compile_targets(&req);
+async fn compile(State(state): State<AppState>, Json(req): Json<CompileRequest>) -> Response {
+    let targets = match collect_compile_targets(&req, &state.root) {
+        Ok(t) => t,
+        Err(code) => return code.into_response(),
+    };
 
     let mut parser = FileParser::new();
     let file_indexes: Vec<FileIndex> = targets
@@ -118,26 +157,37 @@ async fn compile(
         .filter_map(|path| parser.parse(path))
         .collect();
 
-    let mut engine = engine.lock().unwrap();
-    Json(engine.compile(&file_indexes))
+    let mut engine = match lock_engine(&state.engine) {
+        Ok(g) => g,
+        Err(code) => return code.into_response(),
+    };
+    Json(engine.compile(&file_indexes)).into_response()
 }
 
 /// Expand a compile request into a flat list of file paths: the explicit
 /// `files`, plus `path` — walked into its supported files when it is a
 /// directory, or used verbatim when it is a single file.
-fn collect_compile_targets(req: &CompileRequest) -> Vec<String> {
-    let mut targets = req.files.clone();
+///
+/// Every target is confined to `root`; an absolute-outside-root or `..`-escape
+/// path aborts the whole request with `400 Bad Request` rather than being
+/// read.
+fn collect_compile_targets(req: &CompileRequest, root: &Path) -> Result<Vec<String>, StatusCode> {
+    let mut targets = Vec::new();
+    for file in &req.files {
+        let confined = crate::http_confine::confine(root, file).ok_or(StatusCode::BAD_REQUEST)?;
+        targets.push(confined.to_string_lossy().to_string());
+    }
     if let Some(path) = &req.path {
-        let p = std::path::Path::new(path);
-        if p.is_dir() {
-            for entry in keel_parsers::walker::FileWalker::new(p).walk() {
+        let confined = crate::http_confine::confine(root, path).ok_or(StatusCode::BAD_REQUEST)?;
+        if confined.is_dir() {
+            for entry in keel_parsers::walker::FileWalker::new(&confined).walk() {
                 targets.push(entry.path.to_string_lossy().to_string());
             }
         } else {
-            targets.push(path.clone());
+            targets.push(confined.to_string_lossy().to_string());
         }
     }
-    targets
+    Ok(targets)
 }
 
 /// Discover a node's callers/callees.
@@ -153,7 +203,7 @@ async fn discover(
     Query(query): Query<DiscoverQuery>,
 ) -> Result<Json<Value>, StatusCode> {
     let depth = query.depth.unwrap_or(1);
-    let engine = engine.lock().unwrap();
+    let engine = lock_engine(&engine)?;
 
     if query.file.is_some() {
         let result = engine
@@ -197,7 +247,10 @@ fn flatten_discover(result: &DiscoverResult) -> Value {
 /// Graph-wide map. `?format=llm` returns a plain-text listing (for dumping into
 /// an editor document); the default `json` returns a structured summary.
 async fn map(State(engine): State<SharedEngine>, Query(query): Query<MapQuery>) -> Response {
-    let engine = engine.lock().unwrap();
+    let engine = match lock_engine(&engine) {
+        Ok(g) => g,
+        Err(code) => return code.into_response(),
+    };
     let modules = engine.module_map();
     let total_nodes: usize = modules.iter().map(|m| m.node_count).sum();
 
@@ -235,7 +288,7 @@ async fn search(
     let term = query.q.or(query.query).ok_or(StatusCode::BAD_REQUEST)?;
     let limit = query.limit.unwrap_or(20);
 
-    let engine = engine.lock().unwrap();
+    let engine = lock_engine(&engine)?;
     let nodes = engine.search_graph(&term, query.kind.as_deref(), limit);
 
     let results: Vec<Value> = nodes
@@ -264,7 +317,7 @@ async fn where_hash(
     State(engine): State<SharedEngine>,
     AxumPath(hash): AxumPath<String>,
 ) -> Result<Json<WhereResponse>, StatusCode> {
-    let engine = engine.lock().unwrap();
+    let engine = lock_engine(&engine)?;
     engine
         .where_hash(&hash)
         .map(|(file, line)| Json(WhereResponse { file, line }))
@@ -275,7 +328,7 @@ async fn explain(
     State(engine): State<SharedEngine>,
     Json(req): Json<ExplainRequest>,
 ) -> Result<Json<ExplainResult>, StatusCode> {
-    let engine = engine.lock().unwrap();
+    let engine = lock_engine(&engine)?;
     engine
         .explain(&req.error_code, &req.hash)
         .map(Json)
@@ -293,12 +346,20 @@ mod tests {
     use axum::http::{header, Method, Request};
     use keel_core::sqlite::SqliteGraphStore;
     use keel_core::types::GraphNode;
+    use keel_enforce::types::CompileResult;
     use tower::ServiceExt;
 
     fn test_engine() -> SharedEngine {
         let store = SqliteGraphStore::in_memory().unwrap();
         let engine = EnforcementEngine::new(Box::new(store));
         Arc::new(Mutex::new(engine))
+    }
+
+    /// A canonicalized existing directory to use as a confinement root.
+    fn canonical_temp_root() -> PathBuf {
+        std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir())
     }
 
     fn test_engine_with_node() -> SharedEngine {
@@ -344,20 +405,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cors_preflight() {
+    async fn test_no_wildcard_cors() {
+        // The server must NOT hand a cross-origin allow header to a browser:
+        // any visited web page could otherwise read/mutate the graph.
         let app = router(test_engine());
         let req = Request::builder()
-            .method(Method::OPTIONS)
             .uri("/health")
-            .header(header::ORIGIN, "http://example.com")
-            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .header(header::ORIGIN, "http://evil.example.com")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        assert!(resp
+        let allow = resp
             .headers()
-            .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|v| v.to_str().ok());
+        assert!(
+            allow != Some("*") && allow != Some("http://evil.example.com"),
+            "unexpected CORS allow-origin: {allow:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_compile_rejects_parent_escape() {
+        let app = router_with_root(test_engine(), canonical_temp_root());
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/compile")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"path":"../../etc/passwd"}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_compile_rejects_absolute_outside_root() {
+        let app = router_with_root(test_engine(), canonical_temp_root());
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/compile")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"files":["/etc/passwd"]}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_poisoned_engine_returns_500() {
+        let engine = test_engine();
+        // Poison the mutex by panicking while it is held.
+        let poisoner = engine.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+
+        let app = router(engine);
+        let req = Request::builder().uri("/map").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]

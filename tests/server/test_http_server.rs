@@ -128,21 +128,26 @@ async fn test_http_where_endpoint() {
 }
 
 #[tokio::test]
-async fn test_http_cors_headers_present() {
+async fn test_http_no_cross_origin_allow() {
+    // Hardening: the server is unauthenticated localhost tooling, so it must
+    // NOT grant cross-origin access — otherwise any visited web page could
+    // read and mutate the code graph. No wildcard/echoed allow-origin header.
     let app = router(test_engine());
     let req = Request::builder()
-        .method(Method::OPTIONS)
         .uri("/health")
-        .header(header::ORIGIN, "http://localhost:3000")
-        .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+        .header(header::ORIGIN, "http://evil.example.com")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
 
-    assert_eq!(resp.status(), StatusCode::OK);
-    assert!(resp
+    let allow = resp
         .headers()
-        .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+        .and_then(|v| v.to_str().ok());
+    assert!(
+        allow != Some("*") && allow != Some("http://evil.example.com"),
+        "unexpected CORS allow-origin: {allow:?}"
+    );
 }
 
 #[tokio::test]
