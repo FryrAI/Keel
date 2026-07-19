@@ -36,7 +36,7 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
 - **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
-- **Tool config generation** — `keel init` auto-detects 11 AI coding tools and generates hook configs
+- **Tool config generation** — `keel init` auto-detects 9 AI coding tools and generates hook configs
 - **Zero runtime dependencies** — single statically-linked 12MB binary
 
 ## Performance
@@ -257,11 +257,11 @@ The `extensions/vscode/` directory contains a VS Code extension that displays ke
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — install, init, map, compile in 5 minutes
-- [Command Reference](docs/commands.md) — full command reference with examples
-- [Agent Integration](docs/agent-integration.md) — wiring keel into Claude Code, Cursor, etc.
-- [Configuration](docs/config.md) — keel.json reference, .keelignore
-- [FAQ](docs/faq.md) — troubleshooting and common questions
+- [Getting Started](docs/src/getting-started.md) — install, init, map, compile in 5 minutes
+- [Command Reference](docs/src/commands.md) — full command reference with examples
+- [Agent Integration](docs/src/agent-integration.md) — wiring keel into Claude Code, Cursor, etc.
+- [Configuration](docs/src/config.md) — keel.json reference, .keelignore
+- [FAQ](docs/src/faq.md) — troubleshooting and common questions
 
 ## Development
 
@@ -310,6 +310,9 @@ scripts/
 | E005 | Arity mismatch | ERROR |
 | W001 | Placement issue | WARNING |
 | W002 | Duplicate name | WARNING |
+| W005 | Dead code | WARNING |
+| W006 | Duplicate implementation | WARNING |
+| W007 | Oversized file | WARNING |
 | S001 | Suppressed | INFO |
 
 ### Exit Codes
