@@ -72,9 +72,11 @@ pub fn run(
         eprintln!("keel map: found {} source files", entries.len());
     }
 
-    // Create resolvers for each language
+    // Create resolvers for each language. `PyResolver::detect()` wires the
+    // Tier-2 `ty` subprocess when it is on PATH and falls back to heuristics
+    // otherwise.
     let ts = TsResolver::with_project_root(&cwd);
-    let py = PyResolver::new();
+    let py = PyResolver::detect();
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();
 
@@ -159,8 +161,19 @@ pub fn run(
     };
 
     // === Second pass: cross-file call edges and import edges ===
+    // `node_tiers` records which resolution tier resolved each caller node's
+    // outgoing edges, persisted to `nodes.resolution_tier` after the nodes land.
+    let resolver_set = super::map_lang_resolve::ResolverSet {
+        ts: &ts,
+        py: &py,
+        go: &go_resolver,
+        rs: &rs,
+    };
+    let mut node_tiers: HashMap<u64, (String, f64)> = HashMap::new();
     map_passes::second_pass(
         &all_file_data,
+        &cwd,
+        &resolver_set,
         &name_to_id,
         &global_name_index,
         &file_module_ids,
@@ -168,6 +181,7 @@ pub fn run(
         &baml_fn_index,
         &mut edge_changes,
         &mut next_id,
+        &mut node_tiers,
     );
 
     // === Third pass: Tier 3 resolution for still-unresolved references ===
@@ -252,6 +266,17 @@ pub fn run(
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
         return (2, EventMetrics::default());
+    }
+
+    // Persist the resolution tier that resolved each caller node's edges.
+    let tiers: HashMap<u64, String> = node_tiers
+        .into_iter()
+        .map(|(id, (tier, _))| (id, tier))
+        .collect();
+    if let Err(e) = store.set_node_resolution_tiers(&tiers) {
+        if verbose {
+            eprintln!("keel map: failed to persist resolution tiers: {}", e);
+        }
     }
 
     // Refresh the W006 duplicate-implementation index (full rebuild, like

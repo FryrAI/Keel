@@ -361,6 +361,58 @@ impl SqliteGraphStore {
         Ok(deleted as u64)
     }
 
+    /// Persist the resolution tier that resolved each node's outgoing edges.
+    ///
+    /// Keyed by node id, writing the `nodes.resolution_tier` column that the
+    /// map pipeline populates from the per-language resolver's reported tier.
+    pub fn set_node_resolution_tiers(
+        &mut self,
+        tiers: &std::collections::HashMap<u64, String>,
+    ) -> Result<(), GraphError> {
+        if tiers.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        for (id, tier) in tiers {
+            tx.execute(
+                "UPDATE nodes SET resolution_tier = ?1 WHERE id = ?2",
+                params![tier, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Highest id currently in use across nodes and edges.
+    ///
+    /// The incremental `keel compile` graph sync allocates new node/edge ids
+    /// above this watermark so they never collide with rows written by `keel
+    /// map` or a previous compile. Returns 0 for an empty graph.
+    pub fn max_id(&self) -> u64 {
+        let node_max: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM nodes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let edge_max: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM edges", [], |r| r.get(0))
+            .unwrap_or(0);
+        node_max.max(edge_max) as u64
+    }
+
+    /// Delete every outgoing `calls` edge originating in `file_path`.
+    ///
+    /// Call edges are stored with the caller's file path, so this prunes a
+    /// single file's outgoing call edges before the incremental compile sync
+    /// re-resolves them. Returns the number of rows removed.
+    pub fn prune_call_edges_from_file(&self, file_path: &str) -> Result<u64, GraphError> {
+        let deleted = self.conn.execute(
+            "DELETE FROM edges WHERE file_path = ?1 AND kind = 'calls'",
+            params![file_path],
+        )?;
+        Ok(deleted as u64)
+    }
+
     /// Clear all graph data (nodes, edges, etc.) for a full re-map.
     /// Preserves schema and metadata.
     pub fn clear_all(&mut self) -> Result<(), GraphError> {

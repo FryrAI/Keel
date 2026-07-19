@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Result from ty type-checking subprocess.
 #[derive(Debug, Clone)]
@@ -36,9 +39,20 @@ pub trait TyClient: Send + Sync {
 
 /// Real ty subprocess client.
 pub struct RealTyClient {
-    #[allow(dead_code)]
     timeout: Duration,
     cache: Mutex<HashMap<(PathBuf, u64), TyResult>>,
+}
+
+/// Content hash used to key the ty result cache.
+///
+/// Reads the file and hashes its bytes so a cached result is invalidated the
+/// moment the source changes. Missing/unreadable files hash to 0 — ty will be
+/// (re)invoked and simply fail, rather than returning a stale hit.
+pub(crate) fn content_hash_for(path: &Path) -> u64 {
+    match std::fs::read(path) {
+        Ok(bytes) => xxhash_rust::xxh64::xxh64(&bytes, 0),
+        Err(_) => 0,
+    }
 }
 
 impl RealTyClient {
@@ -57,6 +71,65 @@ impl RealTyClient {
             _ => None,
         }
     }
+
+    /// Run `ty check` on a single file, bounded by `self.timeout`.
+    ///
+    /// ty is a subprocess (constitution: never a library), so a hung or slow
+    /// process must never hang keel. The child is polled and hard-killed if it
+    /// overruns the timeout; stdout is drained on a helper thread so a full
+    /// pipe buffer cannot deadlock the poll loop.
+    fn run_ty_check(&self, path: &Path) -> Result<String, TyError> {
+        let err = |message: String| TyError {
+            message,
+            file_path: path.to_string_lossy().to_string(),
+            line: 0,
+        };
+
+        let mut child = Command::new("ty")
+            .args(["check", "--output-format", "json"])
+            .arg(path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| err(format!("Failed to spawn ty: {e}")))?;
+
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| err("ty produced no stdout handle".to_string()))?;
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = stdout.read_to_string(&mut buf);
+            let _ = tx.send(buf);
+        });
+
+        let start = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    if start.elapsed() >= self.timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(err(format!(
+                            "ty timed out after {}s",
+                            self.timeout.as_secs()
+                        )));
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(e) => return Err(err(format!("ty wait failed: {e}"))),
+            }
+        };
+
+        if !status.success() {
+            return Err(err(format!("ty exited with status {status}")));
+        }
+
+        rx.recv()
+            .map_err(|_| err("ty stdout reader dropped".to_string()))
+    }
 }
 
 impl Default for RealTyClient {
@@ -67,37 +140,16 @@ impl Default for RealTyClient {
 
 impl TyClient for RealTyClient {
     fn check_file(&self, path: &Path) -> Result<TyResult, TyError> {
-        let path_buf = path.to_path_buf();
-
-        // Check cache first (use 0 as placeholder - production would use content hash)
-        let cache_key = (path_buf, 0u64);
+        // Cache key is (path, content_hash): changing the file's content
+        // invalidates any cached result instead of serving a stale hit.
+        let cache_key = (path.to_path_buf(), content_hash_for(path));
         if let Some(cached) = self.cache.lock().unwrap().get(&cache_key) {
             return Ok(cached.clone());
         }
 
-        let output = Command::new("ty")
-            .args(["check", "--output-format", "json"])
-            .arg(path)
-            .output()
-            .map_err(|e| TyError {
-                message: format!("Failed to spawn ty: {e}"),
-                file_path: path.to_string_lossy().to_string(),
-                line: 0,
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(TyError {
-                message: format!("ty exited with status {}: {stderr}", output.status),
-                file_path: path.to_string_lossy().to_string(),
-                line: 0,
-            });
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = self.run_ty_check(path)?;
         let result = parse_ty_json_output(&stdout);
 
-        // Cache the result
         self.cache.lock().unwrap().insert(cache_key, result.clone());
 
         Ok(result)
@@ -280,5 +332,26 @@ mod tests {
         let _ = client.check_file(path);
         let _ = client.check_file(path);
         assert_eq!(client.call_count(path), 2);
+    }
+
+    #[test]
+    fn test_content_hash_changes_with_content() {
+        let dir = std::env::temp_dir().join(format!("keel_ty_hash_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("m.py");
+
+        std::fs::write(&path, "def f(): pass\n").unwrap();
+        let h1 = content_hash_for(&path);
+        // Same content re-hashed is stable (cache hit).
+        assert_eq!(h1, content_hash_for(&path));
+
+        std::fs::write(&path, "def g(): pass\n").unwrap();
+        let h2 = content_hash_for(&path);
+        // Changed content invalidates the cache key.
+        assert_ne!(h1, h2, "content hash must change when file content changes");
+
+        std::fs::remove_file(&path).unwrap();
+        // A missing file hashes to the 0 sentinel.
+        assert_eq!(content_hash_for(&path), 0);
     }
 }

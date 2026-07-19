@@ -9,14 +9,17 @@ use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, N
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::walker::WalkEntry;
 
+use super::map_lang_resolve::{resolve_via_language, ResolverSet};
 use super::map_resolve::{
-    find_containing_def, resolve_cross_file_call, resolve_import_to_module, resolve_package_import,
-    resolve_same_directory_call,
+    find_containing_def, resolve_cross_file_call, resolve_edge_to_node, resolve_import_to_module,
+    resolve_package_import, resolve_same_directory_call,
 };
 
 /// Per-file parse data collected during the first pass for use in the second pass.
 pub struct FileParseData {
     pub file_path: String,
+    /// `detect_language` result, used to pick the Tier-2 resolver in the second pass.
+    pub language: String,
     pub definitions: Vec<keel_parsers::resolver::Definition>,
     pub references: Vec<keel_parsers::resolver::Reference>,
     pub imports: Vec<keel_parsers::resolver::Import>,
@@ -205,6 +208,7 @@ pub fn first_pass(
 
         all_file_data.push(FileParseData {
             file_path,
+            language: entry.language.clone(),
             definitions: result.definitions,
             references: result.references,
             imports: result.imports,
@@ -223,6 +227,8 @@ pub fn first_pass(
 #[allow(clippy::too_many_arguments)]
 pub fn second_pass(
     all_file_data: &[FileParseData],
+    cwd: &Path,
+    resolvers: &ResolverSet,
     name_to_id: &HashMap<(String, String), u64>,
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     file_module_ids: &HashMap<String, u64>,
@@ -230,9 +236,12 @@ pub fn second_pass(
     baml_fn_index: &HashMap<String, u64>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
+    node_tiers: &mut HashMap<u64, (String, f64)>,
 ) {
     for file_data in all_file_data {
         let file_path = &file_data.file_path;
+        // Absolute path the resolver cached this file under (see `call_site_for`).
+        let abs_file = cwd.join(file_path);
 
         // Create Imports edges between modules
         if let Some(&src_module_id) = file_module_ids.get(file_path.as_str()) {
@@ -265,12 +274,35 @@ pub fn second_pass(
                 continue;
             }
 
-            let mut target_id = resolve_cross_file_call(
-                &reference.name,
-                &file_data.imports,
-                global_name_index,
-                file_module_ids,
-            );
+            let mut confidence = 0.80;
+            let mut tier = "tier1".to_string();
+
+            // Tier 2: route through the language's `resolve_call_edge` first —
+            // the sophisticated per-language resolution (barrel re-exports,
+            // star-imports, receiver/trait dispatch). Its reported confidence
+            // and tier are used verbatim; only its result must map to a known
+            // node, otherwise we fall back to the path heuristics below.
+            let mut target_id = None;
+            if let Some(edge) =
+                resolve_via_language(resolvers, &file_data.language, &abs_file, reference)
+            {
+                if let Some(id) =
+                    resolve_edge_to_node(global_name_index, &edge.target_file, &edge.target_name)
+                {
+                    target_id = Some(id);
+                    confidence = edge.confidence;
+                    tier = edge.resolution_tier;
+                }
+            }
+
+            if target_id.is_none() {
+                target_id = resolve_cross_file_call(
+                    &reference.name,
+                    &file_data.imports,
+                    global_name_index,
+                    file_module_ids,
+                );
+            }
 
             if target_id.is_none()
                 && !reference.name.contains('.')
@@ -280,7 +312,6 @@ pub fn second_pass(
                     resolve_same_directory_call(&reference.name, file_path, global_name_index);
             }
 
-            let mut confidence = 0.80;
             if target_id.is_none() && !package_node_index.is_empty() {
                 for imp in &file_data.imports {
                     if let Some((pkg_tgt, pkg_conf)) =
@@ -323,6 +354,14 @@ pub fn second_pass(
                             line: reference.line,
                             confidence,
                         }));
+                        // Record which tier resolved this caller's edges, keeping
+                        // the highest-confidence tier seen for the source node.
+                        let entry = node_tiers
+                            .entry(src_id)
+                            .or_insert_with(|| (tier.clone(), confidence));
+                        if confidence >= entry.1 {
+                            *entry = (tier.clone(), confidence);
+                        }
                     }
                 }
             }

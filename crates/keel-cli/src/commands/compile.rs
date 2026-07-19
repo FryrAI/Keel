@@ -115,6 +115,11 @@ pub fn run(
     let mut go_resolver: Option<GoResolver> = None;
     let mut rs: Option<RustLangResolver> = None;
 
+    // A full-repo compile (no explicit files) is close to a `keel map`; the
+    // incremental graph sync below is skipped for it to avoid degrading the
+    // map-built edge graph with weaker single-file resolution.
+    let full_repo_compile = effective_files.is_empty();
+
     let target_files = if effective_files.is_empty() {
         let walker = keel_parsers::walker::FileWalker::new(&cwd);
         walker
@@ -158,7 +163,7 @@ pub fn run(
             l if keel_parsers::treesitter::is_typescript_family(l) => {
                 ts.get_or_insert_with(|| TsResolver::with_project_root(&cwd))
             }
-            "python" => py.get_or_insert_with(PyResolver::new),
+            "python" => py.get_or_insert_with(PyResolver::detect),
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
             "rust" => rs.get_or_insert_with(RustLangResolver::new),
             _ => continue,
@@ -197,6 +202,31 @@ pub fn run(
                     eprintln!("keel compile: failed to persist circuit breaker: {}", e);
                 }
             }
+        }
+    }
+
+    // Incremental graph sync (issue #30): refresh nodes and outgoing edges for
+    // the compiled files so the *next* compile's E001 broken-caller checks run
+    // against fresh data — no full `keel map` required. Runs after enforcement,
+    // on a fresh store handle (the engine owns the original), so E001/E004 still
+    // diff against the pre-edit graph. Best-effort: failures never block output.
+    if !full_repo_compile && !file_indices.is_empty() {
+        if let Ok(mut sync_store) =
+            keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
+        {
+            let resolvers = super::compile_sync::SyncResolvers {
+                ts: ts.as_ref(),
+                py: py.as_ref(),
+                go: go_resolver.as_ref(),
+                rs: rs.as_ref(),
+            };
+            super::compile_sync::sync_compiled_files(
+                &mut sync_store,
+                &cwd,
+                &file_indices,
+                &resolvers,
+                verbose,
+            );
         }
     }
 

@@ -342,6 +342,39 @@ pub fn build_package_node_index(
     index
 }
 
+/// Map a language resolver's `ResolvedEdge` target back to a graph node id.
+///
+/// The per-language `resolve_call_edge` implementations report a `target_file`
+/// that may be an oxc-resolved absolute path (TypeScript) or a bare import
+/// specifier (Go/Rust), while the map's `global_name_index` is keyed on
+/// repo-relative paths. This reconciles the two by matching the target name and
+/// a path suffix, falling back to a single unambiguous candidate.
+pub fn resolve_edge_to_node(
+    global_name_index: &HashMap<String, Vec<(String, u64)>>,
+    target_file: &str,
+    target_name: &str,
+) -> Option<u64> {
+    let candidates = global_name_index.get(target_name)?;
+
+    // 1. Exact (already-relative) match.
+    if let Some((_, id)) = candidates.iter().find(|(f, _)| f == target_file) {
+        return Some(*id);
+    }
+    // 2. Suffix match: absolute/resolved path ending in the relative index path
+    //    (or vice-versa for shorter specifiers).
+    if let Some((_, id)) = candidates
+        .iter()
+        .find(|(f, _)| target_file.ends_with(f.as_str()) || f.ends_with(target_file))
+    {
+        return Some(*id);
+    }
+    // 3. Unambiguous single definition of this name.
+    if candidates.len() == 1 {
+        return Some(candidates[0].1);
+    }
+    None
+}
+
 /// Find which definition contains a given line number.
 pub fn find_containing_def(
     definitions: &[keel_parsers::resolver::Definition],
