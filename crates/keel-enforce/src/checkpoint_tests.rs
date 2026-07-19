@@ -199,3 +199,29 @@ fn no_changes_yields_empty_files() {
     assert!(result.files.is_empty());
     assert!(result.affected_callers.is_empty());
 }
+
+/// `changed_files` on an initial commit (no `HEAD` yet) must fall back to the
+/// staged index. The old inline version ran `git diff --name-only HEAD`, which
+/// fails without a HEAD, silently reporting zero changed files.
+#[test]
+fn changed_files_initial_commit_falls_back_to_staged() {
+    use std::process::Command;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let run = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .output()
+            .expect("git spawn");
+        assert!(out.status.success(), "git {:?} failed", args);
+    };
+    run(&["init"]);
+    run(&["config", "user.email", "t@t.com"]);
+    run(&["config", "user.name", "T"]);
+    std::fs::write(dir.path().join("mod.rs"), "fn f() {}\n").unwrap();
+    run(&["add", "mod.rs"]); // staged, but never committed → no HEAD.
+
+    let files = changed_files(dir.path(), &CheckpointMode::Since(None));
+    assert_eq!(files, vec!["mod.rs".to_string()]);
+}

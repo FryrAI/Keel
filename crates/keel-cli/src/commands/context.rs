@@ -27,16 +27,8 @@ pub fn run(
         Err(code) => return code,
     };
 
-    // Normalize to relative path
-    let path = std::path::Path::new(&file);
-    let rel_path = if path.is_absolute() {
-        path.strip_prefix(&cwd)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string()
-    } else {
-        file.clone()
-    };
+    // Normalize to relative path (matching how nodes are stored).
+    let rel_path = keel_core::paths::make_relative(&cwd, std::path::Path::new(&file));
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {

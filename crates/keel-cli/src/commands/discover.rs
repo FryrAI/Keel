@@ -1,5 +1,5 @@
 use keel_core::store::GraphStore;
-use keel_core::types::{EdgeDirection, EdgeKind, GraphNode};
+use keel_core::types::GraphNode;
 use keel_enforce::types::{FileSymbol, FileSymbols};
 use keel_output::OutputFormatter;
 
@@ -99,24 +99,14 @@ fn read_body_context(
 
 /// Build a `FileSymbol` for a node, computing its call adjacency counts.
 fn to_file_symbol(store: &dyn GraphStore, node: &GraphNode) -> FileSymbol {
-    let callers = store
-        .get_edges(node.id, EdgeDirection::Incoming)
-        .iter()
-        .filter(|e| e.kind == EdgeKind::Calls)
-        .count();
-    let callees = store
-        .get_edges(node.id, EdgeDirection::Outgoing)
-        .iter()
-        .filter(|e| e.kind == EdgeKind::Calls)
-        .count();
     FileSymbol {
         kind: node.kind.to_string(),
         name: node.name.clone(),
         hash: node.hash.clone(),
         file: node.file_path.clone(),
         line: node.line_start,
-        callers: callers as u32,
-        callees: callees as u32,
+        callers: keel_enforce::queries::call_fan_in(store, node.id),
+        callees: keel_enforce::queries::call_fan_out(store, node.id),
     }
 }
 
@@ -128,16 +118,8 @@ fn discover_file(
     cwd: &std::path::Path,
     verbose: bool,
 ) -> i32 {
-    // Normalize the file path to be relative (matching how nodes are stored)
-    let path = std::path::Path::new(query);
-    let rel_path = if path.is_absolute() {
-        path.strip_prefix(cwd)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string()
-    } else {
-        query.to_string()
-    };
+    // Normalize the file path to be relative (matching how nodes are stored).
+    let rel_path = keel_core::paths::make_relative(cwd, std::path::Path::new(query));
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {

@@ -359,7 +359,7 @@ pub(crate) fn load_aliases(project_root: &Path) -> AliasMap {
 
 /// Loads the path aliases that apply to a source file, using the NEAREST
 /// alias-declaring directory at or above `start_dir` (bounded by `ceiling`,
-/// inclusive).
+/// inclusive), and returns every directory visited during the walk.
 ///
 /// This is the per-file entry point that makes monorepos work: in a repo with
 /// no root tsconfig — e.g. `apps/web/tsconfig.json` plus a per-package
@@ -367,12 +367,22 @@ pub(crate) fn load_aliases(project_root: &Path) -> AliasMap {
 /// aliases against `apps/web`, not the alias-less repo root. The walk stops at
 /// the first directory that declares aliases; returns an empty map when none is
 /// found below the ceiling.
-pub(crate) fn load_aliases_for_file(start_dir: &Path, ceiling: Option<&Path>) -> AliasMap {
+///
+/// Every directory on the walk resolves to the SAME nearest alias-declaring
+/// directory (the intermediates declare nothing, or none is found), so the
+/// returned `visited` list lets the caller warm its per-directory cache for the
+/// whole chain from one walk instead of re-`stat`-ing ancestors per sibling file.
+pub(crate) fn load_aliases_for_file(
+    start_dir: &Path,
+    ceiling: Option<&Path>,
+) -> (AliasMap, Vec<PathBuf>) {
+    let mut visited = Vec::new();
     let mut cur = Some(start_dir);
     let mut hops = 0usize;
     while let Some(dir) = cur {
+        visited.push(dir.to_path_buf());
         if declares_aliases(dir) {
-            return load_aliases(dir);
+            return (load_aliases(dir), visited);
         }
         if ceiling == Some(dir) || hops >= MAX_ALIAS_WALK_DEPTH {
             break;
@@ -380,7 +390,7 @@ pub(crate) fn load_aliases_for_file(start_dir: &Path, ceiling: Option<&Path>) ->
         hops += 1;
         cur = dir.parent();
     }
-    AliasMap::new()
+    (AliasMap::new(), visited)
 }
 
 /// Returns true if `dir` declares path aliases keel can load: a `tsconfig.json`,

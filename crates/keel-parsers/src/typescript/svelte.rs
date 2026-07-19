@@ -174,14 +174,14 @@ fn find_tag_end(bytes: &[u8], from: usize) -> Option<usize> {
 /// Svelte template expression — `{ident}`, `on:click={ident}`, `{#if ident}`,
 /// `bind:value={ident}`, `{ident(...)}`, and the like.
 ///
-/// The blanked template is invisible to tree-sitter, so a handler wired up only
-/// from markup would otherwise look like dead code. This is a deliberately
-/// lexical scan (no Svelte parser): `<script>`/`<style>` bodies are blanked,
-/// then only text inside `{ ... }` expression braces is tokenised — static
-/// attribute strings and prose are ignored, string literals within the braces
-/// are skipped, and each identifier is matched whole-word against `defined`.
-/// Matches become `Call` references attributed to the component file, which is
-/// enough for W005 caller counts and for `keel map` to draw call edges.
+/// A handler wired up only from markup would otherwise look like dead code to
+/// tree-sitter. This is a deliberately lexical scan (no Svelte parser):
+/// `<script>`/`<style>` bodies are skipped in place, and only text inside
+/// `{ ... }` expression braces is tokenised — static attribute strings and prose
+/// are ignored, string literals within the braces are skipped, and each
+/// identifier is matched whole-word against `defined`. Matches become `Call`
+/// references attributed to the component file, which is enough for W005 caller
+/// counts and for `keel map` to draw call edges.
 pub(crate) fn extract_template_references(
     content: &str,
     defined: &HashSet<String>,
@@ -190,7 +190,19 @@ pub(crate) fn extract_template_references(
     if defined.is_empty() {
         return Vec::new();
     }
-    let markup = markup_only(content.as_bytes());
+    let bytes = content.as_bytes();
+
+    // `<script>` and `<style>` bodies are not template markup. Collect their
+    // byte ranges once and sort by start so the scan can jump over each in place
+    // — no blanked full-buffer copy. Blanking previously turned these bytes into
+    // spaces, which never changed the brace/quote state; the only visible effect
+    // was newline counting, preserved on each jump below, so this is equivalent.
+    let mut skips: Vec<(usize, usize)> = script_regions(bytes)
+        .into_iter()
+        .chain(style_regions(bytes))
+        .collect();
+    skips.sort_unstable_by_key(|&(start, _)| start);
+
     let mut refs = Vec::new();
     let mut seen: HashSet<(String, u32)> = HashSet::new();
 
@@ -198,9 +210,23 @@ pub(crate) fn extract_template_references(
     let mut line = 1u32;
     let mut depth: i32 = 0;
     let mut quote: u8 = 0;
+    let mut next_skip = 0usize;
 
-    while i < markup.len() {
-        let b = markup[i];
+    while i < bytes.len() {
+        // Jump over the next script/style body, counting its newlines so line
+        // numbers stay accurate. Regions are non-overlapping and sorted, and the
+        // scan advances one byte at a time up to each region's start (idents are
+        // only read at `depth > 0`, and the byte before a body is always the
+        // tag's `>`), so `i` always lands exactly on the boundary.
+        if next_skip < skips.len() && i == skips[next_skip].0 {
+            let (start, end) = skips[next_skip];
+            line += bytes[start..end].iter().filter(|&&b| b == b'\n').count() as u32;
+            i = end;
+            next_skip += 1;
+            continue;
+        }
+
+        let b = bytes[i];
         if b == b'\n' {
             line += 1;
             i += 1;
@@ -236,10 +262,10 @@ pub(crate) fn extract_template_references(
             _ if is_ident_start(b) => {
                 let start = i;
                 i += 1;
-                while i < markup.len() && is_ident_part(markup[i]) {
+                while i < bytes.len() && is_ident_part(bytes[i]) {
                     i += 1;
                 }
-                let word = std::str::from_utf8(&markup[start..i]).unwrap_or("");
+                let word = std::str::from_utf8(&bytes[start..i]).unwrap_or("");
                 if defined.contains(word) && seen.insert((word.to_string(), line)) {
                     refs.push(Reference {
                         name: word.to_string(),
@@ -263,23 +289,6 @@ fn is_ident_start(b: u8) -> bool {
 
 fn is_ident_part(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
-}
-
-/// A copy of `bytes` with `<script>` and `<style>` bodies blanked to spaces
-/// (newlines preserved for line accuracy), leaving only the template markup.
-fn markup_only(bytes: &[u8]) -> Vec<u8> {
-    let mut out = bytes.to_vec();
-    for (start, end) in script_regions(bytes)
-        .into_iter()
-        .chain(style_regions(bytes))
-    {
-        for b in &mut out[start..end] {
-            if *b != b'\n' && *b != b'\r' {
-                *b = b' ';
-            }
-        }
-    }
-    out
 }
 
 /// Byte ranges of every `<style>` body — the CSS analogue of

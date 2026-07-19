@@ -1,5 +1,3 @@
-use keel_core::store::GraphStore;
-use keel_core::types::{EdgeDirection, EdgeKind};
 use keel_output::OutputFormatter;
 
 /// Upper bound on results returned by `keel search`, so a broad substring
@@ -32,16 +30,8 @@ pub fn run(
     let entries: Vec<serde_json::Value> = results
         .iter()
         .map(|node| {
-            let callers = store
-                .get_edges(node.id, EdgeDirection::Incoming)
-                .iter()
-                .filter(|e| e.kind == EdgeKind::Calls)
-                .count();
-            let callees = store
-                .get_edges(node.id, EdgeDirection::Outgoing)
-                .iter()
-                .filter(|e| e.kind == EdgeKind::Calls)
-                .count();
+            let callers = keel_enforce::queries::call_fan_in(&store, node.id);
+            let callees = keel_enforce::queries::call_fan_out(&store, node.id);
             serde_json::json!({
                 "name": node.name,
                 "hash": node.hash,

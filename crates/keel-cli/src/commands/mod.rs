@@ -39,16 +39,49 @@ pub mod validate_plan;
 pub mod watch;
 pub mod where_cmd;
 
-/// Resolve the current directory and open the repo's graph database for `cmd`.
+use std::path::PathBuf;
+
+use keel_core::sqlite::SqliteGraphStore;
+
+/// The resolved repo context for a graph-backed command: the working directory,
+/// the worktree-aware `.keel` directory, and an open handle to its `graph.db`.
+///
+/// Produced by [`open_repo`] so commands that need the `.keel` dir (for config,
+/// the db path, or a second store handle) don't re-derive the open-store
+/// preamble inline.
+pub(crate) struct RepoContext {
+    pub cwd: PathBuf,
+    pub keel_dir: PathBuf,
+    pub store: SqliteGraphStore,
+}
+
+impl RepoContext {
+    /// Path to the graph database inside the resolved `.keel` dir.
+    pub fn db_path(&self) -> PathBuf {
+        self.keel_dir.join("graph.db")
+    }
+
+    /// Open a SECOND, independent handle to the same `graph.db` — e.g. for an
+    /// enforcement engine that must own its store while [`RepoContext::store`]
+    /// stays available for read-only lookups. Prints the shared diagnostic and
+    /// returns `Err(2)` on failure.
+    pub fn open_second(&self, cmd: &str) -> Result<SqliteGraphStore, i32> {
+        let db_path = self.db_path();
+        SqliteGraphStore::open(db_path.to_str().unwrap_or("")).map_err(|e| {
+            eprintln!("keel {cmd}: failed to open graph database: {e}");
+            2
+        })
+    }
+}
+
+/// Resolve the current directory, the worktree-aware `.keel` dir, and an open
+/// `graph.db` handle for `cmd`.
 ///
 /// Centralizes the "resolve cwd -> locate the worktree-aware `.keel` dir -> open
 /// `graph.db`" preamble that every graph-backed command shares. On any failure it
 /// prints the same `keel <cmd>: ...` diagnostic the commands printed inline and
-/// returns `Err(2)` (keel's internal-error exit code). Callers bind:
-/// `let (cwd, store) = match commands::open_store("cmd") { Ok(x) => x, Err(code) => return code };`
-pub(crate) fn open_store(
-    cmd: &str,
-) -> Result<(std::path::PathBuf, keel_core::sqlite::SqliteGraphStore), i32> {
+/// returns `Err(2)` (keel's internal-error exit code).
+pub(crate) fn open_repo(cmd: &str) -> Result<RepoContext, i32> {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -64,13 +97,27 @@ pub(crate) fn open_store(
     }
 
     let db_path = keel_dir.join("graph.db");
-    match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(store) => Ok((cwd, store)),
+    match SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
+        Ok(store) => Ok(RepoContext {
+            cwd,
+            keel_dir,
+            store,
+        }),
         Err(e) => {
             eprintln!("keel {cmd}: failed to open graph database: {e}");
             Err(2)
         }
     }
+}
+
+/// Resolve the current directory and open the repo's graph database for `cmd`.
+///
+/// A thin projection of [`open_repo`] for the many commands that only need the
+/// cwd and a single store handle. Callers bind:
+/// `let (cwd, store) = match commands::open_store("cmd") { Ok(x) => x, Err(code) => return code };`
+pub(crate) fn open_store(cmd: &str) -> Result<(PathBuf, SqliteGraphStore), i32> {
+    let ctx = open_repo(cmd)?;
+    Ok((ctx.cwd, ctx.store))
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ pub mod package_resolution;
 mod star_imports;
 pub mod ty;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -23,6 +24,12 @@ pub struct PyResolver {
     parser: Mutex<TreeSitterParser>,
     cache: ParseCache,
     ty_client: Option<Box<dyn ty::TyClient>>,
+    /// Memoizes dotted package-chain resolution per `(caller_dir, module_path)`.
+    /// Resolving many call sites in one file re-hit the same dotted imports, so
+    /// without this each `(reference × dotted-import)` pair re-`stat`ed the whole
+    /// filesystem chain. Instance-scoped: the filesystem is stable for a
+    /// resolver's lifetime (a single map/compile run).
+    pkg_chain_cache: Mutex<HashMap<(PathBuf, String), Option<PathBuf>>>,
 }
 
 impl PyResolver {
@@ -32,6 +39,7 @@ impl PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
             cache: ParseCache::default(),
             ty_client: None,
+            pkg_chain_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -41,6 +49,7 @@ impl PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
             cache: ParseCache::default(),
             ty_client: Some(ty_client),
+            pkg_chain_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -181,9 +190,7 @@ impl LanguageResolver for PyResolver {
             .unwrap_or_default();
         for imp in &caller_result.imports {
             if imp.source.contains('.') && !imp.is_relative {
-                if let Some(resolved) =
-                    package_resolution::resolve_python_package_chain(&caller_dir, &imp.source)
-                {
+                if let Some(resolved) = self.resolve_pkg_chain(&caller_dir, &imp.source) {
                     if imp
                         .imported_names
                         .iter()
@@ -211,6 +218,23 @@ impl LanguageResolver for PyResolver {
 }
 
 impl PyResolver {
+    /// Resolve a dotted package chain through the filesystem, memoized per
+    /// `(caller_dir, module_path)` so repeated call sites sharing a caller and
+    /// import don't re-`stat` the same chain. Negative results are cached too:
+    /// the filesystem is stable for the resolver's lifetime.
+    fn resolve_pkg_chain(&self, caller_dir: &Path, module_path: &str) -> Option<PathBuf> {
+        let key = (caller_dir.to_path_buf(), module_path.to_string());
+        if let Some(hit) = self.pkg_chain_cache.lock().unwrap().get(&key) {
+            return hit.clone();
+        }
+        let resolved = package_resolution::resolve_python_package_chain(caller_dir, module_path);
+        self.pkg_chain_cache
+            .lock()
+            .unwrap()
+            .insert(key, resolved.clone());
+        resolved
+    }
+
     /// Resolve a call site through the `ty` subprocess (Tier 2), if configured.
     ///
     /// Returns `None` when ty is absent, times out, errors, or reports no

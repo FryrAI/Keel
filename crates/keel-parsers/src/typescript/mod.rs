@@ -120,7 +120,7 @@ impl TsResolver {
         }
 
         let ceiling = self.project_root.lock().unwrap().clone();
-        let mut merged = tsconfig::load_aliases_for_file(dir, ceiling.as_deref());
+        let (mut merged, visited) = tsconfig::load_aliases_for_file(dir, ceiling.as_deref());
         // Project-root aliases fill gaps the nearest tsconfig does not define.
         for (alias, target) in self.path_aliases.lock().unwrap().iter() {
             merged
@@ -129,10 +129,14 @@ impl TsResolver {
         }
 
         let arc = Arc::new(merged);
-        self.dir_aliases
-            .lock()
-            .unwrap()
-            .insert(dir.to_path_buf(), arc.clone());
+        // Warm the cache for EVERY directory the walk crossed, not just the leaf:
+        // they all resolve to the same nearest alias-declaring directory, so one
+        // walk primes the whole ancestor chain and sibling files under it skip
+        // the repeated `stat` calls entirely.
+        let mut cache = self.dir_aliases.lock().unwrap();
+        for d in visited {
+            cache.entry(d).or_insert_with(|| arc.clone());
+        }
         arc
     }
 

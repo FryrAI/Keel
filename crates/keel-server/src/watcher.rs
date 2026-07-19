@@ -189,12 +189,11 @@ pub fn start_watching(
     Ok((watcher, rx))
 }
 
-/// Path as stored in the graph: relative to the project root.
+/// Path as stored in the graph: relative to the project root. Delegates to the
+/// canonical [`keel_core::paths::make_relative`] so every crate strips repo-root
+/// prefixes identically.
 fn relative_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .to_string()
+    keel_core::paths::make_relative(root, path)
 }
 
 /// Apply a batch to the shared graph: prune deleted files, recompile changed

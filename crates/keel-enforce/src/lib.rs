@@ -18,6 +18,7 @@ pub mod circuit_breaker;
 pub mod engine;
 pub mod fix_generator;
 pub mod focus;
+pub mod gitdiff;
 pub mod hash_diff;
 pub mod map;
 pub mod naming;

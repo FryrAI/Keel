@@ -26,6 +26,20 @@ pub fn keel_dir(start: &Path) -> PathBuf {
         .unwrap_or_else(|| start.join(".keel"))
 }
 
+/// Render `path` as a project-root-relative string the way the graph stores it.
+///
+/// Strips `root` when `path` sits under it; otherwise (a path outside `root`, or
+/// an already-relative path — `strip_prefix` fails on both) the input is
+/// returned unchanged via `to_string_lossy`. This is the one shared spelling of
+/// the "make it relative to the repo root" idiom that the CLI commands, the map
+/// builder, and the server watcher all need.
+pub fn make_relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string()
+}
+
 /// Find the main checkout root of the repo containing `start`, or `None` if
 /// `start` is not inside a git repo or a worktree link cannot be resolved.
 fn resolve_repo_root(start: &Path) -> Option<PathBuf> {

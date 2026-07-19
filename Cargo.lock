@@ -1251,6 +1251,7 @@ dependencies = [
  "keel-parsers",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

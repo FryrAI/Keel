@@ -293,7 +293,7 @@ fn nearest_tsconfig_resolves_lib_alias_in_rootless_monorepo() {
     // A file deep inside the package must see the package's $lib.
     let file_dir = root.join("apps/web/src/routes");
     std::fs::create_dir_all(&file_dir).unwrap();
-    let aliases = load_aliases_for_file(&file_dir, Some(&root));
+    let (aliases, _visited) = load_aliases_for_file(&file_dir, Some(&root));
     assert_eq!(
         first(&aliases, "$lib"),
         Some(root.join("apps/web/src/lib").to_string_lossy().as_ref()),
@@ -317,7 +317,7 @@ fn nearest_tsconfig_prefers_the_package_over_the_repo_root() {
 
     let file_dir = root.join("apps/web/src");
     std::fs::create_dir_all(&file_dir).unwrap();
-    let aliases = load_aliases_for_file(&file_dir, Some(&root));
+    let (aliases, _visited) = load_aliases_for_file(&file_dir, Some(&root));
     assert_eq!(
         first(&aliases, "@shared"),
         Some(root.join("apps/web/pkg-shared").to_string_lossy().as_ref()),
@@ -341,8 +341,36 @@ fn rootless_monorepo_yields_no_aliases_outside_any_package() {
     let outside = root.join("scripts");
     std::fs::create_dir_all(&outside).unwrap();
     assert!(
-        load_aliases_for_file(&outside, Some(&root)).is_empty(),
+        load_aliases_for_file(&outside, Some(&root)).0.is_empty(),
         "the walk must stop at the ceiling without inventing aliases"
+    );
+}
+
+#[test]
+fn walk_reports_every_visited_ancestor_for_cache_warming() {
+    let tmp = scratch();
+    let root = tmp.path().to_path_buf();
+    write(
+        &root.join("apps/web/tsconfig.json"),
+        r#"{"compilerOptions": {"baseUrl": ".", "paths": {"@local/*": ["src/*"]}}}"#,
+    );
+
+    let file_dir = root.join("apps/web/src/routes");
+    std::fs::create_dir_all(&file_dir).unwrap();
+    let (aliases, visited) = load_aliases_for_file(&file_dir, Some(&root));
+
+    // Aliases resolve against the nearest declaring package...
+    assert!(first(&aliases, "@local").is_some());
+    // ...and the walk reports the whole chain down to that package, so the
+    // caller can warm the cache for each intermediate directory in one pass.
+    assert_eq!(
+        visited,
+        vec![
+            root.join("apps/web/src/routes"),
+            root.join("apps/web/src"),
+            root.join("apps/web"),
+        ],
+        "visited must list start_dir down to the nearest alias-declaring dir",
     );
 }
 

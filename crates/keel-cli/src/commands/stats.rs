@@ -2,12 +2,13 @@ use keel_output::OutputFormatter;
 
 /// Run `keel stats` — display telemetry dashboard.
 pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
-    let (cwd, store) = match super::open_store("stats") {
+    let repo = match super::open_repo("stats") {
         Ok(x) => x,
         Err(code) => return code,
     };
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    let db_path = keel_dir.join("graph.db");
+    let db_path = repo.db_path();
+    let store = repo.store;
+    let keel_dir = repo.keel_dir;
 
     // Gather basic stats from the graph store
     let modules = keel_core::store::GraphStore::get_all_modules(&store);

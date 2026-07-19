@@ -5,10 +5,31 @@
 //! grows its own copy of graph-traversal logic — HTTP handlers stay thin.
 
 use keel_core::store::GraphStore;
-use keel_core::types::GraphNode;
+use keel_core::types::{EdgeDirection, EdgeKind, GraphNode};
 
 use crate::engine::EnforcementEngine;
 use crate::types::DiscoverResult;
+
+/// Count incoming `Calls` edges to `node_id` — the call fan-in (how many
+/// functions call it). The single spelling of the
+/// `get_edges + filter(Calls) + count` idiom the CLI adjacency views share.
+pub fn call_fan_in(store: &dyn GraphStore, node_id: u64) -> u32 {
+    store
+        .get_edges(node_id, EdgeDirection::Incoming)
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .count() as u32
+}
+
+/// Count outgoing `Calls` edges from `node_id` — the call fan-out (how many
+/// functions it calls).
+pub fn call_fan_out(store: &dyn GraphStore, node_id: u64) -> u32 {
+    store
+        .get_edges(node_id, EdgeDirection::Outgoing)
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .count() as u32
+}
 
 /// One module entry in a graph-wide map: file path, module name, and how many
 /// nodes it contains.

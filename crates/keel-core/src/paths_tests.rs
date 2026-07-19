@@ -1,9 +1,24 @@
 //! Tests for `.keel` directory resolution (issue #29 — worktree-aware graph).
 
-use super::keel_dir;
+use super::{keel_dir, make_relative};
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
+
+/// `make_relative` strips the root for a path underneath it, and passes through
+/// both out-of-root and already-relative paths unchanged.
+#[test]
+fn make_relative_strips_root_and_passes_through() {
+    let root = Path::new("/home/x/repo");
+    assert_eq!(
+        make_relative(root, Path::new("/home/x/repo/src/a.rs")),
+        "src/a.rs"
+    );
+    assert_eq!(make_relative(root, Path::new("src/a.rs")), "src/a.rs");
+    assert_eq!(make_relative(root, Path::new("/other/b.rs")), "/other/b.rs");
+    // A hash-like non-path argument is returned verbatim.
+    assert_eq!(make_relative(root, Path::new("a1b2c3")), "a1b2c3");
+}
 
 /// Run a git command in `cwd`, asserting success.
 fn git(args: &[&str], cwd: &Path) {

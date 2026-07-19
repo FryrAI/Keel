@@ -15,8 +15,8 @@ use keel_core::hash::compute_hash;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
 use keel_parsers::resolver::FileIndex;
-use keel_parsers::treesitter::detect_language;
 
+use crate::gitdiff::{self, DiffMode};
 use crate::types::CompileResult;
 
 /// A symbol reference: its name and content hash.
@@ -99,25 +99,17 @@ fn run_git(dir: &Path, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// Keep only lines that name a file keel can parse.
-fn filter_supported(text: &str) -> Vec<String> {
-    text.lines()
-        .filter(|l| !l.is_empty())
-        .filter(|l| detect_language(Path::new(l)).is_some())
-        .map(|s| s.to_string())
-        .collect()
-}
-
 /// List repo-relative paths of source files changed for the given mode.
+///
+/// Delegates to the shared [`gitdiff::changed_files`] (supported-language filter
+/// on), which adds the initial-commit fallback checkpoint's inline version
+/// lacked.
 pub fn changed_files(dir: &Path, mode: &CheckpointMode) -> Vec<String> {
-    let raw = match mode {
-        CheckpointMode::Staged => run_git(dir, &["diff", "--name-only", "--cached"]),
-        CheckpointMode::Since(base) => {
-            let b = base.as_deref().unwrap_or("HEAD");
-            run_git(dir, &["diff", "--name-only", b])
-        }
+    let diff_mode = match mode {
+        CheckpointMode::Staged => DiffMode::Staged,
+        CheckpointMode::Since(base) => DiffMode::Since(base.clone()),
     };
-    raw.map(|t| filter_supported(&t)).unwrap_or_default()
+    gitdiff::changed_files(dir, &diff_mode, true)
 }
 
 /// Recent commit subjects (`git log --oneline`) for the given mode.

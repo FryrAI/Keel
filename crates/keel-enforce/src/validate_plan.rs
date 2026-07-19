@@ -122,19 +122,31 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
     }
 
     // Resolve which mentioned tokens are known symbols (exact, non-module).
-    // When several nodes share a name, keep the one with the most callers.
+    // When several nodes share a name, keep the one with the most callers —
+    // computing each candidate's callers exactly ONCE (the previous code
+    // re-evaluated `callers_of` inside a `sort_by_key` comparator) and caching
+    // the winner's list for reuse when building actions below (avoiding the
+    // previous third `callers_of` call). The strict `>` keeps the first
+    // candidate achieving the max, matching the earlier stable-sort tie-break,
+    // so output is unchanged.
     let mut symbol_node: HashMap<String, keel_core::types::GraphNode> = HashMap::new();
+    let mut symbol_callers: HashMap<String, Vec<CallerRef>> = HashMap::new();
     for tok in mentions.keys() {
-        let mut candidates: Vec<_> = store
+        let candidates = store
             .find_nodes_by_name(tok, "", "")
             .into_iter()
-            .filter(|n| n.kind != NodeKind::Module)
-            .collect();
-        if candidates.is_empty() {
-            continue;
+            .filter(|n| n.kind != NodeKind::Module);
+        let mut best: Option<(keel_core::types::GraphNode, Vec<CallerRef>)> = None;
+        for cand in candidates {
+            let callers = callers_of(store, &cand);
+            if best.as_ref().is_none_or(|(_, b)| callers.len() > b.len()) {
+                best = Some((cand, callers));
+            }
         }
-        candidates.sort_by_key(|n| std::cmp::Reverse(callers_of(store, n).len()));
-        symbol_node.insert(tok.clone(), candidates.remove(0));
+        if let Some((winner, callers)) = best {
+            symbol_node.insert(tok.clone(), winner);
+            symbol_callers.insert(tok.clone(), callers);
+        }
     }
 
     // Pair action keywords with symbols on the same line; keep the strongest.
@@ -159,7 +171,8 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
         .iter()
         .map(|(name, (action, _))| {
             let node = &symbol_node[name];
-            let callers = callers_of(store, node);
+            // Reuse the caller list cached when this winner was chosen above.
+            let callers = symbol_callers.get(name).cloned().unwrap_or_default();
             let caller_count = callers.len();
             let risk = risk_level(action, caller_count);
             let suggested_order = order_hint(action, name, caller_count, &risk);
