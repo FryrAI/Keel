@@ -289,12 +289,12 @@ impl EnforcementEngine {
     }
 
     /// Import circuit breaker state (e.g. loaded from SQLite).
-    pub fn import_circuit_breaker(&mut self, state: &[(String, String, u32, bool)]) {
+    pub fn import_circuit_breaker(&mut self, state: &[keel_core::sqlite::CircuitBreakerEntry]) {
         self.circuit_breaker.import_state(state);
     }
 
     /// Export circuit breaker state for persistence.
-    pub fn export_circuit_breaker(&self) -> Vec<(String, String, u32, bool)> {
+    pub fn export_circuit_breaker(&self) -> Vec<keel_core::sqlite::CircuitBreakerEntry> {
         self.circuit_breaker.export_state()
     }
 

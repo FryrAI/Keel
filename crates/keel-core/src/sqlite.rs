@@ -8,6 +8,13 @@ mod profiles;
 
 const SCHEMA_VERSION: u32 = 5;
 
+/// A persisted circuit-breaker entry:
+/// `(error_code, hash, consecutive_failures, downgraded, provenance_file)`.
+///
+/// Shared by the SQLite persistence layer and `keel-enforce`'s
+/// `CircuitBreaker::{export_state, import_state}` so the two never drift.
+pub type CircuitBreakerEntry = (String, String, u32, bool, String);
+
 /// DDL for the body-hash duplicate index (schema v5).
 ///
 /// Shared by `initialize_schema` (fresh databases) and `migrate_v4_to_v5`
@@ -190,10 +197,21 @@ impl SqliteGraphStore {
                 consecutive_failures INTEGER NOT NULL DEFAULT 0,
                 last_failure_at TEXT NOT NULL DEFAULT (datetime('now')),
                 downgraded INTEGER NOT NULL DEFAULT 0,
+                provenance_file TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (error_code, hash)
             );
             ",
         )?;
+
+        // Circuit-breaker provenance column (issue #36). The breaker table is
+        // ephemeral runtime state (rebuilt as compiles run), so this is added
+        // idempotently rather than coupled to SCHEMA_VERSION: on existing
+        // databases the ALTER adds the column; on fresh ones (already declared
+        // above) it errors as a duplicate and is ignored, exactly like the
+        // additive column migrations below.
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE circuit_breaker ADD COLUMN provenance_file TEXT NOT NULL DEFAULT ''",
+        );
 
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
         self.drop_stale_body_index()?;

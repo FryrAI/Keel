@@ -7,9 +7,10 @@ pub fn definition_hashes(
     file_path: &str,
 ) -> (String, String) {
     let doc = def.docstring.as_deref().unwrap_or("");
+    let body = def.body_for_hash();
     (
-        keel_core::hash::compute_hash(&def.signature, &def.body_text, doc),
-        keel_core::hash::compute_hash_disambiguated(&def.signature, &def.body_text, doc, file_path),
+        keel_core::hash::compute_hash(&def.signature, &body, doc),
+        keel_core::hash::compute_hash_disambiguated(&def.signature, &body, doc, file_path),
     )
 }
 

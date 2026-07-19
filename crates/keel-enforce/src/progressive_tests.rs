@@ -36,7 +36,7 @@ fn matching_node(def: &Definition) -> GraphNode {
         id: 1,
         hash: keel_core::hash::compute_hash(
             &def.signature,
-            &def.body_text,
+            &def.body_for_hash(),
             def.docstring.as_deref().unwrap_or(""),
         ),
         kind: NodeKind::Function,

@@ -42,19 +42,11 @@ pub fn check_broken_callers_with_cache(
 
         let Some(existing) = existing else { continue };
 
-        // Compute expected hash from current definition
-        let new_hash = keel_core::hash::compute_hash(
-            &def.signature,
-            &def.body_text,
-            def.docstring.as_deref().unwrap_or(""),
-        );
-        // Also check disambiguated hash (map may have used it for collisions)
-        let new_hash_disambiguated = keel_core::hash::compute_hash_disambiguated(
-            &def.signature,
-            &def.body_text,
-            def.docstring.as_deref().unwrap_or(""),
-            &file.file_path,
-        );
+        // Compute expected hash from current definition. `definition_hashes`
+        // is the single source of truth for the plain + disambiguated pair
+        // (and applies issue-#36 body normalization).
+        let (new_hash, new_hash_disambiguated) =
+            crate::violations_util::definition_hashes(def, &file.file_path);
 
         if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
             continue; // No change
@@ -214,7 +206,7 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
             line: def.line_start,
             hash: keel_core::hash::compute_hash(
                 &def.signature,
-                &def.body_text,
+                &def.body_for_hash(),
                 def.docstring.as_deref().unwrap_or(""),
             ),
             confidence: 1.0,
@@ -280,7 +272,7 @@ pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
             line: def.line_start,
             hash: keel_core::hash::compute_hash(
                 &def.signature,
-                &def.body_text,
+                &def.body_for_hash(),
                 def.docstring.as_deref().unwrap_or(""),
             ),
             confidence: 1.0,
