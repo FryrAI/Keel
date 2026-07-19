@@ -73,10 +73,10 @@ fn test_watch_triggers_incremental_compile_on_change() {
 
 #[test]
 fn test_watch_debounces_rapid_changes() {
-    // Debounce is configured at 100ms in the watcher module.
+    // Debounce is configured at 200ms in the watcher module.
     // We can verify the watcher constants are reasonable.
-    // The watcher uses a 100ms debounce window.
-    let debounce_ms = 100u64;
+    // The watcher uses a 200ms debounce window.
+    let debounce_ms = 200u64;
     assert!(debounce_ms >= 50, "Debounce should be at least 50ms");
     assert!(debounce_ms <= 1000, "Debounce should be at most 1000ms");
 }

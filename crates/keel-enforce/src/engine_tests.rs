@@ -68,3 +68,45 @@ mod e002_e003;
 mod e004_misc;
 #[path = "engine_tests_economy.rs"]
 mod economy;
+
+#[test]
+fn test_prune_file_removes_nodes_and_edges() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    // Two nodes in the doomed file, one in another file that calls into it.
+    store
+        .insert_node(&make_node(1, "h1", "foo", "fn foo()", "src/gone.rs"))
+        .unwrap();
+    store
+        .insert_node(&make_node(2, "h2", "bar", "fn bar()", "src/gone.rs"))
+        .unwrap();
+    store
+        .insert_node(&make_node(3, "h3", "caller", "fn caller()", "src/keep.rs"))
+        .unwrap();
+    // Edge caller(keep) -> foo(gone), and internal foo -> bar.
+    store
+        .update_edges(vec![
+            EdgeChange::Add(make_call_edge(1, 3, 1, "src/keep.rs")),
+            EdgeChange::Add(make_call_edge(2, 1, 2, "src/gone.rs")),
+        ])
+        .unwrap();
+
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let pruned = engine.prune_file("src/gone.rs").unwrap();
+    assert_eq!(pruned, 2, "both nodes in the deleted file are removed");
+
+    // The deleted file's nodes are gone; the surviving file keeps its node.
+    assert!(engine.store.get_nodes_in_file("src/gone.rs").is_empty());
+    assert_eq!(engine.store.get_nodes_in_file("src/keep.rs").len(), 1);
+    // Edges touching the pruned nodes are gone (both the inbound cross-file
+    // call and the internal one).
+    use keel_core::types::EdgeDirection;
+    assert!(engine.store.get_edges(3, EdgeDirection::Both).is_empty());
+}
+
+#[test]
+fn test_prune_file_missing_is_noop() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    assert_eq!(engine.prune_file("src/never_existed.rs").unwrap(), 0);
+}

@@ -309,6 +309,44 @@ impl EnforcementEngine {
         self.suppressions.suppress(code);
     }
 
+    /// Remove every node (and its edges) belonging to a deleted file.
+    ///
+    /// The file watcher calls this on `Remove` events so deleted files stop
+    /// accreting in the shared graph between full `keel map` runs. Works
+    /// entirely through the frozen [`GraphStore`] trait: collect the file's
+    /// nodes, drop every edge touching them, then drop the nodes. Returns the
+    /// number of nodes removed.
+    pub fn prune_file(&mut self, file_path: &str) -> Result<usize, keel_core::types::GraphError> {
+        use keel_core::types::{EdgeChange, EdgeDirection, NodeChange};
+
+        let nodes = self.store.get_nodes_in_file(file_path);
+        if nodes.is_empty() {
+            return Ok(0);
+        }
+
+        // Drop edges first so no dangling source/target ids survive.
+        let mut seen_edges = HashSet::new();
+        let mut edge_changes = Vec::new();
+        for node in &nodes {
+            for edge in self.store.get_edges(node.id, EdgeDirection::Both) {
+                if seen_edges.insert(edge.id) {
+                    edge_changes.push(EdgeChange::Remove(edge.id));
+                }
+            }
+        }
+        if !edge_changes.is_empty() {
+            self.store.update_edges(edge_changes)?;
+        }
+
+        let count = nodes.len();
+        let node_changes = nodes
+            .into_iter()
+            .map(|n| NodeChange::Remove(n.id))
+            .collect();
+        self.store.update_nodes(node_changes)?;
+        Ok(count)
+    }
+
     // -- Private helpers --
 
     /// Dynamic dispatch threshold: violations with confidence below 0.7

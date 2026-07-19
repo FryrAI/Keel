@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "keel": {
+      "command": "keel",
+      "args": [
+        "serve",
+        "--mcp"
+      ]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "keel map --llm"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".keel/hooks/post-edit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
