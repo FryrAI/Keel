@@ -32,6 +32,8 @@
 - `keel analyze <file>` — architectural analysis of a file
 - `keel audit` — AI-readiness scorecard (structure, discoverability, navigation, config)
 - `keel context <file>` — minimal structural context for safely editing a file
+- `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
+- `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, risk level, callers-first order)
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 
@@ -49,6 +51,8 @@ The keel MCP server exposes these tools directly to your IDE:
 - `keel/analyze` — architectural analysis of a file
 - `keel/audit` — AI-readiness scorecard
 - `keel/context` — minimal structural context for a file
+- `keel/checkpoint` — compact session-state summary for re-injection after context loss
+- `keel/validate-plan` — validate a plan against the graph before execution
 
 ### Common Mistakes:
 - **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.

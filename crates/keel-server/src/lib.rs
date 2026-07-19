@@ -12,6 +12,7 @@ pub mod mcp;
 mod mcp_analyze;
 mod mcp_audit;
 mod mcp_check;
+mod mcp_checkpoint;
 mod mcp_compile;
 mod mcp_context;
 mod mcp_discover;
@@ -20,6 +21,7 @@ mod mcp_name;
 mod mcp_search;
 pub mod mcp_stdio;
 mod mcp_tools;
+mod mcp_validate_plan;
 mod parse_shared;
 pub mod watcher;
 

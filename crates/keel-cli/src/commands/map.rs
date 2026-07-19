@@ -27,6 +27,7 @@ pub fn run(
     _depth: u32,
     tier3_enabled: bool,
     cached: bool,
+    semantic: bool,
 ) -> (i32, EventMetrics) {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -339,7 +340,14 @@ pub fn run(
         ..Default::default()
     };
 
-    let output = formatter.format_map(&map_result);
+    // `--semantic`: emit deterministic per-module enrichment built from the
+    // freshly-persisted graph instead of the standard map view.
+    let output = if semantic {
+        let sem = keel_enforce::semantic::build_semantic_map(&store);
+        formatter.format_semantic_map(&sem)
+    } else {
+        formatter.format_map(&map_result)
+    };
     if !output.is_empty() {
         println!("{}", output);
     }

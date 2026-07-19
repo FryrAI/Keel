@@ -226,7 +226,7 @@ fn test_every_advertised_tool_is_callable() {
         &rpc("tools/list", None),
     ));
     let tools = listed["result"]["tools"].as_array().unwrap().clone();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 14);
 
     for tool in &tools {
         let name = tool["name"].as_str().unwrap();
@@ -338,7 +338,7 @@ fn test_issue_27_handshake_sequence() {
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
     ));
     assert_eq!(list["id"], 2);
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 12);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 14);
 
     let call = parse_response(&process_line(
         &store,

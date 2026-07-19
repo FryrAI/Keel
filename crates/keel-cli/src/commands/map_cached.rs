@@ -36,7 +36,9 @@ pub fn run_cached(
         // unused by that path (see its `_`-prefixed params); `tier3_enabled`
         // is left off here — project-level tier3 config (.keel/keel.json)
         // still applies via that path's own config load.
-        return super::map::run(formatter, verbose, false, None, false, depth, false, false);
+        return super::map::run(
+            formatter, verbose, false, None, false, depth, false, false, false,
+        );
     }
 
     // Collect all nodes and edges from the DB

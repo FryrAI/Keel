@@ -3,6 +3,8 @@
 mod test_analyze;
 #[path = "cli/test_check.rs"]
 mod test_check;
+#[path = "cli/test_checkpoint.rs"]
+mod test_checkpoint;
 #[path = "cli/test_compile.rs"]
 mod test_compile;
 #[path = "cli/test_compile_batch.rs"]
@@ -31,5 +33,7 @@ mod test_name;
 mod test_search;
 #[path = "cli/test_stats.rs"]
 mod test_stats;
+#[path = "cli/test_validate_plan.rs"]
+mod test_validate_plan;
 #[path = "cli/test_where.rs"]
 mod test_where;

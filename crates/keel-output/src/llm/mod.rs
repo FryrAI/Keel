@@ -1,19 +1,25 @@
 pub mod analyze;
 pub mod audit;
 pub mod check;
+pub mod checkpoint;
 pub mod compile;
 pub mod discover;
 pub mod explain;
 pub mod fix;
 pub mod map;
 pub mod name;
+pub mod semantic;
+pub mod validate_plan;
 pub mod violation;
 
 use crate::OutputFormatter;
+use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
 };
+use keel_enforce::validate_plan::PlanValidationResult;
 
 pub struct LlmFormatter {
     /// Depth for map output (0-3). Default: 1.
@@ -101,6 +107,18 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_audit(&self, result: &AuditResult) -> String {
         audit::format_audit(result, self.max_tokens)
+    }
+
+    fn format_checkpoint(&self, result: &CheckpointResult) -> String {
+        checkpoint::format_checkpoint(result)
+    }
+
+    fn format_validate_plan(&self, result: &PlanValidationResult) -> String {
+        validate_plan::format_validate_plan(result)
+    }
+
+    fn format_semantic_map(&self, result: &SemanticMapResult) -> String {
+        semantic::format_semantic_map(result)
     }
 }
 

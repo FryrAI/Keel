@@ -1,8 +1,11 @@
 use crate::OutputFormatter;
+use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, MapResult, NameResult,
 };
+use keel_enforce::validate_plan::PlanValidationResult;
 
 pub struct JsonFormatter;
 
@@ -38,6 +41,15 @@ impl OutputFormatter for JsonFormatter {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
     fn format_audit(&self, result: &AuditResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_checkpoint(&self, result: &CheckpointResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_validate_plan(&self, result: &PlanValidationResult) -> String {
+        serde_json::to_string_pretty(result).unwrap_or_default()
+    }
+    fn format_semantic_map(&self, result: &SemanticMapResult) -> String {
         serde_json::to_string_pretty(result).unwrap_or_default()
     }
 }

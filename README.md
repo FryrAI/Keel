@@ -152,6 +152,9 @@ keel where a7Bx3kM9f2Q
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
+| `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <200ms |
+| `keel validate-plan <file\|->` | Validate a plan against the graph before execution | <100ms |
+| `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |
 | `keel push [--yes]` | Upload graph to keel cloud | — |

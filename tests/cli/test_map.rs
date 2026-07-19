@@ -402,3 +402,98 @@ fn test_map_handles_deleted_files() {
     // but at minimum the map should succeed without error
     let _ = db_before; // used for documentation, not assertion
 }
+
+/// Set up a Python project with a documented module + public API for semantic tests.
+fn init_documented_py_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("calc.py"),
+        concat!(
+            "\"\"\"Arithmetic helpers for the demo.\"\"\"\n\n",
+            "def add(a: int, b: int) -> int:\n",
+            "    \"\"\"Add two integers.\"\"\"\n",
+            "    return a + b\n\n\n",
+            "class Calculator:\n",
+            "    \"\"\"A stateful calculator.\"\"\"\n",
+            "    def total(self) -> int:\n",
+            "        return 0\n",
+        ),
+    )
+    .unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel init");
+    assert!(out.status.success());
+    dir
+}
+
+#[test]
+/// `keel map --semantic --json` emits per-module summary, public API, and when_to_use.
+fn test_map_semantic_json_shape() {
+    let dir = init_documented_py_project();
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["map", "--semantic", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --semantic --json");
+
+    assert!(
+        output.status.success(),
+        "map --semantic failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("semantic map output is JSON");
+    assert_eq!(json["command"], "map");
+
+    let modules = json["modules"].as_array().expect("modules array");
+    let calc = modules
+        .iter()
+        .find(|m| m["path"].as_str().unwrap_or("").contains("calc.py"))
+        .expect("should have calc.py module");
+
+    // Summary is drawn from a docstring (module or first public symbol).
+    assert!(
+        !calc["summary"].as_str().unwrap_or("").is_empty(),
+        "documented module should have a non-empty summary: {calc}"
+    );
+    // Public API lists.
+    let fns = calc["public_functions"].as_array().unwrap();
+    assert!(fns.iter().any(|f| f["name"] == "add"));
+    assert!(fns
+        .iter()
+        .all(|f| f["hash"].is_string() && f["signature"].is_string()));
+    let types = calc["public_types"].as_array().unwrap();
+    assert!(types.iter().any(|t| t["name"] == "Calculator"));
+    // Deterministic when_to_use.
+    assert!(calc["when_to_use"].as_str().unwrap().contains("exports:"));
+}
+
+#[test]
+/// `keel map --semantic --llm` emits the compact SEMANTIC/MODULE format.
+fn test_map_semantic_llm_format() {
+    let dir = init_documented_py_project();
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["map", "--semantic", "--llm"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --semantic --llm");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SEMANTIC modules="),
+        "missing SEMANTIC header: {stdout}"
+    );
+    assert!(stdout.contains("MODULE "), "missing MODULE line: {stdout}");
+    assert!(stdout.contains("when:"), "missing when: line: {stdout}");
+}
