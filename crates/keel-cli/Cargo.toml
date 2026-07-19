@@ -22,7 +22,6 @@ keel-server = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 dialoguer = { workspace = true }
-notify = { workspace = true }
 ureq = { workspace = true }
 webbrowser = { workspace = true }
 serde = { workspace = true }

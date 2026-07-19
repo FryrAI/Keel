@@ -1,41 +1,12 @@
-use std::path::Path;
-use std::sync::mpsc;
-use std::time::Duration;
+//! `keel watch` — a thin wrapper over the shared watcher in keel-server.
+//!
+//! The event handling, ignore lists, debounce, incremental recompile, and
+//! prune-on-delete all live in [`keel_server::watcher`]; this command just
+//! opens the graph and runs that loop until Ctrl+C.
 
-use notify::{Event, EventKind, RecursiveMode, Watcher};
-
-// Keep in sync with the server watcher's list (keel-server src/watcher.rs).
-const IGNORED_DIRS: &[&str] = &[
-    ".keel",
-    ".svelte-kit",
-    ".git",
-    "node_modules",
-    "__pycache__",
-    "target",
-    "dist",
-    "build",
-    ".next",
-];
-const DEBOUNCE_MS: u64 = 200;
-
-fn is_watched(root: &Path, path: &Path) -> bool {
-    // Only components INSIDE the repo may match the ignore list — a checkout
-    // living under e.g. ~/build/ must not ignore every file it contains.
-    let relative = path.strip_prefix(root).unwrap_or(path);
-    for component in relative.components() {
-        if let std::path::Component::Normal(s) = component {
-            if IGNORED_DIRS.contains(&s.to_str().unwrap_or("")) {
-                return false;
-            }
-        }
-    }
-    // Accept only files whose language keel can parse (canonical table)
-    keel_parsers::treesitter::detect_language(path).is_some()
-}
-
-/// Run `keel watch` -- watch source files and auto-compile on changes.
+/// Run `keel watch` — watch source files and auto-compile (and prune deletions).
 pub fn run(verbose: bool) -> i32 {
-    let cwd = match std::env::current_dir() {
+    let root = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("[keel watch] failed to get current directory: {}", e);
@@ -43,82 +14,40 @@ pub fn run(verbose: bool) -> i32 {
         }
     };
 
-    if !cwd.join(".keel").exists() {
+    let keel_dir = root.join(".keel");
+    if !keel_dir.exists() {
         eprintln!("[keel watch] not initialized. Run `keel init` first.");
         return 2;
     }
 
-    let (tx, rx) = mpsc::channel::<Event>();
-    let mut watcher = match notify::recommended_watcher(move |res: Result<Event, _>| {
-        if let Ok(event) = res {
-            let _ = tx.send(event);
-        }
-    }) {
-        Ok(w) => w,
+    let engine = match keel_server::KeelServer::open(
+        keel_dir
+            .join("graph.db")
+            .to_str()
+            .unwrap_or(".keel/graph.db"),
+        root.clone(),
+    ) {
+        Ok(server) => server.engine,
         Err(e) => {
-            eprintln!("[keel watch] failed to create watcher: {}", e);
+            eprintln!("[keel watch] failed to open graph: {}", e);
             return 2;
         }
     };
 
-    if let Err(e) = watcher.watch(&cwd, RecursiveMode::Recursive) {
-        eprintln!("[keel watch] failed to watch directory: {}", e);
-        return 2;
-    }
-
-    let mut total_compiles = 0u32;
-    eprintln!("[keel watch] Watching for changes... (Ctrl+C to stop)");
-
-    let run_compile = |files: &[String], verbose: bool| -> bool {
-        eprintln!("[keel watch] Compiling: {}", files.join(" "));
-        let mut cmd = std::process::Command::new("keel");
-        cmd.arg("compile").arg("--delta");
-        if verbose {
-            cmd.arg("--verbose");
-        }
-        cmd.args(files);
-        match cmd.status() {
-            Ok(status) => status.success(),
-            Err(e) => {
-                eprintln!("[keel watch] failed to run keel compile: {}", e);
-                false
-            }
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("[keel watch] failed to create runtime: {}", e);
+            return 2;
         }
     };
 
-    while let Ok(event) = rx.recv() {
-        let mut changed = std::collections::HashSet::new();
-        // Collect paths from first event
-        for p in &event.paths {
-            if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_))
-                && is_watched(&cwd, p)
-            {
-                if let Some(s) = p.to_str() {
-                    changed.insert(s.to_string());
-                }
-            }
-        }
-
-        // Debounce: drain events for DEBOUNCE_MS
-        while let Ok(ev) = rx.recv_timeout(Duration::from_millis(DEBOUNCE_MS)) {
-            if matches!(ev.kind, EventKind::Create(_) | EventKind::Modify(_)) {
-                for p in &ev.paths {
-                    if is_watched(&cwd, p) {
-                        if let Some(s) = p.to_str() {
-                            changed.insert(s.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        if !changed.is_empty() {
-            let files: Vec<String> = changed.into_iter().collect();
-            run_compile(&files, verbose);
-            total_compiles += 1;
+    eprintln!("[keel watch] Watching for changes... (Ctrl+C to stop)");
+    match rt.block_on(keel_server::watcher::watch(engine, root, verbose)) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("[keel watch] watcher error: {}", e);
+            2
         }
     }
-
-    eprintln!("[keel watch] Stopped. Total compiles: {}", total_compiles);
-    0
 }
