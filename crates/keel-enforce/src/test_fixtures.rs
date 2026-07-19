@@ -25,6 +25,16 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         is_public,
         type_hints_present: true,
         body_text: ECON_BODY.to_string(),
+        in_test_context: false,
+    }
+}
+
+/// A private function definition flagged as living in a test context (a
+/// `#[cfg(test)]` module or `#[test]` function).
+pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        in_test_context: true,
+        ..definition(name, file, false)
     }
 }
 

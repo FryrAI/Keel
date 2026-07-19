@@ -359,3 +359,58 @@ class Config:
         "line_start should be the class line, not the decorator"
     );
 }
+// --- Rust test-context marking (issue #38) ---
+
+#[test]
+fn rust_marks_definitions_in_cfg_test_module() {
+    let mut parser = TreeSitterParser::new();
+    let source = "\
+pub fn production() {}\n\
+fn dead_helper() {}\n\
+\n\
+#[cfg(test)]\n\
+mod tests {\n\
+    fn helper_no_prefix() {}\n\
+\n\
+    #[test]\n\
+    fn terminal_never_retries() {}\n\
+\n\
+    #[tokio::test]\n\
+    async fn async_case() {}\n\
+}\n";
+    let result = parser
+        .parse_file("rust", Path::new("src/thing.rs"), source)
+        .unwrap();
+    let ctx = |name: &str| {
+        result
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("missing def {name}"))
+            .in_test_context
+    };
+
+    // Inside `#[cfg(test)] mod tests` — all exempt regardless of naming.
+    assert!(
+        ctx("helper_no_prefix"),
+        "cfg(test) module fn is test-context"
+    );
+    assert!(ctx("terminal_never_retries"), "#[test] fn is test-context");
+    assert!(ctx("async_case"), "#[tokio::test] fn is test-context");
+
+    // Production code is NOT test-context.
+    assert!(!ctx("production"), "top-level pub fn is not test-context");
+    assert!(
+        !ctx("dead_helper"),
+        "top-level private fn is not test-context"
+    );
+}
+
+#[test]
+fn non_rust_definitions_are_never_test_context() {
+    let mut parser = TreeSitterParser::new();
+    let result = parser
+        .parse_file("typescript", Path::new("a.ts"), "function f() {}\n")
+        .unwrap();
+    assert!(result.definitions.iter().all(|d| !d.in_test_context));
+}

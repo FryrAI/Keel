@@ -193,6 +193,11 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
         if def.kind != NodeKind::Function {
             continue;
         }
+        // Test-context symbols (#[cfg(test)] modules, #[test] functions) are
+        // harness plumbing — exempt like test files are.
+        if def.in_test_context {
+            continue;
+        }
         if def.type_hints_present {
             continue;
         }
@@ -252,6 +257,11 @@ pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
 
     for def in &file.definitions {
         if def.kind != NodeKind::Function {
+            continue;
+        }
+        // Test-context symbols (#[cfg(test)] modules, #[test] functions) are
+        // self-documenting by name — exempt like test files are.
+        if def.in_test_context {
             continue;
         }
         if def.docstring.is_some() {

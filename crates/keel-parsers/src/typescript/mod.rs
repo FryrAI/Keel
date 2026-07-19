@@ -10,7 +10,7 @@ mod tests;
 #[path = "frontend_tests.rs"]
 mod frontend_tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -138,9 +138,12 @@ impl TsResolver {
 
     fn parse_and_cache(&self, path: &Path, content: &str) -> ParseResult {
         // Svelte components: keep only the <script> bodies, blanked in place so
-        // byte offsets and line numbers still match the original file.
+        // byte offsets and line numbers still match the original file. Keep the
+        // original around to recover template-driven references afterwards.
+        let is_svelte = svelte::is_svelte_file(path);
+        let original_content = content;
         let svelte_source;
-        let content = if svelte::is_svelte_file(path) {
+        let content = if is_svelte {
             svelte_source = svelte::extract_script_source(content);
             svelte_source.as_str()
         } else {
@@ -191,6 +194,29 @@ impl TsResolver {
                     def.type_hints_present = true;
                 }
             }
+        }
+
+        // Svelte: the template markup was blanked before parsing, so functions
+        // used only from markup (`on:click={handler}`, `{#if x}{helper()}`)
+        // would read as dead. Recover them with a lexical scan of the template.
+        if is_svelte {
+            let defined: HashSet<String> = result
+                .definitions
+                .iter()
+                .filter(|d| {
+                    matches!(
+                        d.kind,
+                        keel_core::types::NodeKind::Function | keel_core::types::NodeKind::Class
+                    )
+                })
+                .map(|d| d.name.clone())
+                .collect();
+            let template_refs = svelte::extract_template_references(
+                original_content,
+                &defined,
+                &path.to_string_lossy(),
+            );
+            result.references.extend(template_refs);
         }
 
         // Tier 2: resolve import paths using oxc_resolver + path aliases. Alias

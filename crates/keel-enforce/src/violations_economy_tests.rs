@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::*;
 use crate::test_fixtures::{
     call_ref, definition, file_index, file_index_with_refs, function_node, node_for_definition,
-    ECON_BODY,
+    test_context_definition, ECON_BODY,
 };
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{EdgeChange, GraphEdge};
@@ -142,6 +142,27 @@ fn w005_silent_in_test_and_bench_files() {
             "{path} must be exempt"
         );
     }
+}
+
+#[test]
+fn w005_silent_for_test_context_definition_but_fires_on_dead_sibling() {
+    // A helper inside a co-located `#[cfg(test)] mod tests` (marked at parse
+    // time) is exempt even without a `test_` prefix, while a genuinely dead
+    // non-test function in the SAME file still fires W005.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let test_helper = test_context_definition("helper_no_prefix", "src/a.rs");
+    let dead = definition("dead_one", "src/a.rs", false);
+    store
+        .insert_node(&node_for_definition(1, &test_helper))
+        .unwrap();
+    store.insert_node(&node_for_definition(2, &dead)).unwrap();
+    let stored = store.get_nodes_in_file("src/a.rs");
+
+    let file = file_index("src/a.rs", vec![test_helper, dead.clone()]);
+    let v = check_dead_code(&file, &store, &stored, &HashSet::new());
+    assert_eq!(v.len(), 1, "only the non-test dead fn fires: {v:?}");
+    assert_eq!(v[0].line, dead.line_start);
+    assert!(v[0].message.contains("dead_one"));
 }
 
 // --- W006 duplicate_implementation ---

@@ -76,6 +76,12 @@ pub struct Definition {
     pub type_hints_present: bool,
     /// Raw body text (used for hash computation after AST normalization).
     pub body_text: String,
+    /// True when this definition was extracted from a test context — a Rust
+    /// `#[cfg(test)]` module, or a `#[test]` / `#[tokio::test]`-attributed
+    /// function. Test-context symbols are invoked by the harness, not by
+    /// production code, so W005 (dead code), E002 (type hints), and E003
+    /// (docstrings) skip them to avoid vacuous "no callers" noise.
+    pub in_test_context: bool,
 }
 
 /// The flavour of a reference occurrence.

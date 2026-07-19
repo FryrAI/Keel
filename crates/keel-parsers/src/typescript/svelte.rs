@@ -9,7 +9,13 @@
 //! are preserved exactly, so definition line numbers reported by tree-sitter
 //! point at the real lines of the `.svelte` file.
 //!
-//! The template/markup section is never parsed.
+//! The template/markup section is never parsed. To keep template-driven usage
+//! from reading as dead code, [`extract_template_references`] still does a
+//! lexical scan of the markup for identifiers that name script definitions.
+
+use std::collections::HashSet;
+
+use crate::resolver::{Reference, ReferenceKind};
 
 /// Returns true if `path` is a Svelte single-file component.
 pub(crate) fn is_svelte_file(path: &std::path::Path) -> bool {
@@ -162,6 +168,153 @@ fn find_tag_end(bytes: &[u8], from: usize) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+/// Emits a [`Reference`] for every script-defined identifier that appears in a
+/// Svelte template expression — `{ident}`, `on:click={ident}`, `{#if ident}`,
+/// `bind:value={ident}`, `{ident(...)}`, and the like.
+///
+/// The blanked template is invisible to tree-sitter, so a handler wired up only
+/// from markup would otherwise look like dead code. This is a deliberately
+/// lexical scan (no Svelte parser): `<script>`/`<style>` bodies are blanked,
+/// then only text inside `{ ... }` expression braces is tokenised — static
+/// attribute strings and prose are ignored, string literals within the braces
+/// are skipped, and each identifier is matched whole-word against `defined`.
+/// Matches become `Call` references attributed to the component file, which is
+/// enough for W005 caller counts and for `keel map` to draw call edges.
+pub(crate) fn extract_template_references(
+    content: &str,
+    defined: &HashSet<String>,
+    file_path: &str,
+) -> Vec<Reference> {
+    if defined.is_empty() {
+        return Vec::new();
+    }
+    let markup = markup_only(content.as_bytes());
+    let mut refs = Vec::new();
+    let mut seen: HashSet<(String, u32)> = HashSet::new();
+
+    let mut i = 0usize;
+    let mut line = 1u32;
+    let mut depth: i32 = 0;
+    let mut quote: u8 = 0;
+
+    while i < markup.len() {
+        let b = markup[i];
+        if b == b'\n' {
+            line += 1;
+            i += 1;
+            continue;
+        }
+        if depth == 0 {
+            if b == b'{' {
+                depth = 1;
+            }
+            i += 1;
+            continue;
+        }
+        if quote != 0 {
+            if b == quote {
+                quote = 0;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'"' | b'\'' | b'`' => {
+                quote = b;
+                i += 1;
+            }
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' => {
+                depth -= 1;
+                i += 1;
+            }
+            _ if is_ident_start(b) => {
+                let start = i;
+                i += 1;
+                while i < markup.len() && is_ident_part(markup[i]) {
+                    i += 1;
+                }
+                let word = std::str::from_utf8(&markup[start..i]).unwrap_or("");
+                if defined.contains(word) && seen.insert((word.to_string(), line)) {
+                    refs.push(Reference {
+                        name: word.to_string(),
+                        file_path: file_path.to_string(),
+                        line,
+                        kind: ReferenceKind::Call,
+                        resolved_to: None,
+                    });
+                }
+            }
+            _ => i += 1,
+        }
+    }
+
+    refs
+}
+
+fn is_ident_start(b: u8) -> bool {
+    b.is_ascii_alphabetic() || b == b'_' || b == b'$'
+}
+
+fn is_ident_part(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+
+/// A copy of `bytes` with `<script>` and `<style>` bodies blanked to spaces
+/// (newlines preserved for line accuracy), leaving only the template markup.
+fn markup_only(bytes: &[u8]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    for (start, end) in script_regions(bytes)
+        .into_iter()
+        .chain(style_regions(bytes))
+    {
+        for b in &mut out[start..end] {
+            if *b != b'\n' && *b != b'\r' {
+                *b = b' ';
+            }
+        }
+    }
+    out
+}
+
+/// Byte ranges of every `<style>` body — the CSS analogue of
+/// [`script_regions`], minus the `<svelte:head>` handling (component styles
+/// never live there). Blanked before template scanning so CSS `{ }` blocks are
+/// not mistaken for Svelte expressions.
+fn style_regions(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut regions = Vec::new();
+    let mut i = 0usize;
+    while let Some(tag_start) = find_ci(bytes, b"<style", i) {
+        let after_name = tag_start + b"<style".len();
+        match bytes.get(after_name) {
+            Some(c) if c.is_ascii_whitespace() || *c == b'>' || *c == b'/' => {}
+            _ => {
+                i = after_name;
+                continue;
+            }
+        }
+        let Some(open_end) = find_tag_end(bytes, after_name) else {
+            break;
+        };
+        if bytes[open_end - 1] == b'/' {
+            i = open_end + 1;
+            continue;
+        }
+        let body_start = open_end + 1;
+        match find_ci(bytes, b"</style", body_start) {
+            Some(close_start) => {
+                regions.push((body_start, close_start));
+                i = close_start + b"</style".len();
+            }
+            None => break,
+        }
+    }
+    regions
 }
 
 /// ASCII case-insensitive search for `needle` in `haystack` starting at `from`.

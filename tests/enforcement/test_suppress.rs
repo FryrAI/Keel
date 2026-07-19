@@ -100,6 +100,7 @@ fn test_suppress_via_engine() {
             is_public: true,
             type_hints_present: false,
             body_text: "return data".to_string(),
+            in_test_context: false,
         }],
         references: vec![],
         imports: vec![],

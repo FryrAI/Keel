@@ -15,6 +15,7 @@ fn make_def(name: &str, is_public: bool, docstring: Option<&str>) -> Definition 
         is_public,
         type_hints_present: true,
         body_text: "return x".to_string(),
+        in_test_context: false,
     }
 }
 
@@ -89,6 +90,7 @@ fn test_e003_class_not_checked() {
         is_public: true,
         type_hints_present: true,
         body_text: "pass".to_string(),
+        in_test_context: false,
     };
     let file = make_file(vec![class_def]);
     let violations = check_missing_docstring(&file);

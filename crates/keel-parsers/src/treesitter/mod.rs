@@ -54,7 +54,7 @@ impl TreeSitterParser {
         let bytes = source.as_bytes();
         let root = tree.root_node();
 
-        let mut definitions = extract_definitions(&query, root, bytes, &file_path);
+        let mut definitions = extract_definitions(&query, root, bytes, &file_path, lang_name);
         let references = extract_references(&query, root, bytes, &file_path);
         let imports = imports::extract_imports(&query, root, bytes, &file_path);
 
@@ -77,6 +77,7 @@ impl TreeSitterParser {
                 is_public: true,
                 type_hints_present: false,
                 body_text: String::new(),
+                in_test_context: false,
             },
         );
 
@@ -125,11 +126,62 @@ fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
 }
 
+/// True when a Rust definition node sits in a test context: inside a
+/// `#[cfg(test)]`-annotated module, or is itself a `#[test]` / `#[tokio::test]`
+/// function. Walks ancestors (tree-sitter gives us the full ancestry here) and
+/// inspects the preceding `attribute_item` siblings of each enclosing item.
+///
+/// The node kinds checked (`function_item`, `mod_item`, `attribute_item`) are
+/// Rust-specific, so this returns `false` for every other grammar — callers
+/// gate on the language anyway.
+fn in_rust_test_context(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if matches!(n.kind(), "function_item" | "mod_item") && preceding_attrs_mark_test(n, source)
+        {
+            return true;
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Scans the `attribute_item` siblings immediately preceding `item` for a
+/// `#[cfg(test)]`, `#[test]`, or `#[<path>::test]` marker. In tree-sitter-rust,
+/// outer attributes are preceding siblings of the item they annotate, not
+/// children of it.
+fn preceding_attrs_mark_test(item: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut sib = item.prev_sibling();
+    while let Some(s) = sib {
+        match s.kind() {
+            "attribute_item" => {
+                let compact: String = node_text(s, source)
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                if compact.contains("cfg(test")
+                    || compact == "#[test]"
+                    || compact.ends_with("::test]")
+                {
+                    return true;
+                }
+            }
+            // Comments may sit between an attribute and its item — skip them
+            // and keep scanning upward; anything else ends the attribute run.
+            "line_comment" | "block_comment" => {}
+            _ => break,
+        }
+        sib = s.prev_sibling();
+    }
+    false
+}
+
 fn extract_definitions(
     query: &Query,
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &str,
+    lang: &str,
 ) -> Vec<Definition> {
     let mut cursor = QueryCursor::new();
     let mut defs = Vec::new();
@@ -221,6 +273,9 @@ fn extract_definitions(
             let docstring =
                 def_node.and_then(|node| docstrings::extract_docstring(node, body_node, source));
 
+            let in_test_context =
+                lang == "rust" && def_node.is_some_and(|node| in_rust_test_context(node, source));
+
             defs.push(Definition {
                 name: n,
                 kind: k,
@@ -232,6 +287,7 @@ fn extract_definitions(
                 is_public: true,
                 type_hints_present: has_type_hints,
                 body_text,
+                in_test_context,
             });
         }
     }

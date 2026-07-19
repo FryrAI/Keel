@@ -50,6 +50,7 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str) -> Definition 
         is_public: true,
         type_hints_present: true,
         body_text: body.to_string(),
+        in_test_context: false,
     }
 }
 

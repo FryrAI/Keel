@@ -19,6 +19,7 @@ fn make_def(name: &str, is_public: bool, type_hints: bool) -> Definition {
         is_public,
         type_hints_present: type_hints,
         body_text: "return data".to_string(),
+        in_test_context: false,
     }
 }
 
@@ -94,6 +95,7 @@ fn test_e002_class_not_checked() {
         is_public: true,
         type_hints_present: false,
         body_text: "pass".to_string(),
+        in_test_context: false,
     };
     let file = make_file(vec![class_def]);
     let violations = check_missing_type_hints(&file);

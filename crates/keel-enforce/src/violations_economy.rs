@@ -69,6 +69,10 @@ pub fn check_dead_code(
         if def.kind != NodeKind::Function
             || def.is_public
             || def.name.starts_with('_')
+            // Symbols in a #[cfg(test)] module or a #[test]/#[tokio::test]
+            // function are invoked by the harness, not by production code —
+            // "no callers" is vacuously true regardless of naming convention.
+            || def.in_test_context
             // `test_*`/`bench_*` cover harness-invoked functions in
             // co-located #[cfg(test)] modules and criterion benches.
             || def.name.starts_with("test_")

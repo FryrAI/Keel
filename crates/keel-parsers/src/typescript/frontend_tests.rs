@@ -103,6 +103,39 @@ fn test_svelte_script_definitions_and_line_numbers() {
 }
 
 #[test]
+fn test_svelte_template_only_handlers_become_references() {
+    // Handlers wired up only from the (blanked) template markup must still show
+    // up as references, so W005 doesn't read them as dead. A script fn used
+    // nowhere stays unreferenced. (issue #39)
+    let resolver = TsResolver::new();
+    let source = "<script lang=\"ts\">\n\
+         function addZuschlag() {}\n\
+         function startEdit() {}\n\
+         function reallyUnused() {}\n\
+         let editing = false;\n\
+         </script>\n\
+         <button on:click={addZuschlag}>add</button>\n\
+         {#if editing}\n\
+         <span>{startEdit()}</span>\n\
+         {/if}\n";
+    let result = resolver.parse_file(Path::new("src/lib/Form.svelte"), source);
+    let names: std::collections::HashSet<&str> =
+        result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains("addZuschlag"),
+        "template on:click handler counts as a reference: {names:?}"
+    );
+    assert!(
+        names.contains("startEdit"),
+        "{{#if}}-block call counts as a reference: {names:?}"
+    );
+    assert!(
+        !names.contains("reallyUnused"),
+        "a script fn used nowhere stays unreferenced: {names:?}"
+    );
+}
+
+#[test]
 fn test_svelte_supported_extension_registered() {
     let resolver = TsResolver::new();
     assert!(resolver.supported_extensions().contains(&"svelte"));
