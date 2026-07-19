@@ -270,8 +270,6 @@ impl EnforcementEngine {
                         if deferred_e001.contains(&node.hash) {
                             continue; // keep pre-edit hash so E001 re-fires
                         }
-                        hashes_changed.push(node.hash.clone());
-                        nodes_updated += 1;
                         // Identical definitions (e.g. `fn is_available(&self)
                         // -> bool { true }` on a trait decl and two impls)
                         // normalize to the same content hash. Salt on collision
@@ -319,6 +317,8 @@ impl EnforcementEngine {
                             None => continue,
                         };
                         assigned_hashes.insert(target_hash.clone());
+                        hashes_changed.push(node.hash.clone());
+                        nodes_updated += 1;
                         // Persist updated hash; record the old one so
                         // "modified since last map" survives the sync (see
                         // progressive adoption — a full map re-baselines).
