@@ -152,6 +152,7 @@ fn def(
         body_text: String::new(),
         in_test_context: false,
         in_trait_context: false,
+        is_associated: false,
     }
 }
 

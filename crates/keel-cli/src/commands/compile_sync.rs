@@ -538,6 +538,7 @@ mod tests {
             body_text: "{ return 42; }".to_string(),
             in_test_context: false,
             in_trait_context: false,
+            is_associated: false,
         }
     }
 

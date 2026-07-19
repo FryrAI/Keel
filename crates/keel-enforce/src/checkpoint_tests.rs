@@ -40,6 +40,7 @@ fn def(name: &str, signature: &str, body: &str) -> Definition {
         body_text: body.into(),
         in_test_context: false,
         in_trait_context: false,
+        is_associated: false,
     }
 }
 

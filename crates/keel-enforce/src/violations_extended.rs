@@ -227,15 +227,22 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
         }
         // Trait methods MUST share their name across the declaration and every
         // implementor — that is the whole point of a trait. Renaming one is not
-        // a legal fix, so flagging it is pure noise. Inherent methods and free
-        // functions that happen to share a name are still reported.
+        // a legal fix, so flagging it is pure noise.
+        //
+        // Associated items generally (methods and associated functions on a
+        // type — Rust `impl` blocks, class bodies, Go receiver funcs) are
+        // likewise exempt: they are addressed as `Type::name` / `obj.name`, so
+        // a shared bare name across unrelated types (`is_expired`, `in_memory`,
+        // `as_str`) is idiomatic, not ambiguity — and W002's "rename" fix_hint
+        // would push an agent toward LESS idiomatic code. Free functions that
+        // collide are still reported: those genuinely share one namespace.
         //
         // Test-context helpers are likewise exempt: every `#[cfg(test)] mod
         // tests` block independently defines its own `fn node(..)`/`fn root()`
         // fixture, which is the idiomatic pattern, not accidental ambiguity.
         // (`is_test_file` above only covers whole test FILES; these live in
         // inline test modules inside production files.)
-        if def.in_trait_context || def.in_test_context {
+        if def.in_trait_context || def.in_test_context || def.is_associated {
             continue;
         }
 

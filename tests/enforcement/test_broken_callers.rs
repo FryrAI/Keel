@@ -21,6 +21,7 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str, line: u32) -> 
         body_text: body.to_string(),
         in_test_context: false,
         in_trait_context: false,
+        is_associated: false,
     }
 }
 

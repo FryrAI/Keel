@@ -102,6 +102,7 @@ fn test_suppress_via_engine() {
             body_text: "return data".to_string(),
             in_test_context: false,
             in_trait_context: false,
+            is_associated: false,
         }],
         references: vec![],
         imports: vec![],

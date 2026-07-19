@@ -49,6 +49,7 @@ fn make_file_with_missing_hints(file: &str) -> FileIndex {
             body_text: "return data".to_string(),
             in_test_context: false,
             in_trait_context: false,
+            is_associated: false,
         }],
         references: vec![],
         imports: vec![],

@@ -105,6 +105,12 @@ pub struct Definition {
     /// satisfied structurally (there is no syntactic marker on the method to
     /// key off), and Python has no static interface declaration.
     pub in_trait_context: bool,
+    /// True when this definition is an associated item — a method or associated
+    /// function inside a Rust `impl`/`trait` block or a TS/Python class body.
+    /// Associated items are addressed as `Type::name` / `obj.name`, so a shared
+    /// bare name across unrelated types is idiomatic, not ambiguous — W002
+    /// skips them. Go methods (receiver funcs) count too.
+    pub is_associated: bool,
 }
 
 impl Definition {
@@ -320,6 +326,7 @@ mod tests {
                 body_text: String::new(),
                 in_test_context: false,
                 in_trait_context: false,
+                is_associated: false,
             }],
             references: vec![],
             imports: vec![],

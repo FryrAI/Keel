@@ -575,3 +575,62 @@ struct C {\n\
         "function reference must not be recorded as a call"
     );
 }
+
+/// Associated items (inherent-impl fns, class methods, Go receiver funcs) are
+/// marked `is_associated`; free functions are not. W002 relies on this to skip
+/// idiomatic `Type::name` bare-name collisions across unrelated types.
+#[test]
+fn associated_items_are_marked_across_languages() {
+    let mut parser = TreeSitterParser::new();
+
+    let rust = "struct S;\nimpl S { pub fn in_memory() -> Self { S } }\npub fn free_fn() {}\n";
+    let result = parser
+        .parse_file("rust", std::path::Path::new("a.rs"), rust)
+        .unwrap();
+    let assoc = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "in_memory")
+        .unwrap();
+    let free = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "free_fn")
+        .unwrap();
+    assert!(assoc.is_associated, "inherent-impl fn is associated");
+    assert!(!free.is_associated, "free fn is not associated");
+
+    let go = "package p\n\ntype T struct{}\n\nfunc (t T) IsExpired() bool { return false }\n\nfunc Free() {}\n";
+    let result = parser
+        .parse_file("go", std::path::Path::new("a.go"), go)
+        .unwrap();
+    let assoc = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "IsExpired")
+        .unwrap();
+    let free = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "Free")
+        .unwrap();
+    assert!(assoc.is_associated, "Go receiver func is associated");
+    assert!(!free.is_associated, "Go free func is not associated");
+
+    let py = "class C:\n    def is_expired(self) -> bool:\n        return False\n\n\ndef free_fn() -> None:\n    pass\n";
+    let result = parser
+        .parse_file("python", std::path::Path::new("a.py"), py)
+        .unwrap();
+    let assoc = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "is_expired")
+        .unwrap();
+    let free = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "free_fn")
+        .unwrap();
+    assert!(assoc.is_associated, "Python class method is associated");
+    assert!(!free.is_associated, "Python free fn is not associated");
+}

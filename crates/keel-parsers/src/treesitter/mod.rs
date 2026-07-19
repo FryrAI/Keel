@@ -116,6 +116,25 @@ fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
 /// The node kinds checked (`function_item`, `mod_item`, `attribute_item`) are
 /// Rust-specific, so this returns `false` for every other grammar — callers
 /// gate on the language anyway.
+/// True when a definition node is an associated item: inside a Rust `impl` or
+/// `trait` block (inherent or trait), a TS/JS or Python class body, or a Go
+/// method (receiver func — detected via the `@def.method` capture upstream).
+/// Associated items are addressed through their type, so bare-name collisions
+/// across unrelated types are idiomatic; W002 skips them.
+fn in_associated_context(node: tree_sitter::Node<'_>, lang: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        match (lang, n.kind()) {
+            ("rust", "impl_item") | ("rust", "trait_item") => return true,
+            (_, "class_body") | (_, "class_declaration") | (_, "class") => return true,
+            ("python", "class_definition") => return true,
+            _ => {}
+        }
+        current = n.parent();
+    }
+    false
+}
+
 /// True when a Rust definition node sits on a trait's contract surface: a
 /// method declared in a `trait` block, or one defined in a trait
 /// implementation (`impl Trait for Type`). An inherent `impl Type` block is
@@ -242,6 +261,7 @@ fn extract_definitions(
         let mut line_end = 0u32;
         let mut def_node = None;
         let mut body_node = None;
+        let mut capture_was_method = false;
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize];
@@ -249,6 +269,7 @@ fn extract_definitions(
                 "def.func.name" | "def.method.name" => {
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Function);
+                    capture_was_method = cap_name == "def.method.name";
                 }
                 "def.class.name" | "def.type.name" | "def.struct.name" | "def.enum.name"
                 | "def.trait.name" => {
@@ -333,6 +354,11 @@ fn extract_definitions(
                 _ => false,
             });
 
+            // Go methods carry no class ancestry; the capture kind marks them.
+            let is_go_method = lang == "go" && capture_was_method;
+            let is_associated =
+                is_go_method || def_node.is_some_and(|node| in_associated_context(node, lang));
+
             defs.push(Definition {
                 name: n,
                 kind: k,
@@ -346,6 +372,7 @@ fn extract_definitions(
                 body_text,
                 in_test_context,
                 in_trait_context,
+                is_associated,
             });
         }
     }

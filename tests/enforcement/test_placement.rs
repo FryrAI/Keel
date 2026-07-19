@@ -63,6 +63,7 @@ fn make_func_def(name: &str, file: &str) -> Definition {
         body_text: "pass".to_string(),
         in_test_context: false,
         in_trait_context: false,
+        is_associated: false,
     }
 }
 
@@ -152,6 +153,7 @@ fn test_w001_class_not_checked() {
         body_text: "pass".to_string(),
         in_test_context: false,
         in_trait_context: false,
+        is_associated: false,
     };
     let file = make_file("utils.py", vec![class_def]);
 
