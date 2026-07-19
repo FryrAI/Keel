@@ -47,12 +47,10 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | Parsing | `tree-sitter` + 4 grammars | Compiled in, not runtime loaded |
 | TS/JS Resolution | `oxc_resolver` + `oxc_semantic` | MIT, 30x faster than webpack |
 | Python Resolution | `ty` (subprocess) | `ty --output-format json`. NOT a library. |
-| Graph | `petgraph` | Function/class/module graph |
 | Hashing | `xxhash-rust` | base62(xxhash64(...)), 11 chars |
-| Database | `rusqlite` (bundled) | SQLite statically linked |
+| Database | `rusqlite` (bundled) | SQLite for graph storage, statically linked |
 | CLI | `clap` | Argument parsing |
 | Serialization | `serde` + `serde_json` | JSON output |
-| Parallelism | `rayon` | Parallel file parsing |
 
 **Constraints:**
 - No FFI in hot path

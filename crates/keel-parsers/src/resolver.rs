@@ -14,8 +14,8 @@ use keel_core::types::{ExternalEndpoint, NodeKind};
 /// - Parsing source files into definitions, references, and imports (Tier 1).
 /// - Resolving call-site edges with a confidence score (Tier 2).
 ///
-/// Implementors must be `Send + Sync` so they can be shared across rayon
-/// parallel iterators.
+/// Implementors must be `Send + Sync` so they can be shared across threads
+/// for parallel parsing.
 pub trait LanguageResolver: Send + Sync {
     /// Returns the canonical language name (e.g. "typescript", "python").
     fn language(&self) -> &str;

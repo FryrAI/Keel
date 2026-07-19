@@ -50,10 +50,6 @@ fn test_roundtrip_all_non_default_values() {
             remote: false,
             endpoint: Some("https://custom.example.com/telemetry".to_string()),
         },
-        naming_conventions: NamingConventionsConfig {
-            style: Some("snake_case".to_string()),
-            prefixes: vec!["keel_".to_string(), "test_".to_string()],
-        },
         monorepo: MonorepoConfig {
             enabled: true,
             kind: Some("CargoWorkspace".to_string()),
@@ -115,14 +111,6 @@ fn test_roundtrip_all_non_default_values() {
     assert_eq!(
         roundtripped.telemetry.endpoint,
         Some("https://custom.example.com/telemetry".to_string())
-    );
-    assert_eq!(
-        roundtripped.naming_conventions.style,
-        Some("snake_case".to_string())
-    );
-    assert_eq!(
-        roundtripped.naming_conventions.prefixes,
-        vec!["keel_", "test_"]
     );
     assert!(roundtripped.monorepo.enabled);
     assert_eq!(
@@ -211,7 +199,7 @@ fn test_telemetry_defaults() {
 
 #[test]
 fn test_backward_compat_old_json_without_new_fields() {
-    // Old-style JSON without tier, telemetry, or naming_conventions
+    // Old-style JSON without tier or telemetry
     let old_json = r#"{
         "version": "0.1.0",
         "languages": ["typescript"],
@@ -224,8 +212,6 @@ fn test_backward_compat_old_json_without_new_fields() {
     assert_eq!(cfg.tier, Tier::Free);
     assert!(cfg.telemetry.enabled);
     assert!(cfg.telemetry.remote);
-    assert!(cfg.naming_conventions.style.is_none());
-    assert!(cfg.naming_conventions.prefixes.is_empty());
     assert!(!cfg.monorepo.enabled);
     assert!(cfg.monorepo.kind.is_none());
     assert!(cfg.monorepo.packages.is_empty());
@@ -237,12 +223,17 @@ fn test_backward_compat_old_json_without_new_fields() {
 }
 
 #[test]
-fn test_naming_conventions_roundtrip() {
-    let nc = NamingConventionsConfig {
-        style: Some("camelCase".to_string()),
-        prefixes: vec!["app_".to_string(), "lib_".to_string()],
-    };
-    let json = serde_json::to_string(&nc).unwrap();
-    let parsed: NamingConventionsConfig = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed, nc);
+fn test_removed_naming_conventions_key_is_tolerated() {
+    // The `naming_conventions` config block was removed. Existing config files
+    // that still carry the key must continue to load — serde ignores unknown
+    // fields (KeelConfig has no deny_unknown_fields), so this must not error.
+    let json_with_removed_key = r#"{
+        "version": "0.1.0",
+        "languages": ["rust"],
+        "naming_conventions": { "style": "snake_case", "prefixes": ["keel_"] }
+    }"#;
+    let cfg: KeelConfig = serde_json::from_str(json_with_removed_key)
+        .expect("config with the removed naming_conventions key must still deserialize");
+    assert_eq!(cfg.version, "0.1.0");
+    assert_eq!(cfg.languages, vec!["rust"]);
 }

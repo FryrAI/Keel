@@ -19,6 +19,92 @@ fn platform_artifact_returns_ok() {
 }
 
 #[test]
+fn artifact_name_per_target() {
+    // Names must match the release workflow matrix in .github/workflows/release.yml.
+    assert_eq!(
+        artifact_name("linux", "x86_64").unwrap(),
+        "keel-linux-amd64"
+    );
+    assert_eq!(
+        artifact_name("linux", "aarch64").unwrap(),
+        "keel-linux-arm64"
+    );
+    assert_eq!(
+        artifact_name("macos", "x86_64").unwrap(),
+        "keel-darwin-amd64"
+    );
+    assert_eq!(
+        artifact_name("macos", "aarch64").unwrap(),
+        "keel-darwin-arm64"
+    );
+    assert_eq!(
+        artifact_name("windows", "x86_64").unwrap(),
+        "keel-windows-amd64.exe"
+    );
+
+    // Unsupported OS / arch are rejected.
+    assert!(artifact_name("freebsd", "x86_64").is_err());
+    assert!(artifact_name("linux", "mips").is_err());
+}
+
+#[test]
+fn checksum_download_failure_is_fatal_and_installs_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let tmp_binary = dir.path().join("keel.tmp");
+    let tmp_checksums = dir.path().join("keel.checksums");
+
+    // Simulate an already-downloaded binary awaiting verification.
+    std::fs::write(&tmp_binary, b"unverified binary bytes").unwrap();
+
+    // Port 1 on loopback refuses connections: the checksum download fails.
+    let result = acquire_and_verify_checksum(
+        "http://127.0.0.1:1/checksums-sha256.txt",
+        &tmp_binary,
+        &tmp_checksums,
+        "keel-linux-amd64",
+    );
+
+    // Failure to obtain the checksum must be fatal.
+    assert!(result.is_err(), "expected checksum acquisition to fail");
+    assert!(
+        result.unwrap_err().contains("unverified binary"),
+        "error should signal refusal to install an unverified binary"
+    );
+
+    // Nothing was installed: the checksum file was never written and the
+    // candidate binary is left untouched for the caller to discard.
+    assert!(
+        !tmp_checksums.exists(),
+        "no checksum file should be written"
+    );
+    assert_eq!(
+        std::fs::read(&tmp_binary).unwrap(),
+        b"unverified binary bytes",
+        "candidate binary must be untouched (not renamed/installed)"
+    );
+}
+
+#[test]
+fn checksum_mismatch_is_fatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let binary_path = dir.path().join("keel-test");
+    let checksum_path = dir.path().join("checksums-sha256.txt");
+
+    std::fs::write(&binary_path, b"real content").unwrap();
+    std::fs::write(
+        &checksum_path,
+        "0000000000000000000000000000000000000000000000000000000000000000  keel-test\n",
+    )
+    .unwrap();
+
+    // verify_checksum is the second half of acquire_and_verify_checksum and
+    // must reject a tampered binary once the checksum file is present.
+    let result = verify_checksum(&binary_path, &checksum_path, "keel-test");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("checksum mismatch"));
+}
+
+#[test]
 fn verify_checksum_match() {
     let dir = tempfile::tempdir().unwrap();
     let binary_path = dir.path().join("keel-test");

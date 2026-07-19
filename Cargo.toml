@@ -32,9 +32,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-# Graph
-petgraph = "0.7"
-
 # Hashing
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
@@ -54,9 +51,6 @@ oxc_semantic = "0.49"
 oxc_allocator = "0.49"
 oxc_parser = "0.49"
 oxc_span = "0.49"
-
-# Parallelism
-rayon = "1.10"
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
@@ -80,8 +74,6 @@ protobuf = "3"
 
 # File handling
 ignore = "0.4"
-walkdir = "2"
-globset = "0.4"
 
 # Internal crates — path for local dev, version for crates.io publish
 keel-core = { path = "crates/keel-core", version = "0.4.2" }

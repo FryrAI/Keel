@@ -189,10 +189,6 @@ keel stores its configuration in `.keel/keel.json`:
     "enabled": true,
     "detailed": false,
     "remote": true
-  },
-  "naming_conventions": {
-    "style": null,
-    "prefixes": []
   }
 }
 ```
