@@ -1,6 +1,84 @@
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
 
 use crate::types::Violation;
+
+/// Batch-mode state persisted to `.keel/batch.json` so it survives across
+/// separate `keel compile` processes.
+///
+/// The in-process [`BatchState`] is dropped when a CLI process exits, so a
+/// `--batch-start` in one invocation, a violating compile in a second, and a
+/// `--batch-end` in a third would otherwise lose every deferred violation — the
+/// feature would silently no-op. This mirrors how the circuit breaker persists
+/// its state to SQLite: deferred violations and the batch's start time are
+/// written to disk and reloaded by the next invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistentBatch {
+    /// Unix seconds when the batch was last touched (start or a deferring
+    /// compile). Drives the documented 60s inactivity auto-expire.
+    pub started_at_unix: u64,
+    /// Violations deferred so far across every compile in this batch.
+    pub deferred: Vec<Violation>,
+}
+
+impl PersistentBatch {
+    /// Start a fresh, empty batch stamped at the current time.
+    pub fn new() -> Self {
+        Self {
+            started_at_unix: now_unix(),
+            deferred: Vec::new(),
+        }
+    }
+
+    fn file_path(keel_dir: &Path) -> std::path::PathBuf {
+        keel_dir.join("batch.json")
+    }
+
+    /// Load the persisted batch, or `None` if no batch is active.
+    pub fn load(keel_dir: &Path) -> Option<Self> {
+        let content = std::fs::read_to_string(Self::file_path(keel_dir)).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    /// Persist the batch to disk.
+    pub fn save(&self, keel_dir: &Path) -> Result<(), String> {
+        let path = Self::file_path(keel_dir);
+        let json =
+            serde_json::to_string(self).map_err(|e| format!("failed to serialize batch: {}", e))?;
+        std::fs::write(&path, json)
+            .map_err(|e| format!("failed to write batch to {}: {}", path.display(), e))
+    }
+
+    /// Remove the persisted batch (batch mode ended or expired).
+    pub fn clear(keel_dir: &Path) {
+        let _ = std::fs::remove_file(Self::file_path(keel_dir));
+    }
+
+    /// Refresh the inactivity timer (called on each deferring compile).
+    pub fn touch(&mut self) {
+        self.started_at_unix = now_unix();
+    }
+
+    /// True once the documented 60s inactivity window has elapsed.
+    pub fn is_expired(&self) -> bool {
+        now_unix().saturating_sub(self.started_at_unix) > BATCH_TIMEOUT.as_secs()
+    }
+}
+
+impl Default for PersistentBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// Codes that are deferrable in batch mode.
 /// Structural errors (E001, E004, E005) fire immediately.

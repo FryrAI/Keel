@@ -9,11 +9,16 @@ mod profiles;
 const SCHEMA_VERSION: u32 = 5;
 
 /// A persisted circuit-breaker entry:
-/// `(error_code, hash, consecutive_failures, downgraded, provenance_file)`.
+/// `(error_code, hash, consecutive_failures, downgraded, provenance_file,
+/// last_body_hash)`.
+///
+/// `last_body_hash` is the offending node's fingerprint at the last failure —
+/// persisted so the "advance only on a changed fingerprint" rule survives
+/// across processes (each `keel compile` is a fresh process).
 ///
 /// Shared by the SQLite persistence layer and `keel-enforce`'s
 /// `CircuitBreaker::{export_state, import_state}` so the two never drift.
-pub type CircuitBreakerEntry = (String, String, u32, bool, String);
+pub type CircuitBreakerEntry = (String, String, u32, bool, String, String);
 
 /// DDL for the body-hash duplicate index (schema v5).
 ///
@@ -198,6 +203,7 @@ impl SqliteGraphStore {
                 last_failure_at TEXT NOT NULL DEFAULT (datetime('now')),
                 downgraded INTEGER NOT NULL DEFAULT 0,
                 provenance_file TEXT NOT NULL DEFAULT '',
+                last_body_hash TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (error_code, hash)
             );
             ",
@@ -211,6 +217,11 @@ impl SqliteGraphStore {
         // additive column migrations below.
         let _ = self.conn.execute_batch(
             "ALTER TABLE circuit_breaker ADD COLUMN provenance_file TEXT NOT NULL DEFAULT ''",
+        );
+        // Fingerprint column: lets the "count fix attempts, not compiles" rule
+        // survive across processes. Added idempotently for the same reason.
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE circuit_breaker ADD COLUMN last_body_hash TEXT NOT NULL DEFAULT ''",
         );
 
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.

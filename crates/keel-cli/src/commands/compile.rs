@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use keel_enforce::batch::PersistentBatch;
 use keel_output::OutputFormatter;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
@@ -76,9 +77,15 @@ pub fn run(
         engine.suppress(code);
     }
 
-    // Handle batch mode
+    // Handle batch mode. State is persisted to `.keel/batch.json` so it survives
+    // across separate `keel compile` processes — otherwise `--batch-start` sets
+    // state in a per-process engine that is dropped at exit, silently losing
+    // every deferred violation.
     if batch_start {
-        engine.batch_start();
+        if let Err(e) = PersistentBatch::new().save(&keel_dir) {
+            eprintln!("keel compile: failed to start batch: {}", e);
+            return (2, EventMetrics::default());
+        }
         if verbose {
             eprintln!("keel compile: batch mode started");
         }
@@ -86,11 +93,28 @@ pub fn run(
     }
 
     if batch_end {
-        let result = engine.batch_end();
+        let deferred = PersistentBatch::load(&keel_dir)
+            .map(|b| b.deferred)
+            .unwrap_or_default();
+        PersistentBatch::clear(&keel_dir);
+        let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
         let exit = output_result(formatter, &result, strict, verbose);
         let metrics = build_compile_metrics(&result, &[]);
         return (exit, metrics);
     }
+
+    // If a batch is active and not expired, this compile defers its deferrable
+    // violations into the persisted batch rather than firing them now.
+    let active_batch = PersistentBatch::load(&keel_dir);
+    let batch_deferring = active_batch.as_ref().is_some_and(|b| !b.is_expired());
+    if batch_deferring {
+        engine.batch_start();
+    }
+
+    // Whether the user explicitly named the target files (not --changed/--since,
+    // not a bare full-repo compile). Only then is a missing file a hard error;
+    // git-deleted paths under --changed/--since must still skip silently.
+    let explicit_targets = !changed && since.is_none() && !files.is_empty();
 
     // Resolve target files: --changed, --since, explicit list, or all
     let mut effective_files = files;
@@ -141,6 +165,18 @@ pub fn run(
             .collect::<Vec<_>>()
     };
 
+    // An explicitly-named target that does not exist is a hard error, not a
+    // silent exit 0: the agent asked us to validate a specific file and we
+    // could not. (Git-deleted paths under --changed/--since are excluded above.)
+    if explicit_targets {
+        for path in &target_files {
+            if !Path::new(path).exists() {
+                eprintln!("keel compile: file not found: {}", path);
+                return (2, EventMetrics::default());
+            }
+        }
+    }
+
     let mut file_indices: Vec<FileIndex> = Vec::new();
 
     for file_str in &target_files {
@@ -152,7 +188,15 @@ pub fn run(
         let content = match fs::read_to_string(file_path) {
             Ok(c) => c,
             Err(e) => {
-                if verbose {
+                if e.kind() == std::io::ErrorKind::InvalidData {
+                    // Not valid UTF-8: the file was NOT validated. Always tell
+                    // the agent (not just under --verbose) — an unvalidated file
+                    // must never be mistaken for a clean one.
+                    eprintln!(
+                        "keel compile: skipped (not valid UTF-8, NOT validated): {}",
+                        file_str
+                    );
+                } else if verbose {
                     eprintln!("keel compile: skipping {}: {}", file_str, e);
                 }
                 continue;
@@ -234,6 +278,37 @@ pub fn run(
     let mut metrics = build_compile_metrics(&result, &target_files);
     metrics.circuit_breaker_events = cb_events;
 
+    // Batch-mode bookkeeping (ITEM 3): persist this compile's deferred
+    // violations, honoring the documented 60s inactivity auto-expire.
+    if let Some(mut batch) = active_batch {
+        if batch.is_expired() {
+            // Expired: end the batch and fire the accumulated deferred alongside
+            // this compile's own violations (which were NOT deferred, since
+            // `batch_deferring` was false above).
+            PersistentBatch::clear(&keel_dir);
+            if verbose {
+                eprintln!("keel compile: batch expired (60s inactivity); firing deferred");
+            }
+            let mut all = batch.deferred;
+            all.extend(result.errors.iter().cloned());
+            all.extend(result.warnings.iter().cloned());
+            let merged = keel_enforce::engine::EnforcementEngine::result_from_violations(all);
+            let exit = output_result(formatter, &merged, strict, verbose);
+            return (exit, metrics);
+        }
+        // Still batching: stash this compile's deferred, keep the timer warm.
+        batch.deferred.extend(engine.drain_batch_deferred());
+        batch.touch();
+        if let Err(e) = batch.save(&keel_dir) {
+            if verbose {
+                eprintln!("keel compile: failed to persist batch: {}", e);
+            }
+        }
+        // Only immediate (structural) violations fire during a batch.
+        let exit = output_result(formatter, &result, strict, verbose);
+        return (exit, metrics);
+    }
+
     // Compute adoption metrics: resolved/persisted/new vs previous snapshot.
     // This runs on every compile, not just --delta, so telemetry always has the data.
     {
@@ -295,17 +370,17 @@ pub fn run(
         }
     }
 
-    // Check timeout before outputting results
+    // Note (but do not act on) an exceeded time budget. Exceeding the budget
+    // must NOT mask violations as exit 0 — the results were already computed, so
+    // we still output them and return the real exit code. A stale-but-honest
+    // result is far better than a false all-clear.
     if let Some(timeout_ms) = timeout {
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed > timeout_ms {
-            if verbose {
-                eprintln!(
-                    "keel compile: timed out ({}ms > {}ms limit)",
-                    elapsed, timeout_ms
-                );
-            }
-            return (0, metrics); // Don't block the agent
+            eprintln!(
+                "keel compile: exceeded time budget ({}ms > {}ms); results may be from a slow run",
+                elapsed, timeout_ms
+            );
         }
     }
 

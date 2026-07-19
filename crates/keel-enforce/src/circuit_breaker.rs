@@ -27,6 +27,14 @@ pub struct FailureState {
     /// node's hash is no longer among the file's hashes. Empty when unknown (e.g.
     /// state persisted before provenance existed).
     pub file: String,
+    /// Body/signature fingerprint of the offending node the last time this entry
+    /// advanced. The counter counts FIX ATTEMPTS, not compiles: it advances only
+    /// when this fingerprint CHANGES between compiles (a real, still-failing fix
+    /// attempt). A byte-identical recompile leaves it untouched, so passively
+    /// recompiling unfixed code never escalates a genuine ERROR toward
+    /// auto-downgrade. Empty when unknown (first sighting, or state persisted
+    /// before the fingerprint existed).
+    pub last_hash: String,
 }
 
 /// What the circuit breaker recommends for a given failure.
@@ -75,28 +83,47 @@ impl CircuitBreaker {
     }
 
     /// Record a failure and return the recommended action.
-    /// `file_path` is used as fallback identifier when `hash` is empty.
+    ///
+    /// `hash` is the entry's stable identity (`file_path` is used as fallback
+    /// when it is empty). `body_hash` is the offending node's current
+    /// body/signature fingerprint: the counter advances only when it changed
+    /// since the last compile (a fix was attempted and still fails). A
+    /// byte-identical recompile — same `body_hash` — is a no-op, so passively
+    /// recompiling unfixed code never marches a genuine ERROR toward
+    /// auto-downgrade. `file_path` is also recorded as provenance.
     pub fn record_failure(
         &mut self,
         error_code: &str,
         hash: &str,
+        body_hash: &str,
         file_path: &str,
     ) -> BreakerAction {
         let key = Self::make_key(error_code, hash, file_path);
+        let max_failures = self.max_failures;
         let entry = self.state.entry(key).or_insert(FailureState {
             consecutive: 0,
             downgraded: false,
             file: String::new(),
+            last_hash: String::new(),
         });
-        entry.consecutive += 1;
         // Record where the violation currently lives so a compile of that file
         // can clear this entry even if the node is later deleted.
         entry.file = file_path.to_string();
 
-        if entry.consecutive >= self.max_failures {
+        // Advance only on a genuine change: the first sighting (consecutive == 0
+        // — a live entry is always >= 1, so this only matches the fresh insert
+        // above) or a moved fingerprint (a failed fix attempt). An unchanged
+        // fingerprint is a passive recompile and must not escalate.
+        let first_sighting = entry.consecutive == 0;
+        if first_sighting || entry.last_hash != body_hash {
+            entry.consecutive += 1;
+            entry.last_hash = body_hash.to_string();
+        }
+
+        if entry.consecutive >= max_failures {
             entry.downgraded = true;
             BreakerAction::Downgrade
-        } else if entry.consecutive == self.max_failures - 1 {
+        } else if entry.consecutive == max_failures - 1 {
             BreakerAction::WiderContext
         } else {
             BreakerAction::FixHint
@@ -219,7 +246,7 @@ impl CircuitBreaker {
 
     /// Export all circuit breaker state as tuples for persistence.
     /// Returns Vec of (error_code, hash, consecutive_failures, downgraded,
-    /// provenance_file).
+    /// provenance_file, last_body_hash).
     pub fn export_state(&self) -> Vec<keel_core::sqlite::CircuitBreakerEntry> {
         self.state
             .iter()
@@ -230,6 +257,7 @@ impl CircuitBreaker {
                     st.consecutive,
                     st.downgraded,
                     st.file.clone(),
+                    st.last_hash.clone(),
                 )
             })
             .collect()
@@ -237,15 +265,16 @@ impl CircuitBreaker {
 
     /// Import circuit breaker state from persistence.
     /// Each tuple is (error_code, hash, consecutive_failures, downgraded,
-    /// provenance_file).
+    /// provenance_file, last_body_hash).
     pub fn import_state(&mut self, rows: &[keel_core::sqlite::CircuitBreakerEntry]) {
-        for (code, hash, consecutive, downgraded, file) in rows {
+        for (code, hash, consecutive, downgraded, file, last_hash) in rows {
             self.state.insert(
                 (code.clone(), hash.clone()),
                 FailureState {
                     consecutive: *consecutive,
                     downgraded: *downgraded,
                     file: file.clone(),
+                    last_hash: last_hash.clone(),
                 },
             );
         }
@@ -256,29 +285,72 @@ impl CircuitBreaker {
 mod tests {
     use super::*;
 
+    // The breaker counts FIX ATTEMPTS, not compiles: the counter advances only
+    // when the offending node's body/signature fingerprint (`body_hash`) moves
+    // between failures. Escalation tests therefore pass a DIFFERENT `body_hash`
+    // per call (a distinct failed fix attempt); passive-recompile tests pass the
+    // SAME one.
+
     #[test]
     fn test_escalation_sequence() {
         let mut cb = CircuitBreaker::new();
         assert_eq!(
-            cb.record_failure("E001", "abc", "file.rs"),
+            cb.record_failure("E001", "abc", "b1", "file.rs"),
             BreakerAction::FixHint
         );
         assert_eq!(
-            cb.record_failure("E001", "abc", "file.rs"),
+            cb.record_failure("E001", "abc", "b2", "file.rs"),
             BreakerAction::WiderContext
         );
         assert_eq!(
-            cb.record_failure("E001", "abc", "file.rs"),
+            cb.record_failure("E001", "abc", "b3", "file.rs"),
             BreakerAction::Downgrade
         );
         assert!(cb.is_downgraded("E001", "abc", "file.rs"));
     }
 
+    /// Passive recompiles (identical code = identical fingerprint) must NOT
+    /// escalate a genuine ERROR. Before the fix, three byte-identical recompiles
+    /// auto-downgraded it to WARNING — a false all-clear on unfixed code.
+    #[test]
+    fn test_passive_recompile_does_not_escalate() {
+        let mut cb = CircuitBreaker::new();
+        for _ in 0..5 {
+            assert_eq!(
+                cb.record_failure("E002", "abc", "same_body", "file.rs"),
+                BreakerAction::FixHint,
+                "identical recompiles must stay at the first-attempt action"
+            );
+        }
+        assert_eq!(cb.failure_count("E002", "abc", "file.rs"), 1);
+        assert!(!cb.is_downgraded("E002", "abc", "file.rs"));
+    }
+
+    /// Three CHANGED-but-still-failing fix attempts DO escalate to downgrade.
+    #[test]
+    fn test_changed_body_failed_fix_downgrades() {
+        let mut cb = CircuitBreaker::new();
+        assert_eq!(
+            cb.record_failure("E002", "abc", "body_v1", "file.rs"),
+            BreakerAction::FixHint
+        );
+        assert_eq!(
+            cb.record_failure("E002", "abc", "body_v2", "file.rs"),
+            BreakerAction::WiderContext
+        );
+        assert_eq!(
+            cb.record_failure("E002", "abc", "body_v3", "file.rs"),
+            BreakerAction::Downgrade
+        );
+        assert!(cb.is_downgraded("E002", "abc", "file.rs"));
+        assert_eq!(cb.failure_count("E002", "abc", "file.rs"), 3);
+    }
+
     #[test]
     fn test_success_resets() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "abc", "file.rs");
-        cb.record_failure("E001", "abc", "file.rs");
+        cb.record_failure("E001", "abc", "b1", "file.rs");
+        cb.record_failure("E001", "abc", "b2", "file.rs");
         cb.record_success("E001", "abc", "file.rs");
         assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 0);
         assert!(!cb.is_downgraded("E001", "abc", "file.rs"));
@@ -287,8 +359,8 @@ mod tests {
     #[test]
     fn test_independent_keys() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "abc", "file.rs");
-        cb.record_failure("E002", "abc", "file.rs");
+        cb.record_failure("E001", "abc", "b1", "file.rs");
+        cb.record_failure("E002", "abc", "b1", "file.rs");
         assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 1);
         assert_eq!(cb.failure_count("E002", "abc", "file.rs"), 1);
     }
@@ -296,10 +368,11 @@ mod tests {
     #[test]
     fn test_empty_hash_uses_file_path() {
         let mut cb = CircuitBreaker::new();
-        // Empty hash: should key by file_path, so different files get separate counters
-        cb.record_failure("E003", "", "src/foo.py");
-        cb.record_failure("E003", "", "src/foo.py");
-        cb.record_failure("E003", "", "src/bar.py");
+        // Empty hash: should key by file_path, so different files get separate
+        // counters. Distinct body_hashes model two failed fix attempts.
+        cb.record_failure("E003", "", "b1", "src/foo.py");
+        cb.record_failure("E003", "", "b2", "src/foo.py");
+        cb.record_failure("E003", "", "b1", "src/bar.py");
 
         assert_eq!(cb.failure_count("E003", "", "src/foo.py"), 2);
         assert_eq!(cb.failure_count("E003", "", "src/bar.py"), 1);
@@ -310,11 +383,11 @@ mod tests {
     #[test]
     fn test_export_import_roundtrip() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "abc", "file.rs");
-        cb.record_failure("E001", "abc", "file.rs"); // 2 failures
-        cb.record_failure("E002", "def", "file.rs");
-        cb.record_failure("E002", "def", "file.rs");
-        cb.record_failure("E002", "def", "file.rs"); // 3 failures → downgraded
+        cb.record_failure("E001", "abc", "b1", "file.rs");
+        cb.record_failure("E001", "abc", "b2", "file.rs"); // 2 failures
+        cb.record_failure("E002", "def", "b1", "file.rs");
+        cb.record_failure("E002", "def", "b2", "file.rs");
+        cb.record_failure("E002", "def", "b3", "file.rs"); // 3 failures → downgraded
 
         let state = cb.export_state();
         assert_eq!(state.len(), 2);
@@ -326,13 +399,21 @@ mod tests {
         assert!(!cb2.is_downgraded("E001", "abc", "file.rs"));
         assert_eq!(cb2.failure_count("E002", "def", "file.rs"), 3);
         assert!(cb2.is_downgraded("E002", "def", "file.rs"));
+
+        // The fingerprint survives the roundtrip: a passive recompile of the
+        // E001 entry (its last body_hash was "b2") does not advance it.
+        assert_eq!(
+            cb2.record_failure("E001", "abc", "b2", "file.rs"),
+            BreakerAction::WiderContext
+        );
+        assert_eq!(cb2.failure_count("E001", "abc", "file.rs"), 2);
     }
 
     #[test]
     fn test_reset_resolved_clears_stale_entry_not_in_active() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E002", "hash1", "app.py");
-        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "b1", "app.py");
+        cb.record_failure("E002", "hash1", "b2", "app.py");
         assert_eq!(cb.failure_count("E002", "hash1", "app.py"), 2);
 
         // hash1 was in scope (checked this round) but did not fire (not active) => resolved
@@ -347,8 +428,8 @@ mod tests {
     #[test]
     fn test_reset_resolved_leaves_still_active_entry() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E002", "hash1", "app.py");
-        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "b1", "app.py");
+        cb.record_failure("E002", "hash1", "b2", "app.py");
 
         // hash1 is in scope AND still active (still firing) => must NOT be cleared
         let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
@@ -363,8 +444,8 @@ mod tests {
     #[test]
     fn test_reset_resolved_ignores_entries_outside_scope() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E002", "hash1", "app.py");
-        cb.record_failure("E002", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "b1", "app.py");
+        cb.record_failure("E002", "hash1", "b2", "app.py");
 
         // hash1 was not checked this round (not in scope) => leave it alone,
         // since we can't tell whether it's resolved or simply not compiled.
@@ -378,8 +459,8 @@ mod tests {
     #[test]
     fn test_reset_resolved_only_touches_given_codes() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E002", "hash1", "app.py");
-        cb.record_failure("E003", "hash1", "app.py");
+        cb.record_failure("E002", "hash1", "b1", "app.py");
+        cb.record_failure("E003", "hash1", "b1", "app.py");
 
         let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
         let active: HashSet<(String, String)> = HashSet::new();
@@ -393,9 +474,9 @@ mod tests {
     #[test]
     fn test_reset_resolved_lifts_prior_downgrade() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E002", "hash1", "app.py");
-        cb.record_failure("E002", "hash1", "app.py");
-        cb.record_failure("E002", "hash1", "app.py"); // downgraded
+        cb.record_failure("E002", "hash1", "b1", "app.py");
+        cb.record_failure("E002", "hash1", "b2", "app.py");
+        cb.record_failure("E002", "hash1", "b3", "app.py"); // downgraded
         assert!(cb.is_downgraded("E002", "hash1", "app.py"));
 
         let scope: HashSet<String> = ["hash1".to_string()].into_iter().collect();
@@ -405,7 +486,7 @@ mod tests {
         assert!(!cb.is_downgraded("E002", "hash1", "app.py"));
         // Next failure starts a fresh escalation cycle
         assert_eq!(
-            cb.record_failure("E002", "hash1", "app.py"),
+            cb.record_failure("E002", "hash1", "b4", "app.py"),
             BreakerAction::FixHint
         );
     }
@@ -416,11 +497,11 @@ mod tests {
         let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
 
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "hash1", "src/a.rs");
-        cb.record_failure("E001", "hash1", "src/a.rs");
-        cb.record_failure("E005", "hash2", "src/b.rs");
-        cb.record_failure("E005", "hash2", "src/b.rs");
-        cb.record_failure("E005", "hash2", "src/b.rs"); // downgraded
+        cb.record_failure("E001", "hash1", "b1", "src/a.rs");
+        cb.record_failure("E001", "hash1", "b2", "src/a.rs");
+        cb.record_failure("E005", "hash2", "b1", "src/b.rs");
+        cb.record_failure("E005", "hash2", "b2", "src/b.rs");
+        cb.record_failure("E005", "hash2", "b3", "src/b.rs"); // downgraded
 
         // Persist to SQLite
         let state = cb.export_state();
@@ -436,8 +517,8 @@ mod tests {
         assert_eq!(cb2.failure_count("E005", "hash2", "src/b.rs"), 3);
         assert!(cb2.is_downgraded("E005", "hash2", "src/b.rs"));
 
-        // Verify next failure on the restored CB works correctly
-        let action = cb2.record_failure("E001", "hash1", "src/a.rs");
+        // Verify next (changed) failure on the restored CB escalates correctly.
+        let action = cb2.record_failure("E001", "hash1", "b3", "src/a.rs");
         assert_eq!(action, BreakerAction::Downgrade);
         assert!(cb2.is_downgraded("E001", "hash1", "src/a.rs"));
     }
@@ -471,9 +552,9 @@ mod tests {
     #[test]
     fn test_reconcile_clears_downgraded_entry_when_node_deleted() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "hashX", "src/f.rs");
-        cb.record_failure("E001", "hashX", "src/f.rs");
-        cb.record_failure("E001", "hashX", "src/f.rs"); // downgraded
+        cb.record_failure("E001", "hashX", "b1", "src/f.rs");
+        cb.record_failure("E001", "hashX", "b2", "src/f.rs");
+        cb.record_failure("E001", "hashX", "b3", "src/f.rs"); // downgraded
         assert!(cb.is_downgraded("E001", "hashX", "src/f.rs"));
 
         // Recompile src/f.rs with the node deleted: hashX is not among the
@@ -489,7 +570,7 @@ mod tests {
         assert_eq!(cb.failure_count("E001", "hashX", "src/f.rs"), 0);
         assert!(!cb.is_downgraded("E001", "hashX", "src/f.rs"));
         assert_eq!(
-            cb.record_failure("E001", "hashX", "src/f.rs"),
+            cb.record_failure("E001", "hashX", "b1", "src/f.rs"),
             BreakerAction::FixHint,
             "a fresh violation must start as ERROR, not WARNING"
         );
@@ -500,8 +581,8 @@ mod tests {
     #[test]
     fn test_reconcile_provenance_leaves_other_files_entries() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "hashX", "src/other.rs");
-        cb.record_failure("E001", "hashX", "src/other.rs");
+        cb.record_failure("E001", "hashX", "b1", "src/other.rs");
+        cb.record_failure("E001", "hashX", "b2", "src/other.rs");
 
         let none: Vec<Violation> = vec![];
         cb.reconcile_file(
@@ -519,8 +600,8 @@ mod tests {
     #[test]
     fn test_reconcile_provenance_keeps_still_firing_entry() {
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "hashX", "src/f.rs");
-        cb.record_failure("E001", "hashX", "src/f.rs");
+        cb.record_failure("E001", "hashX", "b1", "src/f.rs");
+        cb.record_failure("E001", "hashX", "b2", "src/f.rs");
 
         let still = vec![err_violation("E001", "hashX", "src/f.rs")];
         cb.reconcile_file(
@@ -540,9 +621,9 @@ mod tests {
         let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
 
         let mut cb = CircuitBreaker::new();
-        cb.record_failure("E001", "hashX", "src/f.rs");
-        cb.record_failure("E001", "hashX", "src/f.rs");
-        cb.record_failure("E001", "hashX", "src/f.rs"); // downgraded
+        cb.record_failure("E001", "hashX", "b1", "src/f.rs");
+        cb.record_failure("E001", "hashX", "b2", "src/f.rs");
+        cb.record_failure("E001", "hashX", "b3", "src/f.rs"); // downgraded
         store.save_circuit_breaker(&cb.export_state()).unwrap();
 
         // Fresh process: reload, then compile src/f.rs with the node deleted.

@@ -185,3 +185,85 @@ fn test_compile_batch_accumulates_violations() {
         "batch-end should exit 0 or 1, got {code}"
     );
 }
+
+/// Cross-process batch mode (ITEM 3): `--batch-start`, a violating compile, and
+/// `--batch-end` each run as SEPARATE processes. The deferred violation must
+/// survive to fire at `--batch-end`.
+///
+/// Before batch state was persisted to `.keel/batch.json`, `--batch-start` set
+/// state in a per-process engine that was dropped at exit: the second process
+/// saw no batch, fired E002 immediately, and `--batch-end` had nothing to fire.
+#[test]
+fn test_compile_batch_persists_across_processes() {
+    // A clean file so `map` has a baseline; the violating file is added later so
+    // it is "new" and its E002 stays an ERROR (not a progressive warning).
+    let dir = init_and_map(&[(
+        "src/clean.py",
+        "def clean(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+    )]);
+    let keel = keel_bin();
+
+    // A new file with a missing-type-hint public function → deferrable E002.
+    fs::write(
+        dir.path().join("src/deferred.py"),
+        "def compute(value):\n    return value\n",
+    )
+    .unwrap();
+
+    // Process 1: start the batch.
+    let start = Command::new(&keel)
+        .args(["compile", "--batch-start"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(start.status.success(), "batch-start should exit 0");
+    assert!(
+        dir.path().join(".keel/batch.json").exists(),
+        "batch-start must persist .keel/batch.json"
+    );
+
+    // Process 2: compile the violating file. Its E002 is deferrable, so it is
+    // stashed (not fired): exit 0, empty stdout.
+    let mid = Command::new(&keel)
+        .args(["compile", "src/deferred.py"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let mid_code = mid.status.code().unwrap_or(-1);
+    let mid_stdout = String::from_utf8_lossy(&mid.stdout);
+    assert_eq!(
+        mid_code, 0,
+        "a deferred-only compile must exit 0 (violation stashed), got {mid_code}; stdout: {mid_stdout}"
+    );
+    assert!(
+        mid_stdout.trim().is_empty(),
+        "deferred violations must NOT print during the batch; stdout: {mid_stdout}"
+    );
+    let batch_json =
+        fs::read_to_string(dir.path().join(".keel/batch.json")).expect("batch.json must persist");
+    assert!(
+        batch_json.contains("E002"),
+        "the deferred E002 must be persisted in batch.json: {batch_json}"
+    );
+
+    // Process 3: end the batch — the deferred E002 fires now.
+    let end = Command::new(&keel)
+        .args(["compile", "--batch-end"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let end_code = end.status.code().unwrap_or(-1);
+    let end_stdout = String::from_utf8_lossy(&end.stdout);
+    assert_eq!(
+        end_code, 1,
+        "batch-end must fire the deferred E002 as an error (exit 1), got {end_code}; stdout: {end_stdout}"
+    );
+    assert!(
+        end_stdout.contains("E002"),
+        "batch-end output must include the deferred E002: {end_stdout}"
+    );
+    assert!(
+        !dir.path().join(".keel/batch.json").exists(),
+        "batch-end must clear .keel/batch.json"
+    );
+}

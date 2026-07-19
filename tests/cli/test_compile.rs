@@ -273,3 +273,90 @@ fn test_compile_multiple_files() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// ITEM 4: an explicitly-named target that does not exist must be a hard error
+/// (exit 2 + a clear stderr message), not a silent exit 0 that looks clean.
+#[test]
+fn test_compile_missing_explicit_file_errors() {
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
+
+    let out = Command::new(keel_bin())
+        .args(["compile", "src/does_not_exist.ts"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+
+    let code = out.status.code().unwrap_or(-1);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        code, 2,
+        "missing explicit file must exit 2, got {code}; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("file not found"),
+        "stderr must name the missing file: {stderr}"
+    );
+}
+
+/// ITEM 4 (counterpart): a git-deleted path under --changed must still be
+/// skipped silently — the exit-2 rule is only for the explicit-user-list branch.
+#[test]
+fn test_compile_changed_missing_file_does_not_error() {
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
+    // Delete a tracked file so `--changed` (if it were to see it) references a
+    // path that no longer exists; keel must not exit 2 for that.
+    fs::remove_file(dir.path().join("src/index.ts")).ok();
+
+    let out = Command::new(keel_bin())
+        .args(["compile", "--changed"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile --changed");
+
+    let code = out.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "--changed with a deleted path must not exit 2, got {code}; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// ITEM 5: `--timeout` must never mask violations as exit 0. An unmissable-tight
+/// budget (1ms) is exceeded, but the already-computed violations must still be
+/// reported and the real exit code (1) returned.
+#[test]
+fn test_compile_timeout_still_reports_violations() {
+    let dir = init_and_map_project(&[(
+        "src/clean.py",
+        "def clean(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+    )]);
+    // A new file with a missing-type-hint public function → E002 ERROR.
+    fs::write(
+        dir.path().join("src/bad.py"),
+        "def compute(value):\n    return value\n",
+    )
+    .unwrap();
+
+    let out = Command::new(keel_bin())
+        .args(["compile", "src/bad.py", "--timeout", "1"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile --timeout");
+
+    let code = out.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        code, 1,
+        "--timeout must not mask the E002 violation as exit 0, got {code}; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("E002"),
+        "the violation must still be reported despite the exceeded budget: {stdout}"
+    );
+}
