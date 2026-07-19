@@ -94,6 +94,54 @@ fn main_root_from_worktree(git_file: &Path) -> Option<PathBuf> {
     common_git.parent().map(Path::to_path_buf)
 }
 
+/// Resolve `candidate` against `root` and confine it to the project tree.
+///
+/// Returns the normalized absolute path when it stays under `root`, or `None`
+/// when `candidate` is absolute-outside-root, escapes via `..`, or is a
+/// symlink whose real target lies outside `root`. `root` is assumed already
+/// canonicalized (an existing directory). Non-existent targets pass on the
+/// lexical check alone (they cannot be read anyway).
+///
+/// This is the confinement primitive for every server-side surface that
+/// accepts a path from a client (HTTP compile, MCP skeleton); local CLI
+/// commands deliberately do not confine — the user's own shell is not a
+/// privilege boundary.
+pub fn confine(root: &Path, candidate: &str) -> Option<PathBuf> {
+    let raw = Path::new(candidate);
+    let joined = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        root.join(raw)
+    };
+    let normalized = normalize_lexically(&joined);
+    if !normalized.starts_with(root) {
+        return None;
+    }
+    if normalized.exists() {
+        let real = fs::canonicalize(&normalized).ok()?;
+        if !real.starts_with(root) {
+            return None;
+        }
+    }
+    Some(normalized)
+}
+
+/// Resolve `.` and `..` components without consulting the filesystem, so
+/// non-existent targets still validate deterministically.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 #[path = "paths_tests.rs"]
 mod tests;

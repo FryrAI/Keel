@@ -18,14 +18,15 @@ use crate::types::Violation;
 /// non-atomic `.keel/batch.json` write and the silent parse-error swallow.
 ///
 /// This type stays the seam: the CLI only ever touches
-/// `new`/`load`/`save`/`clear`/`touch`/`is_expired`.
+/// `new`/`load`/`save`/`clear`/`touch`/`is_expired` plus the deferred-queue
+/// methods `defer`/`extend_deferred`/`drain`/`deferred_count`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistentBatch {
     /// Unix seconds when the batch was last touched (start or a deferring
     /// compile). Drives the documented 60s inactivity auto-expire.
-    pub started_at_unix: u64,
+    started_at_unix: u64,
     /// Violations deferred so far across every compile in this batch.
-    pub deferred: Vec<Violation>,
+    deferred: Vec<Violation>,
 }
 
 impl PersistentBatch {
@@ -66,6 +67,26 @@ impl PersistentBatch {
     /// True once the documented 60s inactivity window has elapsed.
     pub fn is_expired(&self) -> bool {
         now_unix().saturating_sub(self.started_at_unix) > BATCH_TIMEOUT.as_secs()
+    }
+
+    /// Add a violation to the deferred queue.
+    pub fn defer(&mut self, violation: Violation) {
+        self.deferred.push(violation);
+    }
+
+    /// Append a batch of violations to the deferred queue.
+    pub fn extend_deferred(&mut self, violations: Vec<Violation>) {
+        self.deferred.extend(violations);
+    }
+
+    /// Consume this batch and return all deferred violations.
+    pub fn drain(self) -> Vec<Violation> {
+        self.deferred
+    }
+
+    /// Number of deferred violations.
+    pub fn deferred_count(&self) -> usize {
+        self.deferred.len()
     }
 }
 
@@ -218,12 +239,12 @@ mod tests {
         );
 
         let mut batch = PersistentBatch::new();
-        batch.deferred.push(e002("deferred type hint"));
+        batch.defer(e002("deferred type hint"));
         batch.save(&store).unwrap();
 
         let loaded = PersistentBatch::load(&store).expect("batch persisted");
-        assert_eq!(loaded.deferred.len(), 1);
-        assert_eq!(loaded.deferred[0].code, "E002");
+        assert_eq!(loaded.deferred_count(), 1);
+        assert_eq!(loaded.clone().drain()[0].code, "E002");
         assert_eq!(loaded.started_at_unix, batch.started_at_unix);
 
         PersistentBatch::clear(&store);

@@ -23,22 +23,26 @@ use keel_parsers::treesitter::detect_language;
 pub enum DiffMode {
     /// Working tree vs a base commit (default base: `HEAD`).
     Since(Option<String>),
+    /// Committed range `<base>..HEAD` (what `keel compile --since` means).
+    Range(String),
     /// Staged (index) changes.
     Staged,
 }
 
-/// Run `git -C dir <args>`, returning stdout only on a successful exit.
-fn run_git(dir: &Path, args: &[&str]) -> Option<String> {
+/// Run `git -C dir <args>`, distinguishing "git could not run at all" (`Err`)
+/// from "git ran and exited non-zero" (`Ok(None)`), so callers that must not
+/// silently treat a missing git as "no changes" can surface it.
+fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<String>, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
         .output()
-        .ok()?;
+        .map_err(|e| format!("failed to run git: {}", e))?;
     if !out.status.success() {
-        return None;
+        return Ok(None);
     }
-    Some(String::from_utf8_lossy(&out.stdout).to_string())
+    Ok(Some(String::from_utf8_lossy(&out.stdout).to_string()))
 }
 
 /// Keep non-empty lines; when `only_supported`, drop paths keel cannot parse
@@ -57,17 +61,39 @@ fn collect_lines(text: &str, only_supported: bool) -> Vec<String> {
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
 /// (it is already the staged diff). A total git failure yields an empty list.
 pub fn changed_files(dir: &Path, mode: &DiffMode, only_supported: bool) -> Vec<String> {
+    changed_files_checked(dir, mode, only_supported).unwrap_or_default()
+}
+
+/// Like [`changed_files`], but a git that cannot run at all is an `Err` instead
+/// of an empty list — for callers (`keel compile --changed/--since`) where
+/// "git is broken" must not silently read as "nothing changed, exit 0".
+pub fn changed_files_checked(
+    dir: &Path,
+    mode: &DiffMode,
+    only_supported: bool,
+) -> Result<Vec<String>, String> {
     let raw = match mode {
-        DiffMode::Staged => run_git(dir, &["diff", "--name-only", "--cached"]),
+        DiffMode::Staged => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+        DiffMode::Range(base) => {
+            let range = format!("{}..HEAD", base);
+            match run_git_checked(dir, &["diff", "--name-only", &range])? {
+                Some(t) => Some(t),
+                // Unresolvable base / no HEAD: fall back to the index.
+                None => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+            }
+        }
         DiffMode::Since(base) => {
             let arg = base.as_deref().unwrap_or("HEAD");
-            run_git(dir, &["diff", "--name-only", arg])
+            match run_git_checked(dir, &["diff", "--name-only", arg])? {
+                Some(t) => Some(t),
                 // Initial commit / unresolvable base: fall back to the index.
-                .or_else(|| run_git(dir, &["diff", "--name-only", "--cached"]))
+                None => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+            }
         }
     };
-    raw.map(|t| collect_lines(&t, only_supported))
-        .unwrap_or_default()
+    Ok(raw
+        .map(|t| collect_lines(&t, only_supported))
+        .unwrap_or_default())
 }
 
 #[cfg(test)]

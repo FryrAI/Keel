@@ -20,11 +20,19 @@ pub(crate) fn handle_skeleton(root: &Path, params: Option<Value>) -> Result<Valu
     let docs = param_bool(&params, "docs", false);
     let private = param_bool(&params, "private", false);
 
-    let result = keel_enforce::skeleton::build_skeleton_from_path(root, &file, private, docs)
+    // Server edge: the file param comes from a client, so confine it to the
+    // project root (lexical + symlink-resolved) before touching the filesystem.
+    let confined = keel_core::paths::confine(root, &file).ok_or_else(|| JsonRpcError {
+        code: -32602,
+        message: format!("file outside project root: {}", file),
+    })?;
+    let confined = confined.to_string_lossy().to_string();
+
+    let result = keel_enforce::skeleton::build_skeleton_from_path(root, &confined, private, docs)
         .map_err(|message| JsonRpcError {
-            code: -32602,
-            message,
-        })?;
+        code: -32602,
+        message,
+    })?;
 
     serde_json::to_value(result).map_err(internal_err)
 }

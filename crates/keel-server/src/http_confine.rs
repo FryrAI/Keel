@@ -8,7 +8,7 @@
 //! so a symlink inside the root pointing outside it cannot smuggle external
 //! files past the lexical check.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// Resolve `candidate` against `root` and confine it to the project tree.
 ///
@@ -18,44 +18,7 @@ use std::path::{Component, Path, PathBuf};
 /// canonicalized (an existing directory). Non-existent targets pass on the
 /// lexical check alone (they cannot be read anyway).
 pub(crate) fn confine(root: &Path, candidate: &str) -> Option<PathBuf> {
-    let raw = Path::new(candidate);
-    let joined = if raw.is_absolute() {
-        raw.to_path_buf()
-    } else {
-        root.join(raw)
-    };
-    let normalized = normalize_lexically(&joined);
-    if !normalized.starts_with(root) {
-        return None;
-    }
-    // Symlink guard: if the target exists, its canonical (symlink-resolved)
-    // form must also live under the root.
-    if normalized.exists() {
-        let real = std::fs::canonicalize(&normalized).ok()?;
-        if !real.starts_with(root) {
-            return None;
-        }
-    }
-    Some(normalized)
-}
-
-/// Resolve `.` and `..` components without consulting the filesystem.
-///
-/// A leading `..` that would climb above the path root is simply dropped, so an
-/// escaping candidate normalizes to something outside `root` and fails the
-/// `starts_with` check in [`confine`] rather than silently resolving.
-fn normalize_lexically(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for comp in path.components() {
-        match comp {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
+    keel_core::paths::confine(root, candidate)
 }
 
 #[cfg(test)]

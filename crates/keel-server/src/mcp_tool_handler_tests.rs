@@ -416,13 +416,18 @@ fn test_skeleton_mcp_matches_cli() {
          function priv_helper(): void {}\n",
     )
     .unwrap();
-    let abs = file.to_string_lossy().to_string();
+    let _abs = file.to_string_lossy().to_string();
 
     // CLI path: JsonFormatter emits `serde_json::to_string_pretty(&SkeletonResult)`.
-    let cwd = std::env::current_dir().unwrap();
+    let root_for_expected = std::fs::canonicalize(dir.path()).unwrap();
     let expected = keel_enforce::skeleton::build_skeleton(
-        &cwd,
-        std::path::Path::new(&abs),
+        &root_for_expected,
+        std::path::Path::new(
+            &std::fs::canonicalize(&file)
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+        ),
         &std::fs::read_to_string(&file).unwrap(),
         false,
         false,
@@ -431,10 +436,14 @@ fn test_skeleton_mcp_matches_cli() {
     let expected_value = serde_json::to_value(&expected).unwrap();
 
     let store = test_store();
-    let params = serde_json::json!({ "file": abs });
-    let resp = parse_response(&process_line(
+    // The MCP edge confines the file param to the served root, so anchor the
+    // request at the temp dir and pass the file relative to it.
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let params = serde_json::json!({ "file": "sample.ts" });
+    let resp = parse_response(&crate::mcp::process_line_with_root(
         &store,
         &test_engine(),
+        &root,
         &rpc("keel/skeleton", Some(params)),
     ));
 

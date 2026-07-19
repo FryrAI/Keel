@@ -26,7 +26,8 @@ fn base62_encode(mut value: u64) -> String {
 /// hash = base62(xxhash64(canonical_signature + body_normalized + docstring))
 ///
 /// - `canonical_signature`: normalized function declaration (name, params with types, return type)
-/// - `body_normalized`: AST-based normalized function body (whitespace/comments stripped)
+/// - `body_normalized`: lexically normalized function body (comments stripped,
+///   whitespace collapsed, string contents preserved — see [`normalize_body_for_hash`])
 /// - `docstring`: the docstring content, or empty string if none
 pub fn compute_hash(canonical_signature: &str, body_normalized: &str, docstring: &str) -> String {
     let mut input = String::with_capacity(

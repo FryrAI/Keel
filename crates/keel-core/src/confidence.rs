@@ -18,10 +18,6 @@ pub const SAME_FILE_CALL: f64 = 0.95;
 /// its own. Error-tier: a confident structural edge.
 pub const CROSS_FILE_HEURISTIC: f64 = 0.80;
 
-/// The last-resort bare-name graph lookup in the compile sync: the callee's
-/// final segment matched a single unambiguous graph node. Error-tier.
-pub const BARE_NAME_FALLBACK: f64 = 0.80;
-
 /// A resolved BAML boundary call edge. Deliberately warning-tier: BAML
 /// resolution is a name-match heuristic across a language boundary, so its
 /// edges exist to make the surface visible, never to hard-error a caller.

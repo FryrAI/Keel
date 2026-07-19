@@ -84,7 +84,7 @@ pub fn run(
 
     if batch_end {
         let deferred = PersistentBatch::load(&store)
-            .map(|b| b.deferred)
+            .map(|b| b.drain())
             .unwrap_or_default();
         PersistentBatch::clear(&store);
         let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
@@ -309,7 +309,7 @@ pub fn run(
             if verbose {
                 eprintln!("keel compile: batch expired (60s inactivity); firing deferred");
             }
-            let mut all = batch.deferred;
+            let mut all = batch.clone().drain();
             all.extend(result.errors.iter().cloned());
             all.extend(result.warnings.iter().cloned());
             let merged = keel_enforce::engine::EnforcementEngine::result_from_violations(all);
@@ -317,7 +317,7 @@ pub fn run(
             return (exit, metrics);
         }
         // Still batching: stash this compile's deferred, keep the timer warm.
-        batch.deferred.extend(engine.drain_batch_deferred());
+        batch.extend_deferred(engine.drain_batch_deferred());
         batch.touch();
         if let Some(ps) = post_store.as_ref() {
             if let Err(e) = batch.save(ps) {
@@ -412,39 +412,14 @@ pub fn run(
 
 /// Get files changed according to git diff.
 fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
-    let range = since.as_ref().map(|c| format!("{}..HEAD", c));
-    let args: Vec<&str> = match &range {
-        Some(r) => vec!["diff", "--name-only", r.as_str()],
-        None => vec!["diff", "--name-only", "HEAD"],
+    let cwd = std::env::current_dir().map_err(|e| format!("failed to get cwd: {}", e))?;
+    let mode = match since {
+        // `--since <commit>` means the committed range `<commit>..HEAD`.
+        Some(base) => keel_enforce::gitdiff::DiffMode::Range(base.clone()),
+        // `--changed` means working tree vs HEAD.
+        None => keel_enforce::gitdiff::DiffMode::Since(None),
     };
-
-    let output = std::process::Command::new("git")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("failed to run git: {}", e))?;
-
-    if !output.status.success() {
-        // Fallback for initial commits (no HEAD yet)
-        let fallback = std::process::Command::new("git")
-            .args(["diff", "--name-only", "--cached"])
-            .output()
-            .map_err(|e| format!("git fallback failed: {}", e))?;
-        let text = String::from_utf8_lossy(&fallback.stdout);
-        return Ok(filter_supported_files(&text));
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    Ok(filter_supported_files(&text))
-}
-
-/// Filter file paths to only supported languages, per the canonical
-/// extension table in `keel_parsers::treesitter::detect_language`.
-fn filter_supported_files(text: &str) -> Vec<String> {
-    text.lines()
-        .filter(|line| !line.is_empty())
-        .filter(|line| detect_language(Path::new(line)).is_some())
-        .map(|s| s.to_string())
-        .collect()
+    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, true)
 }
 
 fn output_result(

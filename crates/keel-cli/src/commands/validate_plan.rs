@@ -6,8 +6,9 @@ use std::io::Read;
 use keel_enforce::validate_plan::validate_plan;
 use keel_output::OutputFormatter;
 
-/// Run `keel validate-plan <file|->`. Always exits 0 — the report is the
-/// product, not a gate.
+/// Run `keel validate-plan <file|->`. Detected risk never gates: an analyzable
+/// plan always exits 0 — the report is the product. Internal errors (no
+/// initialized graph, unreadable plan input) still exit 2 per the CLI contract.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, plan: String) -> i32 {
     let (_cwd, store) = match super::open_store("validate-plan") {
         Ok(x) => x,

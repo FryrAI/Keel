@@ -74,13 +74,13 @@ pub fn check_broken_callers_with_cache(
         // both files, so the caller was likely updated to match the new signature.
         let confident_callers: Vec<_> = caller_edges
             .iter()
-            .filter(|e| e.confidence >= 0.80)
+            .filter(|e| e.confidence >= keel_core::confidence::ERROR_TIER_THRESHOLD)
             .filter_map(|e| store.get_node_by_id(e.source_id))
             .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
         let uncertain_callers: Vec<_> = caller_edges
             .iter()
-            .filter(|e| e.confidence < 0.80)
+            .filter(|e| e.confidence < keel_core::confidence::ERROR_TIER_THRESHOLD)
             .filter_map(|e| store.get_node_by_id(e.source_id))
             .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
@@ -139,7 +139,7 @@ pub fn check_broken_callers_with_cache(
                 .collect();
             let min_confidence = caller_edges
                 .iter()
-                .filter(|e| e.confidence < 0.80)
+                .filter(|e| e.confidence < keel_core::confidence::ERROR_TIER_THRESHOLD)
                 .map(|e| e.confidence)
                 .fold(1.0f64, f64::min);
             violations.push(Violation {

@@ -93,3 +93,71 @@ fn test_passive_recompiles_never_downgrade_then_reset_on_fix() {
         "E002 should re-fire as a fresh ERROR after reset"
     );
 }
+
+/// E004/E005-shaped violations have no definition at (file, line) — E004
+/// points at a removed node's old line, E005 at a call site keyed by the
+/// callee's hash. Their breaker fingerprint must fall back to the WHOLE-FILE
+/// fingerprint so edits count as fix attempts; falling back to the violation's
+/// own static hash froze the counter at one strike forever.
+#[test]
+fn test_e004_breaker_advances_on_file_edits_via_file_fingerprint() {
+    use std::collections::HashMap;
+
+    let store = keel_core::sqlite::SqliteGraphStore::in_memory().unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let v = || Violation {
+        code: "E004".to_string(),
+        severity: "ERROR".to_string(),
+        category: "function_removed".to_string(),
+        message: "function `gone` was removed".to_string(),
+        file: "src/lib.rs".to_string(),
+        line: 40, // the REMOVED node's old line — nothing is defined here now
+        hash: "removedhash".to_string(),
+        confidence: 0.95,
+        resolution_tier: "tree-sitter".to_string(),
+        fix_hint: Some("restore or update callers".to_string()),
+        suppressed: false,
+        suppress_hint: None,
+        affected: vec![],
+        suggested_module: None,
+        existing: None,
+    };
+    let empty: HashMap<(String, u32), String> = HashMap::new();
+
+    // Attempt 1: first sighting.
+    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-1");
+    assert_eq!(out[0].severity, "ERROR");
+
+    // Passive recompile (same file fingerprint): must NOT advance.
+    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-1");
+    assert_eq!(out[0].severity, "ERROR");
+    assert!(
+        !out[0]
+            .fix_hint
+            .as_deref()
+            .unwrap_or("")
+            .contains("2nd attempt"),
+        "passive recompile must not count as a fix attempt"
+    );
+
+    // Edit the file (fingerprint changes) with the violation still firing:
+    // that IS a failed fix attempt — 2nd strike.
+    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-2");
+    assert!(
+        out[0]
+            .fix_hint
+            .as_deref()
+            .unwrap_or("")
+            .contains("2nd attempt"),
+        "an edit that leaves E004 firing must advance the breaker, got: {:?}",
+        out[0].fix_hint
+    );
+
+    // Third distinct edit: auto-downgrade.
+    let out = engine.apply_circuit_breaker(vec![v()], &empty, "file-fp-3");
+    assert_eq!(
+        out[0].severity, "WARNING",
+        "third failed attempt must auto-downgrade E004"
+    );
+}

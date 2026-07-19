@@ -135,9 +135,7 @@ impl RealTyClient {
         };
 
         if !status.success() {
-            let stderr_text = stderr_rx
-                .and_then(|rx| rx.recv().ok())
-                .unwrap_or_default();
+            let stderr_text = stderr_rx.and_then(|rx| rx.recv().ok()).unwrap_or_default();
             let detail = stderr_text.trim();
             return Err(err(if detail.is_empty() {
                 format!("ty exited with status {status}")

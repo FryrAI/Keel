@@ -293,8 +293,8 @@ fn is_ident_part(b: u8) -> bool {
 
 /// Byte ranges of every `<style>` body — the CSS analogue of
 /// [`script_regions`], minus the `<svelte:head>` handling (component styles
-/// never live there). Blanked before template scanning so CSS `{ }` blocks are
-/// not mistaken for Svelte expressions.
+/// never live there). The template scan jumps over these ranges in place so
+/// CSS `{ }` blocks are not mistaken for Svelte expressions.
 fn style_regions(bytes: &[u8]) -> Vec<(usize, usize)> {
     let mut regions = Vec::new();
     let mut i = 0usize;

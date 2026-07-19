@@ -25,7 +25,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use keel_core::hash::{compute_hash, compute_hash_disambiguated};
+use keel_core::hash::compute_hash;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
@@ -149,6 +149,15 @@ pub fn sync_compiled_files(
     let mut node_changes: Vec<NodeChange> = Vec::new();
     let mut edge_changes: Vec<EdgeChange> = Vec::new();
     let mut node_tiers: HashMap<u64, String> = HashMap::new();
+    // Hashes assigned to NEW nodes earlier in this same batch (mirrors the map
+    // pass's assigned-hash set): two identical new defs in one multi-file
+    // compile must not share a hash, or the second silently overwrites the
+    // first's row and its edges dangle.
+    let mut assigned_hashes: HashSet<String> = HashSet::new();
+    // Edge prunes are deferred to the write phase: pruning during the read
+    // phase is a committed DELETE, so a later node-write failure would leave
+    // the file's outgoing edges destroyed with nothing re-added.
+    let mut files_to_prune: Vec<String> = Vec::new();
 
     // Files in this compile batch: a vanished definition with callers only in
     // these files was fixed in the same pass, so its node may be pruned. One
@@ -172,6 +181,8 @@ pub fn sync_compiled_files(
                 &mut node_changes,
                 &mut edge_changes,
                 &mut node_tiers,
+                &mut assigned_hashes,
+                &mut files_to_prune,
             );
         }
     }
@@ -185,6 +196,11 @@ pub fn sync_compiled_files(
                 eprintln!("keel compile: graph sync (nodes) failed: {}", e);
             }
             return;
+        }
+    }
+    for rel_path in &files_to_prune {
+        if let Err(e) = store.prune_call_edges_from_file(rel_path) {
+            let _ = e; // best-effort; fresh edges for this file are added next
         }
     }
     if !edge_changes.is_empty() {
@@ -212,6 +228,8 @@ fn sync_one_file(
     node_changes: &mut Vec<NodeChange>,
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
+    assigned_hashes: &mut HashSet<String>,
+    files_to_prune: &mut Vec<String>,
 ) {
     let store = base.store;
     let rel_path = &file.file_path;
@@ -247,7 +265,13 @@ fn sync_one_file(
         }
         let id = *next_id;
         *next_id += 1;
-        let hash = node_hash_for(store, def, rel_path);
+        let mut hash = node_hash_for(store, def, rel_path);
+        if !assigned_hashes.insert(hash.clone()) {
+            // Same-batch collision: an identical new def in another compiled
+            // file already claimed this hash; disambiguate by file path.
+            hash = def.hash_disambiguated(rel_path);
+            assigned_hashes.insert(hash.clone());
+        }
         node_changes.push(NodeChange::Add(definition_node(
             id, hash, def, rel_path, module_id,
         )));
@@ -283,11 +307,10 @@ fn sync_one_file(
         local.remove(&node.name);
     }
 
-    // Re-resolve this file's outgoing call edges: prune the stale set, then add
-    // freshly-resolved ones so E001 (a later compile) sees current callers.
-    if let Err(e) = store.prune_call_edges_from_file(rel_path) {
-        let _ = e; // best-effort; stale edges are re-added below regardless
-    }
+    // Re-resolve this file's outgoing call edges: the stale set is pruned in
+    // the WRITE phase (after node writes succeed), then the fresh ones below
+    // are added — so a failed node write can never leave the file edge-less.
+    files_to_prune.push(rel_path.clone());
     resolve_outgoing_edges(
         base,
         cwd,
@@ -493,5 +516,84 @@ fn definition_node(
         previous_hashes: vec![],
         module_id,
         package: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keel_core::types::EdgeDirection;
+
+    fn def(name: &str, file: &str) -> Definition {
+        Definition {
+            name: name.to_string(),
+            kind: NodeKind::Function,
+            signature: format!("fn {}()", name),
+            file_path: file.to_string(),
+            line_start: 1,
+            line_end: 3,
+            docstring: None,
+            is_public: true,
+            type_hints_present: true,
+            body_text: "{ return 42; }".to_string(),
+            in_test_context: false,
+        }
+    }
+
+    fn index(file: &str, defs: Vec<Definition>) -> FileIndex {
+        FileIndex {
+            file_path: file.to_string(),
+            content_hash: 1,
+            definitions: defs,
+            references: vec![],
+            imports: vec![],
+            external_endpoints: vec![],
+            parse_duration_us: 0,
+        }
+    }
+
+    /// Two files adding IDENTICAL new functions in one multi-file compile must
+    /// not share a hash: without the in-batch assigned-hash guard, the second
+    /// node silently overwrote the first's row and its edges dangled.
+    #[test]
+    fn same_batch_identical_defs_get_distinct_hashes() {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        let resolvers = ResolverSet {
+            ts: None,
+            py: None,
+            go: None,
+            rs: None,
+        };
+
+        let files = vec![
+            index("src/a.rs", vec![def("twin", "src/a.rs")]),
+            index("src/b.rs", vec![def("twin", "src/b.rs")]),
+        ];
+        sync_compiled_files(&mut store, &cwd, &files, &resolvers, false);
+
+        let a_nodes: Vec<_> = store
+            .get_nodes_in_file("src/a.rs")
+            .into_iter()
+            .filter(|n| n.kind == NodeKind::Function)
+            .collect();
+        let b_nodes: Vec<_> = store
+            .get_nodes_in_file("src/b.rs")
+            .into_iter()
+            .filter(|n| n.kind == NodeKind::Function)
+            .collect();
+        assert_eq!(a_nodes.len(), 1, "first file's node must survive");
+        assert_eq!(b_nodes.len(), 1, "second file's node must be inserted");
+        assert_ne!(
+            a_nodes[0].hash, b_nodes[0].hash,
+            "identical same-batch defs must get disambiguated hashes"
+        );
+        // Both files' Contains edges resolve to live nodes (nothing dangles).
+        for n in a_nodes.iter().chain(b_nodes.iter()) {
+            assert!(
+                !store.get_edges(n.id, EdgeDirection::Incoming).is_empty(),
+                "each node keeps its module Contains edge"
+            );
+        }
     }
 }

@@ -183,7 +183,19 @@ impl EnforcementEngine {
                 .zip(&def_hashes)
                 .map(|(d, (plain, _))| ((file.file_path.clone(), d.line_start), plain.clone()))
                 .collect();
-            file_violations = self.apply_circuit_breaker(file_violations, &fresh_hashes);
+            // Whole-file fingerprint for violations with no definition at
+            // (file, line): E004 points at a REMOVED node's old line and E005
+            // at a call site keyed by the callee's hash, so the per-def lookup
+            // can never match them. Falling back to the violation's own static
+            // hash froze their breaker counter at one strike — any edit to the
+            // compiled file must count as a fix attempt instead.
+            let file_fingerprint: String = def_hashes
+                .iter()
+                .map(|(plain, _)| plain.as_str())
+                .collect::<Vec<_>>()
+                .join("|");
+            file_violations =
+                self.apply_circuit_breaker(file_violations, &fresh_hashes, &file_fingerprint);
 
             // Apply suppressions
             file_violations = file_violations
@@ -456,14 +468,26 @@ impl EnforcementEngine {
         &mut self,
         violations: Vec<Violation>,
         fresh_hashes: &HashMap<(String, u32), String>,
+        file_fingerprint: &str,
     ) -> Vec<Violation> {
         violations
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
-                    let body_hash = fresh_hashes
+                    // Per-def fingerprint when a definition sits at (file,
+                    // line); otherwise (E004 removed node, E005 call site) the
+                    // whole-file fingerprint, so the counter advances on any
+                    // edit to the file rather than freezing on the violation's
+                    // own static hash.
+                    let fallback = if file_fingerprint.is_empty() {
+                        &v.hash
+                    } else {
+                        file_fingerprint
+                    };
+                    let body_hash: &str = fresh_hashes
                         .get(&(v.file.clone(), v.line))
-                        .unwrap_or(&v.hash);
+                        .map(String::as_str)
+                        .unwrap_or(fallback);
                     let action = self
                         .circuit_breaker
                         .record_failure(&v.code, &v.hash, body_hash, &v.file);

@@ -18,6 +18,10 @@ const EXPECTED_COMMANDS: &[&str] = &[
     "keel analyze <file>",
     "keel audit",
     "keel context <file>",
+    "keel skeleton <file>",
+    "keel focus <hash|file>",
+    "keel checkpoint",
+    "keel validate-plan <file|->",
 ];
 
 /// Every MCP tool that must appear in each template's MCP Tools section,
@@ -35,6 +39,10 @@ const EXPECTED_MCP_TOOLS: &[&str] = &[
     "keel/analyze",
     "keel/audit",
     "keel/context",
+    "keel/skeleton",
+    "keel/focus",
+    "keel/checkpoint",
+    "keel/validate-plan",
 ];
 
 /// Every instruction template composed from `templates/shared/core.md` (see the

@@ -2,7 +2,8 @@ use rusqlite::{params, Connection};
 
 use crate::types::GraphError;
 
-/// Module-profile persistence, split out to keep this file under 400 lines.
+/// Module-profile persistence, split out to keep this file well under the
+/// 800-line budget.
 #[path = "sqlite_profiles.rs"]
 mod profiles;
 
