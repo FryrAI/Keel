@@ -45,6 +45,16 @@ impl PyResolver {
         }
     }
 
+    /// Creates a `PyResolver`, auto-detecting a `ty` subprocess on PATH for the
+    /// documented Tier-2 enhancer. Falls back to heuristics-only when `ty` is
+    /// not installed, so callers never need to branch on availability.
+    pub fn detect() -> Self {
+        match ty::RealTyClient::detect() {
+            Some(client) => Self::with_ty(Box::new(client)),
+            None => Self::new(),
+        }
+    }
+
     /// Returns whether a ty subprocess client is configured and available.
     pub fn has_ty(&self) -> bool {
         self.ty_client.as_ref().is_some_and(|c| c.is_available())
@@ -202,7 +212,44 @@ impl LanguageResolver for PyResolver {
             }
         }
 
-        None
+        drop(cache);
+
+        // Tier 2 (ty): the documented Python enhancer. When a `ty` subprocess
+        // is available, ask it to type-check the caller and use any definition
+        // it reports for the callee. Failure/absence is isolated — resolution
+        // simply falls through to the heuristic result (None).
+        self.resolve_with_ty(call_site)
+    }
+}
+
+impl PyResolver {
+    /// Resolve a call site through the `ty` subprocess (Tier 2), if configured.
+    ///
+    /// Returns `None` when ty is absent, times out, errors, or reports no
+    /// definition matching the callee — the caller then keeps the heuristic
+    /// (unresolved) result.
+    fn resolve_with_ty(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
+        let client = self.ty_client.as_ref()?;
+        if !client.is_available() {
+            return None;
+        }
+        let caller = PathBuf::from(&call_site.file_path);
+        let bare = call_site
+            .callee_name
+            .rsplit(['.', ':'])
+            .next()
+            .unwrap_or(&call_site.callee_name);
+        let result = client.check_file(&caller).ok()?;
+        let def = result
+            .definitions
+            .iter()
+            .find(|d| d.name == bare || d.name == call_site.callee_name)?;
+        Some(ResolvedEdge {
+            target_file: def.file_path.clone(),
+            target_name: def.name.clone(),
+            confidence: 0.90,
+            resolution_tier: "tier2_ty".into(),
+        })
     }
 }
 

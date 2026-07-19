@@ -56,7 +56,7 @@ impl FileParser {
                 .get_or_insert_with(|| TsResolver::with_project_root(&self.root)),
             "python" => self
                 .py
-                .get_or_insert_with(keel_parsers::python::PyResolver::new),
+                .get_or_insert_with(keel_parsers::python::PyResolver::detect),
             "go" => self
                 .go
                 .get_or_insert_with(keel_parsers::go::GoResolver::new),
