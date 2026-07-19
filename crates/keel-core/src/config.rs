@@ -25,8 +25,6 @@ pub struct KeelConfig {
     #[serde(default)]
     pub telemetry: TelemetryConfig,
     #[serde(default)]
-    pub naming_conventions: NamingConventionsConfig,
-    #[serde(default)]
     pub monorepo: MonorepoConfig,
     #[serde(default)]
     pub tier3: Tier3Config,
@@ -74,15 +72,6 @@ impl TelemetryConfig {
             .as_deref()
             .unwrap_or("https://keel.engineer/api/telemetry")
     }
-}
-
-/// Naming convention configuration — stub for future online UI.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct NamingConventionsConfig {
-    #[serde(default)]
-    pub style: Option<String>,
-    #[serde(default)]
-    pub prefixes: Vec<String>,
 }
 
 /// Monorepo detection and cross-package configuration.
@@ -218,7 +207,6 @@ impl Default for KeelConfig {
             ignore_patterns: vec![],
             tier: Tier::default(),
             telemetry: TelemetryConfig::default(),
-            naming_conventions: NamingConventionsConfig::default(),
             monorepo: MonorepoConfig::default(),
             tier3: Tier3Config::default(),
             telemetry_id: None,
