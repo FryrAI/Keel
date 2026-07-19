@@ -300,6 +300,68 @@ fn test_map_cached_languages_match_fresh_map() {
 }
 
 #[test]
+/// `keel map --cached` must report the same node/edge/function/class counts
+/// as a fresh `keel map` (issue #40). Each file now emits a single path-named
+/// module node (the duplicate resolver-emitted module def was removed in
+/// fix/graph-attribution), and the cached reconstruction keeps a defensive
+/// per-id dedup — together they guarantee cached and fresh summaries agree.
+fn test_map_cached_counts_match_fresh_map() {
+    let dir = init_ts_project(3, 2);
+    let src = dir.path().join("src");
+    fs::write(
+        src.join("widget.ts"),
+        "export class Widget {\n  render(): string {\n    return \"widget\";\n  }\n  update(x: number): number {\n    return x + 1;\n  }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        src.join("thing.py"),
+        "class Thing:\n    def method_one(self, x: int) -> int:\n        return x + 1\n\n    def method_two(self, x: int) -> int:\n        return x * 2\n\n\ndef top_level_fn(x: int) -> int:\n    \"\"\"Docstring.\"\"\"\n    return x + 1\n",
+    )
+    .unwrap();
+    let keel = keel_bin();
+
+    let summary = |raw: &[u8]| -> serde_json::Value {
+        let v: serde_json::Value = serde_json::from_slice(raw).expect("map output is JSON");
+        v["summary"].clone()
+    };
+
+    let fresh = Command::new(&keel)
+        .args(["map", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map");
+    assert!(fresh.status.success());
+
+    let cached = Command::new(&keel)
+        .args(["map", "--cached", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --cached");
+    assert!(cached.status.success());
+
+    let fresh_summary = summary(&fresh.stdout);
+    let cached_summary = summary(&cached.stdout);
+
+    for field in [
+        "total_nodes",
+        "total_edges",
+        "modules",
+        "functions",
+        "classes",
+    ] {
+        assert_eq!(
+            fresh_summary[field], cached_summary[field],
+            "cached and fresh map must agree on summary.{field}"
+        );
+    }
+
+    // Sanity check: the fixture genuinely has classes and multiple functions,
+    // so a regression that zeroed everything out wouldn't slip through.
+    assert!(fresh_summary["classes"].as_u64().unwrap() > 0);
+    assert!(fresh_summary["functions"].as_u64().unwrap() > 1);
+}
+
+#[test]
 /// `keel map` should handle file deletions (remove orphaned nodes).
 fn test_map_handles_deleted_files() {
     let dir = init_ts_project(5, 2);
@@ -336,4 +398,99 @@ fn test_map_handles_deleted_files() {
     // We can't easily assert the db got smaller due to SQLite page reuse,
     // but at minimum the map should succeed without error
     let _ = db_before; // used for documentation, not assertion
+}
+
+/// Set up a Python project with a documented module + public API for semantic tests.
+fn init_documented_py_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("calc.py"),
+        concat!(
+            "\"\"\"Arithmetic helpers for the demo.\"\"\"\n\n",
+            "def add(a: int, b: int) -> int:\n",
+            "    \"\"\"Add two integers.\"\"\"\n",
+            "    return a + b\n\n\n",
+            "class Calculator:\n",
+            "    \"\"\"A stateful calculator.\"\"\"\n",
+            "    def total(self) -> int:\n",
+            "        return 0\n",
+        ),
+    )
+    .unwrap();
+    let keel = keel_bin();
+    let out = Command::new(&keel)
+        .arg("init")
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel init");
+    assert!(out.status.success());
+    dir
+}
+
+#[test]
+/// `keel map --semantic --json` emits per-module summary, public API, and when_to_use.
+fn test_map_semantic_json_shape() {
+    let dir = init_documented_py_project();
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["map", "--semantic", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --semantic --json");
+
+    assert!(
+        output.status.success(),
+        "map --semantic failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("semantic map output is JSON");
+    assert_eq!(json["command"], "map");
+
+    let modules = json["modules"].as_array().expect("modules array");
+    let calc = modules
+        .iter()
+        .find(|m| m["path"].as_str().unwrap_or("").contains("calc.py"))
+        .expect("should have calc.py module");
+
+    // Summary is drawn from a docstring (module or first public symbol).
+    assert!(
+        !calc["summary"].as_str().unwrap_or("").is_empty(),
+        "documented module should have a non-empty summary: {calc}"
+    );
+    // Public API lists.
+    let fns = calc["public_functions"].as_array().unwrap();
+    assert!(fns.iter().any(|f| f["name"] == "add"));
+    assert!(fns
+        .iter()
+        .all(|f| f["hash"].is_string() && f["signature"].is_string()));
+    let types = calc["public_types"].as_array().unwrap();
+    assert!(types.iter().any(|t| t["name"] == "Calculator"));
+    // Deterministic when_to_use.
+    assert!(calc["when_to_use"].as_str().unwrap().contains("exports:"));
+}
+
+#[test]
+/// `keel map --semantic --llm` emits the compact SEMANTIC/MODULE format.
+fn test_map_semantic_llm_format() {
+    let dir = init_documented_py_project();
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["map", "--semantic", "--llm"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel map --semantic --llm");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SEMANTIC modules="),
+        "missing SEMANTIC header: {stdout}"
+    );
+    assert!(stdout.contains("MODULE "), "missing MODULE line: {stdout}");
+    assert!(stdout.contains("when:"), "missing when: line: {stdout}");
 }

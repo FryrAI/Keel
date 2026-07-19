@@ -1,5 +1,6 @@
 use keel_core::store::GraphStore;
-use keel_core::types::{EdgeDirection, EdgeKind};
+use keel_core::types::GraphNode;
+use keel_enforce::types::{FileSymbol, FileSymbols};
 use keel_output::OutputFormatter;
 
 use super::input_detect;
@@ -10,41 +11,22 @@ pub fn run(
     verbose: bool,
     query: String,
     depth: u32,
-    _suggest_placement: bool,
     name_mode: bool,
     context_lines: Option<u32>,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel discover: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
-    let keel_dir = cwd.join(".keel");
-    if !keel_dir.exists() {
-        eprintln!("keel discover: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel discover: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (cwd, store) = match super::open_store("discover") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
     // Name lookup mode: --name flag
     if name_mode {
-        return discover_by_name(&store, &query, verbose);
+        return discover_by_name(formatter, &store, &query, verbose);
     }
 
     // File path mode: auto-detected
     if input_detect::looks_like_file_path(&query) {
-        return discover_file(&store, &query, &cwd, verbose);
+        return discover_file(formatter, &store, &query, &cwd, verbose);
     }
 
     // Hash mode: existing behavior
@@ -115,18 +97,29 @@ fn read_body_context(
     })
 }
 
-/// List all symbols in a file with their hashes.
-fn discover_file(store: &dyn GraphStore, query: &str, cwd: &std::path::Path, verbose: bool) -> i32 {
-    // Normalize the file path to be relative (matching how nodes are stored)
-    let path = std::path::Path::new(query);
-    let rel_path = if path.is_absolute() {
-        path.strip_prefix(cwd)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string()
-    } else {
-        query.to_string()
-    };
+/// Build a `FileSymbol` for a node, computing its call adjacency counts.
+fn to_file_symbol(store: &dyn GraphStore, node: &GraphNode) -> FileSymbol {
+    FileSymbol {
+        kind: node.kind.to_string(),
+        name: node.name.clone(),
+        hash: node.hash.clone(),
+        file: node.file_path.clone(),
+        line: node.line_start,
+        callers: keel_enforce::queries::call_fan_in(store, node.id),
+        callees: keel_enforce::queries::call_fan_out(store, node.id),
+    }
+}
+
+/// List all symbols in a file with their hashes, honoring the output format.
+fn discover_file(
+    formatter: &dyn OutputFormatter,
+    store: &dyn GraphStore,
+    query: &str,
+    cwd: &std::path::Path,
+    verbose: bool,
+) -> i32 {
+    // Normalize the file path to be relative (matching how nodes are stored).
+    let rel_path = keel_core::paths::make_relative(cwd, std::path::Path::new(query));
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {
@@ -134,56 +127,55 @@ fn discover_file(store: &dyn GraphStore, query: &str, cwd: &std::path::Path, ver
         return 2;
     }
 
+    let symbols: Vec<FileSymbol> = nodes
+        .iter()
+        .filter(|n| n.kind != keel_core::types::NodeKind::Module)
+        .map(|node| to_file_symbol(store, node))
+        .collect();
+
     if verbose {
-        eprintln!("keel discover: {} symbols in {}", nodes.len(), rel_path);
+        eprintln!("keel discover: {} symbols in {}", symbols.len(), rel_path);
     }
 
-    println!("FILE {} symbols={}", rel_path, nodes.len());
-    for node in &nodes {
-        if node.kind == keel_core::types::NodeKind::Module {
-            continue;
-        }
-        let callers = store
-            .get_edges(node.id, EdgeDirection::Incoming)
-            .iter()
-            .filter(|e| e.kind == EdgeKind::Calls)
-            .count();
-        let callees = store
-            .get_edges(node.id, EdgeDirection::Outgoing)
-            .iter()
-            .filter(|e| e.kind == EdgeKind::Calls)
-            .count();
-        println!(
-            "  {} {} hash={} line={} callers={} callees={}",
-            node.kind, node.name, node.hash, node.line_start, callers, callees,
-        );
+    let result = FileSymbols {
+        version: env!("CARGO_PKG_VERSION").into(),
+        command: "discover".into(),
+        path: Some(rel_path),
+        symbols,
+    };
+    let out = formatter.format_file_symbols(&result);
+    if !out.is_empty() {
+        println!("{}", out.trim_end());
     }
     0
 }
 
-/// Look up a function by name and show its hash and location.
-fn discover_by_name(store: &dyn GraphStore, name: &str, _verbose: bool) -> i32 {
+/// Look up a function by name and show its hash and location, honoring the output format.
+fn discover_by_name(
+    formatter: &dyn OutputFormatter,
+    store: &dyn GraphStore,
+    name: &str,
+    _verbose: bool,
+) -> i32 {
     let nodes = store.find_nodes_by_name(name, "", "");
     if nodes.is_empty() {
         eprintln!("keel discover: no function named '{}' found", name);
         return 2;
     }
 
-    for node in &nodes {
-        let callers = store
-            .get_edges(node.id, EdgeDirection::Incoming)
-            .iter()
-            .filter(|e| e.kind == EdgeKind::Calls)
-            .count();
-        let callees = store
-            .get_edges(node.id, EdgeDirection::Outgoing)
-            .iter()
-            .filter(|e| e.kind == EdgeKind::Calls)
-            .count();
-        println!(
-            "{} hash={} {}:{} callers={} callees={}",
-            node.name, node.hash, node.file_path, node.line_start, callers, callees,
-        );
+    let symbols: Vec<FileSymbol> = nodes
+        .iter()
+        .map(|node| to_file_symbol(store, node))
+        .collect();
+    let result = FileSymbols {
+        version: env!("CARGO_PKG_VERSION").into(),
+        command: "discover".into(),
+        path: None,
+        symbols,
+    };
+    let out = formatter.format_file_symbols(&result);
+    if !out.is_empty() {
+        println!("{}", out.trim_end());
     }
     0
 }

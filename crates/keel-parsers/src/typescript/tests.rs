@@ -133,22 +133,43 @@ export * from './utils';
 
 #[test]
 fn test_path_alias_resolution() {
-    let mut aliases = HashMap::new();
+    let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
     aliases.insert(
         "@components".to_string(),
-        "/project/src/components".to_string(),
+        vec!["/project/src/components".to_string()],
     );
-    aliases.insert("@utils".to_string(), "/project/src/utils".to_string());
+    aliases.insert("@utils".to_string(), vec!["/project/src/utils".to_string()]);
 
     assert_eq!(
         resolve_path_alias("@components/Button", &aliases),
-        Some("/project/src/components/Button".to_string())
+        vec!["/project/src/components/Button".to_string()]
     );
     assert_eq!(
         resolve_path_alias("@utils", &aliases),
-        Some("/project/src/utils".to_string())
+        vec!["/project/src/utils".to_string()]
     );
-    assert_eq!(resolve_path_alias("./local", &aliases), None);
+    assert!(resolve_path_alias("./local", &aliases).is_empty());
+}
+
+#[test]
+fn test_path_alias_returns_all_fallback_targets_in_order() {
+    let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
+    aliases.insert(
+        "@app".to_string(),
+        vec![
+            "/project/src/app".to_string(),
+            "/project/generated/app".to_string(),
+        ],
+    );
+
+    assert_eq!(
+        resolve_path_alias("@app/thing", &aliases),
+        vec![
+            "/project/src/app/thing".to_string(),
+            "/project/generated/app/thing".to_string(),
+        ],
+        "every fallback target must be offered, in declaration order"
+    );
 }
 
 #[test]

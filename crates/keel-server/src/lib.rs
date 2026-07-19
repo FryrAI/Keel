@@ -11,14 +11,18 @@ pub mod mcp;
 mod mcp_analyze;
 mod mcp_audit;
 mod mcp_check;
+mod mcp_checkpoint;
 mod mcp_compile;
 mod mcp_context;
 mod mcp_discover;
 mod mcp_fix;
+mod mcp_focus;
 mod mcp_name;
 mod mcp_search;
+mod mcp_skeleton;
 pub mod mcp_stdio;
 mod mcp_tools;
+mod mcp_validate_plan;
 mod parse_shared;
 pub mod watcher;
 
@@ -43,7 +47,7 @@ impl KeelServer {
     /// Create a new server instance from an existing database path.
     pub fn open(db_path: &str, root_dir: PathBuf) -> Result<Self, keel_core::types::GraphError> {
         let store = SqliteGraphStore::open(db_path)?;
-        let keel_dir = root_dir.join(".keel");
+        let keel_dir = keel_core::paths::keel_dir(&root_dir);
         let config = keel_core::config::KeelConfig::load(&keel_dir);
         let engine = EnforcementEngine::with_config(Box::new(store), &config);
         Ok(Self {

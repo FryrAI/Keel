@@ -15,6 +15,9 @@ use super::map_resolve::find_containing_def;
 /// File parse data needed for Tier 3 resolution.
 pub(crate) struct Tier3FileData<'a> {
     pub file_path: &'a str,
+    /// The file's path-named module node id, used as the call-attribution
+    /// fallback for top-level references (see `find_containing_def`).
+    pub module_id: Option<u64>,
     pub definitions: &'a [resolver::Definition],
     pub references: &'a [resolver::Reference],
 }
@@ -43,8 +46,18 @@ pub(crate) fn run_tier3_pass(
         return 0;
     }
 
+    // Tier 3 resolution cache: dedupes repeated call sites within the pass,
+    // keyed by (file, line, callee, content_hash) so a file edit invalidates
+    // its entries. In-memory for now (not yet flushed to the `resolution_cache`
+    // table — see report), but genuinely on the tier-3 lookup path.
+    let mut cache = keel_parsers::tier3::cache::Tier3Cache::new();
+
     let mut tier3_resolved = 0u32;
     for fd in file_data {
+        // Content hash for this file's cache entries (0 if unreadable).
+        let content_hash = std::fs::read(cwd.join(fd.file_path))
+            .map(|bytes| xxhash_rust::xxh64::xxh64(&bytes, 0))
+            .unwrap_or(0);
         for reference in fd.references {
             if reference.kind != resolver::ReferenceKind::Call {
                 continue;
@@ -71,7 +84,7 @@ pub(crate) fn run_tier3_pass(
                 callee_name: reference.name.clone(),
                 receiver: None,
             };
-            let result = registry.resolve(&call_site);
+            let result = cache.get_or_resolve(&call_site, content_hash, |cs| registry.resolve(cs));
             if let keel_parsers::tier3::provider::Tier3Result::Resolved {
                 target_file,
                 target_name,
@@ -87,6 +100,7 @@ pub(crate) fn run_tier3_pass(
                         reference.line,
                         fd.file_path,
                         name_to_id,
+                        fd.module_id,
                     );
                     if let Some(src_id) = source_id {
                         if src_id != tgt_id {

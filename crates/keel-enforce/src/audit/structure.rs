@@ -7,6 +7,11 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::types::{AuditFinding, AuditSeverity};
 
+/// Audit the structure dimension: is the code organized into coherent units?
+///
+/// Flags oversized modules, modules with too many responsibilities, and
+/// directories whose layout diverges from the rest of the tree. `files`, when
+/// given, restricts the audit to those module paths.
 pub fn check_structure(
     store: &dyn GraphStore,
     root_dir: &Path,

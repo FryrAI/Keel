@@ -133,6 +133,100 @@ fn test_build_package_node_index() {
     assert_eq!(index.get("api").unwrap().get("doWork"), Some(&20));
 }
 
+fn def(
+    name: &str,
+    kind: keel_core::types::NodeKind,
+    start: u32,
+    end: u32,
+) -> keel_parsers::resolver::Definition {
+    keel_parsers::resolver::Definition {
+        name: name.to_string(),
+        kind,
+        signature: name.to_string(),
+        file_path: "f.rs".to_string(),
+        line_start: start,
+        line_end: end,
+        docstring: None,
+        is_public: true,
+        type_hints_present: true,
+        body_text: String::new(),
+        in_test_context: false,
+        in_trait_context: false,
+        is_associated: false,
+    }
+}
+
+#[test]
+fn test_find_containing_def_attributes_to_innermost_function() {
+    use keel_core::types::NodeKind;
+    // A method (5..15) nested in a class (1..30); a call on line 8 belongs to
+    // the method (the innermost, smallest-span def), never the class or module.
+    let defs = vec![
+        def("MyClass", NodeKind::Class, 1, 30),
+        def("my_method", NodeKind::Function, 5, 15),
+    ];
+    let mut name_to_id = HashMap::new();
+    name_to_id.insert(("f.rs".to_string(), "MyClass".to_string()), 100u64);
+    name_to_id.insert(("f.rs".to_string(), "my_method".to_string()), 101u64);
+
+    let got = find_containing_def(&defs, 8, "f.rs", &name_to_id, Some(1));
+    assert_eq!(got, Some(101), "call attributes to the enclosing method");
+}
+
+#[test]
+fn test_find_containing_def_falls_back_to_module() {
+    use keel_core::types::NodeKind;
+    // A top-level reference (line 40) outside any function falls back to the
+    // file's path-named module id, never to a stray module-kind def.
+    let defs = vec![def("helper", NodeKind::Function, 5, 15)];
+    let name_to_id = HashMap::new();
+    let got = find_containing_def(&defs, 40, "f.rs", &name_to_id, Some(7));
+    assert_eq!(got, Some(7), "top-level ref attributes to the module");
+}
+
+#[test]
+fn test_resolve_same_file_method_self_high_confidence() {
+    use keel_core::types::NodeKind;
+    let defs = vec![def("run", NodeKind::Function, 1, 3)];
+    let mut name_to_id = HashMap::new();
+    name_to_id.insert(("f.rs".to_string(), "run".to_string()), 200u64);
+
+    let got = resolve_same_file_method("self.run", "f.rs", &defs, &name_to_id);
+    assert_eq!(got, Some((200, 0.9)), "self.method binds at 0.9");
+    let got = resolve_same_file_method("this.run", "f.rs", &defs, &name_to_id);
+    assert_eq!(got, Some((200, 0.9)), "this.method binds at 0.9");
+}
+
+#[test]
+fn test_resolve_same_file_method_obj_unique_warning_tier() {
+    use keel_core::types::NodeKind;
+    let defs = vec![def("run", NodeKind::Function, 1, 3)];
+    let mut name_to_id = HashMap::new();
+    name_to_id.insert(("f.rs".to_string(), "run".to_string()), 201u64);
+
+    let got = resolve_same_file_method("obj.run", "f.rs", &defs, &name_to_id);
+    assert_eq!(
+        got,
+        Some((201, 0.7)),
+        "unfamiliar receiver, unique target, resolves at warning-tier 0.7"
+    );
+}
+
+#[test]
+fn test_resolve_same_file_method_obj_ambiguous_is_none() {
+    use keel_core::types::NodeKind;
+    // Two same-named same-file defs: an unfamiliar receiver stays unresolved.
+    let defs = vec![
+        def("run", NodeKind::Function, 1, 3),
+        def("run", NodeKind::Function, 10, 12),
+    ];
+    let mut name_to_id = HashMap::new();
+    name_to_id.insert(("f.rs".to_string(), "run".to_string()), 202u64);
+
+    let got = resolve_same_file_method("obj.run", "f.rs", &defs, &name_to_id);
+    assert_eq!(got, None, "ambiguous non-self receiver does not resolve");
+}
+
 #[test]
 fn test_extract_package_name_variants() {
     assert_eq!(

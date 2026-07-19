@@ -2,28 +2,13 @@ use keel_output::OutputFormatter;
 
 /// Run `keel stats` — display telemetry dashboard.
 pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel stats: failed to get current directory: {}", e);
-            return 2;
-        }
+    let repo = match super::open_repo("stats") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
-
-    let keel_dir = cwd.join(".keel");
-    if !keel_dir.exists() {
-        eprintln!("keel stats: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel stats: failed to open graph database: {}", e);
-            return 2;
-        }
-    };
+    let db_path = repo.db_path();
+    let store = repo.store;
+    let keel_dir = repo.keel_dir;
 
     // Gather basic stats from the graph store
     let modules = keel_core::store::GraphStore::get_all_modules(&store);

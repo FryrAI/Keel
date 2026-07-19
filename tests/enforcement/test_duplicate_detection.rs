@@ -61,6 +61,9 @@ fn make_func_def(name: &str, file: &str, line: u32) -> Definition {
         is_public: true,
         type_hints_present: true,
         body_text: "pass".to_string(),
+        in_test_context: false,
+        in_trait_context: false,
+        is_associated: false,
     }
 }
 
@@ -380,6 +383,9 @@ fn test_w002_class_not_reported() {
         is_public: true,
         type_hints_present: true,
         body_text: "pass".to_string(),
+        in_test_context: false,
+        in_trait_context: false,
+        is_associated: false,
     };
     let file = make_file("b.py", vec![class_def]);
 

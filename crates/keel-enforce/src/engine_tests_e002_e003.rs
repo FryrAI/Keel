@@ -138,3 +138,42 @@ fn test_config_disables_docstrings() {
         "E003 should NOT fire when docstrings config is false"
     );
 }
+
+#[test]
+fn test_e002_e003_exempt_test_context_definitions() {
+    // A public fn without type hints or a docstring normally fires E002+E003.
+    // When it is parsed from a test context (#[cfg(test)] mod / #[test] fn),
+    // both are suppressed — test plumbing is not the public API. (issue #38)
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let mut def = make_definition(
+        "terminal_never_retries",
+        "fn terminal_never_retries()",
+        "{}",
+        "src/net.rs",
+    );
+    def.type_hints_present = false;
+    def.docstring = None;
+    def.in_test_context = true;
+
+    let file = FileIndex {
+        file_path: "src/net.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    assert!(
+        result
+            .errors
+            .iter()
+            .all(|v| v.code != "E002" && v.code != "E003"),
+        "test-context def must be exempt from E002/E003: {:?}",
+        result.errors
+    );
+}

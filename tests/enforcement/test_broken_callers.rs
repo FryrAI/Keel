@@ -19,6 +19,9 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str, line: u32) -> 
         is_public: true,
         type_hints_present: true,
         body_text: body.to_string(),
+        in_test_context: false,
+        in_trait_context: false,
+        is_associated: false,
     }
 }
 

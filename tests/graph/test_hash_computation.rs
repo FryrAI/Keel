@@ -1,6 +1,6 @@
 // Tests for hash computation: base62(xxhash64(...)) (Spec 000 - Graph Schema)
 
-use keel_core::hash::compute_hash;
+use keel_core::hash::{compute_hash, normalize_body_for_hash};
 
 #[test]
 /// The same input should always produce the same hash (determinism).
@@ -104,47 +104,33 @@ fn test_different_bodies_produce_different_hashes() {
 }
 
 #[test]
-/// Whitespace-only changes should NOT change the hash (AST normalization).
-/// compute_hash takes pre-normalized input, so we pass the same normalized body
-/// to represent two raw sources that differ only in whitespace.
+/// Whitespace-only changes must NOT change the hash — exercised end-to-end
+/// through the real body normalizer (issue #36).
 fn test_whitespace_changes_do_not_change_hash() {
-    // Both raw forms normalize to the same body string.
-    // Since compute_hash receives the already-normalized form,
-    // passing the identical normalized body demonstrates whitespace invariance.
     let sig = "fn foo(x: i32) -> i32";
-    let normalized_body = "x + 1";
     let doc = "";
+    let raw_a = "let result = x + 1;\nreturn result;";
+    let raw_b = "   let    result = x + 1;\n\n\t\treturn result;   ";
 
-    // Simulate: raw "x  +  1" and "x+1" both normalize to "x + 1"
-    let h1 = compute_hash(sig, normalized_body, doc);
-    let h2 = compute_hash(sig, normalized_body, doc);
+    let h1 = compute_hash(sig, &normalize_body_for_hash(raw_a, "rust"), doc);
+    let h2 = compute_hash(sig, &normalize_body_for_hash(raw_b, "rust"), doc);
 
-    assert_eq!(
-        h1, h2,
-        "whitespace-only changes (after normalization) must not change the hash"
-    );
+    assert_eq!(h1, h2, "whitespace-only changes must not change the hash");
 }
 
 #[test]
-/// Comment-only changes should NOT change the hash (AST normalization).
-/// compute_hash takes pre-normalized bodies (comments already stripped),
-/// so we pass the same normalized body to represent two raw sources
-/// that differ only in comments.
+/// Comment-only changes must NOT change the hash — exercised end-to-end
+/// through the real body normalizer, which strips comments (issue #36).
 fn test_comment_changes_do_not_change_hash() {
     let sig = "fn foo(x: i32) -> i32";
-    // Both raw forms (with/without comments) normalize to the same body.
-    let normalized_body = "let result = x + 1; return result;";
     let doc = "";
+    let with_comment = "// add one\nlet result = x + 1; // inline\nreturn result; /* done */";
+    let without_comment = "let result = x + 1;\nreturn result;";
 
-    // Simulate: raw body with "// add one\nlet result = x + 1;\nreturn result;"
-    // normalizes to same as raw body without comment
-    let h1 = compute_hash(sig, normalized_body, doc);
-    let h2 = compute_hash(sig, normalized_body, doc);
+    let h1 = compute_hash(sig, &normalize_body_for_hash(with_comment, "rust"), doc);
+    let h2 = compute_hash(sig, &normalize_body_for_hash(without_comment, "rust"), doc);
 
-    assert_eq!(
-        h1, h2,
-        "comment-only changes (after normalization) must not change the hash"
-    );
+    assert_eq!(h1, h2, "comment-only changes must not change the hash");
 }
 
 #[test]

@@ -151,3 +151,136 @@ fn progressive_downgrades_second_same_named_untouched_function() {
 fn econ_body_clears_duplicate_threshold() {
     assert!(keel_core::hash::normalize_body(ECON_BODY).len() >= 60);
 }
+
+/// W005 must not report a trait method as dead: it is reached through
+/// static/dynamic dispatch that the call graph resolves to the trait
+/// declaration, never to the individual implementor.
+#[test]
+fn w005_skips_trait_context_definitions() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&make_node(
+            1,
+            "hash1111111",
+            "is_available",
+            "fn is_available(&self) -> bool",
+            "src/p.rs",
+        ))
+        .unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let mut def = make_definition(
+        "is_available",
+        "fn is_available(&self) -> bool",
+        "{ true }",
+        "src/p.rs",
+    );
+    def.is_public = false;
+    def.in_trait_context = true;
+
+    let result = engine.compile(&[FileIndex {
+        file_path: "src/p.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }]);
+    assert!(
+        !result.warnings.iter().any(|v| v.code == "W005"),
+        "trait method must not be reported dead: {:?}",
+        result.warnings
+    );
+}
+
+/// W002 must not ask you to rename a trait method — every implementor is
+/// REQUIRED to use the same name, so a rename is not a legal fix.
+#[test]
+fn w002_skips_trait_context_definitions() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&make_node(
+            1,
+            "hash1111111",
+            "resolve",
+            "fn resolve(&self) -> bool",
+            "src/other.rs",
+        ))
+        .unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let mut def = make_definition(
+        "resolve",
+        "fn resolve(&self) -> bool",
+        "{ true }",
+        "src/p.rs",
+    );
+    def.in_trait_context = true;
+
+    let result = engine.compile(&[FileIndex {
+        file_path: "src/p.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }]);
+    assert!(
+        !result.warnings.iter().any(|v| v.code == "W002"),
+        "trait method name is a contract, not a collision: {:?}",
+        result.warnings
+    );
+}
+
+/// W005 must not report a function that is only ever handed around as a VALUE
+/// (`.map(render_file)`, `get(health)`, `#[serde(default = "default_true")]`).
+/// Before value references existed these looked uncalled, and following the
+/// fix_hint would have deleted live code.
+#[test]
+fn w005_counts_value_references_as_usage() {
+    use keel_parsers::resolver::{Reference, ReferenceKind};
+
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&make_node(
+            1,
+            "hash1111111",
+            "render_file",
+            "fn render_file(f: &F) -> String",
+            "src/r.rs",
+        ))
+        .unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let mut def = make_definition(
+        "render_file",
+        "fn render_file(f: &F) -> String",
+        "{ String::new() }",
+        "src/r.rs",
+    );
+    def.is_public = false;
+
+    let result = engine.compile(&[FileIndex {
+        file_path: "src/r.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        // `entries.iter().map(render_file)` — a usage, but not a call.
+        references: vec![Reference {
+            name: "render_file".to_string(),
+            file_path: "src/r.rs".to_string(),
+            line: 21,
+            kind: ReferenceKind::Value,
+            resolved_to: None,
+        }],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }]);
+    assert!(
+        !result.warnings.iter().any(|v| v.code == "W005"),
+        "a function passed as a value is not dead: {:?}",
+        result.warnings
+    );
+}

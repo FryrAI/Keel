@@ -4,6 +4,8 @@
 //! maps a tool name to its handler. Split out of `mcp.rs` to keep both files
 //! under the 400-line cap.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -76,7 +78,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 "properties": {
                     "format": { "type": "string", "enum": ["json", "llm"] },
                     "scope": { "type": "array", "items": { "type": "string" } },
-                    "file_path": { "type": "string", "description": "Scope map to a single file" }
+                    "file": { "type": "string", "description": "Scope map to a single file" }
                 }
             }),
         },
@@ -164,6 +166,53 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 }
             }),
         },
+        ToolInfo {
+            name: "keel/skeleton".into(),
+            description: "Compressed signature-only view of a file (no bodies): imports and function/class signatures".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string" },
+                    "docs": { "type": "boolean", "description": "Include docstrings" },
+                    "private": { "type": "boolean", "description": "Include private symbols" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/focus".into(),
+            description: "Minimal context set for safely modifying a target (hash or file): ranked files to read, callers at risk, and a read order".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["target"],
+                "properties": {
+                    "target": { "type": "string", "description": "Node hash or file path" },
+                    "depth": { "type": "integer", "default": 2 }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/checkpoint".into(),
+            description: "Compact, compaction-resilient session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "since": { "type": "string", "description": "Diff base commit (default: HEAD)" },
+                    "staged": { "type": "boolean", "description": "Summarize staged changes instead of the working tree" }
+                }
+            }),
+        },
+        ToolInfo {
+            name: "keel/validate-plan".into(),
+            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, and a callers-first suggested order".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["plan"],
+                "properties": {
+                    "plan": { "type": "string", "description": "Plan text (markdown/plain)" }
+                }
+            }),
+        },
     ]
 }
 
@@ -175,6 +224,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
 pub(crate) fn dispatch_tool(
     store: &SharedStore,
     engine: &SharedEngine,
+    root: &Path,
     name: &str,
     arguments: Option<Value>,
 ) -> Option<Result<Value, JsonRpcError>> {
@@ -189,8 +239,14 @@ pub(crate) fn dispatch_tool(
         "keel/search" => crate::mcp_search::handle_search(store, arguments),
         "keel/name" => crate::mcp_name::handle_name(store, arguments),
         "keel/analyze" => crate::mcp_analyze::handle_analyze(store, arguments),
-        "keel/audit" => crate::mcp_audit::handle_audit(store, arguments),
+        "keel/audit" => crate::mcp_audit::handle_audit(store, root, arguments),
         "keel/context" => crate::mcp_context::handle_context(store, arguments),
+        "keel/skeleton" => crate::mcp_skeleton::handle_skeleton(root, arguments),
+        "keel/focus" => crate::mcp_focus::handle_focus(engine, arguments),
+        "keel/checkpoint" => {
+            crate::mcp_checkpoint::handle_checkpoint(store, engine, root, arguments)
+        }
+        "keel/validate-plan" => crate::mcp_validate_plan::handle_validate_plan(store, arguments),
         _ => return None,
     })
 }
@@ -206,21 +262,18 @@ pub(crate) fn dispatch_tool(
 pub(crate) fn handle_tools_call(
     store: &SharedStore,
     engine: &SharedEngine,
+    root: &Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let name = params
-        .as_ref()
-        .and_then(|p| p.get("name"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| crate::mcp::missing_param("name"))?
-        .to_string();
+    let name = crate::mcp::param_str(&params, "name")?.to_string();
 
     let arguments = params.as_ref().and_then(|p| p.get("arguments").cloned());
 
-    let outcome = dispatch_tool(store, engine, &name, arguments).ok_or_else(|| JsonRpcError {
-        code: -32602,
-        message: format!("Unknown tool: {}", name),
-    })?;
+    let outcome =
+        dispatch_tool(store, engine, root, &name, arguments).ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: format!("Unknown tool: {}", name),
+        })?;
 
     match outcome {
         // `Value`'s `Display` is compact JSON — no human reads it, and the

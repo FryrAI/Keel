@@ -28,7 +28,6 @@ keel is a **pure Rust** CLI tool. The following crate selections are final:
 | Database | `rusqlite` (with `bundled` feature) | Latest stable | SQLite for graph storage, statically linked |
 | CLI | `clap` | Latest stable | Argument parsing |
 | Serialization | `serde` + `serde_json` | Latest stable | JSON output for `--json` flag |
-| Parallelism | `rayon` | Latest stable | Parallel file parsing |
 
 **Constraints:**
 - No FFI in the hot path. tree-sitter is natively C/Rust. Oxc is native Rust. SQLite statically linked.
@@ -48,7 +47,6 @@ The resolution engine uses a converged 3-tier architecture. This is not negotiab
 - Parse all files with tree-sitter
 - Extract definitions, call sites, imports via query patterns (leveraging `tags.scm`)
 - Build file-level index with incremental updates in <1ms
-- Use `rayon` for parallel parsing
 - Resolves ~75-92% of cross-file references depending on language
 
 **Tier 2 — Per-language enhancers:**

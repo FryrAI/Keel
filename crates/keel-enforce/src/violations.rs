@@ -42,29 +42,24 @@ pub fn check_broken_callers_with_cache(
 
         let Some(existing) = existing else { continue };
 
-        // Compute expected hash from current definition
-        let new_hash = keel_core::hash::compute_hash(
-            &def.signature,
-            &def.body_text,
-            def.docstring.as_deref().unwrap_or(""),
-        );
-        // Also check disambiguated hash (map may have used it for collisions)
-        let new_hash_disambiguated = keel_core::hash::compute_hash_disambiguated(
-            &def.signature,
-            &def.body_text,
-            def.docstring.as_deref().unwrap_or(""),
-            &file.file_path,
-        );
-
-        if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
-            continue; // No change
-        }
-
         // Body/docstring-only changes cannot break callers. Compare signatures
-        // whitespace-normalized so a pure reformat (rustfmt/prettier line wrap)
-        // doesn't read as a signature change and fire E001 against every caller.
+        // whitespace-normalized (a pure reformat — rustfmt/prettier line wrap —
+        // must not read as a signature change) FIRST, so this common case skips
+        // the definition_hashes normalize+hash below entirely. When signatures
+        // match, E001 never fires regardless of the hash, so the hashing was
+        // pure waste here.
         if normalize_signature(&existing.signature) == normalize_signature(&def.signature) {
             continue;
+        }
+
+        // Signature changed. Confirm it is a real content change (not a hash
+        // collision) before treating callers as broken. `definition_hashes` is
+        // the single source of truth for the plain + disambiguated pair (and
+        // applies issue-#36 body normalization).
+        let (new_hash, new_hash_disambiguated) =
+            crate::violations_util::definition_hashes(def, &file.file_path);
+        if existing.hash == new_hash || existing.hash == new_hash_disambiguated {
+            continue; // No change
         }
 
         // Signature changed — find all callers with their edge confidence
@@ -79,13 +74,13 @@ pub fn check_broken_callers_with_cache(
         // both files, so the caller was likely updated to match the new signature.
         let confident_callers: Vec<_> = caller_edges
             .iter()
-            .filter(|e| e.confidence >= 0.80)
+            .filter(|e| e.confidence >= keel_core::confidence::ERROR_TIER_THRESHOLD)
             .filter_map(|e| store.get_node_by_id(e.source_id))
             .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
         let uncertain_callers: Vec<_> = caller_edges
             .iter()
-            .filter(|e| e.confidence < 0.80)
+            .filter(|e| e.confidence < keel_core::confidence::ERROR_TIER_THRESHOLD)
             .filter_map(|e| store.get_node_by_id(e.source_id))
             .filter(|c| !batch_files.contains(c.file_path.as_str()))
             .collect();
@@ -144,7 +139,7 @@ pub fn check_broken_callers_with_cache(
                 .collect();
             let min_confidence = caller_edges
                 .iter()
-                .filter(|e| e.confidence < 0.80)
+                .filter(|e| e.confidence < keel_core::confidence::ERROR_TIER_THRESHOLD)
                 .map(|e| e.confidence)
                 .fold(1.0f64, f64::min);
             violations.push(Violation {
@@ -193,6 +188,11 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
         if def.kind != NodeKind::Function {
             continue;
         }
+        // Test-context symbols (#[cfg(test)] modules, #[test] functions) are
+        // harness plumbing — exempt like test files are.
+        if def.in_test_context {
+            continue;
+        }
         if def.type_hints_present {
             continue;
         }
@@ -209,7 +209,7 @@ pub fn check_missing_type_hints(file: &FileIndex) -> Vec<Violation> {
             line: def.line_start,
             hash: keel_core::hash::compute_hash(
                 &def.signature,
-                &def.body_text,
+                &def.body_for_hash(),
                 def.docstring.as_deref().unwrap_or(""),
             ),
             confidence: 1.0,
@@ -254,6 +254,11 @@ pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
         if def.kind != NodeKind::Function {
             continue;
         }
+        // Test-context symbols (#[cfg(test)] modules, #[test] functions) are
+        // self-documenting by name — exempt like test files are.
+        if def.in_test_context {
+            continue;
+        }
         if def.docstring.is_some() {
             continue;
         }
@@ -270,7 +275,7 @@ pub fn check_missing_docstring(file: &FileIndex) -> Vec<Violation> {
             line: def.line_start,
             hash: keel_core::hash::compute_hash(
                 &def.signature,
-                &def.body_text,
+                &def.body_for_hash(),
                 def.docstring.as_deref().unwrap_or(""),
             ),
             confidence: 1.0,

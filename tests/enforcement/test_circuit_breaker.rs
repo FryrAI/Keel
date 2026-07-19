@@ -1,10 +1,16 @@
 // Tests for circuit breaker behavior (Spec 006 - Enforcement Engine)
+//
+// The breaker counts FIX ATTEMPTS, not compiles: the counter advances only when
+// the offending node's body/signature fingerprint (the `body_hash` argument)
+// changes between failures. Escalation tests pass a DISTINCT body_hash per call
+// (a distinct failed fix attempt); the passive-recompile test passes the SAME
+// one and asserts no escalation.
 use keel_enforce::circuit_breaker::{BreakerAction, CircuitBreaker};
 
 #[test]
 fn test_circuit_breaker_attempt_1_fix_hint() {
     let mut cb = CircuitBreaker::new();
-    let action = cb.record_failure("E001", "abc12345678", "src/lib.py");
+    let action = cb.record_failure("E001", "abc12345678", "b1", "src/lib.py");
     assert_eq!(action, BreakerAction::FixHint);
     assert_eq!(cb.failure_count("E001", "abc12345678", "src/lib.py"), 1);
 }
@@ -12,8 +18,8 @@ fn test_circuit_breaker_attempt_1_fix_hint() {
 #[test]
 fn test_circuit_breaker_attempt_2_wider_discover() {
     let mut cb = CircuitBreaker::new();
-    cb.record_failure("E001", "abc12345678", "src/lib.py");
-    let action = cb.record_failure("E001", "abc12345678", "src/lib.py");
+    cb.record_failure("E001", "abc12345678", "b1", "src/lib.py");
+    let action = cb.record_failure("E001", "abc12345678", "b2", "src/lib.py");
     assert_eq!(action, BreakerAction::WiderContext);
     assert_eq!(cb.failure_count("E001", "abc12345678", "src/lib.py"), 2);
 }
@@ -21,18 +27,32 @@ fn test_circuit_breaker_attempt_2_wider_discover() {
 #[test]
 fn test_circuit_breaker_attempt_3_auto_downgrade() {
     let mut cb = CircuitBreaker::new();
-    cb.record_failure("E001", "abc12345678", "src/lib.py");
-    cb.record_failure("E001", "abc12345678", "src/lib.py");
-    let action = cb.record_failure("E001", "abc12345678", "src/lib.py");
+    cb.record_failure("E001", "abc12345678", "b1", "src/lib.py");
+    cb.record_failure("E001", "abc12345678", "b2", "src/lib.py");
+    let action = cb.record_failure("E001", "abc12345678", "b3", "src/lib.py");
     assert_eq!(action, BreakerAction::Downgrade);
     assert!(cb.is_downgraded("E001", "abc12345678", "src/lib.py"));
+}
+
+/// Passive recompiles of unfixed code (identical fingerprint) must NOT escalate:
+/// before the fix, three byte-identical recompiles auto-downgraded a genuine
+/// ERROR to WARNING — a false all-clear.
+#[test]
+fn test_circuit_breaker_passive_recompiles_never_downgrade() {
+    let mut cb = CircuitBreaker::new();
+    for _ in 0..5 {
+        let action = cb.record_failure("E001", "abc12345678", "same_body", "src/lib.py");
+        assert_eq!(action, BreakerAction::FixHint);
+    }
+    assert_eq!(cb.failure_count("E001", "abc12345678", "src/lib.py"), 1);
+    assert!(!cb.is_downgraded("E001", "abc12345678", "src/lib.py"));
 }
 
 #[test]
 fn test_circuit_breaker_reset_on_success() {
     let mut cb = CircuitBreaker::new();
-    cb.record_failure("E001", "abc", "file.rs");
-    cb.record_failure("E001", "abc", "file.rs");
+    cb.record_failure("E001", "abc", "b1", "file.rs");
+    cb.record_failure("E001", "abc", "b2", "file.rs");
     assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 2);
 
     cb.record_success("E001", "abc", "file.rs");
@@ -40,16 +60,16 @@ fn test_circuit_breaker_reset_on_success() {
     assert!(!cb.is_downgraded("E001", "abc", "file.rs"));
 
     // Next failure starts from 1 again
-    let action = cb.record_failure("E001", "abc", "file.rs");
+    let action = cb.record_failure("E001", "abc", "b3", "file.rs");
     assert_eq!(action, BreakerAction::FixHint);
 }
 
 #[test]
 fn test_circuit_breaker_independent_per_error_code() {
     let mut cb = CircuitBreaker::new();
-    cb.record_failure("E001", "abc", "file.rs");
-    cb.record_failure("E001", "abc", "file.rs");
-    cb.record_failure("E002", "abc", "file.rs");
+    cb.record_failure("E001", "abc", "b1", "file.rs");
+    cb.record_failure("E001", "abc", "b2", "file.rs");
+    cb.record_failure("E002", "abc", "b1", "file.rs");
 
     assert_eq!(cb.failure_count("E001", "abc", "file.rs"), 2);
     assert_eq!(cb.failure_count("E002", "abc", "file.rs"), 1);
@@ -58,13 +78,13 @@ fn test_circuit_breaker_independent_per_error_code() {
 #[test]
 fn test_circuit_breaker_independent_per_hash() {
     let mut cb = CircuitBreaker::new();
-    // Hash A: 3 failures → downgraded
-    cb.record_failure("E001", "hashA", "file.rs");
-    cb.record_failure("E001", "hashA", "file.rs");
-    cb.record_failure("E001", "hashA", "file.rs");
+    // Hash A: 3 failed fix attempts → downgraded
+    cb.record_failure("E001", "hashA", "b1", "file.rs");
+    cb.record_failure("E001", "hashA", "b2", "file.rs");
+    cb.record_failure("E001", "hashA", "b3", "file.rs");
 
     // Hash B: 1 failure
-    cb.record_failure("E001", "hashB", "file.rs");
+    cb.record_failure("E001", "hashB", "b1", "file.rs");
 
     assert!(cb.is_downgraded("E001", "hashA", "file.rs"));
     assert!(!cb.is_downgraded("E001", "hashB", "file.rs"));
@@ -74,8 +94,8 @@ fn test_circuit_breaker_independent_per_hash() {
 #[test]
 fn test_circuit_breaker_state_persistence() {
     let mut cb = CircuitBreaker::new();
-    cb.record_failure("E001", "hash_abc", "src/a.rs");
-    cb.record_failure("E001", "hash_abc", "src/a.rs");
+    cb.record_failure("E001", "hash_abc", "b1", "src/a.rs");
+    cb.record_failure("E001", "hash_abc", "b2", "src/a.rs");
 
     let state = cb.export_state();
     assert!(!state.is_empty());
@@ -85,8 +105,9 @@ fn test_circuit_breaker_state_persistence() {
 
     assert_eq!(cb2.failure_count("E001", "hash_abc", "src/a.rs"), 2);
 
-    // Third failure should now downgrade
-    let action = cb2.record_failure("E001", "hash_abc", "src/a.rs");
+    // Third (changed) failure should now downgrade — and the persisted
+    // fingerprint means a passive recompile would NOT have.
+    let action = cb2.record_failure("E001", "hash_abc", "b3", "src/a.rs");
     assert_eq!(action, BreakerAction::Downgrade);
 }
 
@@ -94,9 +115,9 @@ fn test_circuit_breaker_state_persistence() {
 fn test_circuit_breaker_empty_hash_uses_file_path() {
     let mut cb = CircuitBreaker::new();
     // E003 has empty hash, so file_path is used as identifier
-    cb.record_failure("E003", "", "src/foo.py");
-    cb.record_failure("E003", "", "src/foo.py");
-    cb.record_failure("E003", "", "src/bar.py");
+    cb.record_failure("E003", "", "b1", "src/foo.py");
+    cb.record_failure("E003", "", "b2", "src/foo.py");
+    cb.record_failure("E003", "", "b1", "src/bar.py");
 
     // Different files have different counters
     assert_eq!(cb.failure_count("E003", "", "src/foo.py"), 2);
@@ -107,9 +128,9 @@ fn test_circuit_breaker_empty_hash_uses_file_path() {
 fn test_circuit_breaker_custom_max_failures() {
     // With max_failures=2: attempt 1 → WiderContext (1 == 2-1), attempt 2 → Downgrade
     let mut cb = CircuitBreaker::with_max_failures(2);
-    let a1 = cb.record_failure("E001", "h", "f.rs");
+    let a1 = cb.record_failure("E001", "h", "b1", "f.rs");
     assert_eq!(a1, BreakerAction::WiderContext);
-    let a2 = cb.record_failure("E001", "h", "f.rs");
+    let a2 = cb.record_failure("E001", "h", "b2", "f.rs");
     assert_eq!(a2, BreakerAction::Downgrade);
     assert!(cb.is_downgraded("E001", "h", "f.rs"));
 }
@@ -119,11 +140,11 @@ fn test_circuit_breaker_sqlite_roundtrip() {
     let store = crate::common::in_memory_store();
 
     let mut cb = CircuitBreaker::new();
-    cb.record_failure("E001", "h1", "a.rs");
-    cb.record_failure("E001", "h1", "a.rs");
-    cb.record_failure("E005", "h2", "b.rs");
-    cb.record_failure("E005", "h2", "b.rs");
-    cb.record_failure("E005", "h2", "b.rs");
+    cb.record_failure("E001", "h1", "b1", "a.rs");
+    cb.record_failure("E001", "h1", "b2", "a.rs");
+    cb.record_failure("E005", "h2", "b1", "b.rs");
+    cb.record_failure("E005", "h2", "b2", "b.rs");
+    cb.record_failure("E005", "h2", "b3", "b.rs");
 
     let state = cb.export_state();
     store.save_circuit_breaker(&state).unwrap();

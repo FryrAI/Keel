@@ -1,5 +1,11 @@
 // Benchmark tests for incremental compile performance
 // Uses CLI binary to measure single-file compile speed.
+//
+// Performance contract (CLAUDE.md "Key Commands" table): `keel compile [file]`
+// incremental validate target is <200ms for a single file. The unconditional
+// asserts below stay loose because debug builds run ~15x slower; the
+// `#[cfg(not(debug_assertions))]` asserts enforce the real 200ms contract when
+// the suite is built `--release`, so a genuine regression can no longer pass.
 
 use super::common;
 
@@ -58,6 +64,13 @@ fn bench_compile_single_typescript_file_under_200ms() {
     assert!(code == 0 || code == 1, "compile failed with {code}");
     // Debug mode: allow 3s (release target: 200ms)
     assert!(elapsed.as_millis() < 3000, "compile took {:?}", elapsed);
+    // Release: enforce the documented <200ms single-file compile contract.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 200,
+        "release single-file compile took {:?} — exceeds documented 200ms",
+        elapsed
+    );
 }
 
 #[test]
@@ -80,6 +93,13 @@ fn bench_compile_single_python_file_under_200ms() {
     let code = output.status.code().unwrap_or(-1);
     assert!(code == 0 || code == 1, "compile failed with {code}");
     assert!(elapsed.as_millis() < 3000, "compile took {:?}", elapsed);
+    // Release: enforce the documented <200ms single-file compile contract.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 200,
+        "release single-file compile took {:?} — exceeds documented 200ms",
+        elapsed
+    );
 }
 
 #[test]
@@ -159,6 +179,13 @@ fn bench_compile_file_with_many_callers() {
         "compile with callers took {:?}",
         elapsed
     );
+    // Release: still a single-file compile, so the documented 200ms applies.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 200,
+        "release single-file compile (many callers) took {:?} — exceeds documented 200ms",
+        elapsed
+    );
 
     let _ = (files, caller_files); // suppress unused warnings
 }
@@ -185,6 +212,13 @@ fn bench_compile_file_with_no_violations() {
     assert!(
         elapsed.as_secs() < 3,
         "no-change compile took {:?}",
+        elapsed
+    );
+    // Release: enforce the documented <200ms single-file compile contract.
+    #[cfg(not(debug_assertions))]
+    assert!(
+        elapsed.as_millis() < 200,
+        "release no-change compile took {:?} — exceeds documented 200ms",
         elapsed
     );
 }

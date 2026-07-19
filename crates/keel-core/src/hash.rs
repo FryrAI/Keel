@@ -26,7 +26,8 @@ fn base62_encode(mut value: u64) -> String {
 /// hash = base62(xxhash64(canonical_signature + body_normalized + docstring))
 ///
 /// - `canonical_signature`: normalized function declaration (name, params with types, return type)
-/// - `body_normalized`: AST-based normalized function body (whitespace/comments stripped)
+/// - `body_normalized`: lexically normalized function body (comments stripped,
+///   whitespace collapsed, string contents preserved — see [`normalize_body_for_hash`])
 /// - `docstring`: the docstring content, or empty string if none
 pub fn compute_hash(canonical_signature: &str, body_normalized: &str, docstring: &str) -> String {
     let mut input = String::with_capacity(
@@ -63,6 +64,181 @@ pub fn compute_hash_disambiguated(
 
     let hash_value = xxh64(input.as_bytes(), 0);
     base62_encode(hash_value)
+}
+
+/// Lexical comment/string family for [`normalize_body_for_hash`].
+#[derive(Clone, Copy, PartialEq)]
+enum BodySyntax {
+    /// C-family: `//` line comments, `/* */` block comments; `"`, `'`, and
+    /// backtick string literals — a `'` ALWAYS opens a string (TypeScript/
+    /// JavaScript, Go, Svelte have no lifetimes).
+    CFamily,
+    /// Rust: C-family comments, but `'` is a lifetime (`'a`) unless it forms a
+    /// char literal (`'x'` / `'\..'`), and there are no backtick strings.
+    Rust,
+    /// Python: `#` line comments (no block comments); `"`, `'`, `"""`, `'''`
+    /// string literals.
+    Python,
+}
+
+/// Map a caller's language name (as produced by the parsers' `detect_language`)
+/// to its lexical comment/string family. Anything that is not Python or Rust is
+/// treated as C-family — the safe default for the remaining supported languages
+/// and for unknown extensions.
+fn body_syntax(lang: &str) -> BodySyntax {
+    match lang {
+        "python" => BodySyntax::Python,
+        "rust" => BodySyntax::Rust,
+        _ => BodySyntax::CFamily,
+    }
+}
+
+/// Strip comments from `body`, preserving string-literal contents **verbatim**.
+///
+/// Line comments are dropped up to (but not including) the newline; block
+/// comments are replaced by a single space so they still separate tokens
+/// (`a/*x*/b` → `a b`, never `ab`). String literals — including comment-looking
+/// text inside them — are copied through unchanged, so `"// x"` stays `"// x"`.
+///
+/// This is a deliberately lexical pass (no AST), so it is a *pure, deterministic*
+/// function of its input: `keel map` and `keel compile` always derive the same
+/// normalized body for the same source. Exotic literals (Rust raw strings with
+/// embedded quotes) may be handled imperfectly, but never non-deterministically.
+fn strip_comments(body: &str, syntax: BodySyntax) -> String {
+    let b = body.as_bytes();
+    let n = b.len();
+    let mut out: Vec<u8> = Vec::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let c = b[i];
+
+        // Line comments.
+        if syntax == BodySyntax::Python && c == b'#' {
+            while i < n && b[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if syntax != BodySyntax::Python && c == b'/' && i + 1 < n && b[i + 1] == b'/' {
+            i += 2;
+            while i < n && b[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Block comments (C-family and Rust). Replace with a single space.
+        if syntax != BodySyntax::Python && c == b'/' && i + 1 < n && b[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < n && !(b[i] == b'*' && b[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(n); // skip the closing */ (or land on EOF)
+            out.push(b' ');
+            continue;
+        }
+
+        // Rust lifetimes (`'a`) are an unpaired `'` — not a char literal.
+        // Treating them as string openers would swallow the rest of the body
+        // (and any trailing comments), so emit the tick as an ordinary token
+        // and keep scanning. A `'` is a char literal only when it is `'\..'`
+        // (escaped) or `'x'` (a single char followed immediately by `'`).
+        // This heuristic is RUST-ONLY: in TS/JS/Go/Svelte a `'` always opens a
+        // string, and applying the lifetime rule there let the string's
+        // contents (e.g. a URL's `//`) be scanned as code (real bug: everything
+        // after the `//` was stripped as a comment, so code edits in the
+        // dropped tail did not change the hash).
+        if syntax == BodySyntax::Rust && c == b'\'' {
+            let is_char_lit = (i + 1 < n && b[i + 1] == b'\\')
+                || (i + 2 < n && b[i + 1] != b'\'' && b[i + 2] == b'\'');
+            if !is_char_lit {
+                out.push(c);
+                i += 1;
+                continue;
+            }
+        }
+
+        // String literals — content preserved verbatim.
+        let is_string_delim =
+            c == b'"' || c == b'\'' || (syntax == BodySyntax::CFamily && c == b'`');
+        if is_string_delim {
+            // Python triple-quoted string (`"""` / `'''`).
+            if syntax == BodySyntax::Python && i + 2 < n && b[i + 1] == c && b[i + 2] == c {
+                out.extend_from_slice(&b[i..i + 3]);
+                i += 3;
+                while i < n {
+                    if b[i] == b'\\' && i + 1 < n {
+                        out.push(b[i]);
+                        out.push(b[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+                    if i + 2 < n && b[i] == c && b[i + 1] == c && b[i + 2] == c {
+                        out.extend_from_slice(&b[i..i + 3]);
+                        i += 3;
+                        break;
+                    }
+                    out.push(b[i]);
+                    i += 1;
+                }
+                continue;
+            }
+            // Single-line string with backslash escapes.
+            let quote = c;
+            out.push(quote);
+            i += 1;
+            while i < n {
+                let d = b[i];
+                if d == b'\\' && i + 1 < n {
+                    out.push(d);
+                    out.push(b[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                out.push(d);
+                i += 1;
+                if d == quote {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        out.push(c);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// Normalize a function body for **hash computation** (issue #36).
+///
+/// Strips comments (language-aware: `//` `/* */` for C-family, `#` for Python)
+/// and collapses whitespace so that formatting-only and comment-only edits do
+/// **not** change a node's hash, while any token-level code change does. String
+/// literal contents are preserved verbatim — comment-looking text inside a
+/// string is code, and changing it changes the hash.
+///
+/// Whitespace handling is language-aware:
+/// - **C-family** (`{}`/`;` carry structure): all whitespace, *including
+///   newlines*, collapses to single spaces, so brace/line-wrap reformatting is
+///   invisible.
+/// - **Python** (newlines/indentation are structural): lines are trimmed, blank
+///   lines dropped, and line order preserved — parity with [`normalize_body`],
+///   so re-indentation and blank-line churn are invisible without collapsing
+///   distinct statements together.
+///
+/// This underlies `hash = base62(xxhash64(sig + body_normalized + docstring))`;
+/// the caller still passes the docstring separately, so a docstring change
+/// still changes the hash.
+pub fn normalize_body_for_hash(body: &str, lang: &str) -> String {
+    let syntax = body_syntax(lang);
+    let stripped = strip_comments(body, syntax);
+    match syntax {
+        BodySyntax::Python => normalize_body(&stripped),
+        BodySyntax::CFamily | BodySyntax::Rust => {
+            stripped.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+    }
 }
 
 /// Normalize a function body for duplicate detection.
@@ -296,5 +472,195 @@ mod tests {
             normalize_body("let total = 0;\nfor (x of xs) { total += x; }\nreturn total;").len()
                 >= MIN_INDEXED_BODY_LEN
         );
+    }
+
+    // --- body normalization for hashing (issue #36) ---
+
+    /// Convenience: hash a body the way call sites do — normalize, then feed to
+    /// `compute_hash` with a fixed signature/docstring.
+    fn hbody(body: &str, lang: &str) -> String {
+        compute_hash("sig", &normalize_body_for_hash(body, lang), "")
+    }
+
+    #[test]
+    fn test_hash_stable_across_reformatting_rust() {
+        let original = "{ let x = 1; return x + 1; }";
+        let reformatted = "{\n    let x = 1;\n\n    return x + 1;\n}";
+        assert_eq!(hbody(original, "rust"), hbody(reformatted, "rust"));
+    }
+
+    #[test]
+    fn test_hash_stable_across_reformatting_typescript() {
+        let original = "{ const x = 1; return x + 1; }";
+        // Brace moved to its own line, re-indented, blank line added.
+        let reformatted = "{\n  const x = 1;\n  return x + 1;\n}\n";
+        assert_eq!(
+            hbody(original, "typescript"),
+            hbody(reformatted, "typescript")
+        );
+    }
+
+    #[test]
+    fn test_hash_stable_across_reformatting_python() {
+        let original = "x = 1\nreturn x + 1";
+        let reformatted = "    x = 1\n\n    return x + 1\n";
+        assert_eq!(hbody(original, "python"), hbody(reformatted, "python"));
+    }
+
+    #[test]
+    fn test_hash_stable_across_comment_edit_rust() {
+        let with = "{ let x = 1; // set x\n return x; /* done */ }";
+        let without = "{ let x = 1; return x; }";
+        assert_eq!(hbody(with, "rust"), hbody(without, "rust"));
+    }
+
+    #[test]
+    fn test_hash_stable_across_comment_edit_typescript() {
+        let with = "{ const x = 1; // note\n /* block */ return x; }";
+        let without = "{ const x = 1; return x; }";
+        assert_eq!(hbody(with, "typescript"), hbody(without, "typescript"));
+    }
+
+    #[test]
+    fn test_hash_stable_across_comment_edit_python() {
+        let with = "x = 1  # set x\nreturn x  # give it back";
+        let without = "x = 1\nreturn x";
+        assert_eq!(hbody(with, "python"), hbody(without, "python"));
+    }
+
+    #[test]
+    fn test_hash_changes_on_code_token_change() {
+        assert_ne!(
+            hbody("{ return x + 1; }", "rust"),
+            hbody("{ return x + 2; }", "rust")
+        );
+        assert_ne!(
+            hbody("return x + 1", "python"),
+            hbody("return x + 2", "python")
+        );
+    }
+
+    /// The docstring is hashed separately, so a doc change still changes the
+    /// hash even though non-doc comments are stripped from the body.
+    #[test]
+    fn test_hash_changes_on_docstring_change() {
+        let body = normalize_body_for_hash("{ return 1; }", "rust");
+        assert_ne!(
+            compute_hash("sig", &body, "Does X"),
+            compute_hash("sig", &body, "Does Y")
+        );
+    }
+
+    /// Comment-looking text inside a string literal is code and must be
+    /// preserved verbatim — changing it changes the hash.
+    #[test]
+    fn test_hash_changes_on_comment_text_inside_string() {
+        assert_ne!(
+            hbody(r#"{ let s = "// hello"; }"#, "rust"),
+            hbody(r#"{ let s = "// world"; }"#, "rust")
+        );
+        assert_ne!(
+            hbody("s = \"# hello\"", "python"),
+            hbody("s = \"# world\"", "python")
+        );
+        assert_ne!(
+            hbody("s = '''# hello'''", "python"),
+            hbody("s = '''# world'''", "python")
+        );
+    }
+
+    /// A `//` sequence inside a string must not be treated as a comment, so
+    /// trailing code after the string is preserved.
+    #[test]
+    fn test_string_with_comment_marker_not_stripped() {
+        let n = normalize_body_for_hash(r#"let url = "http://x"; return url;"#, "rust");
+        assert!(n.contains("http://x"), "string content dropped: {n}");
+        assert!(n.contains("return url;"), "code after string dropped: {n}");
+    }
+
+    #[test]
+    fn test_normalize_body_for_hash_cfamily_collapses_newlines() {
+        // C-family: newlines are insignificant and collapse to spaces.
+        assert_eq!(
+            normalize_body_for_hash("{\n  a();\n  b();\n}", "go"),
+            "{ a(); b(); }"
+        );
+    }
+
+    #[test]
+    fn test_normalize_body_for_hash_python_keeps_line_order() {
+        // Python: statement lines are preserved (indentation trimmed).
+        assert_eq!(
+            normalize_body_for_hash("    a()\n    b()", "python"),
+            "a()\nb()"
+        );
+    }
+
+    #[test]
+    fn test_normalize_body_for_hash_is_deterministic() {
+        let body = "{ let x = 1; /* c */ return x; // done\n }";
+        assert_eq!(
+            normalize_body_for_hash(body, "rust"),
+            normalize_body_for_hash(body, "rust")
+        );
+    }
+
+    /// A Rust lifetime (`'a`) is an unpaired `'` and must not open a string,
+    /// or a comment after it would not be stripped and the hash would churn.
+    #[test]
+    fn test_rust_lifetime_does_not_swallow_trailing_comment() {
+        let with = "{ let x: &'a str = get(); // grab it\n use_it(x); }";
+        let without = "{ let x: &'a str = get(); use_it(x); }";
+        assert_eq!(
+            hbody(with, "rust"),
+            hbody(without, "rust"),
+            "a comment after a lifetime must still be stripped"
+        );
+    }
+
+    /// A TS/JS single-quoted string containing `//` (a URL) must not be scanned
+    /// as code: everything after it — including real code — used to be stripped
+    /// as a line comment, so edits in the tail did not change the hash.
+    #[test]
+    fn test_ts_single_quoted_url_does_not_swallow_trailing_code() {
+        let a = "{ const s = 'see http://example.com'; return s; }";
+        let b = "{ const s = 'see http://example.com'; return DIFFERENT; }";
+        assert_ne!(
+            hbody(a, "typescript"),
+            hbody(b, "typescript"),
+            "a code edit after a single-quoted URL string must change the hash"
+        );
+    }
+
+    /// The same guarantee for block-comment-looking text inside single quotes.
+    #[test]
+    fn test_ts_single_quoted_glob_does_not_open_block_comment() {
+        let a = "{ const g = 'src/*trick*/x'; run(g); }";
+        let b = "{ const g = 'src/*trick*/x'; halt(g); }";
+        assert_ne!(hbody(a, "typescript"), hbody(b, "typescript"));
+    }
+
+    /// Go rune literals still terminate correctly under the always-a-string rule.
+    #[test]
+    fn test_go_rune_literal_preserved() {
+        let a = "{ c := '\\n'; emit(c) }";
+        let b = "{ c := '\\t'; emit(c) }";
+        assert_ne!(
+            hbody(a, "go"),
+            hbody(b, "go"),
+            "rune content is part of the hash"
+        );
+    }
+
+    /// Char literals are still handled as strings, so their content is verbatim.
+    #[test]
+    fn test_rust_char_literal_preserved() {
+        assert_ne!(
+            hbody(r"{ let c = 'a'; }", "rust"),
+            hbody(r"{ let c = 'b'; }", "rust")
+        );
+        // Escaped char literal is preserved and does not desync the scanner.
+        let n = normalize_body_for_hash(r"{ let c = '\''; return c; }", "rust");
+        assert!(n.contains("return c;"), "scanner desynced on '\\'': {n}");
     }
 }

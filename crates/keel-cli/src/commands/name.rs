@@ -10,9 +10,10 @@ pub fn run(
     module: Option<String>,
     kind: Option<String>,
 ) -> i32 {
-    // Open graph store
-    let db_path = ".keel/graph.db";
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path) {
+    // Open graph store from the worktree-aware `.keel` location.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let db_path = keel_core::paths::keel_dir(&cwd).join("graph.db");
+    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel name: failed to open graph store: {}", e);

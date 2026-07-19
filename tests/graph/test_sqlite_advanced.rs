@@ -176,8 +176,22 @@ fn test_sqlite_circuit_breaker_state() {
     let store = SqliteGraphStore::in_memory().unwrap();
 
     let state = vec![
-        ("E001".to_string(), "hash_abc".to_string(), 2u32, false),
-        ("E002".to_string(), "hash_def".to_string(), 3u32, true),
+        (
+            "E001".to_string(),
+            "hash_abc".to_string(),
+            2u32,
+            false,
+            "src/a.rs".to_string(),
+            "body_a".to_string(),
+        ),
+        (
+            "E002".to_string(),
+            "hash_def".to_string(),
+            3u32,
+            true,
+            "src/b.rs".to_string(),
+            "body_b".to_string(),
+        ),
     ];
     store.save_circuit_breaker(&state).unwrap();
 
@@ -188,11 +202,15 @@ fn test_sqlite_circuit_breaker_state() {
     assert_eq!(first.1, "hash_abc");
     assert_eq!(first.2, 2);
     assert!(!first.3, "should not be downgraded");
+    assert_eq!(first.4, "src/a.rs", "provenance file should round-trip");
+    assert_eq!(first.5, "body_a", "fingerprint should round-trip");
 
     let second = loaded.iter().find(|r| r.0 == "E002").unwrap();
     assert_eq!(second.1, "hash_def");
     assert_eq!(second.2, 3);
     assert!(second.3, "should be downgraded");
+    assert_eq!(second.4, "src/b.rs", "provenance file should round-trip");
+    assert_eq!(second.5, "body_b", "fingerprint should round-trip");
 }
 
 #[test]

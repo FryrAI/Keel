@@ -66,17 +66,23 @@ export function Card(props) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_svelte_component_is_a_module_node() {
+fn test_svelte_component_without_script_yields_no_definitions() {
+    // The whole-file Module node is created by `keel map`'s first pass (one
+    // path-named module per walked file), NOT by the parser. A script-less
+    // component therefore parses cleanly to zero definitions; it still becomes
+    // a module node in the graph via the map pass.
     let resolver = TsResolver::new();
     let source = "<h1>no script here</h1>\n";
     let result = resolver.parse_file(Path::new("src/lib/Plain.svelte"), source);
-    let modules: Vec<_> = result
-        .definitions
-        .iter()
-        .filter(|d| d.kind == keel_core::types::NodeKind::Module)
-        .collect();
-    assert_eq!(modules.len(), 1, "script-less component is still a module");
-    assert_eq!(modules[0].name, "Plain");
+    assert!(
+        result.definitions.is_empty(),
+        "parser must not inject a synthetic module def, got {:?}",
+        result
+            .definitions
+            .iter()
+            .map(|d| &d.name)
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -99,6 +105,39 @@ fn test_svelte_script_definitions_and_line_numbers() {
     assert!(
         result.imports.iter().any(|i| i.source.contains("util")),
         "imports inside <script> must be extracted"
+    );
+}
+
+#[test]
+fn test_svelte_template_only_handlers_become_references() {
+    // Handlers wired up only from the (blanked) template markup must still show
+    // up as references, so W005 doesn't read them as dead. A script fn used
+    // nowhere stays unreferenced. (issue #39)
+    let resolver = TsResolver::new();
+    let source = "<script lang=\"ts\">\n\
+         function addZuschlag() {}\n\
+         function startEdit() {}\n\
+         function reallyUnused() {}\n\
+         let editing = false;\n\
+         </script>\n\
+         <button on:click={addZuschlag}>add</button>\n\
+         {#if editing}\n\
+         <span>{startEdit()}</span>\n\
+         {/if}\n";
+    let result = resolver.parse_file(Path::new("src/lib/Form.svelte"), source);
+    let names: std::collections::HashSet<&str> =
+        result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains("addZuschlag"),
+        "template on:click handler counts as a reference: {names:?}"
+    );
+    assert!(
+        names.contains("startEdit"),
+        "{{#if}}-block call counts as a reference: {names:?}"
+    );
+    assert!(
+        !names.contains("reallyUnused"),
+        "a script fn used nowhere stays unreferenced: {names:?}"
     );
 }
 

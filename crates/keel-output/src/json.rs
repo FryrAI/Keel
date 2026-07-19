@@ -1,41 +1,53 @@
 use crate::OutputFormatter;
+use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
 };
+use keel_enforce::validate_plan::PlanValidationResult;
 
+/// JSON formatter: pretty-printed serde output for every result type.
+///
+/// By contract this formatter ignores any output token budget (`--budget` /
+/// `--max-tokens`): machine-readable JSON must never be truncated mid-structure,
+/// so budget is an LLM-format-only concern (see [`crate::llm::LlmFormatter`]).
 pub struct JsonFormatter;
 
+/// Generate `OutputFormatter` methods whose body is a plain pretty-print.
+///
+/// Every JSON formatter method is byte-identical — serialize the result,
+/// falling back to an empty string on the (practically impossible) serde
+/// error. This collapses the 16 copies into one rule; a new result type is a
+/// one-line addition to the invocation below.
+macro_rules! json_format_methods {
+    ($($method:ident: $ty:ty),+ $(,)?) => {
+        $(
+            fn $method(&self, result: &$ty) -> String {
+                serde_json::to_string_pretty(result).unwrap_or_default()
+            }
+        )+
+    };
+}
+
 impl OutputFormatter for JsonFormatter {
-    fn format_compile(&self, result: &CompileResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_discover(&self, result: &DiscoverResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_explain(&self, result: &ExplainResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_map(&self, result: &MapResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_fix(&self, result: &FixResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_name(&self, result: &NameResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_check(&self, result: &CheckResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_compile_delta(&self, delta: &CompileDelta) -> String {
-        serde_json::to_string_pretty(delta).unwrap_or_default()
-    }
-    fn format_analyze(&self, result: &AnalyzeResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
-    }
-    fn format_audit(&self, result: &AuditResult) -> String {
-        serde_json::to_string_pretty(result).unwrap_or_default()
+    json_format_methods! {
+        format_compile: CompileResult,
+        format_discover: DiscoverResult,
+        format_file_symbols: FileSymbols,
+        format_explain: ExplainResult,
+        format_map: MapResult,
+        format_fix: FixResult,
+        format_name: NameResult,
+        format_check: CheckResult,
+        format_compile_delta: CompileDelta,
+        format_analyze: AnalyzeResult,
+        format_audit: AuditResult,
+        format_skeleton: SkeletonResult,
+        format_focus: FocusResult,
+        format_checkpoint: CheckpointResult,
+        format_validate_plan: PlanValidationResult,
+        format_semantic_map: SemanticMapResult,
     }
 }
 
@@ -220,5 +232,49 @@ mod tests {
         assert_eq!(parsed["error_code"], "E001");
         assert_eq!(parsed["confidence"], 0.92);
         assert_eq!(parsed["resolution_chain"].as_array().unwrap().len(), 2);
+    }
+
+    fn sample_file_symbols() -> FileSymbols {
+        FileSymbols {
+            version: env!("CARGO_PKG_VERSION").into(),
+            command: "discover".into(),
+            path: Some("src/handler.rs".into()),
+            symbols: vec![FileSymbol {
+                kind: "function".into(),
+                name: "handleRequest".into(),
+                hash: "abc12345678".into(),
+                file: "src/handler.rs".into(),
+                line: 5,
+                callers: 2,
+                callees: 3,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_json_file_symbols() {
+        let fmt = JsonFormatter;
+        let out = fmt.format_file_symbols(&sample_file_symbols());
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["command"], "discover");
+        assert_eq!(parsed["path"], "src/handler.rs");
+        assert_eq!(parsed["symbols"].as_array().unwrap().len(), 1);
+        assert_eq!(parsed["symbols"][0]["name"], "handleRequest");
+        assert_eq!(parsed["symbols"][0]["hash"], "abc12345678");
+        assert_eq!(parsed["symbols"][0]["callers"], 2);
+    }
+
+    #[test]
+    fn test_json_file_symbols_name_mode_omits_path() {
+        let fmt = JsonFormatter;
+        let mut fs = sample_file_symbols();
+        fs.path = None;
+        let out = fmt.format_file_symbols(&fs);
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(
+            parsed.get("path").is_none(),
+            "path should be omitted in name mode"
+        );
+        assert_eq!(parsed["symbols"][0]["file"], "src/handler.rs");
     }
 }

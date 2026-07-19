@@ -3,7 +3,8 @@
 use serde_json::Value;
 
 use crate::mcp::{
-    internal_err, lock_store, missing_param, not_found, JsonRpcError, SharedEngine, SharedStore,
+    internal_err, lock_store, not_found, param_str, param_str_opt, param_u32, JsonRpcError,
+    SharedEngine, SharedStore,
 };
 use keel_core::store::GraphStore;
 
@@ -12,18 +13,8 @@ pub(crate) fn handle_discover(
     engine: &SharedEngine,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let hash = params
-        .as_ref()
-        .and_then(|p| p.get("hash"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| missing_param("hash"))?
-        .to_string();
-
-    let depth = params
-        .as_ref()
-        .and_then(|p| p.get("depth"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1) as u32;
+    let hash = param_str(&params, "hash")?.to_string();
+    let depth = param_u32(&params, "depth", 1);
 
     let engine = engine.lock().map_err(|_| JsonRpcError {
         code: -32603,
@@ -41,12 +32,7 @@ pub(crate) fn handle_where(
     store: &SharedStore,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let hash = params
-        .as_ref()
-        .and_then(|p| p.get("hash"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| missing_param("hash"))?
-        .to_string();
+    let hash = param_str(&params, "hash")?.to_string();
 
     let store = lock_store(store)?;
     let node = store.get_node(&hash).ok_or_else(|| not_found(&hash))?;
@@ -55,7 +41,6 @@ pub(crate) fn handle_where(
         "file": node.file_path,
         "line_start": node.line_start,
         "line_end": node.line_end,
-        "stale": false,
     }))
     .map_err(internal_err)
 }
@@ -69,19 +54,10 @@ pub(crate) fn handle_explain(
     engine: &SharedEngine,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let error_code = params
-        .as_ref()
-        .and_then(|p| p.get("error_code"))
-        .and_then(|v| v.as_str())
+    let error_code = param_str_opt(&params, "error_code")
         .unwrap_or("E001")
         .to_string();
-
-    let hash = params
-        .as_ref()
-        .and_then(|p| p.get("hash"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| missing_param("hash"))?
-        .to_string();
+    let hash = param_str(&params, "hash")?.to_string();
 
     let engine = engine.lock().map_err(|_| JsonRpcError {
         code: -32603,
@@ -99,11 +75,10 @@ pub(crate) fn handle_map(
     store: &SharedStore,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let format = params
-        .as_ref()
-        .and_then(|p| p.get("format"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("json");
+    let format = param_str_opt(&params, "format").unwrap_or("json");
+
+    // Matches the CLI `keel map` default (1 = modules + hotspots).
+    let depth = param_u32(&params, "depth", 1);
 
     let scope: Vec<String> = params
         .as_ref()
@@ -111,11 +86,7 @@ pub(crate) fn handle_map(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
-    let file_path = params
-        .as_ref()
-        .and_then(|p| p.get("file_path"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let file_path = param_str_opt(&params, "file").map(str::to_string);
 
     let store = lock_store(store)?;
 
@@ -162,7 +133,7 @@ pub(crate) fn handle_map(
                 "status": "ok",
                 "format": "json",
                 "scope": scope,
-                "file_path": path,
+                "file": path,
                 "nodes": node_entries,
             }))
         }
@@ -185,27 +156,19 @@ pub(crate) fn handle_map(
                 "text": format!("{}{}", header, text),
             }))
         } else {
-            let module_entries: Vec<Value> = modules
-                .iter()
-                .map(|m| {
-                    let nodes = store.get_nodes_in_file(&m.file_path);
-                    total_nodes += nodes.len();
-                    serde_json::json!({
-                        "name": m.name,
-                        "file": m.file_path,
-                        "node_count": nodes.len(),
-                    })
-                })
-                .collect();
-
-            Ok(serde_json::json!({
-                "status": "ok",
-                "format": "json",
-                "scope": scope,
-                "module_count": modules.len(),
-                "total_nodes": total_nodes,
-                "modules": module_entries,
-            }))
+            // Full-graph JSON: reconstruct the same MapResult the CLI
+            // serializes (summary counts, module profiles, hotspots) through
+            // the shared assembly, so `keel/map` and `keel map --json` report
+            // an identical graph. `status`/`format`/`scope` are layered on for
+            // MCP clients.
+            let map_result = keel_enforce::map::build_map_from_sqlite(&store, depth);
+            let mut value = serde_json::to_value(&map_result).map_err(internal_err)?;
+            if let Value::Object(obj) = &mut value {
+                obj.insert("status".into(), Value::from("ok"));
+                obj.insert("format".into(), Value::from("json"));
+                obj.insert("scope".into(), serde_json::json!(scope));
+            }
+            Ok(value)
         }
     }
 }

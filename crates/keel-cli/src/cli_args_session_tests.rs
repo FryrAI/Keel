@@ -1,0 +1,77 @@
+//! CLI-parse tests for the session/planning commands: `map --semantic`,
+//! `checkpoint`, and `validate-plan`. Split from `cli_args_tests.rs` to keep
+//! each test file under the size cap.
+
+use super::*;
+use clap::Parser;
+
+fn parse(args: &[&str]) -> Cli {
+    Cli::try_parse_from(args).expect("failed to parse CLI args")
+}
+
+#[test]
+fn parse_map_semantic() {
+    match parse(&["keel", "map", "--semantic"]).command {
+        Commands::Map { semantic, .. } => assert!(semantic),
+        _ => panic!("expected Map"),
+    }
+}
+
+#[test]
+fn parse_checkpoint_defaults() {
+    match parse(&["keel", "checkpoint"]).command {
+        Commands::Checkpoint {
+            since,
+            staged,
+            output,
+        } => assert!(since.is_none() && !staged && output.is_none()),
+        _ => panic!("expected Checkpoint"),
+    }
+}
+
+#[test]
+fn parse_checkpoint_since_staged_output() {
+    match parse(&[
+        "keel",
+        "checkpoint",
+        "--since",
+        "main",
+        "--staged",
+        "-o",
+        "cp.md",
+    ])
+    .command
+    {
+        Commands::Checkpoint {
+            since,
+            staged,
+            output,
+        } => {
+            assert_eq!(since.as_deref(), Some("main"));
+            assert!(staged);
+            assert_eq!(output.as_deref(), Some("cp.md"));
+        }
+        _ => panic!("expected Checkpoint"),
+    }
+}
+
+#[test]
+fn parse_validate_plan_file() {
+    match parse(&["keel", "validate-plan", "plan.md"]).command {
+        Commands::ValidatePlan { plan } => assert_eq!(plan, "plan.md"),
+        _ => panic!("expected ValidatePlan"),
+    }
+}
+
+#[test]
+fn parse_validate_plan_stdin() {
+    match parse(&["keel", "validate-plan", "-"]).command {
+        Commands::ValidatePlan { plan } => assert_eq!(plan, "-"),
+        _ => panic!("expected ValidatePlan"),
+    }
+}
+
+#[test]
+fn parse_validate_plan_missing_arg() {
+    Cli::try_parse_from(["keel", "validate-plan"]).expect_err("expected parse failure");
+}

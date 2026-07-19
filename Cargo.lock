@@ -1221,7 +1221,6 @@ dependencies = [
  "keel-parsers",
  "keel-server",
  "libc",
- "notify",
  "serde",
  "serde_json",
  "tempfile",
@@ -1235,7 +1234,6 @@ dependencies = [
 name = "keel-core"
 version = "0.4.2"
 dependencies = [
- "petgraph",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1253,17 +1251,14 @@ dependencies = [
  "keel-parsers",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
- "walkdir",
+ "tempfile",
 ]
 
 [[package]]
 name = "keel-output"
 version = "0.4.2"
 dependencies = [
- "keel-core",
  "keel-enforce",
- "serde",
  "serde_json",
 ]
 
@@ -1271,7 +1266,6 @@ dependencies = [
 name = "keel-parsers"
 version = "0.4.2"
 dependencies = [
- "globset",
  "ignore",
  "keel-core",
  "oxc_allocator",
@@ -1280,7 +1274,6 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "protobuf",
- "rayon",
  "scip",
  "serde",
  "serde_json",
@@ -1292,7 +1285,6 @@ dependencies = [
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
- "walkdir",
  "xxhash-rust",
 ]
 
@@ -1311,7 +1303,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
- "tower-http",
  "xxhash-rust",
 ]
 

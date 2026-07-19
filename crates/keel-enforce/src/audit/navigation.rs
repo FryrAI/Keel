@@ -7,6 +7,11 @@ use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::types::{AuditFinding, AuditSeverity};
 
+/// Audit the navigation dimension: can a reader find their way around?
+///
+/// Flags modules that are unreachable from any other module (no incoming
+/// edges) and modules whose fan-in is so high they act as chokepoints.
+/// `files`, when given, restricts the audit to those module paths.
 pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 

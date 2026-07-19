@@ -23,3 +23,15 @@ mod test_multi_lang_setup;
 // Monorepo tests
 #[path = "integration/test_monorepo.rs"]
 mod test_monorepo;
+
+// BAML boundary awareness (issue #32)
+#[path = "integration/test_baml_boundary.rs"]
+mod test_baml_boundary;
+
+// Graph fidelity: resolve_call_edge wiring + incremental compile sync (issue #30)
+#[path = "integration/test_graph_fidelity.rs"]
+mod test_graph_fidelity;
+
+// Python ty subprocess wiring (issue #33)
+#[path = "integration/test_ty_wiring.rs"]
+mod test_ty_wiring;

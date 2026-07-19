@@ -36,7 +36,7 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
 - **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
-- **Tool config generation** — `keel init` auto-detects 11 AI coding tools and generates hook configs
+- **Tool config generation** — `keel init` auto-detects 9 AI coding tools and generates hook configs
 - **Zero runtime dependencies** — single statically-linked 12MB binary
 
 ## Performance
@@ -147,11 +147,16 @@ keel where a7Bx3kM9f2Q
 | `keel map [--depth 0-3]` | Depth-aware structural map | <5s for 100k LOC |
 | `keel compile [--depth 0-2] [file...]` | Validation with backpressure | <200ms single file |
 | `keel discover <hash>` | Adjacency lookup (callers, callees) | <50ms |
+| `keel skeleton <file>` | Compressed signature-only view (no bodies) | <100ms |
+| `keel focus <hash\|file>` | Minimal context set to safely modify a target | <50ms |
 | `keel where <hash>` | Hash → file:line resolution | <50ms |
 | `keel explain <code> <hash>` | Resolution chain explanation | <50ms |
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
+| `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <1s |
+| `keel validate-plan <file\|->` | Validate a plan against the graph before execution | <100ms |
+| `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |
 | `keel push [--yes]` | Upload graph to keel cloud | — |
@@ -189,10 +194,6 @@ keel stores its configuration in `.keel/keel.json`:
     "enabled": true,
     "detailed": false,
     "remote": true
-  },
-  "naming_conventions": {
-    "style": null,
-    "prefixes": []
   }
 }
 ```
@@ -257,11 +258,11 @@ The `extensions/vscode/` directory contains a VS Code extension that displays ke
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — install, init, map, compile in 5 minutes
-- [Command Reference](docs/commands.md) — full command reference with examples
-- [Agent Integration](docs/agent-integration.md) — wiring keel into Claude Code, Cursor, etc.
-- [Configuration](docs/config.md) — keel.json reference, .keelignore
-- [FAQ](docs/faq.md) — troubleshooting and common questions
+- [Getting Started](docs/src/getting-started.md) — install, init, map, compile in 5 minutes
+- [Command Reference](docs/src/commands.md) — full command reference with examples
+- [Agent Integration](docs/src/agent-integration.md) — wiring keel into Claude Code, Cursor, etc.
+- [Configuration](docs/src/config.md) — keel.json reference, .keelignore
+- [FAQ](docs/src/faq.md) — troubleshooting and common questions
 
 ## Development
 
@@ -310,6 +311,9 @@ scripts/
 | E005 | Arity mismatch | ERROR |
 | W001 | Placement issue | WARNING |
 | W002 | Duplicate name | WARNING |
+| W005 | Dead code | WARNING |
+| W006 | Duplicate implementation | WARNING |
+| W007 | Oversized file | WARNING |
 | S001 | Suppressed | INFO |
 
 ### Exit Codes

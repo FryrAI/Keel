@@ -1,10 +1,18 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
+use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
-    ExplainResult, FixResult, MapResult, NameResult,
+    ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
 };
+use keel_enforce::validate_plan::PlanValidationResult;
 
+/// Human-readable terminal formatter (colored, laid out for people).
+///
+/// By contract this formatter ignores any output token budget (`--budget` /
+/// `--max-tokens`): those tune LLM-directed output only (see
+/// [`crate::llm::LlmFormatter`]), so human output is never budget-truncated.
 pub struct HumanFormatter;
 
 impl OutputFormatter for HumanFormatter {
@@ -96,6 +104,13 @@ impl OutputFormatter for HumanFormatter {
         }
 
         out
+    }
+
+    fn format_file_symbols(&self, result: &FileSymbols) -> String {
+        // A symbol listing is already a flat, human-legible table — the human
+        // and LLM renderings are byte-identical, so share the one implementation
+        // rather than letting two copies drift.
+        crate::llm::discover::format_file_symbols(result)
     }
 
     fn format_explain(&self, result: &ExplainResult) -> String {
@@ -322,6 +337,166 @@ impl OutputFormatter for HumanFormatter {
             ));
             for r in &result.refactor_opportunities {
                 out.push_str(&format!("  {}\n", r.message));
+            }
+        }
+        out
+    }
+
+    fn format_skeleton(&self, result: &SkeletonResult) -> String {
+        let mut out = format!(
+            "Skeleton: {} ({}, {} symbols)\n",
+            result.file,
+            result.language,
+            result.symbols.len(),
+        );
+        if !result.imports.is_empty() {
+            out.push_str(&format!("Imports: {}\n", result.imports.join(", ")));
+        }
+        for s in &result.symbols {
+            out.push_str(&format!(
+                "  {}{}  L{}\n",
+                if s.is_public { "" } else { "[private] " },
+                s.signature,
+                s.line,
+            ));
+            if let Some(doc) = &s.docstring {
+                out.push_str(&format!("    doc: {}\n", doc));
+            }
+        }
+        out
+    }
+
+    fn format_focus(&self, result: &FocusResult) -> String {
+        let mut out = format!(
+            "Focus: {} (depth {}, {} files, {} callers at risk)\n",
+            result.target,
+            result.depth,
+            result.files.len(),
+            result.callers.len(),
+        );
+        out.push_str("\nFiles to read (ranked):\n");
+        for f in &result.files {
+            out.push_str(&format!(
+                "  {} [{}] distance={}\n",
+                f.path, f.role, f.distance,
+            ));
+            for s in &f.symbols {
+                out.push_str(&format!(
+                    "    {} [{}] L{} callers={} callees={}\n",
+                    s.name, s.hash, s.line, s.callers, s.callees,
+                ));
+            }
+        }
+        if !result.callers.is_empty() {
+            out.push_str("\nSymbols at risk (callers):\n");
+            for c in &result.callers {
+                out.push_str(&format!(
+                    "  {} [{}] {}:{} distance={} callers={}\n",
+                    c.name, c.hash, c.file, c.line, c.distance, c.callers,
+                ));
+            }
+        }
+        out.push_str(&format!(
+            "\nSuggested read order: {}\n",
+            result.read_order.join(" -> "),
+        ));
+        out
+    }
+
+    fn format_checkpoint(&self, result: &CheckpointResult) -> String {
+        let mut out = format!(
+            "Checkpoint ({}): {} file(s) changed, {} error(s), {} warning(s)\n",
+            result.range,
+            result.files.len(),
+            result.error_count,
+            result.warning_count,
+        );
+        for fd in &result.files {
+            out.push_str(&format!("\n{}:\n", fd.file));
+            for s in &fd.added {
+                out.push_str(&format!("  + {} [{}]\n", s.name, s.hash));
+            }
+            for s in &fd.changed {
+                out.push_str(&format!("  ~ {} [{}]\n", s.name, s.hash));
+            }
+            for s in &fd.removed {
+                out.push_str(&format!("  - {} [{}]\n", s.name, s.hash));
+            }
+        }
+        if !result.affected_callers.is_empty() {
+            out.push_str("\nCallers at risk:\n");
+            for ac in &result.affected_callers {
+                out.push_str(&format!("  {}:\n", ac.symbol));
+                for c in &ac.callers {
+                    out.push_str(&format!("    {} at {}:{}\n", c.name, c.file, c.line));
+                }
+            }
+        }
+        if !result.violations.is_empty() {
+            out.push_str("\nOutstanding violations:\n");
+            for v in &result.violations {
+                out.push_str(&format!(
+                    "  [{}] {} at {}:{} — {}\n",
+                    v.code, v.severity, v.file, v.line, v.message
+                ));
+            }
+        }
+        if !result.commits.is_empty() {
+            out.push_str("\nRecent commits:\n");
+            for c in &result.commits {
+                out.push_str(&format!("  {}\n", c));
+            }
+        }
+        out
+    }
+
+    fn format_validate_plan(&self, result: &PlanValidationResult) -> String {
+        if result.unrecognized {
+            return "No graph-relevant actions detected in the plan.\n".to_string();
+        }
+        let mut out = format!(
+            "Plan validation: {} action(s), {} symbol(s) detected\n",
+            result.actions.len(),
+            result.symbols_detected,
+        );
+        for a in &result.actions {
+            out.push_str(&format!(
+                "\n[{}] {} `{}` (hash={})\n  --> {}:{}\n  risk: {} ({} caller(s))\n",
+                a.risk, a.action, a.symbol, a.hash, a.file, a.line, a.risk, a.caller_count,
+            ));
+            for c in &a.callers {
+                out.push_str(&format!(
+                    "    caller: {} at {}:{}\n",
+                    c.name, c.file, c.line
+                ));
+            }
+            out.push_str(&format!("  order: {}\n", a.suggested_order));
+        }
+        if !result.files_detected.is_empty() {
+            out.push_str(&format!(
+                "\nFiles referenced: {}\n",
+                result.files_detected.join(", ")
+            ));
+        }
+        out
+    }
+
+    fn format_semantic_map(&self, result: &SemanticMapResult) -> String {
+        let mut out = format!("Semantic map: {} module(s)\n", result.modules.len());
+        for m in &result.modules {
+            out.push_str(&format!("\n{}\n", m.path));
+            if !m.summary.is_empty() {
+                out.push_str(&format!("  summary: {}\n", m.summary));
+            }
+            out.push_str(&format!("  when to use: {}\n", m.when_to_use));
+            for f in &m.public_functions {
+                out.push_str(&format!("  fn {} [{}] — {}\n", f.name, f.hash, f.signature));
+            }
+            for t in &m.public_types {
+                out.push_str(&format!(
+                    "  type {} [{}] — {}\n",
+                    t.name, t.hash, t.signature
+                ));
             }
         }
         out

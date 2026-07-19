@@ -192,6 +192,9 @@ fn test_e004_function_still_exists_no_violation() {
         is_public: true,
         type_hints_present: true,
         body_text: "pass".to_string(),
+        in_test_context: false,
+        in_trait_context: false,
+        is_associated: false,
     };
     let file = FileIndex {
         file_path: "lib.py".to_string(),

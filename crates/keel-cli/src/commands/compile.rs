@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use keel_enforce::batch::PersistentBatch;
 use keel_output::OutputFormatter;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
@@ -13,6 +14,7 @@ use keel_parsers::typescript::TsResolver;
 use super::compile_lock::acquire_compile_lock;
 use super::compile_metrics::build_compile_metrics;
 use crate::telemetry_recorder::EventMetrics;
+use keel_core::paths::make_relative;
 
 /// Run `keel compile` — incremental validation of changed files.
 #[allow(clippy::too_many_arguments)]
@@ -40,7 +42,7 @@ pub fn run(
         }
     };
 
-    let keel_dir = cwd.join(".keel");
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
     if !keel_dir.exists() {
         eprintln!("keel compile: not initialized. Run `keel init` first.");
         return (2, EventMetrics::default());
@@ -64,6 +66,40 @@ pub fn run(
         }
     };
 
+    // Handle batch mode. State is persisted in SQLite (a `keel_meta` row next
+    // to the circuit-breaker state) so it survives across separate `keel
+    // compile` processes — otherwise `--batch-start` sets state in a per-process
+    // engine that is dropped at exit, silently losing every deferred violation.
+    // These run on `store` before it is handed to the engine.
+    if batch_start {
+        if let Err(e) = PersistentBatch::new().save(&store) {
+            eprintln!("keel compile: failed to start batch: {}", e);
+            return (2, EventMetrics::default());
+        }
+        if verbose {
+            eprintln!("keel compile: batch mode started");
+        }
+        return (0, EventMetrics::default());
+    }
+
+    if batch_end {
+        let deferred = PersistentBatch::load(&store)
+            .map(|b| b.drain())
+            .unwrap_or_default();
+        PersistentBatch::clear(&store);
+        let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
+        let exit = output_result(formatter, &result, strict, verbose);
+        let metrics = build_compile_metrics(&result, &[]);
+        return (exit, metrics);
+    }
+
+    // If a batch is active and not expired, this compile defers its deferrable
+    // violations into the persisted batch rather than firing them now. Reading
+    // it is a query on the already-open handle — no file I/O — and on the common
+    // no-batch path it is a single lookup that returns `None`.
+    let active_batch = PersistentBatch::load(&store);
+    let batch_deferring = active_batch.as_ref().is_some_and(|b| !b.is_expired());
+
     // Load persisted circuit breaker state
     let cb_state = store.load_circuit_breaker().unwrap_or_default();
 
@@ -76,21 +112,14 @@ pub fn run(
         engine.suppress(code);
     }
 
-    // Handle batch mode
-    if batch_start {
+    if batch_deferring {
         engine.batch_start();
-        if verbose {
-            eprintln!("keel compile: batch mode started");
-        }
-        return (0, EventMetrics::default());
     }
 
-    if batch_end {
-        let result = engine.batch_end();
-        let exit = output_result(formatter, &result, strict, verbose);
-        let metrics = build_compile_metrics(&result, &[]);
-        return (exit, metrics);
-    }
+    // Whether the user explicitly named the target files (not --changed/--since,
+    // not a bare full-repo compile). Only then is a missing file a hard error;
+    // git-deleted paths under --changed/--since must still skip silently.
+    let explicit_targets = !changed && since.is_none() && !files.is_empty();
 
     // Resolve target files: --changed, --since, explicit list, or all
     let mut effective_files = files;
@@ -115,6 +144,11 @@ pub fn run(
     let mut go_resolver: Option<GoResolver> = None;
     let mut rs: Option<RustLangResolver> = None;
 
+    // A full-repo compile (no explicit files) is close to a `keel map`; the
+    // incremental graph sync below is skipped for it to avoid degrading the
+    // map-built edge graph with weaker single-file resolution.
+    let full_repo_compile = effective_files.is_empty();
+
     let target_files = if effective_files.is_empty() {
         let walker = keel_parsers::walker::FileWalker::new(&cwd);
         walker
@@ -136,6 +170,18 @@ pub fn run(
             .collect::<Vec<_>>()
     };
 
+    // An explicitly-named target that does not exist is a hard error, not a
+    // silent exit 0: the agent asked us to validate a specific file and we
+    // could not. (Git-deleted paths under --changed/--since are excluded above.)
+    if explicit_targets {
+        for path in &target_files {
+            if !Path::new(path).exists() {
+                eprintln!("keel compile: file not found: {}", path);
+                return (2, EventMetrics::default());
+            }
+        }
+    }
+
     let mut file_indices: Vec<FileIndex> = Vec::new();
 
     for file_str in &target_files {
@@ -147,7 +193,15 @@ pub fn run(
         let content = match fs::read_to_string(file_path) {
             Ok(c) => c,
             Err(e) => {
-                if verbose {
+                if e.kind() == std::io::ErrorKind::InvalidData {
+                    // Not valid UTF-8: the file was NOT validated. Always tell
+                    // the agent (not just under --verbose) — an unvalidated file
+                    // must never be mistaken for a clean one.
+                    eprintln!(
+                        "keel compile: skipped (not valid UTF-8, NOT validated): {}",
+                        file_str
+                    );
+                } else if verbose {
                     eprintln!("keel compile: skipping {}: {}", file_str, e);
                 }
                 continue;
@@ -158,7 +212,7 @@ pub fn run(
             l if keel_parsers::treesitter::is_typescript_family(l) => {
                 ts.get_or_insert_with(|| TsResolver::with_project_root(&cwd))
             }
-            "python" => py.get_or_insert_with(PyResolver::new),
+            "python" => py.get_or_insert_with(PyResolver::detect),
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
             "rust" => rs.get_or_insert_with(RustLangResolver::new),
             _ => continue,
@@ -185,24 +239,97 @@ pub fn run(
 
     let result = engine.compile(&file_indices);
 
-    // Persist circuit breaker state back to SQLite
+    // Persist circuit-breaker state and run the incremental graph sync. Both
+    // run *after* enforcement, sequentially, so they share ONE post-enforcement
+    // SQLite handle instead of opening (and re-initializing the schema on) a
+    // separate connection each. It is a fresh handle rather than the engine's
+    // own because the engine still owns its connection here and the sync needs
+    // `SqliteGraphStore` inherent methods the frozen `GraphStore` trait does not
+    // expose; E001/E004 already diffed against the pre-edit graph.
     let cb_out = engine.export_circuit_breaker();
     let cb_events = cb_out.len() as u32;
-    if !cb_out.is_empty() {
-        if let Ok(cb_store) =
-            keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
-        {
-            if let Err(e) = cb_store.save_circuit_breaker(&cb_out) {
+    let need_sync = !full_repo_compile && !file_indices.is_empty();
+    // One post-enforcement handle, reused for circuit-breaker persistence, the
+    // incremental sync, and the batch-state writes below. Opened only when
+    // something actually needs it, so the clean no-work path adds no connection.
+    let mut post_store = if !cb_out.is_empty() || need_sync || active_batch.is_some() {
+        match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "keel compile: failed to open graph for post-compile work: {}",
+                        e
+                    );
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(ps) = post_store.as_mut() {
+        if !cb_out.is_empty() {
+            if let Err(e) = ps.save_circuit_breaker(&cb_out) {
                 if verbose {
                     eprintln!("keel compile: failed to persist circuit breaker: {}", e);
                 }
             }
+        }
+        if need_sync {
+            // The same `ResolverSet` the map uses; `keel compile` only
+            // constructs resolvers for the languages it touched, so the
+            // untouched fields stay `None`.
+            let resolvers = super::map_lang_resolve::ResolverSet {
+                ts: ts.as_ref().map(|r| r as &dyn LanguageResolver),
+                py: py.as_ref().map(|r| r as &dyn LanguageResolver),
+                go: go_resolver.as_ref().map(|r| r as &dyn LanguageResolver),
+                rs: rs.as_ref().map(|r| r as &dyn LanguageResolver),
+            };
+            super::compile_sync::sync_compiled_files(ps, &cwd, &file_indices, &resolvers, verbose);
         }
     }
 
     // Build metrics before delta processing may consume result
     let mut metrics = build_compile_metrics(&result, &target_files);
     metrics.circuit_breaker_events = cb_events;
+
+    // Batch-mode bookkeeping: persist this compile's deferred violations,
+    // honoring the documented 60s inactivity auto-expire. Reuses the
+    // `post_store` handle opened above (guaranteed present when a batch is
+    // active, unless the reopen failed).
+    if let Some(mut batch) = active_batch {
+        if batch.is_expired() {
+            // Expired: end the batch and fire the accumulated deferred alongside
+            // this compile's own violations (which were NOT deferred, since
+            // `batch_deferring` was false above).
+            if let Some(ps) = post_store.as_ref() {
+                PersistentBatch::clear(ps);
+            }
+            if verbose {
+                eprintln!("keel compile: batch expired (60s inactivity); firing deferred");
+            }
+            let mut all = batch.clone().drain();
+            all.extend(result.errors.iter().cloned());
+            all.extend(result.warnings.iter().cloned());
+            let merged = keel_enforce::engine::EnforcementEngine::result_from_violations(all);
+            let exit = output_result(formatter, &merged, strict, verbose);
+            return (exit, metrics);
+        }
+        // Still batching: stash this compile's deferred, keep the timer warm.
+        batch.extend_deferred(engine.drain_batch_deferred());
+        batch.touch();
+        if let Some(ps) = post_store.as_ref() {
+            if let Err(e) = batch.save(ps) {
+                if verbose {
+                    eprintln!("keel compile: failed to persist batch: {}", e);
+                }
+            }
+        }
+        // Only immediate (structural) violations fire during a batch.
+        let exit = output_result(formatter, &result, strict, verbose);
+        return (exit, metrics);
+    }
 
     // Compute adoption metrics: resolved/persisted/new vs previous snapshot.
     // This runs on every compile, not just --delta, so telemetry always has the data.
@@ -265,17 +392,17 @@ pub fn run(
         }
     }
 
-    // Check timeout before outputting results
+    // Note (but do not act on) an exceeded time budget. Exceeding the budget
+    // must NOT mask violations as exit 0 — the results were already computed, so
+    // we still output them and return the real exit code. A stale-but-honest
+    // result is far better than a false all-clear.
     if let Some(timeout_ms) = timeout {
         let elapsed = start.elapsed().as_millis() as u64;
         if elapsed > timeout_ms {
-            if verbose {
-                eprintln!(
-                    "keel compile: timed out ({}ms > {}ms limit)",
-                    elapsed, timeout_ms
-                );
-            }
-            return (0, metrics); // Don't block the agent
+            eprintln!(
+                "keel compile: exceeded time budget ({}ms > {}ms); results may be from a slow run",
+                elapsed, timeout_ms
+            );
         }
     }
 
@@ -285,39 +412,14 @@ pub fn run(
 
 /// Get files changed according to git diff.
 fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
-    let range = since.as_ref().map(|c| format!("{}..HEAD", c));
-    let args: Vec<&str> = match &range {
-        Some(r) => vec!["diff", "--name-only", r.as_str()],
-        None => vec!["diff", "--name-only", "HEAD"],
+    let cwd = std::env::current_dir().map_err(|e| format!("failed to get cwd: {}", e))?;
+    let mode = match since {
+        // `--since <commit>` means the committed range `<commit>..HEAD`.
+        Some(base) => keel_enforce::gitdiff::DiffMode::Range(base.clone()),
+        // `--changed` means working tree vs HEAD.
+        None => keel_enforce::gitdiff::DiffMode::Since(None),
     };
-
-    let output = std::process::Command::new("git")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("failed to run git: {}", e))?;
-
-    if !output.status.success() {
-        // Fallback for initial commits (no HEAD yet)
-        let fallback = std::process::Command::new("git")
-            .args(["diff", "--name-only", "--cached"])
-            .output()
-            .map_err(|e| format!("git fallback failed: {}", e))?;
-        let text = String::from_utf8_lossy(&fallback.stdout);
-        return Ok(filter_supported_files(&text));
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    Ok(filter_supported_files(&text))
-}
-
-/// Filter file paths to only supported languages, per the canonical
-/// extension table in `keel_parsers::treesitter::detect_language`.
-fn filter_supported_files(text: &str) -> Vec<String> {
-    text.lines()
-        .filter(|line| !line.is_empty())
-        .filter(|line| detect_language(Path::new(line)).is_some())
-        .map(|s| s.to_string())
-        .collect()
+    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, true)
 }
 
 fn output_result(
@@ -346,12 +448,4 @@ fn output_result(
     } else {
         0
     }
-}
-
-/// Make a path relative to the project root.
-fn make_relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .to_string()
 }

@@ -24,12 +24,17 @@ fn detect_install_method() -> InstallMethod {
 }
 
 fn platform_artifact() -> Result<String, String> {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
+    artifact_name(std::env::consts::OS, std::env::consts::ARCH)
+}
 
+/// Map an OS/arch pair to the release artifact filename published by the
+/// release workflow (see `.github/workflows/release.yml`). Windows artifacts
+/// carry a `.exe` suffix.
+fn artifact_name(os: &str, arch: &str) -> Result<String, String> {
     let platform = match os {
         "linux" => "linux",
         "macos" => "darwin",
+        "windows" => "windows",
         _ => {
             return Err(format!(
                 "unsupported OS: {os}. Download manually from https://github.com/{REPO}/releases"
@@ -43,7 +48,8 @@ fn platform_artifact() -> Result<String, String> {
         _ => return Err(format!("unsupported architecture: {arch}")),
     };
 
-    Ok(format!("keel-{platform}-{arch_suffix}"))
+    let ext = if os == "windows" { ".exe" } else { "" };
+    Ok(format!("keel-{platform}-{arch_suffix}{ext}"))
 }
 
 fn fetch_latest_version() -> Result<(String, String), String> {
@@ -116,6 +122,22 @@ fn verify_checksum(
     }
 
     Ok(())
+}
+
+/// Download the checksum manifest and verify the freshly downloaded binary
+/// against it. A missing or failed checksum download is fatal: keel refuses to
+/// install a binary it cannot verify. This helper never touches the installed
+/// executable, so an `Err` guarantees nothing was installed.
+fn acquire_and_verify_checksum(
+    checksum_url: &str,
+    tmp_binary: &PathBuf,
+    tmp_checksums: &PathBuf,
+    artifact: &str,
+) -> Result<(), String> {
+    download_to(checksum_url, tmp_checksums).map_err(|e| {
+        format!("could not download checksums; refusing to install an unverified binary: {e}")
+    })?;
+    verify_checksum(tmp_binary, tmp_checksums, artifact)
 }
 
 /// SHA-256 using command-line tool (avoids adding a crypto dependency).
@@ -233,9 +255,9 @@ pub fn run(version: Option<String>, yes: bool) -> i32 {
     }
 
     eprintln!("verifying checksum...");
-    if let Err(e) = download_to(&checksum_url, &tmp_checksums) {
-        eprintln!("warning: could not download checksums: {e}");
-    } else if let Err(e) = verify_checksum(&tmp_binary, &tmp_checksums, &artifact) {
+    if let Err(e) =
+        acquire_and_verify_checksum(&checksum_url, &tmp_binary, &tmp_checksums, &artifact)
+    {
         eprintln!("error: {e}");
         let _ = fs::remove_file(&tmp_binary);
         let _ = fs::remove_file(&tmp_checksums);
@@ -249,16 +271,54 @@ pub fn run(version: Option<String>, yes: bool) -> i32 {
         let _ = fs::set_permissions(&tmp_binary, fs::Permissions::from_mode(0o755));
     }
 
-    if let Err(e) = fs::rename(&tmp_binary, &exe_path) {
-        eprintln!("error: failed to replace binary: {e}");
+    if let Err(e) = replace_executable(&tmp_binary, &exe_path) {
+        eprintln!("error: {e}");
         eprintln!(
             "try: sudo mv {} {}",
             tmp_binary.display(),
             exe_path.display()
         );
+        let _ = fs::remove_file(&tmp_binary);
         return 2;
     }
 
     eprintln!("upgraded to keel v{latest_version}");
     0
+}
+
+/// Move `new_binary` into place at `exe_path`, replacing the running executable.
+///
+/// On Unix a plain `rename` atomically swaps the inode out from under the
+/// running process. On Windows the OS refuses to overwrite a running `.exe`, so
+/// the current executable is first renamed aside to `keel.exe.old` (permitted
+/// even while running) before the new binary is moved in. The stale `.old` file
+/// cannot be deleted while the process is live; it is cleaned up best-effort by
+/// the next upgrade.
+#[cfg(not(windows))]
+fn replace_executable(new_binary: &PathBuf, exe_path: &PathBuf) -> Result<(), String> {
+    fs::rename(new_binary, exe_path).map_err(|e| format!("failed to replace binary: {e}"))
+}
+
+#[cfg(windows)]
+fn replace_executable(new_binary: &PathBuf, exe_path: &PathBuf) -> Result<(), String> {
+    let mut old_os = exe_path.clone().into_os_string();
+    old_os.push(".old");
+    let old_path = PathBuf::from(old_os);
+
+    // Best-effort removal of a leftover .old from a previous upgrade.
+    let _ = fs::remove_file(&old_path);
+
+    fs::rename(exe_path, &old_path)
+        .map_err(|e| format!("failed to move current binary aside: {e}"))?;
+
+    if let Err(e) = fs::rename(new_binary, exe_path) {
+        // Restore the original so the install is not left broken.
+        let _ = fs::rename(&old_path, exe_path);
+        return Err(format!("failed to replace binary: {e}"));
+    }
+
+    // The running process still has the old image mapped; this usually fails
+    // and is retried on the next upgrade.
+    let _ = fs::remove_file(&old_path);
+    Ok(())
 }

@@ -22,39 +22,13 @@ pub fn run(
     json: bool,
     llm: bool,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel context: failed to get current directory: {}", e);
-            return 2;
-        }
+    let (cwd, store) = match super::open_store("context") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
-    let keel_dir = cwd.join(".keel");
-    if !keel_dir.exists() {
-        eprintln!("keel context: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel context: failed to open graph database: {}", e);
-            return 2;
-        }
-    };
-
-    // Normalize to relative path
-    let path = std::path::Path::new(&file);
-    let rel_path = if path.is_absolute() {
-        path.strip_prefix(&cwd)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string()
-    } else {
-        file.clone()
-    };
+    // Normalize to relative path (matching how nodes are stored).
+    let rel_path = keel_core::paths::make_relative(&cwd, std::path::Path::new(&file));
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {

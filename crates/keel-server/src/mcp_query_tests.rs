@@ -102,7 +102,8 @@ fn test_where_existing_node() {
     assert_eq!(resp["result"]["file"], "src/lib.rs");
     assert_eq!(resp["result"]["line_start"], 10);
     assert_eq!(resp["result"]["line_end"], 20);
-    assert_eq!(resp["result"]["stale"], false);
+    // The hardcoded `stale` field was dropped as dead metadata.
+    assert!(resp["result"].get("stale").is_none());
 }
 
 #[test]
@@ -258,6 +259,24 @@ fn test_map_with_format() {
         &rpc("keel/map", Some(params)),
     ));
     assert_eq!(resp["result"]["format"], "llm");
+}
+
+#[test]
+fn test_map_file_scoped_uses_file_key() {
+    // The file-scoped map takes `file` (renamed from `file_path`) and echoes
+    // it back under the same `file` key that node entries use.
+    let store = store_with_node();
+    let params = serde_json::json!({"file": "src/lib.rs"});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/map", Some(params)),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["file"], "src/lib.rs");
+    assert!(result.get("file_path").is_none());
+    assert!(result["nodes"].as_array().is_some());
 }
 
 #[test]

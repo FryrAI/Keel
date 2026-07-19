@@ -9,49 +9,30 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::FileWalker;
 
-use super::map_helpers::{
-    build_map_result, build_module_profiles, make_relative, populate_functions, populate_hotspots,
+use keel_enforce::map::{
+    build_map_result, build_module_profiles, populate_functions, populate_hotspots,
 };
+
 use super::map_passes;
 use super::map_resolve::build_package_node_index;
 use crate::telemetry_recorder::EventMetrics;
+use keel_core::paths::make_relative;
 
 /// Run `keel map` — full re-parse of the codebase.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
-    _llm_verbose: bool,
-    _scope: Option<String>,
-    _strict: bool,
     _depth: u32,
     tier3_enabled: bool,
     cached: bool,
+    semantic: bool,
 ) -> (i32, EventMetrics) {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel map: failed to get current directory: {}", e);
-            return (2, EventMetrics::default());
-        }
+    let (cwd, mut store) = match super::open_store("map") {
+        Ok(x) => x,
+        Err(code) => return (code, EventMetrics::default()),
     };
-
-    let keel_dir = cwd.join(".keel");
-    if !keel_dir.exists() {
-        eprintln!("keel map: not initialized. Run `keel init` first.");
-        return (2, EventMetrics::default());
-    }
-
-    // Open graph store
-    let db_path = keel_dir.join("graph.db");
-    let mut store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
-    {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel map: failed to open graph database: {}", e);
-            return (2, EventMetrics::default());
-        }
-    };
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
 
     // --cached: read from existing graph.db instead of re-parsing
     if cached {
@@ -72,9 +53,11 @@ pub fn run(
         eprintln!("keel map: found {} source files", entries.len());
     }
 
-    // Create resolvers for each language
+    // Create resolvers for each language. `PyResolver::detect()` wires the
+    // Tier-2 `ty` subprocess when it is on PATH and falls back to heuristics
+    // otherwise.
     let ts = TsResolver::with_project_root(&cwd);
-    let py = PyResolver::new();
+    let py = PyResolver::detect();
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();
 
@@ -119,6 +102,25 @@ pub fn run(
         &mut body_index,
     );
 
+    // === BAML boundary: materialise `.baml` function/class declarations as
+    // boundary nodes so calls into them (e.g. `b.ExtractResume(...)`) resolve
+    // instead of reading as silent unresolved edges. ===
+    let baml_boundary = keel_parsers::baml::scan(&cwd);
+    let baml_fn_index = super::map_baml::inject_baml_boundary(
+        &baml_boundary,
+        &mut node_changes,
+        &mut edge_changes,
+        &mut next_id,
+        &mut assigned_hashes,
+        &mut valid_node_ids,
+    );
+    if baml_boundary.baml_src_present && !baml_boundary.client_generated {
+        eprintln!(
+            "keel map: baml_src detected but no generated baml_client/baml_sdk found — run `baml generate` ({} BAML function(s) exposed as boundary stubs)",
+            baml_fn_index.len()
+        );
+    }
+
     // Build file -> package mapping and cross-package index for monorepo resolution
     let file_packages: HashMap<String, String> = all_file_data
         .iter()
@@ -140,14 +142,27 @@ pub fn run(
     };
 
     // === Second pass: cross-file call edges and import edges ===
+    // `node_tiers` records which resolution tier resolved each caller node's
+    // outgoing edges, persisted to `nodes.resolution_tier` after the nodes land.
+    let resolver_set = super::map_lang_resolve::ResolverSet {
+        ts: Some(&ts),
+        py: Some(&py),
+        go: Some(&go_resolver),
+        rs: Some(&rs),
+    };
+    let mut node_tiers: HashMap<u64, (String, f64)> = HashMap::new();
     map_passes::second_pass(
         &all_file_data,
+        &cwd,
+        &resolver_set,
         &name_to_id,
         &global_name_index,
         &file_module_ids,
         &package_node_index,
+        &baml_fn_index,
         &mut edge_changes,
         &mut next_id,
+        &mut node_tiers,
     );
 
     // === Third pass: Tier 3 resolution for still-unresolved references ===
@@ -156,6 +171,7 @@ pub fn run(
             .iter()
             .map(|fd| super::map_tier3::Tier3FileData {
                 file_path: &fd.file_path,
+                module_id: file_module_ids.get(&fd.file_path).copied(),
                 definitions: &fd.definitions,
                 references: &fd.references,
             })
@@ -234,6 +250,17 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
+    // Persist the resolution tier that resolved each caller node's edges.
+    let tiers: HashMap<u64, String> = node_tiers
+        .into_iter()
+        .map(|(id, (tier, _))| (id, tier))
+        .collect();
+    if let Err(e) = store.set_node_resolution_tiers(&tiers) {
+        if verbose {
+            eprintln!("keel map: failed to persist resolution tiers: {}", e);
+        }
+    }
+
     // Refresh the W006 duplicate-implementation index (full rebuild, like
     // the graph itself).
     if let Err(e) = store.replace_body_index(body_index) {
@@ -294,7 +321,14 @@ pub fn run(
         ..Default::default()
     };
 
-    let output = formatter.format_map(&map_result);
+    // `--semantic`: emit deterministic per-module enrichment built from the
+    // freshly-persisted graph instead of the standard map view.
+    let output = if semantic {
+        let sem = keel_enforce::semantic::build_semantic_map(&store);
+        formatter.format_semantic_map(&sem)
+    } else {
+        formatter.format_map(&map_result)
+    };
     if !output.is_empty() {
         println!("{}", output);
     }

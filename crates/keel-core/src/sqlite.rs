@@ -2,11 +2,24 @@ use rusqlite::{params, Connection};
 
 use crate::types::GraphError;
 
-/// Module-profile persistence, split out to keep this file under 400 lines.
+/// Module-profile persistence, split out to keep this file well under the
+/// 800-line budget.
 #[path = "sqlite_profiles.rs"]
 mod profiles;
 
 const SCHEMA_VERSION: u32 = 5;
+
+/// A persisted circuit-breaker entry:
+/// `(error_code, hash, consecutive_failures, downgraded, provenance_file,
+/// last_body_hash)`.
+///
+/// `last_body_hash` is the offending node's fingerprint at the last failure —
+/// persisted so the "advance only on a changed fingerprint" rule survives
+/// across processes (each `keel compile` is a fresh process).
+///
+/// Shared by the SQLite persistence layer and `keel-enforce`'s
+/// `CircuitBreaker::{export_state, import_state}` so the two never drift.
+pub type CircuitBreakerEntry = (String, String, u32, bool, String, String);
 
 /// DDL for the body-hash duplicate index (schema v5).
 ///
@@ -190,10 +203,27 @@ impl SqliteGraphStore {
                 consecutive_failures INTEGER NOT NULL DEFAULT 0,
                 last_failure_at TEXT NOT NULL DEFAULT (datetime('now')),
                 downgraded INTEGER NOT NULL DEFAULT 0,
+                provenance_file TEXT NOT NULL DEFAULT '',
+                last_body_hash TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (error_code, hash)
             );
             ",
         )?;
+
+        // Circuit-breaker provenance column (issue #36). The breaker table is
+        // ephemeral runtime state (rebuilt as compiles run), so this is added
+        // idempotently rather than coupled to SCHEMA_VERSION: on existing
+        // databases the ALTER adds the column; on fresh ones (already declared
+        // above) it errors as a duplicate and is ignored, exactly like the
+        // additive column migrations below.
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE circuit_breaker ADD COLUMN provenance_file TEXT NOT NULL DEFAULT ''",
+        );
+        // Fingerprint column: lets the "count fix attempts, not compiles" rule
+        // survive across processes. Added idempotently for the same reason.
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE circuit_breaker ADD COLUMN last_body_hash TEXT NOT NULL DEFAULT ''",
+        );
 
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
         self.drop_stale_body_index()?;
@@ -357,6 +387,58 @@ impl SqliteGraphStore {
         let deleted = self.conn.execute(
             "DELETE FROM edges WHERE source_id NOT IN (SELECT id FROM nodes) OR target_id NOT IN (SELECT id FROM nodes)",
             [],
+        )?;
+        Ok(deleted as u64)
+    }
+
+    /// Persist the resolution tier that resolved each node's outgoing edges.
+    ///
+    /// Keyed by node id, writing the `nodes.resolution_tier` column that the
+    /// map pipeline populates from the per-language resolver's reported tier.
+    pub fn set_node_resolution_tiers(
+        &mut self,
+        tiers: &std::collections::HashMap<u64, String>,
+    ) -> Result<(), GraphError> {
+        if tiers.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        for (id, tier) in tiers {
+            tx.execute(
+                "UPDATE nodes SET resolution_tier = ?1 WHERE id = ?2",
+                params![tier, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Highest id currently in use across nodes and edges.
+    ///
+    /// The incremental `keel compile` graph sync allocates new node/edge ids
+    /// above this watermark so they never collide with rows written by `keel
+    /// map` or a previous compile. Returns 0 for an empty graph.
+    pub fn max_id(&self) -> u64 {
+        let node_max: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM nodes", [], |r| r.get(0))
+            .unwrap_or(0);
+        let edge_max: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM edges", [], |r| r.get(0))
+            .unwrap_or(0);
+        node_max.max(edge_max) as u64
+    }
+
+    /// Delete every outgoing `calls` edge originating in `file_path`.
+    ///
+    /// Call edges are stored with the caller's file path, so this prunes a
+    /// single file's outgoing call edges before the incremental compile sync
+    /// re-resolves them. Returns the number of rows removed.
+    pub fn prune_call_edges_from_file(&self, file_path: &str) -> Result<u64, GraphError> {
+        let deleted = self.conn.execute(
+            "DELETE FROM edges WHERE file_path = ?1 AND kind = 'calls'",
+            params![file_path],
         )?;
         Ok(deleted as u64)
     }

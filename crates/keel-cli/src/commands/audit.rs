@@ -9,14 +9,6 @@ pub fn run(
     min_score: Option<u32>,
     dimension: Option<String>,
 ) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel audit: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
     const VALID_DIMENSIONS: &[&str] = &[
         "structure",
         "discoverability",
@@ -35,30 +27,20 @@ pub fn run(
         }
     }
 
-    let keel_dir = cwd.join(".keel");
-    if !keel_dir.exists() {
-        eprintln!("keel audit: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel audit: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (cwd, store) = match super::open_store("audit") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
-    // Resolve changed files if --changed
+    // Resolve changed files if --changed, via the shared git-diff helper: a
+    // name-only working-tree diff against HEAD, restricted to parseable source
+    // files, with the initial-commit fallback built in.
     let changed_files = if changed {
-        match resolve_changed_files(&cwd) {
-            Some(files) => Some(files),
-            None => {
-                eprintln!("keel audit: failed to detect changed files via git");
-                return 2;
-            }
-        }
+        Some(keel_enforce::gitdiff::changed_files(
+            &cwd,
+            &keel_enforce::gitdiff::DiffMode::Since(None),
+            true,
+        ))
     } else {
         None
     };
@@ -92,22 +74,4 @@ pub fn run(
     } else {
         0
     }
-}
-
-fn resolve_changed_files(cwd: &std::path::Path) -> Option<Vec<String>> {
-    let output = std::process::Command::new("git")
-        .args(["diff", "--name-only", "HEAD"])
-        .current_dir(cwd)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let files: Vec<String> = text
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.to_string())
-        .collect();
-    Some(files)
 }

@@ -1,12 +1,41 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Resolve a cross-file call reference by matching imports to the global name index.
+/// Candidate provider for the shared call-resolution ladder
+/// ([`super::call_resolve::resolve_call_reference`]).
+///
+/// The two pipelines that resolve call edges — `keel map`'s second pass and
+/// `keel compile`'s incremental sync — differ only in where candidates come
+/// from: the map holds them in the in-memory indices it built during the walk,
+/// while the compile sync looks them up in the persisted graph. This trait is
+/// that seam, so both run the identical ladder instead of drifting copies.
+pub trait CallIndex {
+    /// Definitions carrying this bare name: `(relative_file_path, node_id)`.
+    ///
+    /// Returns a [`Cow`] because the ladder asks for candidates up to three
+    /// times per unresolved reference and the two implementations pay very
+    /// different costs: the map holds its candidate lists in RAM and lends them
+    /// out for free, while the graph-backed index has to query SQLite. Handing
+    /// back an owned `Vec` forced the map to clone on every call for nothing.
+    fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]>;
+    /// Every known `relative_file_path -> module_id` mapping, for matching an
+    /// import specifier to the module it resolves to.
+    fn module_files(&self) -> &HashMap<String, u64>;
+    /// `(file_path, name) -> node id` for definitions the pipeline knows
+    /// locally, used to resolve same-file method calls.
+    fn name_to_id(&self) -> &HashMap<(String, String), u64>;
+    /// `package -> (symbol -> node id)` for monorepo cross-package resolution.
+    fn package_index(&self) -> &HashMap<String, HashMap<String, u64>>;
+    /// BAML boundary function name -> node id.
+    fn baml_index(&self) -> &HashMap<String, u64>;
+}
+
+/// Resolve a cross-file call reference by matching imports to the candidate index.
 pub fn resolve_cross_file_call(
     callee_name: &str,
     imports: &[keel_parsers::resolver::Import],
-    global_name_index: &HashMap<String, Vec<(String, u64)>>,
-    file_module_ids: &HashMap<String, u64>,
+    idx: &dyn CallIndex,
 ) -> Option<u64> {
     // Handle qualified calls: "fmt.Println" (Go) or "module::func" (Rust)
     let (qualifier, func_name) = if let Some(dot_pos) = callee_name.find('.') {
@@ -18,6 +47,10 @@ pub fn resolve_cross_file_call(
     } else {
         (None, callee_name)
     };
+
+    // Candidates for the callee's bare name, and the module map, once.
+    let candidates = idx.candidates(func_name);
+    let file_module_ids = idx.module_files();
 
     // For qualified calls, find the import matching the qualifier
     if let Some(qual) = qualifier {
@@ -32,7 +65,7 @@ pub fn resolve_cross_file_call(
             }
 
             // Look for the function name in the imported module
-            if let Some(candidates) = global_name_index.get(func_name) {
+            if !candidates.is_empty() {
                 // Resolve the import to a module file
                 if let Some(resolved_module) =
                     resolve_import_to_module(&imp.source, file_module_ids)
@@ -42,7 +75,7 @@ pub fn resolve_cross_file_call(
                         .find(|(_, &id)| id == resolved_module)
                         .map(|(f, _)| f.as_str());
                     if let Some(rf) = resolved_file {
-                        for (file, node_id) in candidates {
+                        for (file, node_id) in candidates.iter() {
                             if file == rf {
                                 return Some(*node_id);
                             }
@@ -52,7 +85,7 @@ pub fn resolve_cross_file_call(
                 // Fallback: match candidates from files in the package directory
                 let source = &imp.source;
                 let last_seg = source.rsplit('/').next().unwrap_or(source);
-                for (file, node_id) in candidates {
+                for (file, node_id) in candidates.iter() {
                     if let Some(parent) = Path::new(file.as_str()).parent() {
                         if parent.file_name().and_then(|n| n.to_str()) == Some(last_seg) {
                             return Some(*node_id);
@@ -72,9 +105,9 @@ pub fn resolve_cross_file_call(
         if !names_match {
             continue;
         }
-        if let Some(candidates) = global_name_index.get(func_name) {
+        if !candidates.is_empty() {
             let source = &imp.source;
-            for (file, node_id) in candidates {
+            for (file, node_id) in candidates.iter() {
                 if file == source {
                     return Some(*node_id);
                 }
@@ -85,14 +118,14 @@ pub fn resolve_cross_file_call(
                     .find(|(_, &id)| id == resolved_module)
                     .map(|(f, _)| f.as_str());
                 if let Some(rf) = resolved_file {
-                    for (file, node_id) in candidates {
+                    for (file, node_id) in candidates.iter() {
                         if file == rf {
                             return Some(*node_id);
                         }
                     }
                 }
             }
-            for (file, node_id) in candidates {
+            for (file, node_id) in candidates.iter() {
                 if file_module_ids.contains_key(file.as_str()) && source.contains(file.as_str()) {
                     return Some(*node_id);
                 }
@@ -228,19 +261,13 @@ pub fn resolve_import_to_module(
 
 /// Resolve an unqualified cross-file call by looking in the same directory.
 /// In Go, all files in the same directory share a package namespace.
-pub fn resolve_same_directory_call(
-    callee_name: &str,
-    caller_file: &str,
-    global_name_index: &HashMap<String, Vec<(String, u64)>>,
-) -> Option<u64> {
+pub fn resolve_same_directory_call(candidates: &[(String, u64)], caller_file: &str) -> Option<u64> {
     let caller_dir = Path::new(caller_file).parent()?.to_str()?;
-    if let Some(candidates) = global_name_index.get(callee_name) {
-        for (file, node_id) in candidates {
-            if file != caller_file {
-                if let Some(dir) = Path::new(file.as_str()).parent().and_then(|p| p.to_str()) {
-                    if dir == caller_dir {
-                        return Some(*node_id);
-                    }
+    for (file, node_id) in candidates {
+        if file != caller_file {
+            if let Some(dir) = Path::new(file.as_str()).parent().and_then(|p| p.to_str()) {
+                if dir == caller_dir {
+                    return Some(*node_id);
                 }
             }
         }
@@ -269,7 +296,7 @@ pub fn resolve_package_import(
 
     // Try to find the callee in this package's exported symbols
     if let Some(&node_id) = pkg_nodes.get(callee_name) {
-        return Some((node_id, 0.70)); // cross-package, lower confidence
+        return Some((node_id, keel_core::confidence::CROSS_PACKAGE));
     }
 
     // For qualified calls like "pkg.Func", extract the function part
@@ -281,7 +308,7 @@ pub fn resolve_package_import(
 
     if func_name != callee_name {
         if let Some(&node_id) = pkg_nodes.get(func_name) {
-            return Some((node_id, 0.70));
+            return Some((node_id, keel_core::confidence::CROSS_PACKAGE));
         }
     }
 
@@ -342,21 +369,105 @@ pub fn build_package_node_index(
     index
 }
 
-/// Find which definition contains a given line number.
+/// Map a language resolver's `ResolvedEdge` target back to a graph node id.
+///
+/// The per-language `resolve_call_edge` implementations report a `target_file`
+/// that may be an oxc-resolved absolute path (TypeScript) or a bare import
+/// specifier (Go/Rust), while the map's `global_name_index` is keyed on
+/// repo-relative paths. This reconciles the two by matching the target name and
+/// a path suffix, falling back to a single unambiguous candidate.
+pub fn resolve_edge_to_node(candidates: &[(String, u64)], target_file: &str) -> Option<u64> {
+    // 1. Exact (already-relative) match.
+    if let Some((_, id)) = candidates.iter().find(|(f, _)| f == target_file) {
+        return Some(*id);
+    }
+    // 2. Suffix match: absolute/resolved path ending in the relative index path
+    //    (or vice-versa for shorter specifiers).
+    if let Some((_, id)) = candidates
+        .iter()
+        .find(|(f, _)| target_file.ends_with(f.as_str()) || f.ends_with(target_file))
+    {
+        return Some(*id);
+    }
+    // 3. Unambiguous single definition of this name.
+    if candidates.len() == 1 {
+        return Some(candidates[0].1);
+    }
+    None
+}
+
+/// Find the node a reference on `line` should be attributed to: the innermost
+/// (smallest-span) non-module definition enclosing the line, falling back to
+/// `module_id` (the file's single path-named module node) when no
+/// function/method/class contains the line — i.e. a top-level reference.
+///
+/// The whole-file module is intentionally never selected as an *enclosing*
+/// def: doing so (the old behaviour, driven by a synthetic whole-file module
+/// definition) mis-attributed every in-function call to the file itself.
 pub fn find_containing_def(
     definitions: &[keel_parsers::resolver::Definition],
     line: u32,
     file_path: &str,
     name_to_id: &HashMap<(String, String), u64>,
+    module_id: Option<u64>,
 ) -> Option<u64> {
+    let mut innermost: Option<&keel_parsers::resolver::Definition> = None;
     for def in definitions {
-        if line >= def.line_start && line <= def.line_end {
-            return name_to_id
-                .get(&(file_path.to_string(), def.name.clone()))
-                .copied();
+        if def.kind == keel_core::types::NodeKind::Module {
+            continue;
+        }
+        if line < def.line_start || line > def.line_end {
+            continue;
+        }
+        let span = def.line_end.saturating_sub(def.line_start);
+        match innermost {
+            Some(best) if best.line_end.saturating_sub(best.line_start) <= span => {}
+            _ => innermost = Some(def),
         }
     }
-    None
+    if let Some(def) = innermost {
+        if let Some(id) = name_to_id
+            .get(&(file_path.to_string(), def.name.clone()))
+            .copied()
+        {
+            return Some(id);
+        }
+    }
+    module_id
+}
+
+/// Resolve a dotted method/field call (`self.m()`, `obj.m()`) to a same-file
+/// definition by its bare final segment.
+///
+/// `self`/`this` receivers bind to a same-file method of that name at 0.9
+/// confidence. Any other receiver resolves only when exactly one same-file
+/// definition carries that name, at 0.7 (warning-tier) — never higher, because
+/// the receiver's type is unknown and the match is a heuristic.
+pub fn resolve_same_file_method(
+    reference_name: &str,
+    file_path: &str,
+    definitions: &[keel_parsers::resolver::Definition],
+    name_to_id: &HashMap<(String, String), u64>,
+) -> Option<(u64, f64)> {
+    let (receiver, method) = reference_name.rsplit_once('.')?;
+    let same_file_matches = definitions
+        .iter()
+        .filter(|d| d.kind != keel_core::types::NodeKind::Module && d.name == method)
+        .count();
+    if same_file_matches == 0 {
+        return None;
+    }
+    let confidence = if matches!(receiver, "self" | "this") {
+        keel_core::confidence::SELF_RECEIVER_METHOD
+    } else if same_file_matches == 1 {
+        keel_core::confidence::UNFAMILIAR_RECEIVER_METHOD
+    } else {
+        return None;
+    };
+    let id = name_to_id
+        .get(&(file_path.to_string(), method.to_string()))
+        .copied()?;
+    Some((id, confidence))
 }
 
 #[cfg(test)]

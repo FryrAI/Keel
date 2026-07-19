@@ -1,8 +1,12 @@
+use std::collections::HashMap;
+
 use rusqlite::{params, Result as SqlResult};
 
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
-use crate::types::{BodyIndexEntry, ExternalEndpoint, GraphError, GraphNode, NodeKind};
+use crate::types::{
+    BodyIndexEntry, EdgeKind, ExternalEndpoint, GraphEdge, GraphError, GraphNode, NodeKind,
+};
 
 impl SqliteGraphStore {
     /// Rebuild the body-hash index from `entries` in a single transaction.
@@ -72,10 +76,94 @@ impl SqliteGraphStore {
         result
     }
 
+    /// Build the monorepo package index straight from the graph:
+    /// `package -> (symbol name -> node id)`. Empty for repos that set no
+    /// `package` column. Lets `keel compile`'s incremental sync reproduce the
+    /// map's cross-package call edges instead of dropping them on prune.
+    pub fn package_node_index(&self) -> HashMap<String, HashMap<String, u64>> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT package, name, id FROM nodes WHERE package IS NOT NULL AND kind != 'module'",
+        ) {
+            Ok(s) => s,
+            Err(_) => return HashMap::new(),
+        };
+        let mut index: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? as u64,
+            ))
+        }) {
+            for (pkg, name, id) in rows.flatten() {
+                index.entry(pkg).or_default().insert(name, id);
+            }
+        }
+        index
+    }
+
+    /// BAML boundary function nodes as `name -> node id`, read from the graph
+    /// the last `keel map` populated. Used by the compile sync to re-resolve
+    /// calls into `.baml` functions; callers gate this on `baml_src` existing
+    /// so non-BAML repos never run the query.
+    pub fn baml_function_nodes(&self) -> HashMap<String, u64> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT name, id FROM nodes WHERE kind = 'function' AND file_path LIKE '%.baml'",
+        ) {
+            Ok(s) => s,
+            Err(_) => return HashMap::new(),
+        };
+        let mut index: HashMap<String, u64> = HashMap::new();
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+        }) {
+            for (name, id) in rows.flatten() {
+                index.entry(name).or_insert(id);
+            }
+        }
+        index
+    }
+
+    /// Load the persisted batch-mode state blob (opaque JSON owned by
+    /// `keel-enforce`), or `None` when no batch is active. Stored as a single
+    /// `keel_meta` row so batch mode persists the same way circuit-breaker
+    /// state does — one atomic SQLite write, no stray `.keel/batch.json`.
+    pub fn load_batch(&self) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT value FROM keel_meta WHERE key = 'batch'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    }
+
+    /// Persist the batch-mode state blob, replacing any previous one atomically.
+    pub fn save_batch(&self, json: &str) -> Result<(), GraphError> {
+        self.conn.execute(
+            "INSERT INTO keel_meta (key, value) VALUES ('batch', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![json],
+        )?;
+        Ok(())
+    }
+
+    /// Remove any persisted batch-mode state (batch ended or expired).
+    pub fn clear_batch(&self) -> Result<(), GraphError> {
+        self.conn
+            .execute("DELETE FROM keel_meta WHERE key = 'batch'", [])?;
+        Ok(())
+    }
+
     /// Load circuit breaker state from the database.
-    pub fn load_circuit_breaker(&self) -> Result<Vec<(String, String, u32, bool)>, GraphError> {
+    /// Each tuple is (error_code, hash, consecutive_failures, downgraded,
+    /// provenance_file, last_body_hash).
+    pub fn load_circuit_breaker(
+        &self,
+    ) -> Result<Vec<crate::sqlite::CircuitBreakerEntry>, GraphError> {
         let mut stmt = self.conn.prepare(
-            "SELECT error_code, hash, consecutive_failures, downgraded FROM circuit_breaker",
+            "SELECT error_code, hash, consecutive_failures, downgraded, provenance_file, \
+             last_body_hash FROM circuit_breaker",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -84,6 +172,8 @@ impl SqliteGraphStore {
                     row.get::<_, String>(1)?,
                     row.get::<_, u32>(2)?,
                     row.get::<_, i32>(3)? != 0,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -94,66 +184,25 @@ impl SqliteGraphStore {
     /// Save circuit breaker state, replacing all existing rows.
     pub fn save_circuit_breaker(
         &self,
-        state: &[(String, String, u32, bool)],
+        state: &[crate::sqlite::CircuitBreakerEntry],
     ) -> Result<(), GraphError> {
         self.conn.execute("DELETE FROM circuit_breaker", [])?;
         let mut stmt = self.conn.prepare(
-            "INSERT INTO circuit_breaker (error_code, hash, consecutive_failures, downgraded) \
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO circuit_breaker \
+             (error_code, hash, consecutive_failures, downgraded, provenance_file, last_body_hash) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
-        for (code, hash, consecutive, downgraded) in state {
-            stmt.execute(params![code, hash, consecutive, *downgraded as i32])?;
+        for (code, hash, consecutive, downgraded, file, last_hash) in state {
+            stmt.execute(params![
+                code,
+                hash,
+                consecutive,
+                *downgraded as i32,
+                file,
+                last_hash
+            ])?;
         }
         Ok(())
-    }
-
-    /// Search for nodes whose name contains the given substring (case-insensitive).
-    /// Single SQL query instead of iterating modules + per-file lookups (N+1).
-    pub fn search_nodes(
-        &self,
-        query: &str,
-        kind_filter: Option<&str>,
-        limit: usize,
-    ) -> Vec<GraphNode> {
-        let pattern = format!("%{}%", query);
-        let sql = match kind_filter {
-            Some(_) => {
-                "SELECT id, hash, kind, name, signature, file_path, line_start, line_end, \
-                 docstring, is_public, type_hints_present, has_docstring, module_id \
-                 FROM nodes WHERE LOWER(name) LIKE LOWER(?1) AND kind = ?2 \
-                 ORDER BY name LIMIT ?3"
-            }
-            None => {
-                "SELECT id, hash, kind, name, signature, file_path, line_start, line_end, \
-                 docstring, is_public, type_hints_present, has_docstring, module_id \
-                 FROM nodes WHERE LOWER(name) LIKE LOWER(?1) \
-                 ORDER BY name LIMIT ?2"
-            }
-        };
-
-        let result = match kind_filter {
-            Some(kind) => {
-                let mut stmt = match self.conn.prepare(sql) {
-                    Ok(s) => s,
-                    Err(_) => return vec![],
-                };
-                stmt.query_map(params![pattern, kind, limit as u32], Self::row_to_node)
-                    .ok()
-                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                    .unwrap_or_default()
-            }
-            None => {
-                let mut stmt = match self.conn.prepare(sql) {
-                    Ok(s) => s,
-                    Err(_) => return vec![],
-                };
-                stmt.query_map(params![pattern, limit as u32], Self::row_to_node)
-                    .ok()
-                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                    .unwrap_or_default()
-            }
-        };
-        result
     }
 
     /// Insert a node into the database, or update it on hash conflict (upsert).
@@ -317,6 +366,31 @@ impl SqliteGraphStore {
         })
     }
 
+    /// Convert a SQLite row from `edges` into a [`GraphEdge`].
+    ///
+    /// Shared by every `SELECT * FROM edges` reader (`get_edges`, `all_edges`)
+    /// so the `kind` string table lives in exactly one place — the two used to
+    /// carry verbatim copies of this mapping.
+    pub(crate) fn row_to_edge(row: &rusqlite::Row) -> SqlResult<GraphEdge> {
+        let kind_str: String = row.get("kind")?;
+        let kind = match kind_str.as_str() {
+            "calls" => EdgeKind::Calls,
+            "imports" => EdgeKind::Imports,
+            "inherits" => EdgeKind::Inherits,
+            "contains" => EdgeKind::Contains,
+            _ => EdgeKind::Calls,
+        };
+        Ok(GraphEdge {
+            id: row.get("id")?,
+            source_id: row.get("source_id")?,
+            target_id: row.get("target_id")?,
+            kind,
+            file_path: row.get("file_path")?,
+            line: row.get("line")?,
+            confidence: row.get("confidence").unwrap_or(1.0),
+        })
+    }
+
     /// Load all external endpoints associated with a given node.
     pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
         let mut stmt = match self.conn.prepare(
@@ -373,5 +447,48 @@ impl SqliteGraphStore {
         node.external_endpoints = self.load_endpoints(node.id);
         node.previous_hashes = self.load_previous_hashes(node.id);
         node
+    }
+
+    /// Read every node in the graph in one query (relations batch-loaded).
+    ///
+    /// The bulk companion to per-file `get_nodes_in_file`: reconstructing a
+    /// whole-graph map from N modules previously issued N `get_nodes_in_file`
+    /// round-trips. This is a single scan, so `build_map_from_store` reads the
+    /// graph in two queries (nodes + edges) instead of N+M.
+    pub fn all_nodes(&self) -> Vec<GraphNode> {
+        let mut stmt = match self.conn.prepare("SELECT * FROM nodes") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] all_nodes: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let nodes: Vec<GraphNode> = match stmt.query_map([], Self::row_to_node) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] all_nodes: query failed: {e}");
+                return Vec::new();
+            }
+        };
+        self.nodes_with_relations_batch(nodes)
+    }
+
+    /// Read every edge in the graph in one query.
+    pub fn all_edges(&self) -> Vec<GraphEdge> {
+        let mut stmt = match self.conn.prepare("SELECT * FROM edges") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] all_edges: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map([], Self::row_to_edge) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] all_edges: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 }

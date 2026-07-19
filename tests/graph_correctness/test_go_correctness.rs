@@ -109,20 +109,18 @@ func noop() {}
     // WHEN keel parses the file
     let result = resolver.parse_file(Path::new("main.go"), source);
 
-    // THEN exactly 1 Module node is auto-created for the file
-    let modules: Vec<_> = result
+    // THEN the parser emits NO whole-file Module def. The single path-named
+    // module node is created once by `keel map`'s first pass — emitting a
+    // second one here duplicated every module row (see fix/graph-attribution).
+    let module_defs = result
         .definitions
         .iter()
         .filter(|d| d.kind == NodeKind::Module)
-        .collect();
+        .count();
     assert_eq!(
-        modules.len(),
-        1,
-        "expected 1 Module node per file, got {}",
-        modules.len()
+        module_defs, 0,
+        "parser must not inject a module def (map owns the module node)"
     );
-    assert_eq!(modules[0].name, "main", "module name should be file stem");
-    assert_eq!(modules[0].file_path, "main.go");
 }
 
 #[test]

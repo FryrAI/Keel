@@ -252,6 +252,53 @@ mod tests {
     }
 
     #[test]
+    fn test_human_file_symbols_file_mode() {
+        let fmt = HumanFormatter;
+        let result = FileSymbols {
+            version: env!("CARGO_PKG_VERSION").into(),
+            command: "discover".into(),
+            path: Some("src/handler.rs".into()),
+            symbols: vec![FileSymbol {
+                kind: "function".into(),
+                name: "handleRequest".into(),
+                hash: "abc12345678".into(),
+                file: "src/handler.rs".into(),
+                line: 5,
+                callers: 2,
+                callees: 3,
+            }],
+        };
+        let out = fmt.format_file_symbols(&result);
+        assert!(out.contains("FILE src/handler.rs symbols=1"));
+        assert!(
+            out.contains("  function handleRequest hash=abc12345678 line=5 callers=2 callees=3")
+        );
+    }
+
+    #[test]
+    fn test_human_file_symbols_name_mode() {
+        let fmt = HumanFormatter;
+        let result = FileSymbols {
+            version: env!("CARGO_PKG_VERSION").into(),
+            command: "discover".into(),
+            path: None,
+            symbols: vec![FileSymbol {
+                kind: "function".into(),
+                name: "handleRequest".into(),
+                hash: "abc12345678".into(),
+                file: "src/handler.rs".into(),
+                line: 5,
+                callers: 2,
+                callees: 3,
+            }],
+        };
+        let out = fmt.format_file_symbols(&result);
+        // Name mode: no FILE header, file:line inline on each symbol line.
+        assert!(!out.contains("FILE "));
+        assert!(out.contains("handleRequest hash=abc12345678 src/handler.rs:5 callers=2 callees=3"));
+    }
+
+    #[test]
     fn test_human_explain() {
         let fmt = HumanFormatter;
         let result = ExplainResult {

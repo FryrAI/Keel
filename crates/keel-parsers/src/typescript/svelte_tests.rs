@@ -159,3 +159,75 @@ fn detects_svelte_files_by_extension() {
     assert!(is_svelte_file(std::path::Path::new("/a/B.svelte")));
     assert!(!is_svelte_file(std::path::Path::new("/a/B.ts")));
 }
+
+// --- template reference extraction (issue #39) ---
+
+fn defined(names: &[&str]) -> HashSet<String> {
+    names.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn template_references_capture_markup_only_handlers() {
+    let src = "<script lang=\"ts\">\n\
+         function addZuschlag() {}\n\
+         function startEdit() {}\n\
+         function unusedFn() {}\n\
+         let flag = true;\n\
+         </script>\n\
+         <button on:click={addZuschlag}>add</button>\n\
+         {#if flag}\n\
+         <span>{startEdit()}</span>\n\
+         {/if}\n\
+         <style>\n\
+         .box { color: red; }\n\
+         </style>\n";
+    let refs = extract_template_references(
+        src,
+        &defined(&["addZuschlag", "startEdit", "unusedFn"]),
+        "Comp.svelte",
+    );
+    let names: HashSet<&str> = refs.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains("addZuschlag"),
+        "on:click handler is referenced"
+    );
+    assert!(
+        names.contains("startEdit"),
+        "{{#if}}-block call is referenced"
+    );
+    assert!(
+        !names.contains("unusedFn"),
+        "a genuinely unused fn stays unreferenced: {names:?}"
+    );
+    assert!(refs.iter().all(|r| r.file_path == "Comp.svelte"));
+    assert!(refs.iter().all(|r| r.kind == ReferenceKind::Call));
+}
+
+#[test]
+fn template_scan_ignores_script_and_style_bodies() {
+    // `render` appears in the <script> body and as a <style> selector; neither
+    // is a template expression, so neither yields a reference.
+    let src = "<script>\n\
+         function render() { let x = other; }\n\
+         </script>\n\
+         <style>\n\
+         .render { width: 10px; }\n\
+         </style>\n\
+         <p>no expressions here</p>\n";
+    let refs = extract_template_references(src, &defined(&["render", "other"]), "C.svelte");
+    assert!(refs.is_empty(), "no template braces => no refs: {refs:?}");
+}
+
+#[test]
+fn template_scan_skips_identifiers_inside_string_literals() {
+    let src = "<script>\n\
+         function danger() {}\n\
+         </script>\n\
+         <p>{title || 'danger'}</p>\n";
+    let refs = extract_template_references(src, &defined(&["danger", "title"]), "C.svelte");
+    let names: HashSet<&str> = refs.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        !names.contains("danger"),
+        "an identifier inside a string literal is not a reference: {names:?}"
+    );
+}

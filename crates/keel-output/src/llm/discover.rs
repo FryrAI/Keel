@@ -1,4 +1,30 @@
-use keel_enforce::types::DiscoverResult;
+use keel_enforce::types::{DiscoverResult, FileSymbols};
+
+/// Formats a file's symbol listing (or a name lookup) in LLM-compact format.
+///
+/// File mode (`path` set) prints a `FILE ... symbols=N` header with one indented
+/// line per symbol; name mode prints one `name hash=... file:line ...` line per
+/// match.
+pub fn format_file_symbols(result: &FileSymbols) -> String {
+    let mut out = String::new();
+    if let Some(path) = &result.path {
+        out.push_str(&format!("FILE {} symbols={}\n", path, result.symbols.len()));
+        for s in &result.symbols {
+            out.push_str(&format!(
+                "  {} {} hash={} line={} callers={} callees={}\n",
+                s.kind, s.name, s.hash, s.line, s.callers, s.callees,
+            ));
+        }
+    } else {
+        for s in &result.symbols {
+            out.push_str(&format!(
+                "{} hash={} {}:{} callers={} callees={}\n",
+                s.name, s.hash, s.file, s.line, s.callers, s.callees,
+            ));
+        }
+    }
+    out
+}
 
 /// Formats a discover result showing a node's callers, callees, module context, and body.
 pub fn format_discover(result: &DiscoverResult) -> String {

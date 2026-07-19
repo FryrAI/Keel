@@ -1,30 +1,28 @@
 //! First-pass and second-pass logic for `keel map`.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use keel_core::hash::{compute_hash, compute_hash_disambiguated};
+use keel_core::hash::compute_hash;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::walker::WalkEntry;
 
-use super::map_resolve::{
-    find_containing_def, resolve_cross_file_call, resolve_import_to_module, resolve_package_import,
-    resolve_same_directory_call,
-};
+use super::call_resolve::{resolve_call_reference, CallSiteCtx};
+use super::map_lang_resolve::ResolverSet;
+use super::map_resolve::{find_containing_def, resolve_import_to_module, CallIndex};
+use keel_core::paths::make_relative;
 
 /// Per-file parse data collected during the first pass for use in the second pass.
 pub struct FileParseData {
     pub file_path: String,
+    /// `detect_language` result, used to pick the Tier-2 resolver in the second pass.
+    pub language: String,
     pub definitions: Vec<keel_parsers::resolver::Definition>,
     pub references: Vec<keel_parsers::resolver::Reference>,
     pub imports: Vec<keel_parsers::resolver::Import>,
-}
-
-/// Make a path relative to the cwd.
-fn make_relative(cwd: &Path, path: &Path) -> String {
-    super::map_helpers::make_relative(cwd, path)
 }
 
 /// First pass: create nodes and same-file edges, collecting parse data for cross-file resolution.
@@ -99,18 +97,12 @@ pub fn first_pass(
 
         // Create definition nodes
         for def in &result.definitions {
-            let mut hash = compute_hash(
-                &def.signature,
-                &def.body_text,
-                def.docstring.as_deref().unwrap_or(""),
-            );
+            // Canonical content hash (single source of truth: `Definition::hash`),
+            // salting with the file path only on a collision, exactly as the
+            // rest of the pipeline does.
+            let mut hash = def.hash();
             if assigned_hashes.contains(&hash) {
-                hash = compute_hash_disambiguated(
-                    &def.signature,
-                    &def.body_text,
-                    def.docstring.as_deref().unwrap_or(""),
-                    &file_path,
-                );
+                hash = def.hash_disambiguated(&file_path);
             }
             assigned_hashes.insert(hash.clone());
             let node_id = *next_id;
@@ -183,6 +175,7 @@ pub fn first_pass(
                         reference.line,
                         &file_path,
                         name_to_id,
+                        Some(module_id),
                     );
                     if let Some(src_id) = source_id {
                         if src_id != target_id {
@@ -195,7 +188,7 @@ pub fn first_pass(
                                 kind: EdgeKind::Calls,
                                 file_path: file_path.clone(),
                                 line: reference.line,
-                                confidence: 0.95,
+                                confidence: keel_core::confidence::SAME_FILE_CALL,
                             }));
                         }
                     }
@@ -205,6 +198,7 @@ pub fn first_pass(
 
         all_file_data.push(FileParseData {
             file_path,
+            language: entry.language.clone(),
             definitions: result.definitions,
             references: result.references,
             imports: result.imports,
@@ -215,17 +209,40 @@ pub fn first_pass(
 }
 
 /// Second pass: cross-file call edges and import edges.
+///
+/// `baml_fn_index` maps BAML boundary function names to their node ids; calls
+/// left unresolved by the normal pipeline are matched against it so calls into
+/// `.baml` functions resolve to the boundary surface. It is empty (and thus a
+/// no-op) for repos that use no BAML.
+#[allow(clippy::too_many_arguments)]
 pub fn second_pass(
     all_file_data: &[FileParseData],
+    cwd: &Path,
+    resolvers: &ResolverSet,
     name_to_id: &HashMap<(String, String), u64>,
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     file_module_ids: &HashMap<String, u64>,
     package_node_index: &HashMap<String, HashMap<String, u64>>,
+    baml_fn_index: &HashMap<String, u64>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
+    node_tiers: &mut HashMap<u64, (String, f64)>,
 ) {
+    // The map backs the shared call-resolution ladder with its in-memory
+    // indices (built during the first pass); the compile sync backs the same
+    // ladder with graph-backed lookups. See `super::call_resolve`.
+    let idx = MapIndex {
+        global_name_index,
+        file_module_ids,
+        package_node_index,
+        baml_fn_index,
+        name_to_id,
+    };
+
     for file_data in all_file_data {
         let file_path = &file_data.file_path;
+        // Absolute path the resolver cached this file under (see `call_site_for`).
+        let abs_file = cwd.join(file_path);
 
         // Create Imports edges between modules
         if let Some(&src_module_id) = file_module_ids.get(file_path.as_str()) {
@@ -249,7 +266,17 @@ pub fn second_pass(
             }
         }
 
-        // Resolve cross-file call references
+        let ctx = CallSiteCtx {
+            resolvers,
+            language: &file_data.language,
+            file_path,
+            abs_file: &abs_file,
+            imports: &file_data.imports,
+            definitions: &file_data.definitions,
+        };
+
+        // Resolve cross-file call references (same-file calls were already
+        // linked in the first pass, so skip references to a same-file def).
         for reference in &file_data.references {
             if reference.kind != keel_parsers::resolver::ReferenceKind::Call {
                 continue;
@@ -258,57 +285,72 @@ pub fn second_pass(
                 continue;
             }
 
-            let mut target_id = resolve_cross_file_call(
-                &reference.name,
-                &file_data.imports,
-                global_name_index,
-                file_module_ids,
+            let Some(resolved) = resolve_call_reference(&idx, &ctx, reference) else {
+                continue;
+            };
+
+            let source_id = find_containing_def(
+                &file_data.definitions,
+                reference.line,
+                file_path,
+                name_to_id,
+                file_module_ids.get(file_path.as_str()).copied(),
             );
-
-            if target_id.is_none()
-                && !reference.name.contains('.')
-                && !reference.name.contains("::")
-            {
-                target_id =
-                    resolve_same_directory_call(&reference.name, file_path, global_name_index);
-            }
-
-            let mut confidence = 0.80;
-            if target_id.is_none() && !package_node_index.is_empty() {
-                for imp in &file_data.imports {
-                    if let Some((pkg_tgt, pkg_conf)) =
-                        resolve_package_import(&reference.name, &imp.source, package_node_index)
-                    {
-                        target_id = Some(pkg_tgt);
-                        confidence = pkg_conf;
-                        break;
-                    }
-                }
-            }
-
-            if let Some(tgt_id) = target_id {
-                let source_id = find_containing_def(
-                    &file_data.definitions,
-                    reference.line,
-                    file_path,
-                    name_to_id,
-                );
-                if let Some(src_id) = source_id {
-                    if src_id != tgt_id {
-                        let edge_id = *next_id;
-                        *next_id += 1;
-                        edge_changes.push(EdgeChange::Add(GraphEdge {
-                            id: edge_id,
-                            source_id: src_id,
-                            target_id: tgt_id,
-                            kind: EdgeKind::Calls,
-                            file_path: file_path.clone(),
-                            line: reference.line,
-                            confidence,
-                        }));
+            if let Some(src_id) = source_id {
+                if src_id != resolved.target_id {
+                    let edge_id = *next_id;
+                    *next_id += 1;
+                    edge_changes.push(EdgeChange::Add(GraphEdge {
+                        id: edge_id,
+                        source_id: src_id,
+                        target_id: resolved.target_id,
+                        kind: EdgeKind::Calls,
+                        file_path: file_path.clone(),
+                        line: reference.line,
+                        confidence: resolved.confidence,
+                    }));
+                    // Record which tier resolved this caller's edges, keeping
+                    // the highest-confidence tier seen for the source node.
+                    let entry = node_tiers
+                        .entry(src_id)
+                        .or_insert_with(|| (resolved.tier.clone(), resolved.confidence));
+                    if resolved.confidence >= entry.1 {
+                        *entry = (resolved.tier.clone(), resolved.confidence);
                     }
                 }
             }
         }
+    }
+}
+
+/// [`CallIndex`] backed by the map's in-memory indices — the fast path where
+/// every candidate is already in RAM from the first pass.
+struct MapIndex<'a> {
+    global_name_index: &'a HashMap<String, Vec<(String, u64)>>,
+    file_module_ids: &'a HashMap<String, u64>,
+    package_node_index: &'a HashMap<String, HashMap<String, u64>>,
+    baml_fn_index: &'a HashMap<String, u64>,
+    name_to_id: &'a HashMap<(String, String), u64>,
+}
+
+impl CallIndex for MapIndex<'_> {
+    fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]> {
+        // Borrowed: the map's index already owns these lists.
+        self.global_name_index
+            .get(name)
+            .map(|v| Cow::Borrowed(v.as_slice()))
+            .unwrap_or(Cow::Borrowed(&[]))
+    }
+    fn module_files(&self) -> &HashMap<String, u64> {
+        self.file_module_ids
+    }
+    fn name_to_id(&self) -> &HashMap<(String, String), u64> {
+        self.name_to_id
+    }
+    fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
+        self.package_node_index
+    }
+    fn baml_index(&self) -> &HashMap<String, u64> {
+        self.baml_fn_index
     }
 }

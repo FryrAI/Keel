@@ -5,27 +5,9 @@ use super::input_detect;
 
 /// Run `keel check <query>` — pre-edit risk assessment.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, query: String, name_mode: bool) -> i32 {
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("keel check: failed to get current directory: {}", e);
-            return 2;
-        }
-    };
-
-    let keel_dir = cwd.join(".keel");
-    if !keel_dir.exists() {
-        eprintln!("keel check: not initialized. Run `keel init` first.");
-        return 2;
-    }
-
-    let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("keel check: failed to open graph database: {}", e);
-            return 2;
-        }
+    let (_cwd, store) = match super::open_store("check") {
+        Ok(x) => x,
+        Err(code) => return code,
     };
 
     // Resolve query to a hash

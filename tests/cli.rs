@@ -3,6 +3,8 @@
 mod test_analyze;
 #[path = "cli/test_check.rs"]
 mod test_check;
+#[path = "cli/test_checkpoint.rs"]
+mod test_checkpoint;
 #[path = "cli/test_compile.rs"]
 mod test_compile;
 #[path = "cli/test_compile_batch.rs"]
@@ -19,6 +21,8 @@ mod test_exit_codes;
 mod test_explain;
 #[path = "cli/test_fix.rs"]
 mod test_fix;
+#[path = "cli/test_focus.rs"]
+mod test_focus;
 #[path = "cli/test_init.rs"]
 mod test_init;
 #[path = "cli/test_init_merge.rs"]
@@ -29,7 +33,11 @@ mod test_map;
 mod test_name;
 #[path = "cli/test_search.rs"]
 mod test_search;
+#[path = "cli/test_skeleton.rs"]
+mod test_skeleton;
 #[path = "cli/test_stats.rs"]
 mod test_stats;
+#[path = "cli/test_validate_plan.rs"]
+mod test_validate_plan;
 #[path = "cli/test_where.rs"]
 mod test_where;

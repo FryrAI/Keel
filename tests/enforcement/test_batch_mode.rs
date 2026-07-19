@@ -1,6 +1,6 @@
 // Tests for batch mode (--batch-start/--batch-end) (Spec 006 - Enforcement Engine)
 use keel_core::types::NodeKind;
-use keel_enforce::batch::BatchState;
+use keel_enforce::batch::{is_deferrable, PersistentBatch};
 use keel_enforce::engine::EnforcementEngine;
 use keel_enforce::types::Violation;
 use keel_parsers::resolver::{Definition, FileIndex};
@@ -47,6 +47,9 @@ fn make_file_with_missing_hints(file: &str) -> FileIndex {
             is_public: true,
             type_hints_present: false,
             body_text: "return data".to_string(),
+            in_test_context: false,
+            in_trait_context: false,
+            is_associated: false,
         }],
         references: vec![],
         imports: vec![],
@@ -57,30 +60,30 @@ fn make_file_with_missing_hints(file: &str) -> FileIndex {
 
 #[test]
 fn test_batch_defers_type_hints() {
-    assert!(BatchState::is_deferrable("E002"));
+    assert!(is_deferrable("E002"));
 }
 
 #[test]
 fn test_batch_defers_docstrings() {
-    assert!(BatchState::is_deferrable("E003"));
+    assert!(is_deferrable("E003"));
 }
 
 #[test]
 fn test_batch_defers_placement() {
-    assert!(BatchState::is_deferrable("W001"));
+    assert!(is_deferrable("W001"));
 }
 
 #[test]
 fn test_batch_structural_errors_fire_immediately() {
     // E001, E004, E005 are NOT deferrable
-    assert!(!BatchState::is_deferrable("E001"));
-    assert!(!BatchState::is_deferrable("E004"));
-    assert!(!BatchState::is_deferrable("E005"));
+    assert!(!is_deferrable("E001"));
+    assert!(!is_deferrable("E004"));
+    assert!(!is_deferrable("E005"));
 }
 
 #[test]
 fn test_batch_end_fires_deferred() {
-    let mut batch = BatchState::new();
+    let mut batch = PersistentBatch::new();
     for _ in 0..5 {
         batch.defer(make_violation("E002"));
         batch.defer(make_violation("E003"));
@@ -117,17 +120,9 @@ fn test_batch_engine_defers_and_fires() {
 }
 
 #[test]
-fn test_batch_not_expired_immediately() {
-    let batch = BatchState::new();
-    assert!(!batch.is_expired());
-}
-
-#[test]
-fn test_batch_expired_state() {
-    // Can't directly test 60s timeout, but we can test the expired constructor
-    // The `new_expired()` method is cfg(test) only within the crate.
-    // Instead, verify the BatchState API contract.
-    let batch = BatchState::new();
+fn test_batch_state_starts_empty() {
+    // There is only one batch type now: the SQLite-backed `PersistentBatch`.
+    // An engine's in-process batch is just a `Vec` of deferred violations.
+    let batch = PersistentBatch::new();
     assert_eq!(batch.deferred_count(), 0);
-    assert!(!batch.is_expired());
 }

@@ -10,6 +10,8 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::treesitter::detect_language;
 use keel_parsers::typescript::TsResolver;
 
+use keel_core::paths::make_relative;
+
 /// Parse a list of file paths into `FileIndex` entries suitable for `engine.compile()`.
 ///
 /// Skips files with unrecognized extensions or read errors.
@@ -18,7 +20,7 @@ pub fn parse_files_to_indices(
     root_dir: &Path,
 ) -> Vec<FileIndex> {
     let ts = TsResolver::with_project_root(root_dir);
-    let py = PyResolver::new();
+    let py = PyResolver::detect();
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();
 
@@ -60,11 +62,4 @@ pub fn parse_files_to_indices(
     }
 
     indices
-}
-
-fn make_relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .to_string()
 }

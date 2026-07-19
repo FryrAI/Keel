@@ -55,19 +55,12 @@ fn test_parallel_correctness() {
 
     let par_counts: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
-    // Both should produce same definition counts (2 per file: 1 module + 1 function)
-    assert_eq!(seq_counts.len(), par_counts.len());
+    // Both should produce the same definition counts: 1 per file (the single
+    // function). The whole-file module node is created by `keel map`, not the
+    // parser, so it no longer appears in the parse result.
+    assert_eq!(seq_counts, par_counts, "seq and parallel counts must agree");
     for count in &seq_counts {
-        assert_eq!(
-            *count, 2,
-            "each file should have 2 definitions (module + function)"
-        );
-    }
-    for count in &par_counts {
-        assert_eq!(
-            *count, 2,
-            "each file should have 2 definitions (module + function)"
-        );
+        assert_eq!(*count, 1, "each file should have 1 definition (function)");
     }
 }
 

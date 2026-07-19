@@ -3,12 +3,16 @@ mod audit;
 mod check;
 mod delta;
 mod fix_name;
+mod focus;
+mod skeleton;
 
 pub use analyze::*;
 pub use audit::*;
 pub use check::*;
 pub use delta::*;
 pub use fix_name::*;
+pub use focus::*;
+pub use skeleton::*;
 
 use serde::{Deserialize, Serialize};
 
@@ -224,6 +228,30 @@ pub struct ModuleEntry {
 pub struct ModuleFunctionRef {
     pub name: String,
     pub hash: String,
+    pub callers: u32,
+    pub callees: u32,
+}
+
+/// Symbol listing produced by `keel discover <file>` and `keel discover --name`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSymbols {
+    pub version: String,
+    pub command: String,
+    /// The listed file path in file mode; `None` in name-lookup mode (where
+    /// each symbol carries its own file).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub path: Option<String>,
+    pub symbols: Vec<FileSymbol>,
+}
+
+/// A single symbol (function/class) with adjacency counts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSymbol {
+    pub kind: String,
+    pub name: String,
+    pub hash: String,
+    pub file: String,
+    pub line: u32,
     pub callers: u32,
     pub callees: u32,
 }

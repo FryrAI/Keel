@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::*;
 use crate::test_fixtures::{
     call_ref, definition, file_index, file_index_with_refs, function_node, node_for_definition,
-    ECON_BODY,
+    test_context_definition, ECON_BODY,
 };
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{EdgeChange, GraphEdge};
@@ -65,6 +65,35 @@ fn w005_silent_for_public_entrypoint_underscore_and_qualified() {
     }
     let file = file_index("src/a.rs", defs);
     assert!(check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty());
+}
+
+#[test]
+fn w005_go_init_is_entrypoint_not_dead() {
+    // Go runs `func init()` at package load — auto-invoked, never dead, even
+    // with zero call edges in the graph.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = definition("init", "src/app.go", false);
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/app.go", vec![def]);
+    let stored = store.get_nodes_in_file("src/app.go");
+    assert!(
+        check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
+        "Go `func init()` must be exempt from W005"
+    );
+}
+
+#[test]
+fn w005_rust_init_is_not_exempt() {
+    // The Go exemption must NOT leak into other languages: a private, uncalled
+    // `init` in Rust is ordinary dead code.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = definition("init", "src/a.rs", false);
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/a.rs", vec![def]);
+    let stored = store.get_nodes_in_file("src/a.rs");
+    let v = check_dead_code(&file, &store, &stored, &HashSet::new());
+    assert_eq!(v.len(), 1, "Rust `init` is not an entrypoint: {v:?}");
+    assert_eq!(v[0].code, "W005");
 }
 
 #[test]
@@ -144,6 +173,27 @@ fn w005_silent_in_test_and_bench_files() {
     }
 }
 
+#[test]
+fn w005_silent_for_test_context_definition_but_fires_on_dead_sibling() {
+    // A helper inside a co-located `#[cfg(test)] mod tests` (marked at parse
+    // time) is exempt even without a `test_` prefix, while a genuinely dead
+    // non-test function in the SAME file still fires W005.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let test_helper = test_context_definition("helper_no_prefix", "src/a.rs");
+    let dead = definition("dead_one", "src/a.rs", false);
+    store
+        .insert_node(&node_for_definition(1, &test_helper))
+        .unwrap();
+    store.insert_node(&node_for_definition(2, &dead)).unwrap();
+    let stored = store.get_nodes_in_file("src/a.rs");
+
+    let file = file_index("src/a.rs", vec![test_helper, dead.clone()]);
+    let v = check_dead_code(&file, &store, &stored, &HashSet::new());
+    assert_eq!(v.len(), 1, "only the non-test dead fn fires: {v:?}");
+    assert_eq!(v[0].line, dead.line_start);
+    assert!(v[0].message.contains("dead_one"));
+}
+
 // --- W006 duplicate_implementation ---
 
 #[test]
@@ -153,8 +203,8 @@ fn w006_fires_on_batch_local_duplicate() {
     let file_a = file_index("src/a.rs", vec![definition("calc_a", "src/a.rs", true)]);
     let file_b = file_index("src/b.rs", vec![definition("calc_b", "src/b.rs", true)]);
 
-    assert!(check_duplicate_implementation(&file_a, &store, &mut seen).is_empty());
-    let v = check_duplicate_implementation(&file_b, &store, &mut seen);
+    assert!(check_duplicate_implementation(&file_a, &store, &mut seen, &HashMap::new()).is_empty());
+    let v = check_duplicate_implementation(&file_b, &store, &mut seen, &HashMap::new());
     assert_eq!(v.len(), 1);
     assert_eq!(v[0].code, "W006");
     assert!(v[0].message.contains("calc_a"));
@@ -170,9 +220,9 @@ fn w006_ignores_whitespace_differences() {
 
     let file_a = file_index("src/a.rs", vec![definition("calc_a", "src/a.rs", true)]);
     let file_b = file_index("src/b.rs", vec![reformatted]);
-    assert!(check_duplicate_implementation(&file_a, &store, &mut seen).is_empty());
+    assert!(check_duplicate_implementation(&file_a, &store, &mut seen, &HashMap::new()).is_empty());
     assert_eq!(
-        check_duplicate_implementation(&file_b, &store, &mut seen).len(),
+        check_duplicate_implementation(&file_b, &store, &mut seen, &HashMap::new()).len(),
         1
     );
 }
@@ -186,14 +236,20 @@ fn w006_silent_for_trivial_bodies() {
     let mut b = definition("get_b", "src/b.rs", true);
     b.body_text = "self.a".to_string();
 
-    assert!(
-        check_duplicate_implementation(&file_index("src/a.rs", vec![a]), &store, &mut seen)
-            .is_empty()
-    );
-    assert!(
-        check_duplicate_implementation(&file_index("src/b.rs", vec![b]), &store, &mut seen)
-            .is_empty()
-    );
+    assert!(check_duplicate_implementation(
+        &file_index("src/a.rs", vec![a]),
+        &store,
+        &mut seen,
+        &HashMap::new()
+    )
+    .is_empty());
+    assert!(check_duplicate_implementation(
+        &file_index("src/b.rs", vec![b]),
+        &store,
+        &mut seen,
+        &HashMap::new()
+    )
+    .is_empty());
 }
 
 #[test]
@@ -208,7 +264,7 @@ fn w006_silent_for_same_file_siblings() {
         "src/a.rs",
         vec![definition("calc_a", "src/a.rs", true), second],
     );
-    assert!(check_duplicate_implementation(&file, &store, &mut seen).is_empty());
+    assert!(check_duplicate_implementation(&file, &store, &mut seen, &HashMap::new()).is_empty());
 }
 
 #[test]
@@ -229,7 +285,7 @@ fn w006_fires_on_graph_index_match() {
         vec![definition("copied", "src/copy.rs", true)],
     );
     let mut seen = HashMap::new();
-    let v = check_duplicate_implementation(&file, &store, &mut seen);
+    let v = check_duplicate_implementation(&file, &store, &mut seen, &HashMap::new());
     assert_eq!(v.len(), 1);
     assert!(v[0].message.contains("original"));
     assert!(v[0].message.contains("src/orig.rs"));
@@ -250,7 +306,7 @@ fn w006_ignores_graph_matches_from_own_file() {
 
     let file = file_index("src/a.rs", vec![definition("calc", "src/a.rs", true)]);
     let mut seen = HashMap::new();
-    assert!(check_duplicate_implementation(&file, &store, &mut seen).is_empty());
+    assert!(check_duplicate_implementation(&file, &store, &mut seen, &HashMap::new()).is_empty());
 }
 
 // --- W007 oversized_file ---

@@ -1,0 +1,444 @@
+// Integration tests: graph fidelity (issue #30).
+//
+// 1. The map pipeline routes ambiguous references through the per-language
+//    `resolve_call_edge` (TS barrel re-exports, Python star-imports), so edges
+//    carry the resolver's own confidence instead of the flat 0.80 heuristic.
+// 2. `keel compile` keeps the graph fresh: new definitions are persisted,
+//    vanished ones removed, and the file's call edges re-resolved — so E001
+//    broken-caller checks fire right after an interface break with no re-map.
+
+use std::fs;
+use std::process::Command;
+
+use keel_core::store::GraphStore;
+use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
+use tempfile::TempDir;
+
+/// Path to the keel binary built by cargo.
+fn keel_bin() -> std::path::PathBuf {
+    let mut path = std::env::current_exe().unwrap();
+    path.pop();
+    path.pop();
+    path.push("keel");
+    if path.exists() {
+        return path;
+    }
+    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fallback = workspace.join("target/debug/keel");
+    if fallback.exists() {
+        return fallback;
+    }
+    let status = Command::new("cargo")
+        .args(["build", "-p", "keel-cli"])
+        .current_dir(&workspace)
+        .status()
+        .expect("Failed to build keel");
+    assert!(status.success(), "Failed to build keel binary");
+    fallback
+}
+
+fn run(dir: &TempDir, args: &[&str]) -> std::process::Output {
+    Command::new(keel_bin())
+        .args(args)
+        .current_dir(dir.path())
+        .output()
+        .unwrap_or_else(|e| panic!("keel {:?} failed to spawn: {e}", args))
+}
+
+fn init(dir: &TempDir) {
+    let out = run(dir, &["init"]);
+    assert!(out.status.success(), "init failed: {:?}", out.stderr);
+}
+
+fn map(dir: &TempDir) {
+    let out = run(dir, &["map"]);
+    assert!(
+        out.status.success(),
+        "map failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn open_db(dir: &TempDir) -> keel_core::sqlite::SqliteGraphStore {
+    let db_path = dir.path().join(".keel/graph.db");
+    keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).unwrap()
+}
+
+fn write(dir: &TempDir, rel: &str, content: &str) {
+    let full = dir.path().join(rel);
+    if let Some(parent) = full.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(full, content).unwrap();
+}
+
+/// Incoming `calls` edges on a node named `name` in `file`.
+fn incoming_calls(
+    store: &keel_core::sqlite::SqliteGraphStore,
+    file: &str,
+    name: &str,
+) -> Vec<keel_core::types::GraphEdge> {
+    let node = store
+        .get_nodes_in_file(file)
+        .into_iter()
+        .find(|n| n.name == name && n.kind == NodeKind::Function)
+        .unwrap_or_else(|| panic!("no function `{name}` in {file}"));
+    store
+        .get_edges(node.id, EdgeDirection::Incoming)
+        .into_iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .collect()
+}
+
+#[test]
+fn test_ts_barrel_reexport_edge_uses_resolver_confidence() {
+    let dir = TempDir::new().unwrap();
+    // impl.ts owns the real definition; index.ts is a barrel re-export; app.ts
+    // imports through the barrel and calls it. The path heuristics would tag
+    // this at 0.80 — only `resolve_call_edge` traces the barrel to 0.95.
+    write(
+        &dir,
+        "src/impl.ts",
+        "export function doThing(): number {\n  return 1;\n}\n",
+    );
+    write(&dir, "src/index.ts", "export { doThing } from './impl';\n");
+    write(
+        &dir,
+        "src/app.ts",
+        "import { doThing } from './index';\n\nexport function run(): number {\n  return doThing();\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "src/impl.ts", "doThing");
+    assert!(
+        !edges.is_empty(),
+        "the barrel-imported call should resolve to an edge into impl.ts:doThing"
+    );
+    assert!(
+        edges.iter().any(|e| e.confidence >= 0.90),
+        "barrel edge must carry the resolver's confidence (>=0.90), got {:?}",
+        edges.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_python_star_import_edge_uses_resolver_confidence() {
+    let dir = TempDir::new().unwrap();
+    // A star import resolves via `resolve_call_edge`'s star handling, which
+    // reports sub-0.80 confidence — distinct from the flat 0.80 heuristic.
+    write(&dir, "src/utils.py", "def compute():\n    return 42\n");
+    write(
+        &dir,
+        "src/app.py",
+        "from utils import *\n\n\ndef main():\n    return compute()\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "src/utils.py", "compute");
+    assert!(
+        !edges.is_empty(),
+        "the star-imported call should resolve to an edge into utils.py:compute"
+    );
+    assert!(
+        edges.iter().any(|e| e.confidence < 0.80),
+        "star-import edge must carry the resolver's sub-0.80 confidence, got {:?}",
+        edges.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_compile_persists_new_and_removed_definitions() {
+    let dir = TempDir::new().unwrap();
+    write(
+        &dir,
+        "src/lib.py",
+        "def existing() -> int:\n    return 1\n\n\ndef doomed() -> int:\n    return 2\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    // Add `added`, drop `doomed`.
+    write(
+        &dir,
+        "src/lib.py",
+        "def existing() -> int:\n    return 1\n\n\ndef added() -> int:\n    return 3\n",
+    );
+    let out = run(&dir, &["compile", "src/lib.py"]);
+    assert!(
+        out.status.code() != Some(2),
+        "compile hit an internal error: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let store = open_db(&dir);
+    let names: Vec<String> = store
+        .get_nodes_in_file("src/lib.py")
+        .into_iter()
+        .filter(|n| n.kind == NodeKind::Function)
+        .map(|n| n.name)
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "added"),
+        "compile must persist the new `added` definition, got {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "doomed"),
+        "compile must remove the vanished `doomed` definition, got {names:?}"
+    );
+
+    // `keel discover` should find the newly-persisted node.
+    let disc = run(&dir, &["discover", "src/lib.py"]);
+    assert!(
+        String::from_utf8_lossy(&disc.stdout).contains("added"),
+        "discover should list the new `added` symbol"
+    );
+}
+
+#[test]
+fn test_compile_refreshes_edges_and_fires_e001_without_remap() {
+    let dir = TempDir::new().unwrap();
+    // Map with only the callee present — foo has no callers yet.
+    write(
+        &dir,
+        "a.py",
+        "def foo(a: int, b: int) -> int:\n    return a + b\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    // Add a caller AFTER the map and compile it — the incremental sync must
+    // persist the bar -> foo call edge even though foo lives in another file.
+    write(
+        &dir,
+        "b.py",
+        "from a import foo\n\n\ndef bar() -> int:\n    return foo(1, 2)\n",
+    );
+    let compile_b = run(&dir, &["compile", "b.py"]);
+    assert!(
+        compile_b.status.code() != Some(2),
+        "compile b.py internal error: {}",
+        String::from_utf8_lossy(&compile_b.stderr)
+    );
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "a.py", "foo");
+    assert!(
+        !edges.is_empty(),
+        "compiling the new caller must persist a foo <- bar edge without a re-map"
+    );
+    drop(store);
+
+    // Break foo's signature (arity change) and compile ONLY a.py — with no
+    // fresh map. E001 must fire against the caller persisted at compile time.
+    write(&dir, "a.py", "def foo(a: int) -> int:\n    return a\n");
+    let compile_a = run(&dir, &["compile", "a.py"]);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&compile_a.stdout),
+        String::from_utf8_lossy(&compile_a.stderr)
+    );
+    assert_eq!(
+        compile_a.status.code(),
+        Some(1),
+        "interface-breaking edit must fail compile (E001), output: {combined}"
+    );
+    assert!(
+        combined.contains("E001") || combined.to_lowercase().contains("caller"),
+        "expected an E001 broken-caller violation, output: {combined}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Graph attribution (fix/graph-attribution): exactly one module node per file,
+// call edges attributed to the enclosing function, and same-file method-call
+// resolution.
+// ---------------------------------------------------------------------------
+
+/// Name of the node an edge originates from.
+fn source_name(
+    store: &keel_core::sqlite::SqliteGraphStore,
+    edge: &keel_core::types::GraphEdge,
+) -> String {
+    store
+        .get_node_by_id(edge.source_id)
+        .map(|n| n.name)
+        .unwrap_or_default()
+}
+
+#[test]
+fn test_one_module_node_per_file() {
+    let dir = TempDir::new().unwrap();
+    // Three source files -> three module nodes, never six. The old synthetic
+    // whole-file module def doubled every module row.
+    write(&dir, "a.py", "def a() -> int:\n    return 1\n");
+    write(&dir, "b.py", "def b() -> int:\n    return 2\n");
+    write(&dir, "c.py", "def c() -> int:\n    return 3\n");
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let modules = store.get_all_modules();
+    assert_eq!(
+        modules.len(),
+        3,
+        "expected exactly one module node per file, got {:?}",
+        modules.iter().map(|m| &m.file_path).collect::<Vec<_>>()
+    );
+    let mut files: Vec<&String> = modules.iter().map(|m| &m.file_path).collect();
+    files.sort();
+    files.dedup();
+    assert_eq!(files.len(), 3, "each file must own a single module node");
+}
+
+#[test]
+fn test_call_edge_attributes_to_enclosing_function() {
+    let dir = TempDir::new().unwrap();
+    // `caller` calls `helper` in the same file. The incoming edge on `helper`
+    // must originate from the `caller` FUNCTION, not the file's module node.
+    write(
+        &dir,
+        "lib.py",
+        "def helper() -> int:\n    return 1\n\n\ndef caller() -> int:\n    return helper()\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "lib.py", "helper");
+    assert!(
+        !edges.is_empty(),
+        "same-file function->function call must produce a Calls edge"
+    );
+    assert!(
+        edges.iter().any(|e| source_name(&store, e) == "caller"),
+        "call edge must be attributed to the `caller` function, got sources {:?}",
+        edges
+            .iter()
+            .map(|e| source_name(&store, e))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_self_method_call_resolves_high_confidence() {
+    let dir = TempDir::new().unwrap();
+    // `this.compute()` inside a method binds to the same-file `compute` at 0.9.
+    write(
+        &dir,
+        "widget.ts",
+        "export class Widget {\n  render(): number {\n    return this.compute();\n  }\n  compute(): number {\n    return 42;\n  }\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "widget.ts", "compute");
+    assert!(
+        !edges.is_empty(),
+        "this.compute() must resolve to a same-file Calls edge"
+    );
+    assert!(
+        edges.iter().any(|e| (e.confidence - 0.9).abs() < 1e-6),
+        "self/this method call must resolve at 0.9, got {:?}",
+        edges.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_compile_preserves_method_and_baml_edges() {
+    // Regression for the shared-ladder fix. `keel compile` prunes a file's
+    // outgoing call edges and re-resolves them. The old compile ladder was a
+    // weaker copy of the map's (same-file local -> tier-2 -> unique bare name),
+    // so it could not reproduce the map's BAML boundary edges at their
+    // warning-tier confidence — every compile either dropped them or promoted
+    // them to an error-tier bare-name match. The compile now runs the map's own
+    // ladder, so both the same-file method edge and the BAML edge survive a
+    // compile at map quality.
+    let dir = TempDir::new().unwrap();
+    // A BAML boundary function.
+    write(
+        &dir,
+        "baml_src/main.baml",
+        "function ExtractResume(text: string) -> Resume {\n  client GPT4\n}\n",
+    );
+    // A caller with BOTH a same-file method call (this.compute) and a call into
+    // the BAML surface (b.ExtractResume).
+    write(
+        &dir,
+        "app.ts",
+        "export class Widget {\n  render(): number {\n    return this.compute();\n  }\n  compute(): number {\n    return 42;\n  }\n}\n\nexport function callModel(): number {\n  return b.ExtractResume();\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    // After the map both edges exist; the BAML edge is warning-tier (< 0.80).
+    {
+        let store = open_db(&dir);
+        assert!(
+            !incoming_calls(&store, "app.ts", "compute").is_empty(),
+            "map: this.compute() edge missing"
+        );
+        let baml = incoming_calls(&store, "baml_src/main.baml", "ExtractResume");
+        assert!(!baml.is_empty(), "map: BAML call edge missing");
+        assert!(
+            baml.iter().all(|e| e.confidence < 0.80),
+            "map: BAML edge must be warning-tier, got {:?}",
+            baml.iter().map(|e| e.confidence).collect::<Vec<_>>()
+        );
+    }
+
+    // Compile ONLY the caller file — this prunes and re-resolves app.ts's edges.
+    let out = run(&dir, &["compile", "app.ts"]);
+    assert!(
+        out.status.code() != Some(2),
+        "compile internal error: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let store = open_db(&dir);
+    assert!(
+        !incoming_calls(&store, "app.ts", "compute").is_empty(),
+        "compile destroyed the same-file method edge"
+    );
+    let baml = incoming_calls(&store, "baml_src/main.baml", "ExtractResume");
+    assert!(
+        !baml.is_empty(),
+        "compile destroyed the BAML boundary edge (the bug this fix targets)"
+    );
+    assert!(
+        baml.iter().all(|e| e.confidence < 0.80),
+        "compile must re-resolve the BAML edge at warning-tier (< 0.80); a 0.80 \
+         bare-name edge would falsely make the BAML call E001-eligible. got {:?}",
+        baml.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_obj_method_call_resolves_warning_tier() {
+    let dir = TempDir::new().unwrap();
+    // `w.compute()` on an unfamiliar receiver, with a UNIQUE same-file
+    // `compute`, resolves only at warning-tier (<= 0.7) — never a hard error.
+    write(
+        &dir,
+        "app.ts",
+        "class Widget {\n  compute(): number {\n    return 42;\n  }\n}\nexport function run(w: Widget): number {\n  return w.compute();\n}\n",
+    );
+    init(&dir);
+    map(&dir);
+
+    let store = open_db(&dir);
+    let edges = incoming_calls(&store, "app.ts", "compute");
+    assert!(
+        !edges.is_empty(),
+        "w.compute() with a unique same-file target must resolve to an edge"
+    );
+    assert!(
+        edges.iter().any(|e| e.confidence <= 0.7 + 1e-6),
+        "unfamiliar-receiver method call must be warning-tier (<= 0.7), got {:?}",
+        edges.iter().map(|e| e.confidence).collect::<Vec<_>>()
+    );
+}

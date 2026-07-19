@@ -60,3 +60,9 @@
 (import_from_statement
   module_name: (relative_import) @ref.import.source
   (wildcard_import) @ref.import.star) @ref.import
+
+; --- Functions named as values (not invoked) ---
+; A bare identifier in argument position is a function reference, not a call:
+; `sorted(xs, key=rank)`, `register(handler)`. Real usage for W005 dead-code
+; analysis, but never a `calls` edge.
+(argument_list (identifier) @ref.value.name) @ref.value

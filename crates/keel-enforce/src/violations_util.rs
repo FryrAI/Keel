@@ -6,10 +6,30 @@ pub fn definition_hashes(
     def: &keel_parsers::resolver::Definition,
     file_path: &str,
 ) -> (String, String) {
+    // Normalize the body once and reuse it for both identities — routing
+    // through `Definition::{hash, hash_disambiguated}` would normalize twice.
     let doc = def.docstring.as_deref().unwrap_or("");
+    let body = def.body_for_hash();
     (
-        keel_core::hash::compute_hash(&def.signature, &def.body_text, doc),
-        keel_core::hash::compute_hash_disambiguated(&def.signature, &def.body_text, doc, file_path),
+        keel_core::hash::compute_hash(&def.signature, &body, doc),
+        keel_core::hash::compute_hash_disambiguated(&def.signature, &body, doc, file_path),
+    )
+}
+
+/// Compute one disambiguated hash for a definition under an arbitrary salt.
+///
+/// [`definition_hashes`] covers the two identities `keel map` assigns (plain,
+/// and file-path-salted). A file holding three or more identical same-named
+/// definitions needs more than two distinct identities, so the engine's
+/// re-baseline walks an ordinal (`"<file>#2"`, `"<file>#3"`, …) through this.
+/// Off the hot path — it re-normalizes the body — and only reached once a
+/// collision is already proven.
+pub fn definition_hash_salted(def: &keel_parsers::resolver::Definition, salt: &str) -> String {
+    keel_core::hash::compute_hash_disambiguated(
+        &def.signature,
+        &def.body_for_hash(),
+        def.docstring.as_deref().unwrap_or(""),
+        salt,
     )
 }
 

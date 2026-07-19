@@ -14,6 +14,9 @@ fn undocumented_def(name: &str, file: &str) -> Definition {
         is_public: true,
         type_hints_present: true,
         body_text: "do_work()".to_string(),
+        in_test_context: false,
+        in_trait_context: false,
+        is_associated: false,
     }
 }
 
@@ -35,7 +38,7 @@ fn matching_node(def: &Definition) -> GraphNode {
         id: 1,
         hash: keel_core::hash::compute_hash(
             &def.signature,
-            &def.body_text,
+            &def.body_for_hash(),
             def.docstring.as_deref().unwrap_or(""),
         ),
         kind: NodeKind::Function,

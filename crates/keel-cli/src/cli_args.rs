@@ -22,7 +22,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
-    /// Max token budget for LLM output (default: 500)
+    /// Max token budget for LLM output of compile/map/audit (default: 500)
     #[arg(long, global = true)]
     pub max_tokens: Option<usize>,
 
@@ -45,15 +45,6 @@ pub(crate) enum Commands {
 
     /// Full re-map of the codebase
     Map {
-        /// LLM format with full signatures
-        #[arg(long)]
-        llm_verbose: bool,
-        /// Comma-separated module names for scoped maps
-        #[arg(long)]
-        scope: Option<String>,
-        /// Exit non-zero on any ERROR-level violations
-        #[arg(long)]
-        strict: bool,
         /// Output depth: 0=summary, 1=modules+hotspots (default), 2=functions, 3=full graph
         #[arg(long, default_value = "1")]
         depth: u32,
@@ -63,6 +54,9 @@ pub(crate) enum Commands {
         /// Read from existing graph.db instead of re-parsing (fast, for hooks)
         #[arg(long)]
         cached: bool,
+        /// Emit deterministic per-module semantic enrichment (summary, public API, when-to-use)
+        #[arg(long)]
+        semantic: bool,
     },
 
     /// Look up a function's callers, callees, and context (accepts hash, file path, or --name)
@@ -72,9 +66,6 @@ pub(crate) enum Commands {
         /// Number of hops to traverse (default: 1)
         #[arg(long, default_value = "1")]
         depth: u32,
-        /// Return top 3 placement suggestions
-        #[arg(long)]
-        suggest_placement: bool,
         /// Look up by function name instead of hash
         #[arg(long)]
         name: bool,
@@ -105,9 +96,6 @@ pub(crate) enum Commands {
         /// Treat warnings as errors
         #[arg(long)]
         strict: bool,
-        /// Enable Tier 3 (LSP/SCIP) resolution for unresolved references
-        #[arg(long)]
-        tier3: bool,
         /// Suppress a specific error/warning code
         #[arg(long)]
         suppress: Option<String>,
@@ -123,7 +111,7 @@ pub(crate) enum Commands {
         /// Show only new/resolved violations compared to last compile
         #[arg(long)]
         delta: bool,
-        /// Timeout in milliseconds (exit 0 if exceeded, don't block the agent)
+        /// Soft time budget in milliseconds (warns on stderr when exceeded; violations still report and set the exit code)
         #[arg(long)]
         timeout: Option<u64>,
     },
@@ -225,6 +213,53 @@ pub(crate) enum Commands {
         file: String,
     },
 
+    /// Compressed signature-only view of a file (no bodies)
+    Skeleton {
+        /// File path to summarize
+        file: String,
+        /// Include docstrings
+        #[arg(long)]
+        docs: bool,
+        /// Include private symbols (default: public only)
+        #[arg(long)]
+        private: bool,
+        /// Token budget for LLM output only (truncates, keeping whole entries);
+        /// ignored with --json/--human
+        #[arg(long)]
+        budget: Option<usize>,
+    },
+
+    /// Minimal context set for safely modifying a target (hash or file)
+    Focus {
+        /// Hash or file path to focus on
+        target: String,
+        /// Transitive-caller traversal depth (default: 2)
+        #[arg(long, default_value = "2")]
+        depth: u32,
+        /// Token budget for LLM output only (truncates, keeping whole entries);
+        /// ignored with --json/--human
+        #[arg(long)]
+        budget: Option<usize>,
+    },
+    /// Compact session-state summary for re-injection after context loss
+    Checkpoint {
+        /// Diff base commit (default: HEAD — uncommitted working-tree changes)
+        #[arg(long)]
+        since: Option<String>,
+        /// Summarize staged (index) changes instead of the working tree
+        #[arg(long)]
+        staged: bool,
+        /// Write the checkpoint to a file instead of stdout
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+
+    /// Validate a plan against the dependency graph before executing it
+    ValidatePlan {
+        /// Plan file to read (markdown/text), or `-` for stdin
+        plan: String,
+    },
+
     /// Remove all keel-generated files
     Deinit,
 
@@ -271,3 +306,10 @@ pub(crate) enum Commands {
 #[cfg(test)]
 #[path = "cli_args_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cli_args_context_tests.rs"]
+mod context_tests;
+#[cfg(test)]
+#[path = "cli_args_session_tests.rs"]
+mod session_tests;

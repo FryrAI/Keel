@@ -64,19 +64,15 @@ fn parse_map_defaults() {
     let cli = parse(&["keel", "map"]);
     match cli.command {
         Commands::Map {
-            llm_verbose,
-            scope,
-            strict,
             depth,
             tier3,
             cached,
+            semantic,
         } => {
-            assert!(!llm_verbose);
-            assert!(scope.is_none());
-            assert!(!strict);
             assert_eq!(depth, 1);
             assert!(!tier3);
             assert!(!cached);
+            assert!(!semantic);
         }
         _ => panic!("expected Map"),
     }
@@ -87,29 +83,23 @@ fn parse_map_all_flags() {
     let cli = parse(&[
         "keel",
         "map",
-        "--llm-verbose",
-        "--scope",
-        "auth,core",
-        "--strict",
         "--depth",
         "2",
         "--tier3",
+        "--cached",
+        "--semantic",
     ]);
     match cli.command {
         Commands::Map {
-            llm_verbose,
-            scope,
-            strict,
             depth,
             tier3,
             cached,
+            semantic,
         } => {
-            assert!(llm_verbose);
-            assert_eq!(scope.as_deref(), Some("auth,core"));
-            assert!(strict);
             assert_eq!(depth, 2);
             assert!(tier3);
-            assert!(!cached);
+            assert!(cached);
+            assert!(semantic);
         }
         _ => panic!("expected Map"),
     }
@@ -122,13 +112,11 @@ fn parse_discover_required_query() {
         Commands::Discover {
             query,
             depth,
-            suggest_placement,
             name,
             context,
         } => {
             assert_eq!(query, "abc123");
             assert_eq!(depth, 1);
-            assert!(!suggest_placement);
             assert!(!name);
             assert!(context.is_none());
         }
@@ -138,24 +126,11 @@ fn parse_discover_required_query() {
 
 #[test]
 fn parse_discover_with_depth() {
-    let cli = parse(&[
-        "keel",
-        "discover",
-        "h1",
-        "--depth",
-        "3",
-        "--suggest-placement",
-    ]);
+    let cli = parse(&["keel", "discover", "h1", "--depth", "3"]);
     match cli.command {
-        Commands::Discover {
-            query,
-            depth,
-            suggest_placement,
-            ..
-        } => {
+        Commands::Discover { query, depth, .. } => {
             assert_eq!(query, "h1");
             assert_eq!(depth, 3);
-            assert!(suggest_placement);
         }
         _ => panic!("expected Discover"),
     }

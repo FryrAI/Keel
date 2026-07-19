@@ -29,8 +29,8 @@ pub fn format_map_depth1(result: &MapResult) -> String {
         out.push_str("HOTSPOTS (most connected):\n");
         for h in &result.hotspots {
             out.push_str(&format!(
-                "  {} callers={} callees={}",
-                h.path, h.callers, h.callees,
+                "  {} hash={} {} callers={} callees={}",
+                h.name, h.hash, h.path, h.callers, h.callees,
             ));
             if !h.keywords.is_empty() {
                 out.push_str(&format!(" [{}]", h.keywords.join(",")));
@@ -178,6 +178,16 @@ mod tests {
         assert!(out.contains("callers=23 callees=8"));
         assert!(out.contains("MODULE src/auth/"));
         assert!(out.contains("[auth,jwt]"));
+    }
+
+    #[test]
+    fn test_depth1_hotspot_line_has_name_and_hash() {
+        // A hotspot line must be actionable: name + hash alongside path, so an
+        // agent can discover/check it, not just see a bare path + counts.
+        let out = format_map(&sample_map(), 1, 500);
+        assert!(out.contains(
+            "  validate_token hash=abc12345678 src/auth/middleware.rs callers=23 callees=8"
+        ));
     }
 
     #[test]

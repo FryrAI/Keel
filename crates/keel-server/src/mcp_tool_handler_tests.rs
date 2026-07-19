@@ -387,3 +387,223 @@ fn test_analyze_file_not_in_graph() {
         .unwrap()
         .contains("No graph data"));
 }
+
+// --- keel/skeleton tests ---
+
+#[test]
+fn test_skeleton_missing_file() {
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/skeleton", None),
+    ));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("file"));
+}
+
+/// The MCP `keel/skeleton` tool must return exactly what the CLI produces for
+/// the same file — both call `keel_enforce::skeleton::build_skeleton`, so the
+/// serialized result (CLI `--json`) and the MCP payload must be equal.
+#[test]
+fn test_skeleton_mcp_matches_cli() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("sample.ts");
+    std::fs::write(
+        &file,
+        "import { z } from './z';\n\
+         export function pub(a: number): string { return `${a}`; }\n\
+         function priv_helper(): void {}\n",
+    )
+    .unwrap();
+    let _abs = file.to_string_lossy().to_string();
+
+    // CLI path: JsonFormatter emits `serde_json::to_string_pretty(&SkeletonResult)`.
+    let root_for_expected = std::fs::canonicalize(dir.path()).unwrap();
+    let expected = keel_enforce::skeleton::build_skeleton(
+        &root_for_expected,
+        std::path::Path::new(
+            &std::fs::canonicalize(&file)
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+        ),
+        &std::fs::read_to_string(&file).unwrap(),
+        false,
+        false,
+    )
+    .unwrap();
+    let mut expected_value = serde_json::to_value(&expected).unwrap();
+    // The CLI echoes the path as the user typed it; the MCP tool echoes the
+    // `file` param it was given. Confinement is an IO-time concern and must not
+    // leak the server's absolute path into the result (see `mcp_skeleton`).
+    expected_value["file"] = serde_json::json!("sample.ts");
+
+    let store = test_store();
+    // The MCP edge confines the file param to the served root, so anchor the
+    // request at the temp dir and pass the file relative to it.
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let params = serde_json::json!({ "file": "sample.ts" });
+    let resp = parse_response(&crate::mcp::process_line_with_root(
+        &store,
+        &test_engine(),
+        &root,
+        &rpc("keel/skeleton", Some(params)),
+    ));
+
+    assert_eq!(resp["result"], expected_value);
+    assert_eq!(resp["result"]["command"], "skeleton");
+    // Explicitly: the caller's own relative param comes back, not the confined
+    // absolute path the handler used to read the file.
+    assert_eq!(
+        resp["result"]["file"], "sample.ts",
+        "the result must echo the caller's `file` param, never the server's absolute path"
+    );
+    // Signature-only: the exported function is present, private one filtered out.
+    let names: Vec<&str> = resp["result"]["symbols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"pub"));
+    assert!(!names.contains(&"priv_helper"));
+}
+
+// --- keel/focus tests ---
+
+#[test]
+fn test_focus_missing_target() {
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/focus", None),
+    ));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("target"));
+}
+
+#[test]
+fn test_focus_returns_context_for_node() {
+    // Graph: caller -> target, in separate files.
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&make_node(
+            1,
+            "targethashh",
+            "target",
+            "fn target()",
+            "src/target.rs",
+        ))
+        .unwrap();
+    store
+        .insert_node(&make_node(
+            2,
+            "callerhashh",
+            "caller",
+            "fn caller()",
+            "src/caller.rs",
+        ))
+        .unwrap();
+    store
+        .update_edges(vec![EdgeChange::Add(GraphEdge {
+            id: 1,
+            source_id: 2,
+            target_id: 1,
+            kind: EdgeKind::Calls,
+            file_path: "src/caller.rs".into(),
+            line: 5,
+            confidence: 1.0,
+        })])
+        .unwrap();
+    let engine: SharedEngine = Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store))));
+
+    let params = serde_json::json!({ "target": "targethashh", "depth": 2 });
+    let resp = parse_response(&process_line(
+        &test_store(),
+        &engine,
+        &rpc("keel/focus", Some(params)),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "focus");
+    assert_eq!(result["target"], "targethashh");
+    // caller is a symbol at risk.
+    assert_eq!(result["callers"][0]["name"], "caller");
+    // read order lists files.
+    assert!(result["read_order"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p == "src/target.rs"));
+}
+
+// --- keel/validate-plan tests ---
+
+#[test]
+fn test_validate_plan_detects_removal_risk() {
+    let store = Arc::new(Mutex::new(populated_edge_store()));
+    let params = serde_json::json!({"plan": "Step 1: Remove handleRequest entirely."});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", Some(params)),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "validate-plan");
+    assert_eq!(result["unrecognized"], false);
+    let actions = result["actions"].as_array().unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0]["action"], "remove");
+    assert_eq!(actions[0]["symbol"], "handleRequest");
+    assert_eq!(actions[0]["risk"], "HIGH");
+    assert!(actions[0]["caller_count"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn test_validate_plan_nonsense_unrecognized() {
+    let store = test_store();
+    let params = serde_json::json!({"plan": "Water the plants and take a nap."});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", Some(params)),
+    ));
+    assert_eq!(resp["result"]["unrecognized"], true);
+    assert!(resp["result"]["actions"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_validate_plan_missing_param() {
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", None),
+    ));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("plan"));
+}
+
+// --- keel/checkpoint tests ---
+
+#[test]
+fn test_checkpoint_returns_shaped_result() {
+    // Runs git in the crate cwd; with an empty in-memory store and no matching
+    // files it returns a well-formed, empty checkpoint. We assert only shape.
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/checkpoint", None),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "checkpoint");
+    assert!(result["files"].is_array());
+    assert!(result["violations"].is_array());
+    assert!(result["commits"].is_array());
+    assert!(result["affected_callers"].is_array());
+}

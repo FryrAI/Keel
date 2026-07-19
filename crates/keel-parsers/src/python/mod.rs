@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::resolver::{
-    CallSite, Definition, LanguageResolver, ParseResult, Reference, ResolvedEdge,
+    CallSite, Definition, LanguageResolver, ParseCache, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
 use helpers::{
@@ -22,8 +22,14 @@ use helpers::{
 /// - Tier 2: heuristic resolution (ty subprocess used when available).
 pub struct PyResolver {
     parser: Mutex<TreeSitterParser>,
-    cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    cache: ParseCache,
     ty_client: Option<Box<dyn ty::TyClient>>,
+    /// Memoizes dotted package-chain resolution per `(caller_dir, module_path)`.
+    /// Resolving many call sites in one file re-hit the same dotted imports, so
+    /// without this each `(reference × dotted-import)` pair re-`stat`ed the whole
+    /// filesystem chain. Instance-scoped: the filesystem is stable for a
+    /// resolver's lifetime (a single map/compile run).
+    pkg_chain_cache: Mutex<HashMap<(PathBuf, String), Option<PathBuf>>>,
 }
 
 impl PyResolver {
@@ -31,8 +37,9 @@ impl PyResolver {
     pub fn new() -> Self {
         PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             ty_client: None,
+            pkg_chain_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -40,8 +47,19 @@ impl PyResolver {
     pub fn with_ty(ty_client: Box<dyn ty::TyClient>) -> Self {
         PyResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             ty_client: Some(ty_client),
+            pkg_chain_cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Creates a `PyResolver`, auto-detecting a `ty` subprocess on PATH for the
+    /// documented Tier-2 enhancer. Falls back to heuristics-only when `ty` is
+    /// not installed, so callers never need to branch on availability.
+    pub fn detect() -> Self {
+        match ty::RealTyClient::detect() {
+            Some(client) => Self::with_ty(Box::new(client)),
+            None => Self::new(),
         }
     }
 
@@ -95,15 +113,8 @@ impl PyResolver {
             }
         }
 
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), result.clone());
+        self.cache.insert(path, result.clone());
         result
-    }
-
-    fn get_cached(&self, path: &Path) -> Option<ParseResult> {
-        self.cache.lock().unwrap().get(path).cloned()
     }
 }
 
@@ -128,19 +139,15 @@ impl LanguageResolver for PyResolver {
     }
 
     fn resolve_definitions(&self, file: &Path) -> Vec<Definition> {
-        self.get_cached(file)
-            .map(|r| r.definitions)
-            .unwrap_or_default()
+        self.cache.definitions_for(file)
     }
 
     fn resolve_references(&self, file: &Path) -> Vec<Reference> {
-        self.get_cached(file)
-            .map(|r| r.references)
-            .unwrap_or_default()
+        self.cache.references_for(file)
     }
 
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock();
         let caller_file = PathBuf::from(&call_site.file_path);
         let caller_result = cache.get(&caller_file)?;
 
@@ -183,9 +190,7 @@ impl LanguageResolver for PyResolver {
             .unwrap_or_default();
         for imp in &caller_result.imports {
             if imp.source.contains('.') && !imp.is_relative {
-                if let Some(resolved) =
-                    package_resolution::resolve_python_package_chain(&caller_dir, &imp.source)
-                {
+                if let Some(resolved) = self.resolve_pkg_chain(&caller_dir, &imp.source) {
                     if imp
                         .imported_names
                         .iter()
@@ -202,7 +207,61 @@ impl LanguageResolver for PyResolver {
             }
         }
 
-        None
+        drop(cache);
+
+        // Tier 2 (ty): the documented Python enhancer. When a `ty` subprocess
+        // is available, ask it to type-check the caller and use any definition
+        // it reports for the callee. Failure/absence is isolated — resolution
+        // simply falls through to the heuristic result (None).
+        self.resolve_with_ty(call_site)
+    }
+}
+
+impl PyResolver {
+    /// Resolve a dotted package chain through the filesystem, memoized per
+    /// `(caller_dir, module_path)` so repeated call sites sharing a caller and
+    /// import don't re-`stat` the same chain. Negative results are cached too:
+    /// the filesystem is stable for the resolver's lifetime.
+    fn resolve_pkg_chain(&self, caller_dir: &Path, module_path: &str) -> Option<PathBuf> {
+        let key = (caller_dir.to_path_buf(), module_path.to_string());
+        if let Some(hit) = self.pkg_chain_cache.lock().unwrap().get(&key) {
+            return hit.clone();
+        }
+        let resolved = package_resolution::resolve_python_package_chain(caller_dir, module_path);
+        self.pkg_chain_cache
+            .lock()
+            .unwrap()
+            .insert(key, resolved.clone());
+        resolved
+    }
+
+    /// Resolve a call site through the `ty` subprocess (Tier 2), if configured.
+    ///
+    /// Returns `None` when ty is absent, times out, errors, or reports no
+    /// definition matching the callee — the caller then keeps the heuristic
+    /// (unresolved) result.
+    fn resolve_with_ty(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
+        let client = self.ty_client.as_ref()?;
+        if !client.is_available() {
+            return None;
+        }
+        let caller = PathBuf::from(&call_site.file_path);
+        let bare = call_site
+            .callee_name
+            .rsplit(['.', ':'])
+            .next()
+            .unwrap_or(&call_site.callee_name);
+        let result = client.check_file(&caller).ok()?;
+        let def = result
+            .definitions
+            .iter()
+            .find(|d| d.name == bare || d.name == call_site.callee_name)?;
+        Some(ResolvedEdge {
+            target_file: def.file_path.clone(),
+            target_name: def.name.clone(),
+            confidence: 0.90,
+            resolution_tier: "tier2_ty".into(),
+        })
     }
 }
 

@@ -10,14 +10,14 @@ mod tests;
 #[path = "frontend_tests.rs"]
 mod frontend_tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use oxc_resolver::{ResolveOptions, Resolver};
 
 use crate::resolver::{
-    CallSite, Definition, LanguageResolver, ParseResult, Reference, ResolvedEdge,
+    CallSite, Definition, LanguageResolver, ParseCache, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
 
@@ -26,6 +26,7 @@ use self::helpers::{
     ts_has_type_hints, ts_is_public,
 };
 use self::semantic::{analyze_with_oxc, OxcSymbolInfo};
+use self::tsconfig::AliasMap;
 
 /// Tier 1 + Tier 2 resolver for TypeScript and JavaScript.
 ///
@@ -33,12 +34,20 @@ use self::semantic::{analyze_with_oxc, OxcSymbolInfo};
 /// - Tier 2: oxc_semantic for symbol table + oxc_resolver for module resolution.
 pub struct TsResolver {
     parser: Mutex<TreeSitterParser>,
-    cache: Mutex<HashMap<PathBuf, ParseResult>>,
+    cache: ParseCache,
     /// Per-file oxc semantic symbol data for Tier 2 resolution.
     semantic_cache: Mutex<HashMap<PathBuf, OxcSymbolInfo>>,
     module_resolver: Resolver,
-    /// tsconfig.json path aliases: alias prefix -> resolved base path
-    path_aliases: Mutex<HashMap<String, String>>,
+    /// Base path aliases loaded from the project root — the fallback layer that
+    /// fills gaps a per-file (nearer) tsconfig does not define.
+    path_aliases: Mutex<AliasMap>,
+    /// Project root: the ceiling for nearest-tsconfig discovery. `None` until a
+    /// root is supplied via [`TsResolver::with_project_root`].
+    project_root: Mutex<Option<PathBuf>>,
+    /// Cache: a file's directory -> the aliases in effect for it (nearest
+    /// tsconfig merged over the project-root base). Keeps per-file discovery
+    /// fast — the walk-and-parse happens once per directory.
+    dir_aliases: Mutex<HashMap<PathBuf, Arc<AliasMap>>>,
 }
 
 impl TsResolver {
@@ -61,10 +70,12 @@ impl TsResolver {
         };
         TsResolver {
             parser: Mutex::new(TreeSitterParser::new()),
-            cache: Mutex::new(HashMap::new()),
+            cache: ParseCache::default(),
             semantic_cache: Mutex::new(HashMap::new()),
             module_resolver: Resolver::new(options),
-            path_aliases: Mutex::new(HashMap::new()),
+            path_aliases: Mutex::new(AliasMap::new()),
+            project_root: Mutex::new(None),
+            dir_aliases: Mutex::new(HashMap::new()),
         }
     }
 
@@ -81,20 +92,62 @@ impl TsResolver {
     }
 
     /// Loads tsconfig.json path aliases from a project root, including
-    /// `extends` ancestors and referenced projects.
+    /// `extends` ancestors and referenced projects, and records the root as the
+    /// ceiling for per-file (nearest-tsconfig) discovery.
     pub fn load_tsconfig_paths(&self, project_root: &Path) {
         let loaded = tsconfig::load_aliases(project_root);
-        let mut aliases = self.path_aliases.lock().unwrap();
-        for (alias, target) in loaded {
-            aliases.entry(alias).or_insert(target);
+        {
+            let mut aliases = self.path_aliases.lock().unwrap();
+            for (alias, target) in loaded {
+                aliases.entry(alias).or_insert(target);
+            }
         }
+        *self.project_root.lock().unwrap() = Some(project_root.to_path_buf());
+        // The root now bounds discovery: drop any aliases cached before it was
+        // known so they get recomputed against the correct ceiling.
+        self.dir_aliases.lock().unwrap().clear();
+    }
+
+    /// Returns the path aliases in effect for files in `dir`.
+    ///
+    /// Computed from the nearest tsconfig at or above `dir` (per-file
+    /// discovery, bounded by the project root) merged over the project-root
+    /// base, and cached per directory so repeated files in the same package are
+    /// cheap.
+    fn aliases_for_dir(&self, dir: &Path) -> Arc<AliasMap> {
+        if let Some(hit) = self.dir_aliases.lock().unwrap().get(dir) {
+            return hit.clone();
+        }
+
+        let ceiling = self.project_root.lock().unwrap().clone();
+        let (mut merged, visited) = tsconfig::load_aliases_for_file(dir, ceiling.as_deref());
+        // Project-root aliases fill gaps the nearest tsconfig does not define.
+        for (alias, target) in self.path_aliases.lock().unwrap().iter() {
+            merged
+                .entry(alias.clone())
+                .or_insert_with(|| target.clone());
+        }
+
+        let arc = Arc::new(merged);
+        // Warm the cache for EVERY directory the walk crossed, not just the leaf:
+        // they all resolve to the same nearest alias-declaring directory, so one
+        // walk primes the whole ancestor chain and sibling files under it skip
+        // the repeated `stat` calls entirely.
+        let mut cache = self.dir_aliases.lock().unwrap();
+        for d in visited {
+            cache.entry(d).or_insert_with(|| arc.clone());
+        }
+        arc
     }
 
     fn parse_and_cache(&self, path: &Path, content: &str) -> ParseResult {
         // Svelte components: keep only the <script> bodies, blanked in place so
-        // byte offsets and line numbers still match the original file.
+        // byte offsets and line numbers still match the original file. Keep the
+        // original around to recover template-driven references afterwards.
+        let is_svelte = svelte::is_svelte_file(path);
+        let original_content = content;
         let svelte_source;
-        let content = if svelte::is_svelte_file(path) {
+        let content = if is_svelte {
             svelte_source = svelte::extract_script_source(content);
             svelte_source.as_str()
         } else {
@@ -147,9 +200,34 @@ impl TsResolver {
             }
         }
 
-        // Tier 2: resolve import paths using oxc_resolver + path aliases
+        // Svelte: the template markup was blanked before parsing, so functions
+        // used only from markup (`on:click={handler}`, `{#if x}{helper()}`)
+        // would read as dead. Recover them with a lexical scan of the template.
+        if is_svelte {
+            let defined: HashSet<String> = result
+                .definitions
+                .iter()
+                .filter(|d| {
+                    matches!(
+                        d.kind,
+                        keel_core::types::NodeKind::Function | keel_core::types::NodeKind::Class
+                    )
+                })
+                .map(|d| d.name.clone())
+                .collect();
+            let template_refs = svelte::extract_template_references(
+                original_content,
+                &defined,
+                &path.to_string_lossy(),
+            );
+            result.references.extend(template_refs);
+        }
+
+        // Tier 2: resolve import paths using oxc_resolver + path aliases. Alias
+        // discovery is per-file: the nearest tsconfig at or above this file wins
+        // (so monorepo packages without a root tsconfig still resolve).
         let dir = path.parent().unwrap_or(Path::new("."));
-        let aliases = self.path_aliases.lock().unwrap();
+        let aliases = self.aliases_for_dir(dir);
         for imp in &mut result.imports {
             // SvelteKit virtual modules ($app/*, $env/*) are framework-provided
             // and never exist on disk — leave them as external specifiers.
@@ -157,14 +235,31 @@ impl TsResolver {
                 continue;
             }
 
-            // Apply path alias resolution first
-            let resolved_source = resolve_path_alias(&imp.source, &aliases);
-            let source_to_resolve = resolved_source.as_deref().unwrap_or(&imp.source);
+            let candidates = resolve_path_alias(&imp.source, &aliases);
+            if candidates.is_empty() {
+                // No alias matched: resolve the original specifier directly.
+                if let Ok(resolved) = self.module_resolver.resolve(dir, &imp.source) {
+                    imp.source = resolved.full_path().to_string_lossy().to_string();
+                }
+                continue;
+            }
 
-            if let Ok(resolved) = self.module_resolver.resolve(dir, source_to_resolve) {
-                imp.source = resolved.full_path().to_string_lossy().to_string();
-            } else if let Some(alias_resolved) = resolved_source {
-                imp.source = alias_resolved;
+            // An alias matched. Try each rewritten target in declaration order,
+            // keeping the first that exists on disk (oxc verifies the file).
+            // This honours `paths` fallback arrays such as
+            // ["src/app/*", "generated/app/*"].
+            let mut resolved_on_disk = false;
+            for candidate in &candidates {
+                if let Ok(resolved) = self.module_resolver.resolve(dir, candidate) {
+                    imp.source = resolved.full_path().to_string_lossy().to_string();
+                    resolved_on_disk = true;
+                    break;
+                }
+            }
+            if !resolved_on_disk {
+                // None exist yet (e.g. unbuilt generated output): fall back to
+                // the first target, matching TypeScript's declaration order.
+                imp.source = candidates[0].clone();
             }
         }
 
@@ -179,15 +274,8 @@ impl TsResolver {
             .unwrap()
             .insert(path.to_path_buf(), oxc_info);
 
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(path.to_path_buf(), result.clone());
+        self.cache.insert(path, result.clone());
         result
-    }
-
-    fn get_cached(&self, path: &Path) -> Option<ParseResult> {
-        self.cache.lock().unwrap().get(path).cloned()
     }
 }
 
@@ -227,19 +315,15 @@ impl LanguageResolver for TsResolver {
     }
 
     fn resolve_definitions(&self, file: &Path) -> Vec<Definition> {
-        self.get_cached(file)
-            .map(|r| r.definitions)
-            .unwrap_or_default()
+        self.cache.definitions_for(file)
     }
 
     fn resolve_references(&self, file: &Path) -> Vec<Reference> {
-        self.get_cached(file)
-            .map(|r| r.references)
-            .unwrap_or_default()
+        self.cache.references_for(file)
     }
 
     fn resolve_call_edge(&self, call_site: &CallSite) -> Option<ResolvedEdge> {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock();
         let caller_file = PathBuf::from(&call_site.file_path);
         let caller_result = cache.get(&caller_file)?;
 
