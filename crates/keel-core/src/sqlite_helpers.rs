@@ -1,10 +1,77 @@
-use rusqlite::params;
+use rusqlite::{params, Result as SqlResult};
 
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
-use crate::types::{GraphError, GraphNode};
+use crate::types::{BodyIndexEntry, ExternalEndpoint, GraphError, GraphNode, NodeKind};
 
 impl SqliteGraphStore {
+    /// Rebuild the body-hash index from `entries` in a single transaction.
+    ///
+    /// Backs [`GraphStore::replace_body_index`]. The delete and the inserts
+    /// share one transaction so a concurrent reader never sees a partially
+    /// rebuilt index.
+    pub(crate) fn body_index_replace(
+        &self,
+        entries: Vec<BodyIndexEntry>,
+    ) -> Result<(), GraphError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM body_index", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO body_index
+                 (node_hash, body_hash, name, file_path, line)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for e in &entries {
+                stmt.execute(params![
+                    e.node_hash,
+                    e.body_hash,
+                    e.name,
+                    e.file_path,
+                    e.line
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Look up every indexed node sharing `body_hash`.
+    ///
+    /// Backs [`GraphStore::find_body_matches`]. Uses `idx_body_index_body_hash`.
+    pub(crate) fn body_index_find(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT node_hash, body_hash, name, file_path, line
+             FROM body_index WHERE body_hash = ?1
+             ORDER BY file_path, line",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] body_index_find: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+
+        // Bind before returning: the `MappedRows` temporary borrows `stmt`, so
+        // using the match as the tail expression outlives `stmt` (E0597).
+        let result = match stmt.query_map(params![body_hash], |row| {
+            Ok(BodyIndexEntry {
+                node_hash: row.get(0)?,
+                body_hash: row.get(1)?,
+                name: row.get(2)?,
+                file_path: row.get(3)?,
+                line: row.get(4)?,
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] body_index_find: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
+    }
+
     /// Load circuit breaker state from the database.
     pub fn load_circuit_breaker(&self) -> Result<Vec<(String, String, u32, bool)>, GraphError> {
         let mut stmt = self.conn.prepare(
@@ -148,6 +215,28 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Append rename history for a node, inside an open transaction.
+    ///
+    /// **Append-only by design.** Parsers routinely build `GraphNode` values
+    /// with an empty `previous_hashes`, so replacing the set here would erase
+    /// accumulated history on every re-map of an unchanged file. Entries are
+    /// only ever added; a full `keel map` re-baselines them via `clear_all`.
+    ///
+    /// The `(node_id, hash)` primary key makes repeated writes idempotent.
+    pub(crate) fn append_previous_hashes(
+        tx: &rusqlite::Transaction<'_>,
+        node_id: u64,
+        hashes: &[String],
+    ) -> Result<(), GraphError> {
+        for hash in hashes {
+            tx.execute(
+                "INSERT OR IGNORE INTO previous_hashes (node_id, hash) VALUES (?1, ?2)",
+                params![node_id, hash],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Update an existing node by ID, preserving the old hash in previous_hashes.
     pub fn update_node_in_db(&self, node: &GraphNode) -> Result<(), GraphError> {
         // Store old hash as previous hash
@@ -197,5 +286,92 @@ impl SqliteGraphStore {
         }
 
         Ok(())
+    }
+
+    /// Convert a SQLite row into a `GraphNode` (without relations loaded).
+    pub(crate) fn row_to_node(row: &rusqlite::Row) -> SqlResult<GraphNode> {
+        let kind_str: String = row.get("kind")?;
+        let kind = match kind_str.as_str() {
+            "module" => NodeKind::Module,
+            "class" => NodeKind::Class,
+            "function" => NodeKind::Function,
+            _ => NodeKind::Function, // fallback
+        };
+        Ok(GraphNode {
+            id: row.get("id")?,
+            hash: row.get("hash")?,
+            kind,
+            name: row.get("name")?,
+            signature: row.get("signature")?,
+            file_path: row.get("file_path")?,
+            line_start: row.get("line_start")?,
+            line_end: row.get("line_end")?,
+            docstring: row.get("docstring")?,
+            is_public: row.get::<_, i32>("is_public")? != 0,
+            type_hints_present: row.get::<_, i32>("type_hints_present")? != 0,
+            has_docstring: row.get::<_, i32>("has_docstring")? != 0,
+            external_endpoints: Vec::new(), // loaded separately
+            previous_hashes: Vec::new(),    // loaded separately
+            module_id: row.get::<_, Option<u64>>("module_id")?.unwrap_or(0),
+            package: row.get::<_, Option<String>>("package").unwrap_or(None),
+        })
+    }
+
+    /// Load all external endpoints associated with a given node.
+    pub(crate) fn load_endpoints(&self, node_id: u64) -> Vec<ExternalEndpoint> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT kind, method, path, direction FROM external_endpoints WHERE node_id = ?1",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] load_endpoints: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+
+        let result = match stmt.query_map(params![node_id], |row| {
+            Ok(ExternalEndpoint {
+                kind: row.get(0)?,
+                method: row.get(1)?,
+                path: row.get(2)?,
+                direction: row.get(3)?,
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] load_endpoints: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
+    }
+
+    /// Load the most recent previous hashes for a node (up to 3, newest first).
+    pub(crate) fn load_previous_hashes(&self, node_id: u64) -> Vec<String> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT hash FROM previous_hashes WHERE node_id = ?1 ORDER BY created_at DESC LIMIT 3",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] load_previous_hashes: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+
+        let result = match stmt.query_map(params![node_id], |row| row.get(0)) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] load_previous_hashes: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
+    }
+
+    /// Attach endpoints and previous hashes to a node, returning the enriched node.
+    pub(crate) fn node_with_relations(&self, mut node: GraphNode) -> GraphNode {
+        node.external_endpoints = self.load_endpoints(node.id);
+        node.previous_hashes = self.load_previous_hashes(node.id);
+        node
     }
 }

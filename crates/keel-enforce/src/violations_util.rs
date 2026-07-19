@@ -1,3 +1,36 @@
+/// Compute the (plain, disambiguated) hash pair for a definition — the two
+/// identities `keel map` may have stored for it (map salts with the file
+/// path on collision). Single source of truth for "does this def match its
+/// stored node", shared by the engine's hash sync and progressive adoption.
+pub fn definition_hashes(
+    def: &keel_parsers::resolver::Definition,
+    file_path: &str,
+) -> (String, String) {
+    let doc = def.docstring.as_deref().unwrap_or("");
+    (
+        keel_core::hash::compute_hash(&def.signature, &def.body_text, doc),
+        keel_core::hash::compute_hash_disambiguated(&def.signature, &def.body_text, doc, file_path),
+    )
+}
+
+/// Whether a stored node's hash matches the definition under either of the
+/// two identities from [`definition_hashes`].
+pub fn node_hash_matches(
+    node: &keel_core::types::GraphNode,
+    def: &keel_parsers::resolver::Definition,
+    file_path: &str,
+) -> bool {
+    let (hash, hash_d) = definition_hashes(def, file_path);
+    node.hash == hash || node.hash == hash_d
+}
+
+/// Check if a file is a benchmark file — harness-invoked, like tests, so
+/// dead-code analysis doesn't apply.
+pub fn is_bench_file(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    normalized.starts_with("benches/") || normalized.contains("/benches/")
+}
+
 /// Check if a file is a declaration/stub file: signature-only by definition,
 /// so docstring and body-level checks don't apply (`.pyi` stubs, `.d.ts`
 /// declarations).
@@ -10,7 +43,7 @@ pub fn is_stub_file(path: &str) -> bool {
 
 /// Check if a file path is a test file by language convention.
 /// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
-/// *.test.js, *.spec.js, *_test.rs, tests.rs
+/// *.test.js, *.spec.js, *_test.rs, *_tests.rs, tests.rs
 pub fn is_test_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
 
@@ -42,8 +75,11 @@ pub fn is_test_file(path: &str) -> bool {
     if basename.contains(".test.") || basename.contains(".spec.") {
         return true;
     }
-    // Rust: *_test.rs or tests.rs
-    if basename.ends_with("_test.rs") || basename == "tests.rs" {
+    // Rust: *_test.rs, *_tests.rs (plural — this repo's own `#[path =
+    // "..._tests.rs"] mod tests;` convention), or exactly tests.rs.
+    // Suffix match, not substring: "utils_tests.rs" matches, "contests.rs"
+    // does not (no underscore before "tests.rs").
+    if basename.ends_with("_test.rs") || basename.ends_with("_tests.rs") || basename == "tests.rs" {
         return true;
     }
     false
@@ -94,20 +130,74 @@ pub fn normalize_signature(sig: &str) -> String {
     sig.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
-/// Extract a name prefix (e.g., "handle" from "handleRequest").
-pub fn extract_prefix(name: &str) -> String {
-    // Split on camelCase or snake_case boundary
-    if let Some(pos) = name.find('_') {
-        return name[..pos].to_string();
+/// Split `name` into (start, end) byte ranges for each "word" segment, using
+/// snake_case underscores if present, else camelCase upper-case transitions.
+fn segment_ranges(name: &str) -> Vec<(usize, usize)> {
+    if name.contains('_') {
+        let mut ranges = Vec::new();
+        let mut start = 0;
+        for (i, c) in name.char_indices() {
+            if c == '_' {
+                if i > start {
+                    ranges.push((start, i));
+                }
+                start = i + c.len_utf8();
+            }
+        }
+        if start < name.len() {
+            ranges.push((start, name.len()));
+        }
+        return ranges;
     }
-    // camelCase: find first lowercase->uppercase transition
-    let chars: Vec<char> = name.chars().collect();
-    for i in 1..chars.len() {
-        if chars[i].is_uppercase() {
-            return chars[..i].iter().collect();
+
+    // camelCase, with acronym runs treated as one segment: a new segment
+    // starts at an uppercase char only when the previous char is lowercase
+    // (a plain lower->upper transition, e.g. "parse"|"Header"), or when the
+    // previous char is ALSO uppercase but the next char is lowercase (this
+    // is the last capital of a run, which kicks off the next word, e.g. the
+    // second "H" in "HTTPHeader" starts "Header" while "HTTP" stays whole).
+    // Standard camel tokenization: "parseHTTPHeader" -> parse/HTTP/Header,
+    // "toJSONString" -> to/JSON/String, "readIOBuffer" -> read/IO/Buffer.
+    // Without this, consecutive capitals would shatter into one-char
+    // segments ("parseHTTPHeader" -> p-a-r-s-e-H-T-T-P... over-matching
+    // even worse than a single leading segment).
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    let indices: Vec<(usize, char)> = name.char_indices().collect();
+    for i in 1..indices.len() {
+        let (idx, ch) = indices[i];
+        if !ch.is_uppercase() {
+            continue;
+        }
+        let prev_is_upper = indices[i - 1].1.is_uppercase();
+        let next_is_lower = indices.get(i + 1).is_some_and(|&(_, c)| c.is_lowercase());
+        if !prev_is_upper || next_is_lower {
+            ranges.push((start, idx));
+            start = idx;
         }
     }
-    String::new()
+    if !indices.is_empty() {
+        ranges.push((start, name.len()));
+    }
+    ranges
+}
+
+/// Extract a multi-segment name prefix (e.g. "get_user" from "get_user_name",
+/// "getUser" from "getUserName") used to suggest a placement module.
+///
+/// Only a prefix spanning **at least two** segments is meaningful enough to
+/// suggest a placement — a single leading segment (e.g. "make" from
+/// "make_relative") over-matches wildly, since unrelated functions across
+/// the whole codebase commonly share a first word. Names with fewer than
+/// three total segments can't produce a two-segment prefix while leaving a
+/// remainder (a single word, or a two-word name where the "prefix" would be
+/// the entire name), so they return an empty prefix and never fire W001.
+pub fn extract_prefix(name: &str) -> String {
+    let ranges = segment_ranges(name);
+    if ranges.len() < 3 {
+        return String::new();
+    }
+    name[ranges[0].0..ranges[1].1].to_string()
 }
 
 #[cfg(test)]
@@ -165,8 +255,6 @@ mod tests {
 
     #[test]
     fn test_extract_prefix() {
-        assert_eq!(extract_prefix("handleRequest"), "handle");
-        assert_eq!(extract_prefix("process_order"), "process");
         assert_eq!(extract_prefix("x"), "");
     }
 
@@ -176,8 +264,51 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_prefix_single_segment_names_never_match() {
+        // Common short verbs/names — never enough segments to produce a prefix.
+        assert_eq!(extract_prefix("run"), "");
+        assert_eq!(extract_prefix("main"), "");
+        assert_eq!(extract_prefix("default"), "");
+    }
+
+    #[test]
     fn test_extract_prefix_snake_case_multi() {
-        assert_eq!(extract_prefix("get_user_name"), "get");
+        // 3+ segments: prefix is the first TWO segments, not just the first.
+        assert_eq!(extract_prefix("get_user_name"), "get_user");
+        assert_eq!(extract_prefix("get_user_profile_data"), "get_user");
+    }
+
+    #[test]
+    fn test_extract_prefix_camel_case_multi() {
+        assert_eq!(extract_prefix("getUserName"), "getUser");
+        // Only two segments — no match, same rule as snake_case.
+        assert_eq!(extract_prefix("handleRequest"), "");
+    }
+
+    #[test]
+    fn test_extract_prefix_acronym_runs_stay_one_segment() {
+        // Consecutive capitals are one segment (the acronym), not one
+        // segment per letter — otherwise "parseHTTPHeader" would shatter
+        // into p/a/r/s/e/H/T/T/P/... and over-match worse than the old
+        // single-segment behavior. Standard camel tokenization: the run
+        // splits right before its last capital when that capital is
+        // followed by a lowercase letter (it belongs to the next word).
+        assert_eq!(extract_prefix("parseHTTPHeader"), "parseHTTP");
+        assert_eq!(extract_prefix("toJSONString"), "toJSON");
+        assert_eq!(extract_prefix("readIOBuffer"), "readIO");
+
+        // All-caps name: one giant acronym run = a single segment = no
+        // multi-segment prefix possible.
+        assert_eq!(extract_prefix("HTTP"), "");
+    }
+
+    #[test]
+    fn test_extract_prefix_two_segment_names_never_match() {
+        // Regression guard: these used to extract a single-segment prefix
+        // ("make", "process") that over-matched wildly. Now they need a
+        // third segment to leave room for a genuine 2-segment prefix.
+        assert_eq!(extract_prefix("make_relative"), "");
+        assert_eq!(extract_prefix("process_order"), "");
     }
 
     #[test]
@@ -259,6 +390,15 @@ mod tests {
         assert!(is_test_file("src/handler_test.rs"));
         assert!(is_test_file("src/tests.rs"));
         assert!(!is_test_file("src/handler.rs"));
+
+        // Rust: plural `*_tests.rs` — this repo's own
+        // `#[path = "..._tests.rs"] mod tests;` convention.
+        assert!(is_test_file("crates/keel-core/src/sqlite_tests.rs"));
+        assert!(is_test_file("engine_tests.rs"));
+        assert!(is_test_file("utils_tests.rs"));
+        // Suffix match, not substring: no underscore before "tests.rs".
+        assert!(!is_test_file("contests.rs"));
+        assert!(!is_test_file("src/testing_utils.rs")); // not a test file
 
         // Directory-based detection
         assert!(is_test_file("src/tests/helpers.py"));

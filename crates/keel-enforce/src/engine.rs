@@ -1,13 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
 
 use crate::batch::BatchState;
 use crate::circuit_breaker::{BreakerAction, CircuitBreaker};
+use crate::progressive::apply_progressive_adoption;
 use crate::suppress::SuppressionManager;
 use crate::types::{CompileInfo, CompileResult, Violation};
 use crate::violations;
+use crate::violations_economy;
 
 /// Core enforcement engine. Owns a GraphStore and orchestrates validation.
 pub struct EnforcementEngine {
@@ -56,6 +58,10 @@ impl EnforcementEngine {
         // Build batch file set: callers in the same compile batch are skipped
         // by E001/E004 since the user likely updated them in the same commit.
         let batch_file_set: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
+        // Economy-check state shared across the batch: names referenced
+        // anywhere in it (W005) and body hashes seen so far (W006).
+        let referenced_names = violations_economy::batch_reference_names(files);
+        let mut seen_bodies: HashMap<String, (String, String, u32)> = HashMap::new();
 
         for file in files {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
@@ -93,6 +99,31 @@ impl EnforcementEngine {
             }
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
+            // W005: dead code (gated by config)
+            if self.enforce_config.dead_code {
+                file_violations.extend(violations_economy::check_dead_code(
+                    file,
+                    &*self.store,
+                    &existing_nodes,
+                    &referenced_names,
+                ));
+            }
+            // W006: duplicate implementations (gated by config)
+            if self.enforce_config.duplication {
+                file_violations.extend(violations_economy::check_duplicate_implementation(
+                    file,
+                    &*self.store,
+                    &mut seen_bodies,
+                ));
+            }
+            // W007: oversized files (gated by config)
+            if self.enforce_config.oversized_files {
+                file_violations.extend(violations_economy::check_oversized_file(
+                    file,
+                    &existing_nodes,
+                    self.enforce_config.max_file_lines,
+                ));
+            }
 
             // Fixup: use graph-stored hashes so `keel explain <hash>` works.
             // Some checks (E002, E003, W001, W002) compute hashes freshly, which
@@ -104,6 +135,14 @@ impl EnforcementEngine {
                 {
                     v.hash = node.hash.clone();
                 }
+            }
+
+            // Progressive adoption: E002/E003 on untouched functions become
+            // WARNING (gated by config). Runs before the circuit breaker so
+            // pre-existing debt never accumulates failure counts.
+            if self.enforce_config.progressive {
+                file_violations =
+                    apply_progressive_adoption(file_violations, file, &existing_nodes);
             }
 
             // Downgrade low-confidence violations (dynamic dispatch) to WARNING
@@ -131,24 +170,17 @@ impl EnforcementEngine {
 
             // Track changed hashes and collect node updates for persistence
             for def in &file.definitions {
-                let new_hash = keel_core::hash::compute_hash(
-                    &def.signature,
-                    &def.body_text,
-                    def.docstring.as_deref().unwrap_or(""),
-                );
-                // Also check disambiguated hash (map may have used it for collisions)
-                let new_hash_disambiguated = keel_core::hash::compute_hash_disambiguated(
-                    &def.signature,
-                    &def.body_text,
-                    def.docstring.as_deref().unwrap_or(""),
-                    &file.file_path,
-                );
+                let (new_hash, new_hash_disambiguated) =
+                    crate::violations_util::definition_hashes(def, &file.file_path);
                 if let Some(node) = existing_nodes.iter().find(|n| n.name == def.name) {
                     if node.hash != new_hash && node.hash != new_hash_disambiguated {
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
-                        // Persist updated hash
+                        // Persist updated hash; record the old one so
+                        // "modified since last map" survives the sync (see
+                        // progressive adoption — a full map re-baselines).
                         let mut updated_node = node.clone();
+                        updated_node.previous_hashes.push(node.hash.clone());
                         updated_node.hash = new_hash;
                         updated_node.signature = def.signature.clone();
                         updated_node.docstring = def.docstring.clone();

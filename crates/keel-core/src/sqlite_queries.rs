@@ -3,8 +3,8 @@ use rusqlite::params;
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
-    EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphError, GraphNode, ModuleProfile,
-    NodeChange,
+    BodyIndexEntry, EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphError, GraphNode,
+    ModuleProfile, NodeChange,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -212,6 +212,18 @@ impl GraphStore for SqliteGraphStore {
                             node.package,
                         ],
                     )?;
+
+                    // ON CONFLICT(hash) updates the pre-existing row, which
+                    // keeps its own id — so resolve the stored id rather than
+                    // trusting node.id before writing child rows.
+                    if !node.previous_hashes.is_empty() {
+                        let stored_id: u64 = tx.query_row(
+                            "SELECT id FROM nodes WHERE hash = ?1",
+                            params![node.hash],
+                            |row| row.get(0),
+                        )?;
+                        Self::append_previous_hashes(&tx, stored_id, &node.previous_hashes)?;
+                    }
                 }
                 NodeChange::Update(node) => {
                     // Check for hash collision (different node, same hash)
@@ -250,6 +262,9 @@ impl GraphStore for SqliteGraphStore {
                             node.id,
                         ],
                     )?;
+
+                    // Update targets a known id, so no lookup is needed here.
+                    Self::append_previous_hashes(&tx, node.id, &node.previous_hashes)?;
                 }
                 NodeChange::Remove(id) => {
                     tx.execute("DELETE FROM nodes WHERE id = ?1", params![id])?;
@@ -369,5 +384,13 @@ impl GraphStore for SqliteGraphStore {
                 Vec::new()
             }
         }
+    }
+
+    fn replace_body_index(&mut self, entries: Vec<BodyIndexEntry>) -> Result<(), GraphError> {
+        self.body_index_replace(entries)
+    }
+
+    fn find_body_matches(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
+        self.body_index_find(body_hash)
     }
 }

@@ -5,11 +5,28 @@
 // focus on verifiable behaviors through the public API.
 use keel_core::hash::compute_hash;
 use keel_core::store::GraphStore;
-use keel_core::types::{GraphNode, NodeChange, NodeKind};
+use keel_core::types::{GraphNode, ModuleProfile, NodeChange, NodeKind};
 use keel_enforce::violations::check_placement;
 use keel_parsers::resolver::{Definition, FileIndex};
 
 use crate::common::in_memory_store;
+
+/// A module profile whose only prefix is `prefix`, at the given module_id/path.
+fn make_profile(module_id: u64, path: &str, prefix: &str) -> ModuleProfile {
+    ModuleProfile {
+        module_id,
+        path: path.to_string(),
+        function_count: 1,
+        class_count: 0,
+        line_count: 10,
+        function_name_prefixes: vec![prefix.to_string()],
+        primary_types: vec![],
+        import_sources: vec![],
+        export_targets: vec![],
+        external_endpoint_count: 0,
+        responsibility_keywords: vec![],
+    }
+}
 
 fn make_module_node(id: u64, file: &str) -> GraphNode {
     GraphNode {
@@ -168,4 +185,69 @@ fn test_w001_violation_structure() {
     assert_eq!(v.severity, "WARNING");
     assert!(v.suggested_module.is_some());
     assert!(v.confidence > 0.0 && v.confidence <= 1.0);
+}
+
+#[test]
+fn test_w001_multi_segment_prefix_fires() {
+    // "get_user_name" -> prefix "get_user" (2 segments) matches a module
+    // profile keyed on "get_user" -> should fire.
+    let mut store = in_memory_store();
+    let mod_node = make_module_node(1, "user_service.py");
+    store.update_nodes(vec![NodeChange::Add(mod_node)]).unwrap();
+    store
+        .upsert_module_profiles(vec![make_profile(1, "user_service.py", "get_user")])
+        .unwrap();
+
+    let def = make_func_def("get_user_name", "utils.py");
+    let file = make_file("utils.py", vec![def]);
+
+    let violations = check_placement(&file, &store);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(
+        violations[0].suggested_module,
+        Some("user_service.py".to_string())
+    );
+}
+
+#[test]
+fn test_w001_single_segment_names_never_fire() {
+    // "run"/"main"/"default" are single-word names — extract_prefix always
+    // returns empty for them, so W001 must never fire regardless of what
+    // module profiles exist.
+    let mut store = in_memory_store();
+    let mod_node = make_module_node(1, "main_service.py");
+    store.update_nodes(vec![NodeChange::Add(mod_node)]).unwrap();
+    store
+        .upsert_module_profiles(vec![make_profile(1, "main_service.py", "run")])
+        .unwrap();
+
+    for name in ["run", "main", "default"] {
+        let def = make_func_def(name, "utils.py");
+        let file = make_file("utils.py", vec![def]);
+        let violations = check_placement(&file, &store);
+        assert!(
+            violations.is_empty(),
+            "`{name}` should never fire W001 (single-segment name)"
+        );
+    }
+}
+
+#[test]
+fn test_w001_two_segment_name_no_longer_over_matches() {
+    // Regression guard for the de-noise fix: "make_relative" used to extract
+    // just "make" and over-match against any module whose profile happened
+    // to list "make" as a prefix. A two-segment name has no room to produce
+    // a genuine 2-segment prefix (it would just be the whole name), so this
+    // must no longer fire even though a matching "make" profile exists.
+    let mut store = in_memory_store();
+    let mod_node = make_module_node(1, "path_utils.py");
+    store.update_nodes(vec![NodeChange::Add(mod_node)]).unwrap();
+    store
+        .upsert_module_profiles(vec![make_profile(1, "path_utils.py", "make")])
+        .unwrap();
+
+    let def = make_func_def("make_relative", "utils.py");
+    let file = make_file("utils.py", vec![def]);
+    let violations = check_placement(&file, &store);
+    assert!(violations.is_empty());
 }

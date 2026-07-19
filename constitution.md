@@ -210,7 +210,14 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | W002 | duplicate_name | WARNING | Function with same name exists elsewhere |
 | W003 | naming_convention | WARNING | Name doesn't match module naming pattern (Phase 2) |
 | W004 | cross_repo_endpoint | WARNING | Changed endpoint consumed by linked repo (Phase 2) |
+| W005 | dead_code | WARNING | Function has no callers in the graph |
+| W006 | duplicate_implementation | WARNING | Function body identical (whitespace-normalized) to an existing function |
+| W007 | oversized_file | WARNING | File exceeds the configured line budget and grew in this change |
 | S001 | suppressed | INFO | Violation suppressed via inline or config |
+
+W005-W007 are the v0.5 "economy" additions — additive only; existing codes, severities, and exit codes are unchanged.
+
+Progressive adoption (v0.5): E002/E003 on functions unmodified since the last full `keel map` report as WARNING; modified or new functions report as ERROR. A full map re-baselines — escalation state does not survive it, but demoted debt stays visible as WARNING.
 
 **Common fields on all error/warning objects:**
 

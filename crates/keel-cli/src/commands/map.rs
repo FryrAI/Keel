@@ -99,6 +99,7 @@ pub fn run(
     let mut valid_node_ids: HashSet<u64> = HashSet::new();
 
     // === First pass: create nodes and same-file edges ===
+    let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
     let all_file_data = map_passes::first_pass(
         &entries,
         &cwd,
@@ -115,6 +116,7 @@ pub fn run(
         &mut file_module_ids,
         &mut assigned_hashes,
         &mut valid_node_ids,
+        &mut body_index,
     );
 
     // Build file -> package mapping and cross-package index for monorepo resolution
@@ -230,6 +232,12 @@ pub fn run(
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
         return (2, EventMetrics::default());
+    }
+
+    // Refresh the W006 duplicate-implementation index (full rebuild, like
+    // the graph itself).
+    if let Err(e) = store.replace_body_index(body_index) {
+        eprintln!("keel map: failed to update body index: {}", e);
     }
 
     if let Err(e) = store.update_edges(valid_edges) {

@@ -143,6 +143,31 @@ pub enum EdgeChange {
     Remove(u64),
 }
 
+/// One entry in the body-hash duplicate index.
+///
+/// Maps a normalized-body fingerprint (`body_hash`) to the node that produced
+/// it, so nodes sharing a `body_hash` are candidate duplicate implementations.
+/// Populated during `keel map`; queried by W006 duplicate-implementation
+/// enforcement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BodyIndexEntry {
+    /// Fingerprint of the normalized body — see `hash::compute_body_hash`.
+    pub body_hash: String,
+    /// Identity key of the indexed function.
+    ///
+    /// Part of the storage primary key `(node_hash, file_path, line)` — a
+    /// bare `node_hash` is *not* unique, since disambiguation salts with the
+    /// file path only. Not consumed by W006 matching today; matching keys on
+    /// `body_hash`.
+    pub node_hash: String,
+    /// Node name, carried so callers can report duplicates without a join.
+    pub name: String,
+    /// File the node lives in.
+    pub file_path: String,
+    /// Line the node starts on.
+    pub line: u32,
+}
+
 /// Errors that can occur during graph operations.
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {

@@ -37,11 +37,15 @@ fn setup_ts_project() -> TempDir {
     let src = dir.path().join("src");
     fs::create_dir_all(&src).unwrap();
 
-    // Private functions (no `export`) avoid E002/E003 checks on public API
+    // A GENUINELY clean fixture: the exported function is documented and
+    // typed (E002/E003), every private function has a caller (W005), and
+    // `main` is entrypoint-exempt. "Clean compile" tests depend on this
+    // producing zero errors AND zero warnings.
     fs::write(
         src.join("math.ts"),
-        r#"function add(a: number, b: number): number {
-    return a + b;
+        r#"/** Adds two numbers. */
+export function add(a: number, b: number): number {
+    return multiply(a, 1) + b;
 }
 
 function multiply(a: number, b: number): number {
@@ -57,7 +61,7 @@ function multiply(a: number, b: number): number {
     return "Hello " + name;
 }
 
-function run(): void {
+function main(): void {
     greet("world");
 }
 "#,

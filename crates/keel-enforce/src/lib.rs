@@ -18,9 +18,13 @@ pub mod engine;
 pub mod fix_generator;
 pub mod hash_diff;
 pub mod naming;
+pub mod progressive;
 pub mod snapshot;
 pub mod suppress;
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 pub mod types;
 pub mod violations;
+pub mod violations_economy;
 pub mod violations_extended;
 pub mod violations_util;
