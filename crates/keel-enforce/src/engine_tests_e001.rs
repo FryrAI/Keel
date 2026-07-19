@@ -155,6 +155,56 @@ fn test_e001_fires_when_caller_not_in_batch() {
 }
 
 #[test]
+fn test_e001_refires_on_every_compile_until_fixed() {
+    // Honesty guarantee: an agent that ignores E001 once must keep seeing it.
+    // Before the fix, the engine persisted the callee's new hash after the
+    // first compile, so the 2nd/3rd compile of the *unchanged* callee file saw
+    // "no change" and exited clean — a false all-clear while the caller stays
+    // broken. The hash-persistence deferral keeps E001 firing every compile.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let old_hash = keel_core::hash::compute_hash("fn foo(x: i32)", "{ x + 1 }", "Doc for foo");
+    let mut node = make_node(1, &old_hash, "foo", "fn foo(x: i32)", "src/lib.rs");
+    node.docstring = Some("Doc for foo".to_string());
+    store.insert_node(&node).unwrap();
+
+    let caller = make_node(2, "cal11111111", "bar", "fn bar()", "src/bar.rs");
+    store.insert_node(&caller).unwrap();
+
+    let mut store_mut = store;
+    store_mut
+        .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/bar.rs"))])
+        .unwrap();
+
+    let mut engine = EnforcementEngine::new(Box::new(store_mut));
+
+    // The callee file with a changed signature — recompiled verbatim 3x.
+    let make_file = || FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![make_definition(
+            "foo",
+            "fn foo(x: i32, y: i32)",
+            "{ x + y }",
+            "src/lib.rs",
+        )],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    for attempt in 1..=3 {
+        let result = engine.compile(&[make_file()]);
+        let e001 = result.errors.iter().find(|v| v.code == "E001");
+        assert!(
+            e001.is_some(),
+            "E001 must still fire on compile #{attempt} (caller never fixed)"
+        );
+        assert_eq!(e001.unwrap().affected[0].name, "bar");
+    }
+}
+
+#[test]
 fn test_e001_partial_batch_skips_only_batch_callers() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let old_hash = keel_core::hash::compute_hash("fn foo(x: i32)", "{ x + 1 }", "Doc for foo");

@@ -166,6 +166,7 @@ fn test_circuit_breaker_save_and_load() {
             2u32,
             false,
             "src/a.rs".to_string(),
+            "body_a".to_string(),
         ),
         (
             "E002".to_string(),
@@ -173,6 +174,7 @@ fn test_circuit_breaker_save_and_load() {
             3u32,
             true,
             "src/b.rs".to_string(),
+            "body_b".to_string(),
         ),
     ];
     store.save_circuit_breaker(&state).unwrap();
@@ -188,7 +190,8 @@ fn test_circuit_breaker_save_and_load() {
             "abc123".to_string(),
             2,
             false,
-            "src/a.rs".to_string()
+            "src/a.rs".to_string(),
+            "body_a".to_string()
         )
     );
     assert_eq!(
@@ -198,7 +201,8 @@ fn test_circuit_breaker_save_and_load() {
             "def456".to_string(),
             3,
             true,
-            "src/b.rs".to_string()
+            "src/b.rs".to_string(),
+            "body_b".to_string()
         )
     );
 
@@ -210,6 +214,7 @@ fn test_circuit_breaker_save_and_load() {
             1,
             false,
             "src/c.rs".to_string(),
+            "body_c".to_string(),
         )])
         .unwrap();
     let reloaded = store.load_circuit_breaker().unwrap();

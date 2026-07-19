@@ -159,13 +159,45 @@ impl EnforcementEngine {
                 &file_violations,
             );
 
-            // Apply circuit breaker
-            file_violations = self.apply_circuit_breaker(file_violations);
+            // Apply circuit breaker. The breaker counts fix ATTEMPTS, not
+            // compiles, so it needs each offending node's current body/signature
+            // fingerprint — keyed by (file, line) so a violation can look up the
+            // freshly-parsed hash of the def it points at. A def absent from the
+            // map (e.g. E004's removed function, E005's call site) falls back to
+            // the violation's own hash, which is stable across passive recompiles
+            // and so likewise never marches toward auto-downgrade on its own.
+            let fresh_hashes: HashMap<(String, u32), String> = file
+                .definitions
+                .iter()
+                .map(|d| {
+                    (
+                        (file.file_path.clone(), d.line_start),
+                        crate::violations_util::definition_hashes(d, &file.file_path).0,
+                    )
+                })
+                .collect();
+            file_violations = self.apply_circuit_breaker(file_violations, &fresh_hashes);
 
             // Apply suppressions
             file_violations = file_violations
                 .into_iter()
                 .map(|v| self.suppressions.apply(v))
+                .collect();
+
+            // Defer hash persistence for any definition still carrying a live
+            // broken_caller ERROR (E001). Persisting its new hash would make the
+            // *next* compile see "no change" and stop re-firing — so an agent
+            // that ignores E001 once never sees it again (exit 0 would lie).
+            // Keeping the stored (pre-edit) hash makes E001 re-fire on every
+            // recompile of the callee's file until the break is actually
+            // resolved: the caller is fixed and recompiled alongside it (batch
+            // skip clears E001, hash then persists) or the callee is reverted.
+            // Only ERROR-severity E001 defers; a breaker auto-downgrade (WARNING)
+            // means "give up" and lets the hash persist so it stops re-firing.
+            let deferred_e001: HashSet<String> = file_violations
+                .iter()
+                .filter(|v| v.code == "E001" && v.severity == "ERROR")
+                .map(|v| v.hash.clone())
                 .collect();
 
             // Track changed hashes and collect node updates for persistence
@@ -174,6 +206,9 @@ impl EnforcementEngine {
                     crate::violations_util::definition_hashes(def, &file.file_path);
                 if let Some(node) = existing_nodes.iter().find(|n| n.name == def.name) {
                     if node.hash != new_hash && node.hash != new_hash_disambiguated {
+                        if deferred_e001.contains(&node.hash) {
+                            continue; // keep pre-edit hash so E001 re-fires
+                        }
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
                         // Persist updated hash; record the old one so
@@ -252,6 +287,44 @@ impl EnforcementEngine {
     /// Enter batch mode: defer non-structural violations.
     pub fn batch_start(&mut self) {
         self.batch_state = Some(BatchState::new());
+    }
+
+    /// Take the violations this engine deferred during a batch-mode compile,
+    /// ending its in-process batch. The CLI persists these to `.keel/batch.json`
+    /// so they survive to the eventual `--batch-end` in a later process.
+    pub fn drain_batch_deferred(&mut self) -> Vec<Violation> {
+        self.batch_state
+            .take()
+            .map(|b| b.drain())
+            .unwrap_or_default()
+    }
+
+    /// Build a `CompileResult` from a set of (deferred) violations — used to
+    /// fire a persisted batch at `--batch-end` or on auto-expire.
+    pub fn result_from_violations(violations: Vec<Violation>) -> CompileResult {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        Self::partition_violations(violations, &mut errors, &mut warnings);
+        let status = if !errors.is_empty() {
+            "error"
+        } else if !warnings.is_empty() {
+            "warning"
+        } else {
+            "ok"
+        };
+        CompileResult {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            command: "compile".to_string(),
+            status: status.to_string(),
+            files_analyzed: vec![],
+            errors,
+            warnings,
+            info: CompileInfo {
+                nodes_updated: 0,
+                edges_updated: 0,
+                hashes_changed: vec![],
+            },
+        }
     }
 
     /// End batch mode: fire all deferred violations.
@@ -371,15 +444,26 @@ impl EnforcementEngine {
             .collect()
     }
 
-    /// Apply circuit breaker escalation (fix hint, wider context, or downgrade) to ERROR violations.
-    pub(crate) fn apply_circuit_breaker(&mut self, violations: Vec<Violation>) -> Vec<Violation> {
+    /// Apply circuit breaker escalation (fix hint, wider context, or downgrade)
+    /// to ERROR violations. `fresh_hashes` maps each `(file, line)` to the
+    /// freshly-parsed body/signature fingerprint of the def there, so the
+    /// breaker can tell a real (still-failing) fix attempt from a passive
+    /// recompile of untouched code.
+    pub(crate) fn apply_circuit_breaker(
+        &mut self,
+        violations: Vec<Violation>,
+        fresh_hashes: &HashMap<(String, u32), String>,
+    ) -> Vec<Violation> {
         violations
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
+                    let body_hash = fresh_hashes
+                        .get(&(v.file.clone(), v.line))
+                        .unwrap_or(&v.hash);
                     let action = self
                         .circuit_breaker
-                        .record_failure(&v.code, &v.hash, &v.file);
+                        .record_failure(&v.code, &v.hash, body_hash, &v.file);
                     match action {
                         BreakerAction::FixHint => {} // fix_hint already set
                         BreakerAction::WiderContext => {

@@ -74,13 +74,13 @@ impl SqliteGraphStore {
 
     /// Load circuit breaker state from the database.
     /// Each tuple is (error_code, hash, consecutive_failures, downgraded,
-    /// provenance_file).
+    /// provenance_file, last_body_hash).
     pub fn load_circuit_breaker(
         &self,
     ) -> Result<Vec<crate::sqlite::CircuitBreakerEntry>, GraphError> {
         let mut stmt = self.conn.prepare(
-            "SELECT error_code, hash, consecutive_failures, downgraded, provenance_file \
-             FROM circuit_breaker",
+            "SELECT error_code, hash, consecutive_failures, downgraded, provenance_file, \
+             last_body_hash FROM circuit_breaker",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -90,6 +90,7 @@ impl SqliteGraphStore {
                     row.get::<_, u32>(2)?,
                     row.get::<_, i32>(3)? != 0,
                     row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -105,11 +106,18 @@ impl SqliteGraphStore {
         self.conn.execute("DELETE FROM circuit_breaker", [])?;
         let mut stmt = self.conn.prepare(
             "INSERT INTO circuit_breaker \
-             (error_code, hash, consecutive_failures, downgraded, provenance_file) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             (error_code, hash, consecutive_failures, downgraded, provenance_file, last_body_hash) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
-        for (code, hash, consecutive, downgraded, file) in state {
-            stmt.execute(params![code, hash, consecutive, *downgraded as i32, file])?;
+        for (code, hash, consecutive, downgraded, file, last_hash) in state {
+            stmt.execute(params![
+                code,
+                hash,
+                consecutive,
+                *downgraded as i32,
+                file,
+                last_hash
+            ])?;
         }
         Ok(())
     }

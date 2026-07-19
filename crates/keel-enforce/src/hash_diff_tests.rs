@@ -322,9 +322,10 @@ fn test_e001_and_e002_combined_on_same_file() {
 }
 
 #[test]
-fn test_circuit_breaker_downgrade() {
-    // Verifies: (1) first compile fires E001, (2) after persist,
-    // recompiling the same file produces no violation (graph is current).
+fn test_e001_keeps_firing_until_caller_fixed() {
+    // Honesty guarantee: E001 must NOT vanish just because the callee's new hash
+    // got persisted. The caller `bar` is still broken, so recompiling the callee
+    // file — even byte-identically — must keep firing E001 (exit 0 would lie).
     let store = SqliteGraphStore::in_memory().unwrap();
     let old_hash = keel_core::hash::compute_hash("fn foo()", "{ 1 }", "Doc for foo");
     let mut node = make_node(1, &old_hash, "foo", "fn foo()", "src/lib.rs");
@@ -362,10 +363,16 @@ fn test_circuit_breaker_downgrade() {
         .iter()
         .any(|v| v.code == "E001" && v.severity == "ERROR"));
 
-    let r2 = engine.compile(std::slice::from_ref(&file));
-    let e001_count = r2.errors.iter().filter(|v| v.code == "E001").count();
-    assert_eq!(
-        e001_count, 0,
-        "E001 should not fire after graph is persisted"
-    );
+    // Second (and third) byte-identical recompile: the caller was never fixed,
+    // so E001 must STILL fire as an ERROR — the persistence deferral keeps the
+    // callee's pre-edit hash so the broken-caller check re-detects it.
+    for _ in 0..2 {
+        let r = engine.compile(std::slice::from_ref(&file));
+        assert!(
+            r.errors
+                .iter()
+                .any(|v| v.code == "E001" && v.severity == "ERROR"),
+            "E001 must keep firing until the caller is actually fixed"
+        );
+    }
 }

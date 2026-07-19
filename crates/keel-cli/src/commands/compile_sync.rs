@@ -68,12 +68,19 @@ pub fn sync_compiled_files(
     let mut edge_changes: Vec<EdgeChange> = Vec::new();
     let mut node_tiers: HashMap<u64, String> = HashMap::new();
 
+    // Files in this compile batch: a vanished definition with callers only in
+    // these files was fixed in the same pass, so its node may be pruned. One
+    // with callers OUTSIDE the batch is a live broken contract — keep the node
+    // so callee-side E004 re-fires until those callers are fixed (below).
+    let batch_files: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
+
     for file in files {
         sync_one_file(
             store,
             cwd,
             file,
             resolvers,
+            &batch_files,
             &mut next_id,
             &mut node_changes,
             &mut edge_changes,
@@ -111,6 +118,7 @@ fn sync_one_file(
     cwd: &Path,
     file: &FileIndex,
     resolvers: &SyncResolvers,
+    batch_files: &HashSet<&str>,
     next_id: &mut u64,
     node_changes: &mut Vec<NodeChange>,
     edge_changes: &mut Vec<EdgeChange>,
@@ -170,10 +178,17 @@ fn sync_one_file(
 
     // Remove nodes for definitions that vanished from the file. E004 already
     // ran against the pre-sync graph, so pruning here does not hide removals.
+    // Exception: keep a vanished node that still has live callers OUTSIDE this
+    // batch — removing it (and, via FK cascade, its caller edges) would erase
+    // the broken contract, so the next compile of this file would see nothing
+    // to remove and E004 would stop re-firing while real callers stay broken.
     for node in existing
         .iter()
         .filter(|n| n.kind != NodeKind::Module && !current_names.contains(n.name.as_str()))
     {
+        if has_live_external_callers(store, node.id, batch_files) {
+            continue;
+        }
         node_changes.push(NodeChange::Remove(node.id));
         local.remove(&node.name);
     }
@@ -299,6 +314,24 @@ fn push_call_edge(
     node_tiers
         .entry(source_id)
         .or_insert_with(|| tier.to_string());
+}
+
+/// True if `node_id` still has incoming `calls` edges from source nodes whose
+/// file is NOT in the current compile batch — i.e. a real, still-broken caller
+/// that this pass did not touch. Used to keep a removed function's node alive so
+/// callee-side E004 keeps firing until those callers are fixed.
+fn has_live_external_callers(
+    store: &SqliteGraphStore,
+    node_id: u64,
+    batch_files: &HashSet<&str>,
+) -> bool {
+    use keel_core::types::EdgeDirection;
+    store
+        .get_edges(node_id, EdgeDirection::Incoming)
+        .into_iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .filter_map(|e| store.get_node_by_id(e.source_id))
+        .any(|caller| !batch_files.contains(caller.file_path.as_str()))
 }
 
 /// Find which definition in `file` contains `line`, returning its node id.
