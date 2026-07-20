@@ -1,24 +1,28 @@
-//! BAML boundary materialisation for `keel map`.
+//! Boundary materialisation for `keel map`.
 //!
-//! Turns the [`BamlBoundary`] discovered by the parser scanner into graph
-//! nodes so that calls into `.baml` functions resolve to a recognizable
-//! external surface instead of reading as silent unresolved edges.
+//! Turns the [`BoundarySymbol`]s discovered by a
+//! [`BoundaryProvider`](keel_parsers::boundary::BoundaryProvider) into graph
+//! nodes so that calls into boundary functions (e.g. a `.baml` LLM function
+//! `b.ExtractResume(...)`) resolve to a recognizable external surface instead
+//! of reading as silent unresolved edges.
 
 use std::collections::{HashMap, HashSet};
 
 use keel_core::hash::{compute_hash, compute_hash_disambiguated};
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
-use keel_parsers::baml::{BamlBoundary, BamlSymbol};
+use keel_parsers::boundary::BoundarySymbol;
 
-/// Materialise the BAML surface as boundary nodes and return an index of
-/// `function name -> node id` used to resolve calls into it.
+/// Materialise boundary `symbols` as graph nodes and return an index of
+/// `function name -> node id` used to resolve calls into them.
 ///
-/// Each `.baml` file becomes a [`NodeKind::Module`] node containing one
-/// [`NodeKind::Function`] node per `function` declaration and one
-/// [`NodeKind::Class`] node per `class` declaration — mirroring how real
-/// source files are represented so the nodes show up naturally in the map.
-pub fn inject_baml_boundary(
-    boundary: &BamlBoundary,
+/// Each declaring file becomes a [`NodeKind::Module`] node containing one
+/// [`NodeKind::Function`] node per function symbol and one [`NodeKind::Class`]
+/// node per class symbol — mirroring how real source files are represented so
+/// the nodes show up naturally in the map. Only function symbols are call
+/// targets, so only they enter the returned index (first-file-wins on a name
+/// collision).
+pub fn inject_boundary_symbols(
+    symbols: &[BoundarySymbol],
     node_changes: &mut Vec<NodeChange>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
@@ -26,17 +30,22 @@ pub fn inject_baml_boundary(
     valid_node_ids: &mut HashSet<u64>,
 ) -> HashMap<String, u64> {
     let mut fn_index: HashMap<String, u64> = HashMap::new();
-    if boundary.is_empty() {
+    if symbols.is_empty() {
         return fn_index;
     }
 
-    // Group symbols by declaring file so each file gets exactly one module node.
-    let mut by_file: HashMap<&str, (Vec<&BamlSymbol>, Vec<&BamlSymbol>)> = HashMap::new();
-    for f in &boundary.functions {
-        by_file.entry(f.file_path.as_str()).or_default().0.push(f);
-    }
-    for c in &boundary.classes {
-        by_file.entry(c.file_path.as_str()).or_default().1.push(c);
+    // Group symbols by declaring file so each file gets exactly one module node,
+    // keeping functions before classes within each file (encounter order). This
+    // ordering fixes the node-id / hash-disambiguation sequence, so it must stay
+    // deterministic across runs.
+    let mut by_file: HashMap<&str, (Vec<&BoundarySymbol>, Vec<&BoundarySymbol>)> = HashMap::new();
+    for sym in symbols {
+        let entry = by_file.entry(sym.file_path.as_str()).or_default();
+        if sym.kind == NodeKind::Function {
+            entry.0.push(sym);
+        } else {
+            entry.1.push(sym);
+        }
     }
 
     // Deterministic ordering → stable node ids across runs.
@@ -65,7 +74,7 @@ pub fn inject_baml_boundary(
                 valid_node_ids,
                 assigned_hashes,
                 node_changes,
-                NodeKind::Function,
+                sym.kind.clone(),
                 &sym.name,
                 file,
                 sym.signature.clone(),
@@ -82,7 +91,7 @@ pub fn inject_baml_boundary(
                 valid_node_ids,
                 assigned_hashes,
                 node_changes,
-                NodeKind::Class,
+                sym.kind.clone(),
                 &sym.name,
                 file,
                 sym.signature.clone(),
@@ -96,15 +105,15 @@ pub fn inject_baml_boundary(
     fn_index
 }
 
-/// Resolve a call reference name to a BAML boundary function node.
+/// Resolve a call reference name to a boundary function node.
 ///
 /// Matches the trailing segment of a (possibly qualified) call — the
 /// `ExtractResume` in `b.ExtractResume` or `client::ExtractResume` — against
-/// the BAML function index. Returns `None` when nothing matches. Case-sensitive
-/// matching plus PascalCase BAML names keep collisions with ordinary
-/// snake_case methods vanishingly unlikely.
-pub fn resolve_baml_call(callee_name: &str, fn_index: &HashMap<String, u64>) -> Option<u64> {
-    if fn_index.is_empty() {
+/// the boundary function index. Returns `None` when nothing matches.
+/// Case-sensitive matching plus PascalCase boundary names keep collisions with
+/// ordinary snake_case methods vanishingly unlikely.
+pub fn resolve_boundary_call(callee_name: &str, index: &HashMap<String, u64>) -> Option<u64> {
+    if index.is_empty() {
         return None;
     }
     let segment = callee_name
@@ -112,7 +121,7 @@ pub fn resolve_baml_call(callee_name: &str, fn_index: &HashMap<String, u64>) -> 
         .or_else(|| callee_name.rsplit_once("::"))
         .map(|(_, s)| s)
         .unwrap_or(callee_name);
-    fn_index.get(segment).copied()
+    index.get(segment).copied()
 }
 
 /// Allocate a graph node, register its id/hash, and push the `Add` change.
@@ -187,30 +196,29 @@ fn push_contains(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keel_parsers::baml::BamlSymbol;
 
-    fn sym(name: &str, file: &str, line: u32) -> BamlSymbol {
-        BamlSymbol {
+    fn func(name: &str, file: &str, line: u32) -> BoundarySymbol {
+        BoundarySymbol {
             name: name.to_string(),
             file_path: file.to_string(),
             line,
             signature: format!("function {name}()"),
+            kind: NodeKind::Function,
         }
     }
 
     #[test]
     fn test_inject_creates_module_and_function_nodes() {
-        let boundary = BamlBoundary {
-            functions: vec![sym("ExtractResume", "baml_src/main.baml", 3)],
-            classes: vec![BamlSymbol {
+        let symbols = vec![
+            func("ExtractResume", "baml_src/main.baml", 3),
+            BoundarySymbol {
                 name: "Resume".into(),
                 file_path: "baml_src/main.baml".into(),
                 line: 1,
                 signature: "class Resume".into(),
-            }],
-            baml_src_present: true,
-            client_generated: false,
-        };
+                kind: NodeKind::Class,
+            },
+        ];
 
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -218,8 +226,8 @@ mod tests {
         let mut hashes = HashSet::new();
         let mut valid = HashSet::new();
 
-        let index = inject_baml_boundary(
-            &boundary,
+        let index = inject_boundary_symbols(
+            &symbols,
             &mut nodes,
             &mut edges,
             &mut next_id,
@@ -240,23 +248,28 @@ mod tests {
         let mut index = HashMap::new();
         index.insert("ExtractResume".to_string(), 42u64);
 
-        assert_eq!(resolve_baml_call("b.ExtractResume", &index), Some(42));
-        assert_eq!(resolve_baml_call("client::ExtractResume", &index), Some(42));
-        assert_eq!(resolve_baml_call("ExtractResume", &index), Some(42));
-        assert_eq!(resolve_baml_call("b.somethingElse", &index), None);
-        assert_eq!(resolve_baml_call("ExtractResume", &HashMap::new()), None);
+        assert_eq!(resolve_boundary_call("b.ExtractResume", &index), Some(42));
+        assert_eq!(
+            resolve_boundary_call("client::ExtractResume", &index),
+            Some(42)
+        );
+        assert_eq!(resolve_boundary_call("ExtractResume", &index), Some(42));
+        assert_eq!(resolve_boundary_call("b.somethingElse", &index), None);
+        assert_eq!(
+            resolve_boundary_call("ExtractResume", &HashMap::new()),
+            None
+        );
     }
 
     #[test]
     fn test_inject_empty_boundary_is_noop() {
-        let boundary = BamlBoundary::default();
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
         let mut next_id = 1u64;
         let mut hashes = HashSet::new();
         let mut valid = HashSet::new();
-        let index = inject_baml_boundary(
-            &boundary,
+        let index = inject_boundary_symbols(
+            &[],
             &mut nodes,
             &mut edges,
             &mut next_id,

@@ -3,12 +3,12 @@
 //!
 //! Each pipeline used to carry its own ladder. The map's was the full one —
 //! tier-2 language resolver → cross-file import → same-file method →
-//! same-directory → package import → BAML boundary. The compile sync
-//! re-implemented a weaker subset (same-file local → tier-2 → unique bare
+//! same-directory → package import → boundary provider (e.g. BAML). The compile
+//! sync re-implemented a weaker subset (same-file local → tier-2 → unique bare
 //! name) and, because it *prunes then re-resolves* a file's outgoing call
 //! edges, silently deleted every edge the subset could not reproduce (method
-//! calls, same-directory, package, and every BAML edge) on each `keel compile`,
-//! leaving them gone until the next full map.
+//! calls, same-directory, package, and every boundary edge) on each `keel
+//! compile`, leaving them gone until the next full map.
 //!
 //! This module hosts ONE ladder, run by both pipelines through the
 //! [`CallIndex`](super::map_resolve::CallIndex) seam, so a compile's
@@ -119,12 +119,15 @@ pub fn resolve_call_reference(
         }
     }
 
-    // Last resort: a call into a BAML boundary function.
+    // Last resort: a call into a boundary function (e.g. a BAML `.baml`
+    // function). The confidence comes from the boundary provider, not a
+    // hardcoded constant, so a new provider carries its own tier.
     if target_id.is_none() {
-        if let Some(baml_id) = super::map_baml::resolve_baml_call(&reference.name, idx.baml_index())
+        if let Some(id) =
+            super::map_boundary::resolve_boundary_call(&reference.name, idx.boundary_index())
         {
-            target_id = Some(baml_id);
-            confidence = keel_core::confidence::BAML_BOUNDARY;
+            target_id = Some(id);
+            confidence = idx.boundary_confidence();
         }
     }
 

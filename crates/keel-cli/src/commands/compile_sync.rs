@@ -31,6 +31,7 @@ use keel_core::hash::compute_hash;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
+use keel_parsers::boundary::BoundaryProvider;
 use keel_parsers::resolver::{Definition, FileIndex, ReferenceKind};
 use keel_parsers::treesitter::detect_language;
 
@@ -47,8 +48,12 @@ struct GraphIndexBase<'a> {
     module_files: HashMap<String, u64>,
     /// `package -> (symbol -> node id)`; empty unless the repo sets packages.
     package_node_index: HashMap<String, HashMap<String, u64>>,
-    /// BAML boundary `function name -> node id`; empty unless `baml_src` exists.
-    baml_fn_index: HashMap<String, u64>,
+    /// Boundary `function name -> node id` (e.g. BAML); empty unless `baml_src`
+    /// exists.
+    boundary_index: HashMap<String, u64>,
+    /// Confidence for calls resolved into the boundary surface — the boundary
+    /// provider's own tier, so compile-sync re-resolution matches map quality.
+    boundary_confidence: f64,
 }
 
 impl<'a> GraphIndexBase<'a> {
@@ -59,17 +64,21 @@ impl<'a> GraphIndexBase<'a> {
             .map(|m| (m.file_path, m.id))
             .collect();
         let package_node_index = store.package_node_index();
-        // Only pay for the BAML lookup when the repo actually has a baml_src.
-        let baml_fn_index = if cwd.join("baml_src").exists() {
+        // Only pay for the boundary lookup when the repo actually has a
+        // baml_src. `BamlProvider::confidence()` is a stateless constant lookup
+        // (no scan), so the tier stays sourced from the provider, not a literal.
+        let boundary_index = if cwd.join("baml_src").exists() {
             store.baml_function_nodes()
         } else {
             HashMap::new()
         };
+        let boundary_confidence = keel_parsers::boundary::BamlProvider.confidence();
         Self {
             store,
             module_files,
             package_node_index,
-            baml_fn_index,
+            boundary_index,
+            boundary_confidence,
         }
     }
 }
@@ -158,8 +167,11 @@ impl CallIndex for GraphIndex<'_> {
     fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
         &self.base.package_node_index
     }
-    fn baml_index(&self) -> &HashMap<String, u64> {
-        &self.base.baml_fn_index
+    fn boundary_index(&self) -> &HashMap<String, u64> {
+        &self.base.boundary_index
+    }
+    fn boundary_confidence(&self) -> f64 {
+        self.base.boundary_confidence
     }
 }
 

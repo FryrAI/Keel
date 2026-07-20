@@ -8,6 +8,7 @@
 //! Supported languages: TypeScript/JavaScript, Python, Go, Rust.
 
 pub mod baml;
+pub mod boundary;
 pub mod monorepo;
 pub mod queries;
 pub mod resolver;

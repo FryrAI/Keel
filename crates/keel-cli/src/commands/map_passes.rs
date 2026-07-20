@@ -212,10 +212,11 @@ pub fn first_pass(
 
 /// Second pass: cross-file call edges and import edges.
 ///
-/// `baml_fn_index` maps BAML boundary function names to their node ids; calls
-/// left unresolved by the normal pipeline are matched against it so calls into
-/// `.baml` functions resolve to the boundary surface. It is empty (and thus a
-/// no-op) for repos that use no BAML.
+/// `boundary_index` maps boundary function names (e.g. BAML `.baml` functions)
+/// to their node ids; calls left unresolved by the normal pipeline are matched
+/// against it so calls into the boundary surface resolve at
+/// `boundary_confidence`. It is empty (and thus a no-op) for repos that use no
+/// boundary providers.
 #[allow(clippy::too_many_arguments)]
 pub fn second_pass(
     all_file_data: &[FileParseData],
@@ -225,7 +226,8 @@ pub fn second_pass(
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     file_module_ids: &HashMap<String, u64>,
     package_node_index: &HashMap<String, HashMap<String, u64>>,
-    baml_fn_index: &HashMap<String, u64>,
+    boundary_index: &HashMap<String, u64>,
+    boundary_confidence: f64,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
     node_tiers: &mut HashMap<u64, (String, f64)>,
@@ -237,7 +239,8 @@ pub fn second_pass(
         global_name_index,
         file_module_ids,
         package_node_index,
-        baml_fn_index,
+        boundary_index,
+        boundary_confidence,
         name_to_id,
     };
 
@@ -331,7 +334,8 @@ struct MapIndex<'a> {
     global_name_index: &'a HashMap<String, Vec<(String, u64)>>,
     file_module_ids: &'a HashMap<String, u64>,
     package_node_index: &'a HashMap<String, HashMap<String, u64>>,
-    baml_fn_index: &'a HashMap<String, u64>,
+    boundary_index: &'a HashMap<String, u64>,
+    boundary_confidence: f64,
     name_to_id: &'a HashMap<(String, String), u64>,
 }
 
@@ -352,7 +356,10 @@ impl CallIndex for MapIndex<'_> {
     fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
         self.package_node_index
     }
-    fn baml_index(&self) -> &HashMap<String, u64> {
-        self.baml_fn_index
+    fn boundary_index(&self) -> &HashMap<String, u64> {
+        self.boundary_index
+    }
+    fn boundary_confidence(&self) -> f64 {
+        self.boundary_confidence
     }
 }

@@ -112,23 +112,28 @@ pub fn run(
         &mut body_index,
     );
 
-    // === BAML boundary: materialise `.baml` function/class declarations as
-    // boundary nodes so calls into them (e.g. `b.ExtractResume(...)`) resolve
-    // instead of reading as silent unresolved edges. ===
-    let baml_boundary = keel_parsers::baml::scan(&cwd);
-    let baml_fn_index = super::map_baml::inject_baml_boundary(
-        &baml_boundary,
-        &mut node_changes,
-        &mut edge_changes,
-        &mut next_id,
-        &mut assigned_hashes,
-        &mut valid_node_ids,
-    );
-    if baml_boundary.baml_src_present && !baml_boundary.client_generated {
-        eprintln!(
-            "keel map: baml_src detected but no generated baml_client/baml_sdk found — run `baml generate` ({} BAML function(s) exposed as boundary stubs)",
-            baml_fn_index.len()
-        );
+    // === Boundary providers: materialise declarations from surfaces keel has
+    // no grammar for (today BAML `.baml` functions/classes) as boundary nodes so
+    // calls into them (e.g. `b.ExtractResume(...)`) resolve instead of reading
+    // as silent unresolved edges. ===
+    let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
+        vec![Box::new(keel_parsers::boundary::BamlProvider)];
+    let mut boundary_index: HashMap<String, u64> = HashMap::new();
+    let mut boundary_confidence = 0.0_f64;
+    for provider in &providers {
+        let symbols = provider.scan(&cwd);
+        if symbols.is_empty() {
+            continue;
+        }
+        boundary_index.extend(super::map_boundary::inject_boundary_symbols(
+            &symbols,
+            &mut node_changes,
+            &mut edge_changes,
+            &mut next_id,
+            &mut assigned_hashes,
+            &mut valid_node_ids,
+        ));
+        boundary_confidence = provider.confidence();
     }
 
     // Build file -> package mapping and cross-package index for monorepo resolution
@@ -169,7 +174,8 @@ pub fn run(
         &global_name_index,
         &file_module_ids,
         &package_node_index,
-        &baml_fn_index,
+        &boundary_index,
+        boundary_confidence,
         &mut edge_changes,
         &mut next_id,
         &mut node_tiers,
