@@ -66,6 +66,16 @@ pub fn run(
         eprintln!("keel map: WARNING: set_foreign_keys failed: {}", e);
     }
 
+    // Load the persisted Tier 3 resolution cache BEFORE clear_all() wipes it,
+    // so SCIP/LSP resolutions survive across runs. Off by default: skip the
+    // read entirely unless a tier-3 provider is wanted.
+    let tier3_wanted = tier3_enabled || config.tier3.enabled;
+    let resolution_cache_seed = if tier3_wanted {
+        store.load_resolution_cache()
+    } else {
+        Vec::new()
+    };
+
     // Full re-map: clear existing graph data so IDs start fresh
     if let Err(e) = store.clear_all() {
         eprintln!("keel map: failed to clear graph database: {}", e);
@@ -102,23 +112,31 @@ pub fn run(
         &mut body_index,
     );
 
-    // === BAML boundary: materialise `.baml` function/class declarations as
-    // boundary nodes so calls into them (e.g. `b.ExtractResume(...)`) resolve
-    // instead of reading as silent unresolved edges. ===
-    let baml_boundary = keel_parsers::baml::scan(&cwd);
-    let baml_fn_index = super::map_baml::inject_baml_boundary(
-        &baml_boundary,
-        &mut node_changes,
-        &mut edge_changes,
-        &mut next_id,
-        &mut assigned_hashes,
-        &mut valid_node_ids,
-    );
-    if baml_boundary.baml_src_present && !baml_boundary.client_generated {
-        eprintln!(
-            "keel map: baml_src detected but no generated baml_client/baml_sdk found — run `baml generate` ({} BAML function(s) exposed as boundary stubs)",
-            baml_fn_index.len()
-        );
+    // === Boundary providers: materialise declarations from surfaces keel has
+    // no grammar for (today BAML `.baml` functions/classes) as boundary nodes so
+    // calls into them (e.g. `b.ExtractResume(...)`) resolve instead of reading
+    // as silent unresolved edges. ===
+    let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
+        vec![Box::new(keel_parsers::boundary::BamlProvider)];
+    // `function name -> (node id, confidence)`: each provider's scanned symbols
+    // enter the index at that provider's own confidence, so a boundary edge
+    // records the tier of the provider that produced its target — no shared
+    // scalar that the last provider in the loop would overwrite for every edge.
+    let mut boundary_index: HashMap<String, (u64, f64)> = HashMap::new();
+    for provider in &providers {
+        let symbols = provider.scan(&cwd);
+        if symbols.is_empty() {
+            continue;
+        }
+        boundary_index.extend(super::map_boundary::inject_boundary_symbols(
+            &symbols,
+            provider.confidence(),
+            &mut node_changes,
+            &mut edge_changes,
+            &mut next_id,
+            &mut assigned_hashes,
+            &mut valid_node_ids,
+        ));
     }
 
     // Build file -> package mapping and cross-package index for monorepo resolution
@@ -159,14 +177,15 @@ pub fn run(
         &global_name_index,
         &file_module_ids,
         &package_node_index,
-        &baml_fn_index,
+        &boundary_index,
         &mut edge_changes,
         &mut next_id,
         &mut node_tiers,
     );
 
     // === Third pass: Tier 3 resolution for still-unresolved references ===
-    if tier3_enabled || config.tier3.enabled {
+    let mut resolution_cache_flush: Vec<keel_core::types::ResolutionCacheEntry> = Vec::new();
+    if tier3_wanted {
         let tier3_data: Vec<_> = all_file_data
             .iter()
             .map(|fd| super::map_tier3::Tier3FileData {
@@ -186,6 +205,8 @@ pub fn run(
             &global_name_index,
             &mut edge_changes,
             &mut next_id,
+            resolution_cache_seed,
+            &mut resolution_cache_flush,
         );
     }
 
@@ -265,6 +286,15 @@ pub fn run(
     // the graph itself).
     if let Err(e) = store.replace_body_index(body_index) {
         eprintln!("keel map: failed to update body index: {}", e);
+    }
+
+    // Persist the Tier 3 resolution cache for the next run. Skipped when tier-3
+    // is off (nothing to flush) so the default path adds zero DB writes. A pure
+    // perf optimization — warn and continue rather than fail the map.
+    if tier3_wanted {
+        if let Err(e) = store.replace_resolution_cache(resolution_cache_flush) {
+            eprintln!("keel map: failed to persist resolution cache: {}", e);
+        }
     }
 
     if let Err(e) = store.update_edges(valid_edges) {

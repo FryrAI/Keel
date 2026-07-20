@@ -10,6 +10,9 @@ mod body_index;
 #[path = "sqlite_previous_hashes_tests.rs"]
 mod previous_hashes;
 
+#[path = "sqlite_resolution_cache_tests.rs"]
+mod resolution_cache;
+
 fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
     GraphNode {
         id,
@@ -24,6 +27,7 @@ fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -154,6 +158,45 @@ fn test_readd_same_edge_no_unique_constraint_error() {
         .update_edges(vec![EdgeChange::Add(edge)])
         .expect("Re-adding same edge should not fail with UNIQUE constraint");
     assert_eq!(store.get_edges(1, EdgeDirection::Outgoing).len(), 1);
+}
+
+#[test]
+fn test_is_associated_round_trips_through_batched_update_nodes() {
+    // The associated-item flag (issue #46) must survive the write path
+    // `keel map`/`keel compile` actually use — batched `update_nodes` — and
+    // read back through every node-read query W002 relies on.
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let mut node = test_node(1, "assoc1234567", "is_expired");
+    node.is_associated = true;
+    store
+        .update_nodes(vec![NodeChange::Add(node.clone())])
+        .unwrap();
+
+    assert!(store.get_node("assoc1234567").unwrap().is_associated);
+    assert!(store.get_node_by_id(1).unwrap().is_associated);
+    let by_name = store.find_nodes_by_name("is_expired", "function", "");
+    assert_eq!(by_name.len(), 1);
+    assert!(by_name[0].is_associated);
+
+    // Flipping it off via NodeChange::Update must persist too.
+    node.is_associated = false;
+    store.update_nodes(vec![NodeChange::Update(node)]).unwrap();
+    assert!(!store.get_node_by_id(1).unwrap().is_associated);
+}
+
+#[test]
+fn test_is_associated_round_trips_through_insert_and_update_node() {
+    // The secondary single-node API (`insert_node`/`update_node_in_db`) must
+    // carry the flag too, or a node written through it would read back as free.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut node = test_node(1, "assoc7654321", "as_str");
+    node.is_associated = true;
+    store.insert_node(&node).unwrap();
+    assert!(store.get_node_by_id(1).unwrap().is_associated);
+
+    node.is_associated = false;
+    store.update_node_in_db(&node).unwrap();
+    assert!(!store.get_node_by_id(1).unwrap().is_associated);
 }
 
 #[test]

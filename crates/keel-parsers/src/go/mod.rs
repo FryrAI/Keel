@@ -8,6 +8,7 @@ use crate::resolver::{
     CallSite, Definition, LanguageResolver, ParseCache, ParseResult, Reference, ResolvedEdge,
 };
 use crate::treesitter::TreeSitterParser;
+use keel_core::types::NodeKind;
 use type_resolution::InterfaceInfo;
 
 /// Tier 1 + Tier 2 resolver for Go.
@@ -56,6 +57,14 @@ impl GoResolver {
         for def in &mut result.definitions {
             def.is_public = def.name.chars().next().is_some_and(|c| c.is_uppercase());
             def.type_hints_present = go_has_type_hints(&def.signature);
+            if def.kind == NodeKind::Function {
+                // `TestFoo(t *testing.T)` / `BenchmarkFoo(b *testing.B)` are
+                // harness-invoked, not called from production code.
+                def.in_test_context = is_go_test_context(&def.name, &def.signature);
+                // `init`/`main` run at package/program start; `TestMain` is the
+                // test-package entry — all auto-invoked, never dead code.
+                def.is_auto_invoked = matches!(def.name.as_str(), "init" | "main" | "TestMain");
+            }
         }
 
         // Tier 2: extract type methods from receiver patterns
@@ -249,6 +258,24 @@ impl LanguageResolver for GoResolver {
 fn go_package_alias(import_path: &str) -> &str {
     let cleaned = import_path.trim_matches('"');
     cleaned.rsplit('/').next().unwrap_or(cleaned)
+}
+
+/// True when a Go function is a stdlib test or benchmark: `TestXxx(t *testing.T)`
+/// or `BenchmarkXxx(b *testing.B)`.
+///
+/// Enforces the naming rule (the rune after the `Test`/`Benchmark` prefix must
+/// not be a lower-case letter, so `Testing`/`Benchmarking` helpers are excluded)
+/// AND requires the matching `testing.T`/`testing.B` parameter, so a `Test`-named
+/// helper without a testing parameter is not mistaken for a test. `TestMain`
+/// naturally falls out here — its parameter is `*testing.M`, not `*testing.T` —
+/// so it is auto-invoked-only, not test-context, which is the intended bucketing.
+fn is_go_test_context(name: &str, signature: &str) -> bool {
+    let prefix_ok = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_lowercase()))
+    };
+    (prefix_ok("Test") && signature.contains("testing.T"))
+        || (prefix_ok("Benchmark") && signature.contains("testing.B"))
 }
 
 /// Check if a Go function signature has type information.

@@ -69,6 +69,12 @@ pub struct GraphNode {
     pub is_public: bool,
     pub type_hints_present: bool,
     pub has_docstring: bool,
+    /// True for methods/associated functions on a type (Rust `impl` blocks,
+    /// class bodies, Go receiver funcs). Persisted so W002 can exempt a stored
+    /// associated method from colliding with a free function of the same name
+    /// in a different file, across separate compiles (issue #46).
+    #[serde(default)]
+    pub is_associated: bool,
     pub external_endpoints: Vec<ExternalEndpoint>,
     pub previous_hashes: Vec<String>,
     pub module_id: u64,
@@ -166,6 +172,27 @@ pub struct BodyIndexEntry {
     pub file_path: String,
     /// Line the node starts on.
     pub line: u32,
+}
+
+/// One persisted Tier 3 resolution-cache row (`resolution_tier = 'tier3'`).
+///
+/// Lets SCIP/LSP resolutions survive across `keel map` runs. Keyed by
+/// `call_site_hash` (a content-addressed fingerprint of the call site — see
+/// `Tier3CacheKey::cache_hash`), so the original `(file_path, line, callee)`
+/// is not recoverable from a row, only hashed forward into one. An entry is
+/// "resolved" iff `target_file` is `Some`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolutionCacheEntry {
+    /// Content-addressed key of the resolved call site.
+    pub call_site_hash: String,
+    /// File the call resolved to, or `None` when the provider found no target.
+    pub target_file: Option<String>,
+    /// Symbol the call resolved to, or `None` when unresolved.
+    pub target_name: Option<String>,
+    /// Confidence of the resolution (`0.0` for an unresolved entry).
+    pub confidence: f64,
+    /// Provider that produced the result (`scip`/`lsp`), or `None` if unresolved.
+    pub provider: Option<String>,
 }
 
 /// Errors that can occur during graph operations.

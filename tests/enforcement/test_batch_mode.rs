@@ -50,6 +50,7 @@ fn make_file_with_missing_hints(file: &str) -> FileIndex {
             in_test_context: false,
             in_trait_context: false,
             is_associated: false,
+            is_auto_invoked: false,
         }],
         references: vec![],
         imports: vec![],

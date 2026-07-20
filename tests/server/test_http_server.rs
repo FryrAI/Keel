@@ -39,6 +39,7 @@ fn engine_with_node() -> SharedEngine {
             is_public: true,
             type_hints_present: true,
             has_docstring: true,
+            is_associated: false,
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,

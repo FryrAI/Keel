@@ -36,7 +36,7 @@ pub struct LlmFormatter {
     ///
     /// One knob, two policies that the per-command formatters apply:
     /// - **map / audit / compile** always truncate, falling back to
-    ///   [`DEFAULT_MAX_TOKENS`] via [`Self::budget_or_default`] when this is
+    ///   `DEFAULT_MAX_TOKENS` via `Self::budget_or_default` when this is
     ///   unset — so their default output stays bounded.
     /// - **skeleton / focus** truncate *only* when this is set; unset means the
     ///   full view. This is why `--budget` is documented as LLM-format-only.

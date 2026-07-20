@@ -13,9 +13,9 @@
 //! graph-backed lookups ([`GraphIndex`]) instead of the map's in-memory
 //! indices. That is the whole point: an earlier version re-implemented a weaker
 //! ladder and, because it prunes a file's call edges before re-resolving, every
-//! `keel compile` deleted the method-call, same-directory, package, and BAML
-//! edges the map had built. Running the map's own ladder makes the prune
-//! lossless.
+//! `keel compile` deleted the method-call, same-directory, package, and
+//! boundary edges the map had built. Running the map's own ladder makes the
+//! prune lossless.
 //!
 //! It runs *after* enforcement (on a separate store handle) so E001/E004 still
 //! diff against the pre-edit graph; the refreshed edges are then in place for
@@ -31,6 +31,7 @@ use keel_core::hash::compute_hash;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
+use keel_parsers::boundary::BoundaryProvider;
 use keel_parsers::resolver::{Definition, FileIndex, ReferenceKind};
 use keel_parsers::treesitter::detect_language;
 
@@ -40,15 +41,18 @@ use super::map_resolve::CallIndex;
 
 /// The parts of the graph-backed [`CallIndex`] that do not depend on which file
 /// is being resolved — built once per compile so a multi-file compile does not
-/// re-query the module list / package index / BAML surface per file.
+/// re-query the module list / package index / boundary surface per file.
 struct GraphIndexBase<'a> {
     store: &'a SqliteGraphStore,
     /// Every `relative_file_path -> module_id` in the graph (for import paths).
     module_files: HashMap<String, u64>,
     /// `package -> (symbol -> node id)`; empty unless the repo sets packages.
     package_node_index: HashMap<String, HashMap<String, u64>>,
-    /// BAML boundary `function name -> node id`; empty unless `baml_src` exists.
-    baml_fn_index: HashMap<String, u64>,
+    /// Boundary `function name -> (node id, confidence)` (e.g. BAML); empty
+    /// unless `baml_src` exists. The confidence is the boundary provider's own
+    /// tier, carried per entry so compile-sync re-resolution matches map quality
+    /// (see [`super::map_resolve::CallIndex::boundary_index`]).
+    boundary_index: HashMap<String, (u64, f64)>,
 }
 
 impl<'a> GraphIndexBase<'a> {
@@ -59,9 +63,17 @@ impl<'a> GraphIndexBase<'a> {
             .map(|m| (m.file_path, m.id))
             .collect();
         let package_node_index = store.package_node_index();
-        // Only pay for the BAML lookup when the repo actually has a baml_src.
-        let baml_fn_index = if cwd.join("baml_src").exists() {
-            store.baml_function_nodes()
+        // Only pay for the boundary lookup when the repo actually has a
+        // baml_src. `BamlProvider::confidence()` is a stateless constant lookup
+        // (no scan), so the tier stays sourced from the provider, not a literal,
+        // and is stapled onto each entry to mirror the map's per-entry index.
+        let boundary_index = if cwd.join("baml_src").exists() {
+            let confidence = keel_parsers::boundary::BamlProvider.confidence();
+            store
+                .baml_function_nodes()
+                .into_iter()
+                .map(|(name, id)| (name, (id, confidence)))
+                .collect()
         } else {
             HashMap::new()
         };
@@ -69,7 +81,7 @@ impl<'a> GraphIndexBase<'a> {
             store,
             module_files,
             package_node_index,
-            baml_fn_index,
+            boundary_index,
         }
     }
 }
@@ -158,8 +170,8 @@ impl CallIndex for GraphIndex<'_> {
     fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
         &self.base.package_node_index
     }
-    fn baml_index(&self) -> &HashMap<String, u64> {
-        &self.base.baml_fn_index
+    fn boundary_index(&self) -> &HashMap<String, (u64, f64)> {
+        &self.base.boundary_index
     }
 }
 
@@ -511,6 +523,7 @@ fn module_node(id: u64, rel_path: &str, file: &FileIndex) -> GraphNode {
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -539,6 +552,7 @@ fn definition_node(
         is_public: def.is_public,
         type_hints_present: def.type_hints_present,
         has_docstring: def.docstring.is_some(),
+        is_associated: def.is_associated,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
@@ -566,6 +580,7 @@ mod tests {
             in_test_context: false,
             in_trait_context: false,
             is_associated: false,
+            is_auto_invoked: false,
         }
     }
 

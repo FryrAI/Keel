@@ -237,6 +237,15 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
         // would push an agent toward LESS idiomatic code. Free functions that
         // collide are still reported: those genuinely share one namespace.
         //
+        // The exemption is two-sided. This `def.is_associated` check covers
+        // the definition in the file being compiled. The other side of the
+        // comparison is a `GraphNode` loaded from storage for some other file,
+        // which is just as capable of being an associated method — the
+        // persisted `node.is_associated` flag (issue #46) filters those out of
+        // the match set below, so a genuinely free function in the current
+        // file no longer collides with a stored `impl` method of the same
+        // name+signature across separate compiles.
+        //
         // Test-context helpers are likewise exempt: every `#[cfg(test)] mod
         // tests` block independently defines its own `fn node(..)`/`fn root()`
         // fixture, which is the idiomatic pattern, not accidental ambiguity.
@@ -253,6 +262,10 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
             .iter()
             // Skip test files in results
             .filter(|node| !is_test_file(&node.file_path))
+            // Stored associated methods (persisted `is_associated`, issue #46)
+            // are exempt on this side too: a free function here must not
+            // collide with an `impl`/class method of the same name elsewhere.
+            .filter(|node| !node.is_associated)
             // Same name but a different shape is idiomatic namespacing, not
             // a duplicate — only consider sites where the signature matches.
             .filter(|node| normalize_signature(&node.signature) == normalized_def_sig)

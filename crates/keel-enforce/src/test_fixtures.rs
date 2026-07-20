@@ -28,6 +28,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     }
 }
 
@@ -36,8 +37,16 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
 pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
     Definition {
         in_test_context: true,
-        in_trait_context: false,
-        is_associated: false,
+        ..definition(name, file, false)
+    }
+}
+
+/// A private function definition flagged as auto-invoked — what a language's
+/// Tier-2 pass sets for a runtime/harness entrypoint (Go `init`/`main`/
+/// `TestMain`). Exempt from W005 without any language-from-path re-derivation.
+pub(crate) fn auto_invoked_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        is_auto_invoked: true,
         ..definition(name, file, false)
     }
 }
@@ -90,6 +99,7 @@ pub(crate) fn function_node(id: u64, hash: &str, name: &str, file: &str) -> Grap
         is_public: false,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -103,6 +113,7 @@ pub(crate) fn node_for_definition(id: u64, def: &Definition) -> GraphNode {
     let (hash, _) = crate::violations_util::definition_hashes(def, &def.file_path);
     let mut node = function_node(id, &hash, &def.name, &def.file_path);
     node.is_public = def.is_public;
+    node.is_associated = def.is_associated;
     node.line_start = def.line_start;
     node.line_end = def.line_end;
     node

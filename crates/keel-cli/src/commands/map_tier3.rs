@@ -25,7 +25,9 @@ pub(crate) struct Tier3FileData<'a> {
 /// Run the Tier 3 resolution pass over unresolved references.
 ///
 /// Returns the number of newly resolved references and appends new edges
-/// to `edge_changes`.
+/// to `edge_changes`. `seed` pre-populates the resolution cache from the
+/// persisted `resolution_cache` table; `flush_out` receives the cache's
+/// post-pass contents for the caller to persist back.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_tier3_pass(
     config: &Tier3Config,
@@ -37,22 +39,32 @@ pub(crate) fn run_tier3_pass(
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
+    seed: Vec<keel_core::types::ResolutionCacheEntry>,
+    flush_out: &mut Vec<keel_core::types::ResolutionCacheEntry>,
 ) -> u32 {
-    let mut registry = keel_parsers::tier3::Tier3Registry::new();
+    // Tier 3 resolution cache: seeded from the persisted `resolution_cache`
+    // table so SCIP/LSP resolutions survive across runs, and deduping repeated
+    // call sites within the pass. Keyed by (file, line, callee, content_hash)
+    // so a file edit invalidates its entries.
+    let mut cache = keel_parsers::tier3::cache::Tier3Cache::with_seed(seed);
 
+    let mut registry = keel_parsers::tier3::Tier3Registry::new();
     register_providers(&mut registry, config, languages, cwd, verbose);
 
     if registry.provider_count() == 0 {
+        // No providers loaded this run — carry the seed forward untouched so a
+        // provider-less run never wipes a previously-persisted cache.
+        *flush_out = cache.resolution_cache_entries();
         return 0;
     }
 
-    // Tier 3 resolution cache: dedupes repeated call sites within the pass,
-    // keyed by (file, line, callee, content_hash) so a file edit invalidates
-    // its entries. In-memory for now (not yet flushed to the `resolution_cache`
-    // table — see report), but genuinely on the tier-3 lookup path.
-    let mut cache = keel_parsers::tier3::cache::Tier3Cache::new();
-
     let mut tier3_resolved = 0u32;
+    // Cache-key hashes of every call site processed this pass. Passed to
+    // `live_resolution_cache_entries` below so it carries forward exactly the
+    // still-live persisted rows and prunes the rest. Liveness bookkeeping lives
+    // here, in the full-pass caller — not inside the cache — so a partial-scope
+    // caller can never silently prune the shared table via the live accessor.
+    let mut touched: HashSet<String> = HashSet::new();
     for fd in file_data {
         // Content hash for this file's cache entries (0 if unreadable).
         let content_hash = std::fs::read(cwd.join(fd.file_path))
@@ -84,7 +96,22 @@ pub(crate) fn run_tier3_pass(
                 callee_name: reference.name.clone(),
                 receiver: None,
             };
-            let result = cache.get_or_resolve(&call_site, content_hash, |cs| registry.resolve(cs));
+            // Build the cache key once: it records this call site as processed
+            // (hit or miss) for the liveness-bounded flush AND keys the lookup,
+            // so the hash always matches the stored row.
+            let key = keel_parsers::tier3::provider::Tier3CacheKey::from_call_site(
+                &call_site,
+                content_hash,
+            );
+            touched.insert(key.cache_hash());
+            let result = match cache.get(&key) {
+                Some(cached) => cached,
+                None => {
+                    let resolved = registry.resolve(&call_site);
+                    cache.put(key, &resolved);
+                    resolved
+                }
+            };
             if let keel_parsers::tier3::provider::Tier3Result::Resolved {
                 target_file,
                 target_name,
@@ -130,6 +157,11 @@ pub(crate) fn run_tier3_pass(
         );
     }
 
+    // Full-repo pass: `touched` holds every processed call site's cache-key
+    // hash, so flush only those live rows. This prunes stale persisted rows (old
+    // file content-hashes, deleted call sites) that `cache_hash` can never key
+    // out by file identity, bounding the `resolution_cache` table's growth.
+    *flush_out = cache.live_resolution_cache_entries(&touched);
     registry.shutdown();
     tier3_resolved
 }
@@ -145,6 +177,7 @@ fn register_providers(
     #[cfg(feature = "tier3")]
     {
         use keel_parsers::tier3::provider::Tier3Provider;
+        use std::collections::HashSet;
 
         // Register SCIP providers from config
         for (lang, scip_path) in &config.scip_paths {
@@ -188,7 +221,7 @@ fn register_providers(
     // Suppress unused variable warnings when tier3 feature is disabled
     #[cfg(not(feature = "tier3"))]
     {
-        let _ = (config, languages, cwd, verbose);
+        let _ = (registry, config, languages, cwd, verbose);
     }
 }
 

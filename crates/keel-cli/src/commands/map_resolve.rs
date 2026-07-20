@@ -27,8 +27,12 @@ pub trait CallIndex {
     fn name_to_id(&self) -> &HashMap<(String, String), u64>;
     /// `package -> (symbol -> node id)` for monorepo cross-package resolution.
     fn package_index(&self) -> &HashMap<String, HashMap<String, u64>>;
-    /// BAML boundary function name -> node id.
-    fn baml_index(&self) -> &HashMap<String, u64>;
+    /// Boundary function name -> `(node id, confidence)` (e.g. BAML `.baml`
+    /// functions). The confidence is the one reported by the provider that
+    /// produced the entry, carried per entry so multiple providers can coexist
+    /// without a shared scalar collapsing every boundary edge to the last
+    /// provider's tier.
+    fn boundary_index(&self) -> &HashMap<String, (u64, f64)>;
 }
 
 /// Resolve a cross-file call reference by matching imports to the candidate index.

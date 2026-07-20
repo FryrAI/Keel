@@ -22,6 +22,7 @@ fn node(id: u64, hash: &str, name: &str, file: &str, line: u32) -> GraphNode {
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,

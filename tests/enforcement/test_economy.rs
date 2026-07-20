@@ -61,11 +61,18 @@ fn keel(dir: &Path, args: &[&str]) -> std::process::Output {
     out
 }
 
-/// `keel compile <file> --json` -> parsed CompileResult value.
+/// `keel compile <file> --json` -> parsed CompileResult value. A file with
+/// zero errors AND zero warnings prints nothing (the documented clean-compile
+/// contract), so empty stdout maps to an empty errors/warnings result rather
+/// than a parse panic.
 fn compile_json(dir: &Path, file: &str) -> serde_json::Value {
     let out = keel(dir, &["compile", file, "--json"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return serde_json::json!({ "errors": [], "warnings": [] });
+    }
+    serde_json::from_str(trimmed).unwrap_or_else(|e| {
         panic!(
             "compile --json did not emit JSON ({e}):\nstdout: {stdout}\nstderr: {}",
             String::from_utf8_lossy(&out.stderr)
@@ -88,6 +95,21 @@ fn find_violation(result: &serde_json::Value, code: &str) -> serde_json::Value {
                 result["errors"], result["warnings"]
             )
         })
+}
+
+/// Assert no violation with `code` appears in the errors + warnings arrays.
+fn assert_no_violation(result: &serde_json::Value, code: &str) {
+    let hit = result["errors"]
+        .as_array()
+        .into_iter()
+        .chain(result["warnings"].as_array())
+        .flatten()
+        .any(|v| v["code"] == code);
+    assert!(
+        !hit,
+        "expected no {code} violation, got:\nerrors: {}\nwarnings: {}",
+        result["errors"], result["warnings"]
+    );
 }
 
 /// Lower the W007 line budget so the oversized-file fixture stays small.
@@ -181,6 +203,45 @@ fn test_w007_oversized_file_surfaces() {
     assert_eq!(v["severity"], "WARNING");
     assert_eq!(v["category"], "oversized_file");
     assert_eq!(v["confidence"].as_f64().unwrap(), 0.8);
+}
+
+/// Issue #45 (Part 1): a private helper in an `engine_tests_*.rs` split-file
+/// (the `#[path = "..._tests.rs"]`-included convention) must be recognized as
+/// living in a test file, so it never fires W005/W002. When each split file is
+/// parsed standalone the parent's `#[cfg(test)] mod` is invisible, so the
+/// helper looks like plain production code — only the file-name rule saves it.
+#[test]
+fn test_w005_skips_engine_tests_split_files() {
+    // Bare private helper, genuinely uncalled — the `engine_tests_*.rs`
+    // basename is the only thing that must suppress W005 here.
+    let dir = init_project(&[(
+        "src/engine_tests_helper.rs",
+        "fn build_row(x: i32) -> i32 {\n    x + 1\n}\n",
+    )]);
+    keel(dir.path(), &["map"]);
+
+    let result = compile_json(dir.path(), "src/engine_tests_helper.rs");
+    assert_no_violation(&result, "W005");
+    assert_no_violation(&result, "W002");
+}
+
+/// Issue #45 (Part 2): a private helper called ONLY inside a macro token tree
+/// (`vec![...]`) is real usage, but tree-sitter leaves macro bodies unparsed,
+/// so pre-fix the reference is invisible and the helper fires a false W005.
+/// The macro-body query pattern captures it as a Value reference, suppressing
+/// the warning at compile time.
+#[test]
+fn test_w005_skips_helper_used_only_in_macro_body() {
+    let dir = init_project(&[(
+        "src/rows.rs",
+        "fn make_item(x: i32) -> i32 {\n    x + 1\n}\n\n\
+         /// Build the rows.\n\
+         pub fn build() -> Vec<i32> {\n    vec![make_item(1), make_item(2)]\n}\n",
+    )]);
+    keel(dir.path(), &["map"]);
+
+    let result = compile_json(dir.path(), "src/rows.rs");
+    assert_no_violation(&result, "W005");
 }
 
 /// Generate `count` distinct, spaced-out TS functions so line numbers grow

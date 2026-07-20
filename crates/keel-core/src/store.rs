@@ -1,6 +1,6 @@
 use crate::types::{
     BodyIndexEntry, EdgeChange, EdgeDirection, GraphEdge, GraphError, GraphNode, ModuleProfile,
-    NodeChange,
+    NodeChange, ResolutionCacheEntry,
 };
 
 /// FROZEN CONTRACT — GraphStore trait.
@@ -63,6 +63,28 @@ pub trait GraphStore {
     fn find_body_matches(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
         let _ = body_hash;
         Vec::new()
+    }
+
+    /// Load the persisted Tier 3 resolution cache (rows tagged `tier3`).
+    ///
+    /// Lets SCIP/LSP resolutions survive across `keel map` runs. Additive with
+    /// a no-op default so backends without a resolution cache keep compiling;
+    /// such backends simply start every run with a cold Tier 3 cache.
+    fn load_resolution_cache(&self) -> Vec<ResolutionCacheEntry> {
+        Vec::new()
+    }
+
+    /// Replace the persisted Tier 3 resolution cache with `entries`.
+    ///
+    /// Wholesale rebuild of the `tier3`-tagged rows, applied atomically. Rows
+    /// owned by other tiers are left untouched. Additive with a no-op default,
+    /// mirroring `load_resolution_cache`.
+    fn replace_resolution_cache(
+        &mut self,
+        entries: Vec<ResolutionCacheEntry>,
+    ) -> Result<(), GraphError> {
+        let _ = entries;
+        Ok(())
     }
 }
 
@@ -135,6 +157,25 @@ mod tests {
         assert!(
             store.find_body_matches("b").is_empty(),
             "a backend without a body index reports no duplicates"
+        );
+    }
+
+    #[test]
+    fn test_resolution_cache_defaults_are_no_ops() {
+        let mut store = MinimalStore;
+        store
+            .replace_resolution_cache(vec![ResolutionCacheEntry {
+                call_site_hash: "h".into(),
+                target_file: Some("src/a.rs".into()),
+                target_name: Some("f".into()),
+                confidence: 0.9,
+                provider: Some("scip".into()),
+            }])
+            .expect("default replace_resolution_cache must succeed");
+
+        assert!(
+            store.load_resolution_cache().is_empty(),
+            "a backend without a resolution cache starts cold"
         );
     }
 }

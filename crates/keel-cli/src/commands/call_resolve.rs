@@ -3,15 +3,15 @@
 //!
 //! Each pipeline used to carry its own ladder. The map's was the full one —
 //! tier-2 language resolver → cross-file import → same-file method →
-//! same-directory → package import → BAML boundary. The compile sync
-//! re-implemented a weaker subset (same-file local → tier-2 → unique bare
+//! same-directory → package import → boundary provider (e.g. BAML). The compile
+//! sync re-implemented a weaker subset (same-file local → tier-2 → unique bare
 //! name) and, because it *prunes then re-resolves* a file's outgoing call
 //! edges, silently deleted every edge the subset could not reproduce (method
-//! calls, same-directory, package, and every BAML edge) on each `keel compile`,
-//! leaving them gone until the next full map.
+//! calls, same-directory, package, and every boundary edge) on each `keel
+//! compile`, leaving them gone until the next full map.
 //!
 //! This module hosts ONE ladder, run by both pipelines through the
-//! [`CallIndex`](super::map_resolve::CallIndex) seam, so a compile's
+//! [`CallIndex`] seam, so a compile's
 //! re-resolution reproduces exactly the edges the map would — the prune is
 //! lossless. The two pipelines differ only in how they back `CallIndex`: the
 //! map with its in-memory indices, the compile sync with graph-backed lookups.
@@ -119,12 +119,16 @@ pub fn resolve_call_reference(
         }
     }
 
-    // Last resort: a call into a BAML boundary function.
+    // Last resort: a call into a boundary function (e.g. a BAML `.baml`
+    // function). The confidence is stored with the matched index entry — the
+    // producing provider's own tier, not a hardcoded constant — so a repo with
+    // multiple boundary providers records each edge at its provider's tier.
     if target_id.is_none() {
-        if let Some(baml_id) = super::map_baml::resolve_baml_call(&reference.name, idx.baml_index())
+        if let Some((id, conf)) =
+            super::map_boundary::resolve_boundary_call(&reference.name, idx.boundary_index())
         {
-            target_id = Some(baml_id);
-            confidence = keel_core::confidence::BAML_BOUNDARY;
+            target_id = Some(id);
+            confidence = conf;
         }
     }
 

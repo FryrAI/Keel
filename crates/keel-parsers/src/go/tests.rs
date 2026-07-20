@@ -116,6 +116,80 @@ func main() {
 }
 
 #[test]
+fn test_go_test_and_benchmark_are_test_context() {
+    let resolver = GoResolver::new();
+    let source = r#"
+package widget
+
+import "testing"
+
+func TestFoo(t *testing.T) {}
+
+func BenchmarkFoo(b *testing.B) {}
+
+func Testing(x int) string { return "" }
+
+func regular() {}
+"#;
+    let result = resolver.parse_file(Path::new("widget_test.go"), source);
+    let flag = |name: &str| {
+        result
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("missing def {name}"))
+            .in_test_context
+    };
+    assert!(flag("TestFoo"), "TestFoo(t *testing.T) is test context");
+    assert!(
+        flag("BenchmarkFoo"),
+        "BenchmarkFoo(b *testing.B) is test context"
+    );
+    // Name starts with `Test` but has no *testing.T parameter — must NOT be
+    // treated as a test, proving the check is not a bare name-prefix guess.
+    assert!(
+        !flag("Testing"),
+        "Testing(x int) is not a test despite the Test prefix"
+    );
+    assert!(!flag("regular"), "an ordinary function is not test context");
+}
+
+#[test]
+fn test_go_entrypoints_are_auto_invoked() {
+    let resolver = GoResolver::new();
+    let source = r#"
+package main
+
+import "testing"
+
+func init() {}
+
+func main() {}
+
+func TestMain(m *testing.M) {}
+
+func helper() {}
+"#;
+    let result = resolver.parse_file(Path::new("main.go"), source);
+    let def = |name: &str| {
+        result
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap_or_else(|| panic!("missing def {name}"))
+    };
+    assert!(def("init").is_auto_invoked, "init is auto-invoked");
+    assert!(def("main").is_auto_invoked, "main is auto-invoked");
+    assert!(def("TestMain").is_auto_invoked, "TestMain is auto-invoked");
+    // TestMain takes *testing.M, not *testing.T — auto-invoked, not test-context.
+    assert!(
+        !def("TestMain").in_test_context,
+        "TestMain is an entrypoint, not itself a test"
+    );
+    assert!(!def("helper").is_auto_invoked, "helper is not auto-invoked");
+}
+
+#[test]
 fn test_go_cross_file_call_with_import() {
     let resolver = GoResolver::new();
     let source = r#"

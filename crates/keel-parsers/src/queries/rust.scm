@@ -83,6 +83,19 @@
 ; is captured as @ref.value and never becomes a `calls` edge.
 (arguments (identifier) @ref.value.name) @ref.value
 
+; --- Call-shaped references inside macro token trees ---
+; Macro bodies are unparsed token trees in the grammar — `vec![helper()]` /
+; `assert!(cond_fn())` never produce a `call_expression`, so a helper called
+; only inside a macro looks uncalled to W005. An identifier immediately
+; followed by its own paren/bracket/brace group, anywhere inside a token_tree,
+; is a call-shaped reference. Reuses @ref.value.name (not @ref.call.name): a
+; macro's token tree isn't a real argument list, so this must never become a
+; `calls` edge or feed E005 arity checking.
+(token_tree
+  (identifier) @ref.value.name
+  .
+  (token_tree)) @ref.value
+
 ; Function names referenced from attribute strings, e.g. serde's
 ; `#[serde(default = "default_true")]` / `deserialize_with = "..."`.
 (attribute (token_tree (string_literal) @ref.attr.name)) @ref.attr

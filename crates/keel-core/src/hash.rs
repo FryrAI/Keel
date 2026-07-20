@@ -276,7 +276,17 @@ pub const MIN_INDEXED_BODY_LEN: usize = 40;
 /// not normalized twice. Passing non-normalized text produces a hash that will
 /// not match [`compute_body_hash`] for the same input.
 pub fn hash_normalized_body(normalized: &str) -> String {
-    base62_encode(xxh64(normalized.as_bytes(), 0))
+    hash_string(normalized)
+}
+
+/// Hash an arbitrary string to keel's 11-char base62 fingerprint.
+///
+/// `base62(xxhash64(s))` — the shared primitive behind the body-index
+/// fingerprint ([`hash_normalized_body`]) and the Tier 3 resolution-cache key.
+/// Use it for any content-addressed key that is *not* a node identity (those
+/// go through [`compute_hash`], which folds in signature and docstring).
+pub fn hash_string(s: &str) -> String {
+    base62_encode(xxh64(s.as_bytes(), 0))
 }
 
 /// Compute the duplicate-detection fingerprint for a function body.

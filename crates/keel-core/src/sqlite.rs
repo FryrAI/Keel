@@ -126,6 +126,7 @@ impl SqliteGraphStore {
                 is_public INTEGER NOT NULL DEFAULT 0,
                 type_hints_present INTEGER NOT NULL DEFAULT 0,
                 has_docstring INTEGER NOT NULL DEFAULT 0,
+                is_associated INTEGER NOT NULL DEFAULT 0,
                 module_id INTEGER REFERENCES nodes(id),
                 package TEXT DEFAULT NULL,
                 resolution_tier TEXT NOT NULL DEFAULT '',
@@ -187,13 +188,21 @@ impl SqliteGraphStore {
                 responsibility_keywords TEXT NOT NULL DEFAULT '[]'
             );
 
-            -- Resolution cache
+            -- Resolution cache. The Tier 3 columns (file_content_hash,
+            -- target_file, target_name, provider) are declared here for fresh
+            -- databases AND added idempotently by migrate_v3_to_v4 for existing
+            -- ones — a fresh DB never runs migrations, so omitting them here
+            -- would leave the persisted Tier 3 cache unwritable.
             CREATE TABLE IF NOT EXISTS resolution_cache (
                 call_site_hash TEXT PRIMARY KEY,
                 resolved_node_id INTEGER REFERENCES nodes(id),
                 confidence REAL NOT NULL,
                 resolution_tier TEXT NOT NULL,
-                cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+                cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+                file_content_hash TEXT DEFAULT NULL,
+                target_file TEXT DEFAULT NULL,
+                target_name TEXT DEFAULT NULL,
+                provider TEXT DEFAULT NULL
             );
 
             -- Circuit breaker state
@@ -224,6 +233,19 @@ impl SqliteGraphStore {
         let _ = self.conn.execute_batch(
             "ALTER TABLE circuit_breaker ADD COLUMN last_body_hash TEXT NOT NULL DEFAULT ''",
         );
+
+        // Associated-item provenance column (issue #46). Unlike the breaker
+        // columns above, `nodes` is persistent (not ephemeral runtime state),
+        // so this is a deliberate deviation from the versioned-migration
+        // pattern used for `resolution_tier`/`package` — the column is added
+        // idempotently to avoid bumping SCHEMA_VERSION for a single additive,
+        // defaulted flag. On existing databases the ALTER adds the column; on
+        // fresh ones (already declared above) it errors as a duplicate and is
+        // ignored. It lets W002 tell a stored associated method from a stored
+        // free function across separate compiles.
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE nodes ADD COLUMN is_associated INTEGER NOT NULL DEFAULT 0");
 
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
         self.drop_stale_body_index()?;

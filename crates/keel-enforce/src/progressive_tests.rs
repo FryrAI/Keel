@@ -17,6 +17,7 @@ fn undocumented_def(name: &str, file: &str) -> Definition {
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     }
 }
 
@@ -51,6 +52,7 @@ fn matching_node(def: &Definition) -> GraphNode {
         is_public: def.is_public,
         type_hints_present: def.type_hints_present,
         has_docstring: def.docstring.is_some(),
+        is_associated: def.is_associated,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
