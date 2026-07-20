@@ -13,9 +13,9 @@
 //! graph-backed lookups ([`GraphIndex`]) instead of the map's in-memory
 //! indices. That is the whole point: an earlier version re-implemented a weaker
 //! ladder and, because it prunes a file's call edges before re-resolving, every
-//! `keel compile` deleted the method-call, same-directory, package, and BAML
-//! edges the map had built. Running the map's own ladder makes the prune
-//! lossless.
+//! `keel compile` deleted the method-call, same-directory, package, and
+//! boundary edges the map had built. Running the map's own ladder makes the
+//! prune lossless.
 //!
 //! It runs *after* enforcement (on a separate store handle) so E001/E004 still
 //! diff against the pre-edit graph; the refreshed edges are then in place for
@@ -41,19 +41,18 @@ use super::map_resolve::CallIndex;
 
 /// The parts of the graph-backed [`CallIndex`] that do not depend on which file
 /// is being resolved — built once per compile so a multi-file compile does not
-/// re-query the module list / package index / BAML surface per file.
+/// re-query the module list / package index / boundary surface per file.
 struct GraphIndexBase<'a> {
     store: &'a SqliteGraphStore,
     /// Every `relative_file_path -> module_id` in the graph (for import paths).
     module_files: HashMap<String, u64>,
     /// `package -> (symbol -> node id)`; empty unless the repo sets packages.
     package_node_index: HashMap<String, HashMap<String, u64>>,
-    /// Boundary `function name -> node id` (e.g. BAML); empty unless `baml_src`
-    /// exists.
-    boundary_index: HashMap<String, u64>,
-    /// Confidence for calls resolved into the boundary surface — the boundary
-    /// provider's own tier, so compile-sync re-resolution matches map quality.
-    boundary_confidence: f64,
+    /// Boundary `function name -> (node id, confidence)` (e.g. BAML); empty
+    /// unless `baml_src` exists. The confidence is the boundary provider's own
+    /// tier, carried per entry so compile-sync re-resolution matches map quality
+    /// (see [`super::map_resolve::CallIndex::boundary_index`]).
+    boundary_index: HashMap<String, (u64, f64)>,
 }
 
 impl<'a> GraphIndexBase<'a> {
@@ -66,19 +65,23 @@ impl<'a> GraphIndexBase<'a> {
         let package_node_index = store.package_node_index();
         // Only pay for the boundary lookup when the repo actually has a
         // baml_src. `BamlProvider::confidence()` is a stateless constant lookup
-        // (no scan), so the tier stays sourced from the provider, not a literal.
+        // (no scan), so the tier stays sourced from the provider, not a literal,
+        // and is stapled onto each entry to mirror the map's per-entry index.
         let boundary_index = if cwd.join("baml_src").exists() {
-            store.baml_function_nodes()
+            let confidence = keel_parsers::boundary::BamlProvider.confidence();
+            store
+                .baml_function_nodes()
+                .into_iter()
+                .map(|(name, id)| (name, (id, confidence)))
+                .collect()
         } else {
             HashMap::new()
         };
-        let boundary_confidence = keel_parsers::boundary::BamlProvider.confidence();
         Self {
             store,
             module_files,
             package_node_index,
             boundary_index,
-            boundary_confidence,
         }
     }
 }
@@ -167,11 +170,8 @@ impl CallIndex for GraphIndex<'_> {
     fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
         &self.base.package_node_index
     }
-    fn boundary_index(&self) -> &HashMap<String, u64> {
+    fn boundary_index(&self) -> &HashMap<String, (u64, f64)> {
         &self.base.boundary_index
-    }
-    fn boundary_confidence(&self) -> f64 {
-        self.base.boundary_confidence
     }
 }
 

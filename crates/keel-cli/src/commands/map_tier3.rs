@@ -3,7 +3,7 @@
 //! Resolves call references that Tier 1 (tree-sitter) and Tier 2 (per-language
 //! enhancers) left unresolved, using SCIP indexes or LSP servers.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use keel_core::config::Tier3Config;
@@ -59,6 +59,12 @@ pub(crate) fn run_tier3_pass(
     }
 
     let mut tier3_resolved = 0u32;
+    // Cache-key hashes of every call site processed this pass. Passed to
+    // `live_resolution_cache_entries` below so it carries forward exactly the
+    // still-live persisted rows and prunes the rest. Liveness bookkeeping lives
+    // here, in the full-pass caller — not inside the cache — so a partial-scope
+    // caller can never silently prune the shared table via the live accessor.
+    let mut touched: HashSet<String> = HashSet::new();
     for fd in file_data {
         // Content hash for this file's cache entries (0 if unreadable).
         let content_hash = std::fs::read(cwd.join(fd.file_path))
@@ -90,7 +96,22 @@ pub(crate) fn run_tier3_pass(
                 callee_name: reference.name.clone(),
                 receiver: None,
             };
-            let result = cache.get_or_resolve(&call_site, content_hash, |cs| registry.resolve(cs));
+            // Build the cache key once: it records this call site as processed
+            // (hit or miss) for the liveness-bounded flush AND keys the lookup,
+            // so the hash always matches the stored row.
+            let key = keel_parsers::tier3::provider::Tier3CacheKey::from_call_site(
+                &call_site,
+                content_hash,
+            );
+            touched.insert(key.cache_hash());
+            let result = match cache.get(&key) {
+                Some(cached) => cached,
+                None => {
+                    let resolved = registry.resolve(&call_site);
+                    cache.put(key, &resolved);
+                    resolved
+                }
+            };
             if let keel_parsers::tier3::provider::Tier3Result::Resolved {
                 target_file,
                 target_name,
@@ -136,7 +157,11 @@ pub(crate) fn run_tier3_pass(
         );
     }
 
-    *flush_out = cache.resolution_cache_entries();
+    // Full-repo pass: `touched` holds every processed call site's cache-key
+    // hash, so flush only those live rows. This prunes stale persisted rows (old
+    // file content-hashes, deleted call sites) that `cache_hash` can never key
+    // out by file identity, bounding the `resolution_cache` table's growth.
+    *flush_out = cache.live_resolution_cache_entries(&touched);
     registry.shutdown();
     tier3_resolved
 }

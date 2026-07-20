@@ -61,11 +61,18 @@ fn keel(dir: &Path, args: &[&str]) -> std::process::Output {
     out
 }
 
-/// `keel compile <file> --json` -> parsed CompileResult value.
+/// `keel compile <file> --json` -> parsed CompileResult value. A file with
+/// zero errors AND zero warnings prints nothing (the documented clean-compile
+/// contract), so empty stdout maps to an empty errors/warnings result rather
+/// than a parse panic.
 fn compile_json(dir: &Path, file: &str) -> serde_json::Value {
     let out = keel(dir, &["compile", file, "--json"]);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return serde_json::json!({ "errors": [], "warnings": [] });
+    }
+    serde_json::from_str(trimmed).unwrap_or_else(|e| {
         panic!(
             "compile --json did not emit JSON ({e}):\nstdout: {stdout}\nstderr: {}",
             String::from_utf8_lossy(&out.stderr)
@@ -88,25 +95,6 @@ fn find_violation(result: &serde_json::Value, code: &str) -> serde_json::Value {
                 result["errors"], result["warnings"]
             )
         })
-}
-
-/// `keel compile <file> --json`, tolerating a clean compile. A file with zero
-/// errors AND zero warnings prints nothing (the documented clean-compile
-/// contract), so empty stdout maps to an empty errors/warnings result rather
-/// than a parse panic. Used by the absence assertions below.
-fn compile_json_lenient(dir: &Path, file: &str) -> serde_json::Value {
-    let out = keel(dir, &["compile", file, "--json"]);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return serde_json::json!({ "errors": [], "warnings": [] });
-    }
-    serde_json::from_str(trimmed).unwrap_or_else(|e| {
-        panic!(
-            "compile --json did not emit JSON ({e}):\nstdout: {stdout}\nstderr: {}",
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
 }
 
 /// Assert no violation with `code` appears in the errors + warnings arrays.
@@ -232,7 +220,7 @@ fn test_w005_skips_engine_tests_split_files() {
     )]);
     keel(dir.path(), &["map"]);
 
-    let result = compile_json_lenient(dir.path(), "src/engine_tests_helper.rs");
+    let result = compile_json(dir.path(), "src/engine_tests_helper.rs");
     assert_no_violation(&result, "W005");
     assert_no_violation(&result, "W002");
 }
@@ -252,7 +240,7 @@ fn test_w005_skips_helper_used_only_in_macro_body() {
     )]);
     keel(dir.path(), &["map"]);
 
-    let result = compile_json_lenient(dir.path(), "src/rows.rs");
+    let result = compile_json(dir.path(), "src/rows.rs");
     assert_no_violation(&result, "W005");
 }
 

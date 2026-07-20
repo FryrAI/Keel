@@ -13,7 +13,7 @@ use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, N
 use keel_parsers::boundary::BoundarySymbol;
 
 /// Materialise boundary `symbols` as graph nodes and return an index of
-/// `function name -> node id` used to resolve calls into them.
+/// `function name -> (node id, confidence)` used to resolve calls into them.
 ///
 /// Each declaring file becomes a [`NodeKind::Module`] node containing one
 /// [`NodeKind::Function`] node per function symbol and one [`NodeKind::Class`]
@@ -21,15 +21,22 @@ use keel_parsers::boundary::BoundarySymbol;
 /// the nodes show up naturally in the map. Only function symbols are call
 /// targets, so only they enter the returned index (first-file-wins on a name
 /// collision).
+///
+/// `confidence` is the producing provider's
+/// [`confidence`](keel_parsers::boundary::BoundaryProvider::confidence) and is
+/// stored per entry, so a call resolving into this entry records the confidence
+/// of the provider that supplied it (not a shared scalar that the last provider
+/// in the loop would otherwise overwrite for every boundary edge).
 pub fn inject_boundary_symbols(
     symbols: &[BoundarySymbol],
+    confidence: f64,
     node_changes: &mut Vec<NodeChange>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
     assigned_hashes: &mut HashSet<String>,
     valid_node_ids: &mut HashSet<u64>,
-) -> HashMap<String, u64> {
-    let mut fn_index: HashMap<String, u64> = HashMap::new();
+) -> HashMap<String, (u64, f64)> {
+    let mut fn_index: HashMap<String, (u64, f64)> = HashMap::new();
     if symbols.is_empty() {
         return fn_index;
     }
@@ -82,7 +89,9 @@ pub fn inject_boundary_symbols(
                 module_id,
             );
             push_contains(edge_changes, next_id, module_id, node_id, file, sym.line);
-            fn_index.entry(sym.name.clone()).or_insert(node_id);
+            fn_index
+                .entry(sym.name.clone())
+                .or_insert((node_id, confidence));
         }
 
         for sym in classes {
@@ -105,14 +114,20 @@ pub fn inject_boundary_symbols(
     fn_index
 }
 
-/// Resolve a call reference name to a boundary function node.
+/// Resolve a call reference name to a boundary function node, returning its
+/// `(node id, confidence)`.
 ///
 /// Matches the trailing segment of a (possibly qualified) call — the
 /// `ExtractResume` in `b.ExtractResume` or `client::ExtractResume` — against
-/// the boundary function index. Returns `None` when nothing matches.
-/// Case-sensitive matching plus PascalCase boundary names keep collisions with
-/// ordinary snake_case methods vanishingly unlikely.
-pub fn resolve_boundary_call(callee_name: &str, index: &HashMap<String, u64>) -> Option<u64> {
+/// the boundary function index. Returns `None` when nothing matches. The
+/// confidence is the one stored with the matched entry, i.e. the confidence of
+/// the provider that produced it. Case-sensitive matching plus PascalCase
+/// boundary names keep collisions with ordinary snake_case methods vanishingly
+/// unlikely.
+pub fn resolve_boundary_call(
+    callee_name: &str,
+    index: &HashMap<String, (u64, f64)>,
+) -> Option<(u64, f64)> {
     if index.is_empty() {
         return None;
     }
@@ -228,6 +243,7 @@ mod tests {
 
         let index = inject_boundary_symbols(
             &symbols,
+            keel_core::confidence::BAML_BOUNDARY,
             &mut nodes,
             &mut edges,
             &mut next_id,
@@ -238,7 +254,11 @@ mod tests {
         // module + function + class = 3 nodes; 2 contains edges.
         assert_eq!(nodes.len(), 3);
         assert_eq!(edges.len(), 2);
-        assert!(index.contains_key("ExtractResume"));
+        // The function symbol enters the index carrying the provider confidence.
+        assert_eq!(
+            index.get("ExtractResume").map(|&(_, c)| c),
+            Some(keel_core::confidence::BAML_BOUNDARY)
+        );
         // classes are not call targets
         assert!(!index.contains_key("Resume"));
     }
@@ -246,14 +266,18 @@ mod tests {
     #[test]
     fn test_resolve_qualified_and_bare_calls() {
         let mut index = HashMap::new();
-        index.insert("ExtractResume".to_string(), 42u64);
+        index.insert(
+            "ExtractResume".to_string(),
+            (42u64, keel_core::confidence::BAML_BOUNDARY),
+        );
 
-        assert_eq!(resolve_boundary_call("b.ExtractResume", &index), Some(42));
+        let expect = Some((42u64, keel_core::confidence::BAML_BOUNDARY));
+        assert_eq!(resolve_boundary_call("b.ExtractResume", &index), expect);
         assert_eq!(
             resolve_boundary_call("client::ExtractResume", &index),
-            Some(42)
+            expect
         );
-        assert_eq!(resolve_boundary_call("ExtractResume", &index), Some(42));
+        assert_eq!(resolve_boundary_call("ExtractResume", &index), expect);
         assert_eq!(resolve_boundary_call("b.somethingElse", &index), None);
         assert_eq!(
             resolve_boundary_call("ExtractResume", &HashMap::new()),
@@ -270,6 +294,7 @@ mod tests {
         let mut valid = HashSet::new();
         let index = inject_boundary_symbols(
             &[],
+            keel_core::confidence::BAML_BOUNDARY,
             &mut nodes,
             &mut edges,
             &mut next_id,

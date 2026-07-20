@@ -4,8 +4,13 @@
 //! and invalidated when the content hash changes. Seeded from the persisted
 //! `resolution_cache` table at the start of a `keel map` run and flushed back
 //! at the end, so SCIP/LSP resolutions survive across runs.
+//!
+//! A full-repo `keel map` re-serves every still-live call site during the pass,
+//! so the flush bounds the carried-forward seed to rows actually served (see
+//! `live_resolution_cache_entries`) — otherwise the table would grow one dead
+//! row per past (file-content x call-site) with no way to prune it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use keel_core::types::ResolutionCacheEntry;
 
@@ -21,7 +26,7 @@ pub struct Tier3Cache {
     /// Rows loaded from the persisted `resolution_cache` table, keyed by their
     /// content hash ([`Tier3CacheKey::cache_hash`]) since the original struct
     /// fields are not recoverable from a stored row. Read-only fallback for
-    /// `get`; carried forward untouched on flush.
+    /// `get`.
     persisted: HashMap<String, CachedResolution>,
 }
 
@@ -100,16 +105,21 @@ impl Tier3Cache {
         }
     }
 
-    /// Snapshot the cache as persistable `resolution_cache` rows.
+    /// Merge carried-forward `persisted` rows with this run's fresh `entries`.
     ///
-    /// Unions the seeded `persisted` rows (carried forward untouched) with this
-    /// run's freshly resolved `entries` (hashed via [`Tier3CacheKey::cache_hash`]).
-    /// Fresh entries win on hash collision, so a re-resolved call site overwrites
-    /// its stale persisted row.
-    pub fn resolution_cache_entries(&self) -> Vec<ResolutionCacheEntry> {
+    /// `carried` yields the `(cache_hash, row)` persisted pairs to keep; the
+    /// fresh `entries` are hashed via [`Tier3CacheKey::cache_hash`] and folded
+    /// in on top, so a re-resolved call site's row wins on hash collision. This
+    /// is the shared tail of `resolution_cache_entries` and
+    /// `live_resolution_cache_entries`; they differ only in which persisted rows
+    /// they pass as `carried`.
+    fn merge_entries<'a>(
+        &self,
+        carried: impl Iterator<Item = (&'a String, &'a CachedResolution)>,
+    ) -> Vec<ResolutionCacheEntry> {
         let mut by_hash: HashMap<String, ResolutionCacheEntry> =
             HashMap::with_capacity(self.persisted.len() + self.entries.len());
-        for (hash, cached) in &self.persisted {
+        for (hash, cached) in carried {
             by_hash.insert(hash.clone(), cached.to_entry(hash.clone()));
         }
         for (key, cached) in &self.entries {
@@ -119,14 +129,59 @@ impl Tier3Cache {
         by_hash.into_values().collect()
     }
 
+    /// Snapshot the cache as persistable `resolution_cache` rows.
+    ///
+    /// Unions the seeded `persisted` rows (carried forward untouched) with this
+    /// run's freshly resolved `entries` (hashed via [`Tier3CacheKey::cache_hash`]).
+    /// Fresh entries win on hash collision, so a re-resolved call site overwrites
+    /// its stale persisted row.
+    pub fn resolution_cache_entries(&self) -> Vec<ResolutionCacheEntry> {
+        self.merge_entries(self.persisted.iter())
+    }
+
+    /// Snapshot the cache as persistable `resolution_cache` rows, pruned to the
+    /// rows still live this pass.
+    ///
+    /// Like `resolution_cache_entries`, but carries a seeded `persisted` row
+    /// forward only if its `cache_hash` is in `touched`; this run's fresh
+    /// `entries` are always included and win on hash collision.
+    ///
+    /// `touched` must be the set of cache-key hashes for every call site the
+    /// caller processed this pass — one hash per `get_or_resolve` call, whether
+    /// it hit or resolved and whether the result was resolved or unresolved. Any
+    /// persisted row whose hash is absent is pruned, so passing a partial set
+    /// deletes every row the caller did not visit. Only a full-repo pass may use
+    /// this accessor; a partial-scope caller (e.g. tier3 wired into incremental
+    /// compile) must use `resolution_cache_entries`, which carries the whole
+    /// seed forward.
+    ///
+    /// Pruning is what bounds the persisted table: a `cache_hash` discards
+    /// `file_path`, so a stale row (an old content-hash version of an edited
+    /// file, or a deleted call site) can never be pruned by file identity. A
+    /// full pass re-enters every still-live call site, so anything untouched is
+    /// stale or gone and is dropped.
+    pub fn live_resolution_cache_entries(
+        &self,
+        touched: &HashSet<String>,
+    ) -> Vec<ResolutionCacheEntry> {
+        self.merge_entries(
+            self.persisted
+                .iter()
+                .filter(|(hash, _)| touched.contains(hash.as_str())),
+        )
+    }
+
     /// Look up a cached resolution for the given call site.
     ///
     /// Checks this run's `entries` first, then falls back to the seeded
-    /// `persisted` rows via the key's content hash.
+    /// `persisted` rows via the key's content hash. A pure read: liveness
+    /// tracking for `live_resolution_cache_entries` is the caller's job.
     pub fn get(&self, key: &Tier3CacheKey) -> Option<Tier3Result> {
-        self.entries
-            .get(key)
-            .or_else(|| self.persisted.get(&key.cache_hash()))
+        if let Some(cached) = self.entries.get(key) {
+            return Some(cached.to_result());
+        }
+        self.persisted
+            .get(&key.cache_hash())
             .map(CachedResolution::to_result)
     }
 
@@ -467,5 +522,102 @@ mod tests {
         });
         assert_eq!(run2_calls, 0, "seeded row must satisfy the lookup");
         assert!(result.is_resolved());
+    }
+
+    // --- liveness-bounded flush (quality-review fix for #44) ---
+    //
+    // `live_resolution_cache_entries` now takes the caller's set of processed
+    // cache-key hashes explicitly; `get` has no side effects. These tests drive
+    // the accessor with hand-built `touched` sets, and the final one mirrors the
+    // caller-tracking pattern `run_tier3_pass` uses end-to-end.
+
+    #[test]
+    fn test_live_entries_drops_unhit_persisted_row() {
+        let key = make_key("test.ts", 10, "foo", 12345);
+        let cache = Tier3Cache::with_seed(vec![resolved_entry(&key, "other.ts")]);
+        // Empty touched set: nothing was processed this pass, so the seeded row
+        // is stale and pruned.
+        let touched = HashSet::new();
+        assert!(cache.live_resolution_cache_entries(&touched).is_empty());
+        // The full-union accessor still passes it through (provider-less runs
+        // rely on that to avoid wiping the cache).
+        assert_eq!(cache.resolution_cache_entries().len(), 1);
+    }
+
+    #[test]
+    fn test_live_entries_keeps_hit_persisted_row() {
+        let key = make_key("test.ts", 10, "foo", 12345);
+        let cache = Tier3Cache::with_seed(vec![resolved_entry(&key, "other.ts")]);
+        // Caller reports the row's cache-key hash as processed → carried forward.
+        let touched: HashSet<String> = [key.cache_hash()].into_iter().collect();
+        let out = cache.live_resolution_cache_entries(&touched);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].call_site_hash, key.cache_hash());
+        assert_eq!(out[0].target_file.as_deref(), Some("other.ts"));
+    }
+
+    #[test]
+    fn test_live_entries_keeps_hit_unresolved_persisted_row() {
+        let key = make_key("test.ts", 10, "foo", 12345);
+        let cache = Tier3Cache::with_seed(vec![ResolutionCacheEntry {
+            call_site_hash: key.cache_hash(),
+            target_file: None,
+            target_name: None,
+            confidence: 0.0,
+            provider: None,
+        }]);
+        // Unresolved persisted rows are carried forward too when touched.
+        let touched: HashSet<String> = [key.cache_hash()].into_iter().collect();
+        let out = cache.live_resolution_cache_entries(&touched);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].target_file.is_none());
+    }
+
+    #[test]
+    fn test_live_entries_new_wins_on_collision() {
+        let key = make_key("test.ts", 10, "foo", 12345);
+        let mut cache = Tier3Cache::with_seed(vec![resolved_entry(&key, "STALE.ts")]);
+        // Touch the seed, then re-resolve the SAME call site this run to a
+        // different target — the fresh entry must win in the live flush.
+        let touched: HashSet<String> = [key.cache_hash()].into_iter().collect();
+        cache.put(
+            key.clone(),
+            &Tier3Result::Resolved {
+                target_file: "FRESH.ts".into(),
+                target_name: "foo".into(),
+                confidence: 0.99,
+                provider: "scip".into(),
+            },
+        );
+        let out = cache.live_resolution_cache_entries(&touched);
+        assert_eq!(out.len(), 1, "same hash must collapse to one row");
+        assert_eq!(out[0].target_file.as_deref(), Some("FRESH.ts"));
+    }
+
+    /// End-to-end caller pattern: the pass builds `touched` alongside its
+    /// `get_or_resolve` calls (one cache-key hash per processed reference), then
+    /// flushes via `live_resolution_cache_entries(&touched)`. A seeded row for a
+    /// call site the pass never visits is pruned; a re-served one is kept.
+    #[test]
+    fn test_live_entries_caller_tracks_touched() {
+        let served = make_call_site("served.ts", 10, "foo");
+        let served_key = Tier3CacheKey::from_call_site(&served, 777);
+        let skipped_key = make_key("skipped.ts", 20, "bar", 888);
+        let mut cache = Tier3Cache::with_seed(vec![
+            resolved_entry(&served_key, "def.ts"),
+            resolved_entry(&skipped_key, "gone.ts"),
+        ]);
+
+        // Mirror run_tier3_pass: record the cache-key hash for each processed
+        // reference, then resolve it. `skipped.ts` is never processed.
+        let mut touched: HashSet<String> = HashSet::new();
+        touched.insert(Tier3CacheKey::from_call_site(&served, 777).cache_hash());
+        let result = cache.get_or_resolve(&served, 777, |_| Tier3Result::Unavailable);
+        assert!(result.is_resolved(), "seeded row satisfies the lookup");
+
+        let out = cache.live_resolution_cache_entries(&touched);
+        assert_eq!(out.len(), 1, "only the served row survives");
+        assert_eq!(out[0].call_site_hash, served_key.cache_hash());
+        assert_eq!(out[0].target_file.as_deref(), Some("def.ts"));
     }
 }

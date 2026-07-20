@@ -37,6 +37,19 @@ pub struct BoundarySymbol {
 /// The `keel map` pipeline holds a list of these and, for each, materialises
 /// the scanned symbols as boundary nodes and resolves unresolved calls into
 /// them at [`BoundaryProvider::confidence`].
+///
+/// # Contract trap for future providers
+///
+/// `keel map` builds the boundary index from `scan`, but `keel compile` does
+/// not re-scan: its incremental graph sync (`GraphIndexBase::build` in
+/// `keel-cli`) rebuilds the boundary index from the *persisted* BAML nodes only
+/// (via `store.baml_function_nodes()`). Because each compile prunes and then
+/// re-resolves a file's outgoing call edges, a boundary edge that the compile
+/// path cannot reproduce is pruned and never re-added — it silently disappears
+/// until the next full `keel map`. A new provider must therefore extend that
+/// compile-side rebuild (persist its boundary nodes and teach the sync to load
+/// them) as well as implementing `scan`, or its boundary edges will not survive
+/// a `keel compile`.
 pub trait BoundaryProvider {
     /// Scan `root` for this boundary's declarations, returning every function
     /// and class symbol found (empty when the repo does not use this boundary).

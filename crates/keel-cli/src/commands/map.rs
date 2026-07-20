@@ -118,8 +118,11 @@ pub fn run(
     // as silent unresolved edges. ===
     let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
         vec![Box::new(keel_parsers::boundary::BamlProvider)];
-    let mut boundary_index: HashMap<String, u64> = HashMap::new();
-    let mut boundary_confidence = 0.0_f64;
+    // `function name -> (node id, confidence)`: each provider's scanned symbols
+    // enter the index at that provider's own confidence, so a boundary edge
+    // records the tier of the provider that produced its target — no shared
+    // scalar that the last provider in the loop would overwrite for every edge.
+    let mut boundary_index: HashMap<String, (u64, f64)> = HashMap::new();
     for provider in &providers {
         let symbols = provider.scan(&cwd);
         if symbols.is_empty() {
@@ -127,13 +130,13 @@ pub fn run(
         }
         boundary_index.extend(super::map_boundary::inject_boundary_symbols(
             &symbols,
+            provider.confidence(),
             &mut node_changes,
             &mut edge_changes,
             &mut next_id,
             &mut assigned_hashes,
             &mut valid_node_ids,
         ));
-        boundary_confidence = provider.confidence();
     }
 
     // Build file -> package mapping and cross-package index for monorepo resolution
@@ -175,7 +178,6 @@ pub fn run(
         &file_module_ids,
         &package_node_index,
         &boundary_index,
-        boundary_confidence,
         &mut edge_changes,
         &mut next_id,
         &mut node_tiers,

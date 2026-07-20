@@ -120,14 +120,15 @@ pub fn resolve_call_reference(
     }
 
     // Last resort: a call into a boundary function (e.g. a BAML `.baml`
-    // function). The confidence comes from the boundary provider, not a
-    // hardcoded constant, so a new provider carries its own tier.
+    // function). The confidence is stored with the matched index entry — the
+    // producing provider's own tier, not a hardcoded constant — so a repo with
+    // multiple boundary providers records each edge at its provider's tier.
     if target_id.is_none() {
-        if let Some(id) =
+        if let Some((id, conf)) =
             super::map_boundary::resolve_boundary_call(&reference.name, idx.boundary_index())
         {
             target_id = Some(id);
-            confidence = idx.boundary_confidence();
+            confidence = conf;
         }
     }
 
