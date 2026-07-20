@@ -3,7 +3,7 @@
 //! Resolves call references that Tier 1 (tree-sitter) and Tier 2 (per-language
 //! enhancers) left unresolved, using SCIP indexes or LSP servers.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use keel_core::config::Tier3Config;
@@ -152,6 +152,7 @@ fn register_providers(
     #[cfg(feature = "tier3")]
     {
         use keel_parsers::tier3::provider::Tier3Provider;
+        use std::collections::HashSet;
 
         // Register SCIP providers from config
         for (lang, scip_path) in &config.scip_paths {
@@ -195,7 +196,7 @@ fn register_providers(
     // Suppress unused variable warnings when tier3 feature is disabled
     #[cfg(not(feature = "tier3"))]
     {
-        let _ = (config, languages, cwd, verbose);
+        let _ = (registry, config, languages, cwd, verbose);
     }
 }
 
