@@ -11,7 +11,7 @@
 //! compile`, leaving them gone until the next full map.
 //!
 //! This module hosts ONE ladder, run by both pipelines through the
-//! [`CallIndex`](super::map_resolve::CallIndex) seam, so a compile's
+//! [`CallIndex`] seam, so a compile's
 //! re-resolution reproduces exactly the edges the map would — the prune is
 //! lossless. The two pipelines differ only in how they back `CallIndex`: the
 //! map with its in-memory indices, the compile sync with graph-backed lookups.

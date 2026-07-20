@@ -77,7 +77,7 @@ pub struct LspTransport {
 
 impl LspTransport {
     /// Creates a new transport wrapping a child process's stdin/stdout pair,
-    /// using the [`DEFAULT_TIMEOUT`] response deadline.
+    /// using the `DEFAULT_TIMEOUT` response deadline.
     pub fn new(stdin: ChildStdin, stdout: ChildStdout) -> Self {
         Self::with_timeout(stdin, stdout, DEFAULT_TIMEOUT)
     }
