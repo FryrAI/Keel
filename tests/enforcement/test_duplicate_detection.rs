@@ -21,6 +21,7 @@ fn make_module_node(id: u64, file: &str) -> GraphNode {
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -42,6 +43,7 @@ fn make_func_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -363,6 +365,7 @@ fn test_w002_class_not_reported() {
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -393,4 +396,57 @@ fn test_w002_class_not_reported() {
 
     let violations = check_duplicate_names(&file, &store);
     assert!(violations.is_empty());
+}
+
+#[test]
+fn test_w002_stored_associated_node_no_warning() {
+    // The cross-compile regression (issue #46): a genuine free function in the
+    // file being compiled must not collide with a stored associated method of
+    // the same name+signature that was persisted by an earlier `keel map`. The
+    // persisted `is_associated` flag is the only thing that can tell them apart
+    // — the current file's def has no visibility into the other type's `impl`.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "expiry.py");
+    // Stored node is an associated method: `impl Session { fn is_expired() }`.
+    let mut fn_a = make_func_node(2, "is_expired", "session.py", 1);
+    fn_a.is_associated = true;
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    // Current file has a genuinely free `is_expired()` with the same shape.
+    let def = make_func_def("is_expired", "expiry.py", 1);
+    let file = make_file("expiry.py", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert!(
+        violations.is_empty(),
+        "a free function must not collide with a stored associated method of the same name"
+    );
+}
+
+#[test]
+fn test_w002_stored_free_node_still_fires() {
+    // Control for the fix above: when the stored node is itself a free
+    // function (is_associated: false), the genuine duplicate must STILL fire.
+    // Guards against the new filter over-suppressing every stored node.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "module_a.py");
+    let fn_a = make_func_node(2, "process", "module_a.py", 1); // free, default false
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("process", "module_b.py", 1);
+    let file = make_file("module_b.py", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert_eq!(
+        violations.len(),
+        1,
+        "a free-vs-free duplicate must still fire after the associated-node filter"
+    );
+    assert_eq!(violations[0].code, "W002");
 }

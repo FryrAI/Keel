@@ -23,6 +23,7 @@ fn node(
         is_public,
         type_hints_present: true,
         has_docstring: docstring.is_some(),
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,

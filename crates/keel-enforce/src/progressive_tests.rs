@@ -52,6 +52,7 @@ fn matching_node(def: &Definition) -> GraphNode {
         is_public: def.is_public,
         type_hints_present: def.type_hints_present,
         has_docstring: def.docstring.is_some(),
+        is_associated: def.is_associated,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,

@@ -69,6 +69,12 @@ pub struct GraphNode {
     pub is_public: bool,
     pub type_hints_present: bool,
     pub has_docstring: bool,
+    /// True for methods/associated functions on a type (Rust `impl` blocks,
+    /// class bodies, Go receiver funcs). Persisted so W002 can exempt a stored
+    /// associated method from colliding with a free function of the same name
+    /// in a different file, across separate compiles (issue #46).
+    #[serde(default)]
+    pub is_associated: bool,
     pub external_endpoints: Vec<ExternalEndpoint>,
     pub previous_hashes: Vec<String>,
     pub module_id: u64,

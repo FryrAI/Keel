@@ -22,6 +22,7 @@ fn make_node(id: u64, hash: &str, kind: NodeKind, name: &str, module_id: u64) ->
         is_public: true,
         type_hints_present: true,
         has_docstring: false,
+        is_associated: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
