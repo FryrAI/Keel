@@ -25,7 +25,9 @@ pub(crate) struct Tier3FileData<'a> {
 /// Run the Tier 3 resolution pass over unresolved references.
 ///
 /// Returns the number of newly resolved references and appends new edges
-/// to `edge_changes`.
+/// to `edge_changes`. `seed` pre-populates the resolution cache from the
+/// persisted `resolution_cache` table; `flush_out` receives the cache's
+/// post-pass contents for the caller to persist back.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_tier3_pass(
     config: &Tier3Config,
@@ -37,20 +39,24 @@ pub(crate) fn run_tier3_pass(
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
+    seed: Vec<keel_core::types::ResolutionCacheEntry>,
+    flush_out: &mut Vec<keel_core::types::ResolutionCacheEntry>,
 ) -> u32 {
-    let mut registry = keel_parsers::tier3::Tier3Registry::new();
+    // Tier 3 resolution cache: seeded from the persisted `resolution_cache`
+    // table so SCIP/LSP resolutions survive across runs, and deduping repeated
+    // call sites within the pass. Keyed by (file, line, callee, content_hash)
+    // so a file edit invalidates its entries.
+    let mut cache = keel_parsers::tier3::cache::Tier3Cache::with_seed(seed);
 
+    let mut registry = keel_parsers::tier3::Tier3Registry::new();
     register_providers(&mut registry, config, languages, cwd, verbose);
 
     if registry.provider_count() == 0 {
+        // No providers loaded this run — carry the seed forward untouched so a
+        // provider-less run never wipes a previously-persisted cache.
+        *flush_out = cache.resolution_cache_entries();
         return 0;
     }
-
-    // Tier 3 resolution cache: dedupes repeated call sites within the pass,
-    // keyed by (file, line, callee, content_hash) so a file edit invalidates
-    // its entries. In-memory for now (not yet flushed to the `resolution_cache`
-    // table — see report), but genuinely on the tier-3 lookup path.
-    let mut cache = keel_parsers::tier3::cache::Tier3Cache::new();
 
     let mut tier3_resolved = 0u32;
     for fd in file_data {
@@ -130,6 +136,7 @@ pub(crate) fn run_tier3_pass(
         );
     }
 
+    *flush_out = cache.resolution_cache_entries();
     registry.shutdown();
     tier3_resolved
 }

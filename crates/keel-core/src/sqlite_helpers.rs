@@ -6,6 +6,7 @@ use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
     BodyIndexEntry, EdgeKind, ExternalEndpoint, GraphEdge, GraphError, GraphNode, NodeKind,
+    ResolutionCacheEntry,
 };
 
 impl SqliteGraphStore {
@@ -74,6 +75,75 @@ impl SqliteGraphStore {
             }
         };
         result
+    }
+
+    /// Load the persisted Tier 3 resolution cache (`resolution_tier = 'tier3'`).
+    ///
+    /// Backs [`GraphStore::load_resolution_cache`]. Only `tier3` rows are read,
+    /// so rows any other tier owns are ignored — the `resolution_cache` table
+    /// is general-purpose. An entry is resolved iff `target_file` is non-NULL.
+    pub(crate) fn resolution_cache_load(&self) -> Vec<ResolutionCacheEntry> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT call_site_hash, target_file, target_name, confidence, provider
+             FROM resolution_cache WHERE resolution_tier = 'tier3'",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] resolution_cache_load: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map([], |row| {
+            Ok(ResolutionCacheEntry {
+                call_site_hash: row.get(0)?,
+                target_file: row.get(1)?,
+                target_name: row.get(2)?,
+                confidence: row.get(3)?,
+                provider: row.get(4)?,
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] resolution_cache_load: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
+    }
+
+    /// Rebuild the Tier 3 resolution cache from `entries` in one transaction.
+    ///
+    /// Backs [`GraphStore::replace_resolution_cache`]. Deletes and re-inserts
+    /// only `resolution_tier = 'tier3'` rows so a cache flush never disturbs
+    /// rows another tier wrote. `resolved_node_id` is left NULL — the cache
+    /// stores resolutions by `(target_file, target_name)`, not by node id.
+    pub(crate) fn resolution_cache_replace(
+        &self,
+        entries: Vec<ResolutionCacheEntry>,
+    ) -> Result<(), GraphError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM resolution_cache WHERE resolution_tier = 'tier3'",
+            [],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO resolution_cache
+                 (call_site_hash, target_file, target_name, confidence, provider, resolution_tier)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'tier3')",
+            )?;
+            for e in &entries {
+                stmt.execute(params![
+                    e.call_site_hash,
+                    e.target_file,
+                    e.target_name,
+                    e.confidence,
+                    e.provider,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Build the monorepo package index straight from the graph:

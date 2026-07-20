@@ -10,6 +10,9 @@ mod body_index;
 #[path = "sqlite_previous_hashes_tests.rs"]
 mod previous_hashes;
 
+#[path = "sqlite_resolution_cache_tests.rs"]
+mod resolution_cache;
+
 fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
     GraphNode {
         id,

@@ -188,13 +188,21 @@ impl SqliteGraphStore {
                 responsibility_keywords TEXT NOT NULL DEFAULT '[]'
             );
 
-            -- Resolution cache
+            -- Resolution cache. The Tier 3 columns (file_content_hash,
+            -- target_file, target_name, provider) are declared here for fresh
+            -- databases AND added idempotently by migrate_v3_to_v4 for existing
+            -- ones — a fresh DB never runs migrations, so omitting them here
+            -- would leave the persisted Tier 3 cache unwritable.
             CREATE TABLE IF NOT EXISTS resolution_cache (
                 call_site_hash TEXT PRIMARY KEY,
                 resolved_node_id INTEGER REFERENCES nodes(id),
                 confidence REAL NOT NULL,
                 resolution_tier TEXT NOT NULL,
-                cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+                cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+                file_content_hash TEXT DEFAULT NULL,
+                target_file TEXT DEFAULT NULL,
+                target_name TEXT DEFAULT NULL,
+                provider TEXT DEFAULT NULL
             );
 
             -- Circuit breaker state

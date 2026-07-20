@@ -174,6 +174,27 @@ pub struct BodyIndexEntry {
     pub line: u32,
 }
 
+/// One persisted Tier 3 resolution-cache row (`resolution_tier = 'tier3'`).
+///
+/// Lets SCIP/LSP resolutions survive across `keel map` runs. Keyed by
+/// `call_site_hash` (a content-addressed fingerprint of the call site — see
+/// `Tier3CacheKey::cache_hash`), so the original `(file_path, line, callee)`
+/// is not recoverable from a row, only hashed forward into one. An entry is
+/// "resolved" iff `target_file` is `Some`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolutionCacheEntry {
+    /// Content-addressed key of the resolved call site.
+    pub call_site_hash: String,
+    /// File the call resolved to, or `None` when the provider found no target.
+    pub target_file: Option<String>,
+    /// Symbol the call resolved to, or `None` when unresolved.
+    pub target_name: Option<String>,
+    /// Confidence of the resolution (`0.0` for an unresolved entry).
+    pub confidence: f64,
+    /// Provider that produced the result (`scip`/`lsp`), or `None` if unresolved.
+    pub provider: Option<String>,
+}
+
 /// Errors that can occur during graph operations.
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {

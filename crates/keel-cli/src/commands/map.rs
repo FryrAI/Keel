@@ -66,6 +66,16 @@ pub fn run(
         eprintln!("keel map: WARNING: set_foreign_keys failed: {}", e);
     }
 
+    // Load the persisted Tier 3 resolution cache BEFORE clear_all() wipes it,
+    // so SCIP/LSP resolutions survive across runs. Off by default: skip the
+    // read entirely unless a tier-3 provider is wanted.
+    let tier3_wanted = tier3_enabled || config.tier3.enabled;
+    let resolution_cache_seed = if tier3_wanted {
+        store.load_resolution_cache()
+    } else {
+        Vec::new()
+    };
+
     // Full re-map: clear existing graph data so IDs start fresh
     if let Err(e) = store.clear_all() {
         eprintln!("keel map: failed to clear graph database: {}", e);
@@ -166,7 +176,8 @@ pub fn run(
     );
 
     // === Third pass: Tier 3 resolution for still-unresolved references ===
-    if tier3_enabled || config.tier3.enabled {
+    let mut resolution_cache_flush: Vec<keel_core::types::ResolutionCacheEntry> = Vec::new();
+    if tier3_wanted {
         let tier3_data: Vec<_> = all_file_data
             .iter()
             .map(|fd| super::map_tier3::Tier3FileData {
@@ -186,6 +197,8 @@ pub fn run(
             &global_name_index,
             &mut edge_changes,
             &mut next_id,
+            resolution_cache_seed,
+            &mut resolution_cache_flush,
         );
     }
 
@@ -265,6 +278,15 @@ pub fn run(
     // the graph itself).
     if let Err(e) = store.replace_body_index(body_index) {
         eprintln!("keel map: failed to update body index: {}", e);
+    }
+
+    // Persist the Tier 3 resolution cache for the next run. Skipped when tier-3
+    // is off (nothing to flush) so the default path adds zero DB writes. A pure
+    // perf optimization — warn and continue rather than fail the map.
+    if tier3_wanted {
+        if let Err(e) = store.replace_resolution_cache(resolution_cache_flush) {
+            eprintln!("keel map: failed to persist resolution cache: {}", e);
+        }
     }
 
     if let Err(e) = store.update_edges(valid_edges) {

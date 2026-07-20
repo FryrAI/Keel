@@ -4,7 +4,7 @@ use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
     BodyIndexEntry, EdgeChange, EdgeDirection, GraphEdge, GraphError, GraphNode, ModuleProfile,
-    NodeChange,
+    NodeChange, ResolutionCacheEntry,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -377,5 +377,16 @@ impl GraphStore for SqliteGraphStore {
 
     fn find_body_matches(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
         self.body_index_find(body_hash)
+    }
+
+    fn load_resolution_cache(&self) -> Vec<ResolutionCacheEntry> {
+        self.resolution_cache_load()
+    }
+
+    fn replace_resolution_cache(
+        &mut self,
+        entries: Vec<ResolutionCacheEntry>,
+    ) -> Result<(), GraphError> {
+        self.resolution_cache_replace(entries)
     }
 }
