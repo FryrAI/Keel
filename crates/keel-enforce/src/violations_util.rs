@@ -63,7 +63,7 @@ pub fn is_stub_file(path: &str) -> bool {
 
 /// Check if a file path is a test file by language convention.
 /// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
-/// *.test.js, *.spec.js, *_test.rs, *_tests.rs, tests.rs
+/// *.test.js, *.spec.js, *_test.rs, *_tests.rs, *_tests_*.rs, tests.rs
 pub fn is_test_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
 
@@ -99,7 +99,15 @@ pub fn is_test_file(path: &str) -> bool {
     // "..._tests.rs"] mod tests;` convention), or exactly tests.rs.
     // Suffix match, not substring: "utils_tests.rs" matches, "contests.rs"
     // does not (no underscore before "tests.rs").
-    if basename.ends_with("_test.rs") || basename.ends_with("_tests.rs") || basename == "tests.rs" {
+    // Also `*_tests_*.rs` — the `engine_tests_*.rs` split-file convention
+    // (`engine_tests_e004_misc.rs`, `engine_tests_economy.rs`). `_tests_`
+    // (underscore on both sides) stays precise: "contests_utils.rs" has
+    // "ntests_", no leading underscore, so it does not match.
+    if basename.ends_with("_test.rs")
+        || basename.ends_with("_tests.rs")
+        || basename == "tests.rs"
+        || basename.contains("_tests_")
+    {
         return true;
     }
     false
@@ -419,6 +427,17 @@ mod tests {
         // Suffix match, not substring: no underscore before "tests.rs".
         assert!(!is_test_file("contests.rs"));
         assert!(!is_test_file("src/testing_utils.rs")); // not a test file
+
+        // Rust: `*_tests_*.rs` split-file convention (engine_tests_*.rs) —
+        // full paths and bare basenames.
+        assert!(is_test_file(
+            "crates/keel-enforce/src/engine_tests_e004_misc.rs"
+        ));
+        assert!(is_test_file("engine_tests_economy.rs"));
+        assert!(is_test_file("engine_tests_batch_suppress.rs"));
+        // `_tests_` needs an underscore on BOTH sides: "contests_utils.rs"
+        // has "ntests_" (no leading underscore), so it does not match.
+        assert!(!is_test_file("contests_utils.rs"));
 
         // Directory-based detection
         assert!(is_test_file("src/tests/helpers.py"));

@@ -576,6 +576,43 @@ struct C {\n\
     );
 }
 
+#[test]
+fn functions_called_inside_macro_token_trees_are_captured_as_references() {
+    let mut parser = TreeSitterParser::new();
+    // `make_row` is called only inside `vec![...]`, `check` only inside
+    // `assert!(...)` — macro bodies are opaque token trees, so neither
+    // produces a `call_expression`. Without the macro-body query pattern
+    // both would look uncalled and fire W005.
+    let source = "\
+fn wire() {\n\
+    let rows = vec![make_row(1), make_row(2)];\n\
+    assert!(check(rows));\n\
+}\n";
+    let result = parser
+        .parse_file("rust", Path::new("src/wire.rs"), source)
+        .unwrap();
+    let value_ref = |name: &str| {
+        result
+            .references
+            .iter()
+            .any(|r| r.name == name && r.kind == ReferenceKind::Value)
+    };
+
+    // Called inside macro token trees — real usage, captured as Value refs.
+    assert!(value_ref("make_row"), "`vec![make_row(...)]`");
+    assert!(value_ref("check"), "`assert!(check(...))`");
+
+    // Crucially NOT calls: a macro's token tree is not a real argument list,
+    // so these must never build a `calls` edge or feed E005 arity checking.
+    assert!(
+        !result
+            .references
+            .iter()
+            .any(|r| (r.name == "make_row" || r.name == "check") && r.kind == ReferenceKind::Call),
+        "macro-body reference must not be recorded as a call"
+    );
+}
+
 /// Associated items (inherent-impl fns, class methods, Go receiver funcs) are
 /// marked `is_associated`; free functions are not. W002 relies on this to skip
 /// idiomatic `Type::name` bare-name collisions across unrelated types.
