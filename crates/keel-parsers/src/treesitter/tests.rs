@@ -433,8 +433,11 @@ mod tests {\n\
     );
 }
 
+/// A plain top-level TS function with no `describe`/`it`/`test` ancestor is not
+/// test-context. (Per-grammar test marking for Python/TS lives in
+/// `tests_context.rs`; this stays as the negative-case guard.)
 #[test]
-fn non_rust_definitions_are_never_test_context() {
+fn ts_function_outside_test_block_is_not_test_context() {
     let mut parser = TreeSitterParser::new();
     let result = parser
         .parse_file("typescript", Path::new("a.ts"), "function f() {}\n")

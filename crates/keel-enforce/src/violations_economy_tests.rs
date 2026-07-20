@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::*;
 use crate::test_fixtures::{
-    call_ref, definition, file_index, file_index_with_refs, function_node, node_for_definition,
-    test_context_definition, ECON_BODY,
+    auto_invoked_definition, call_ref, definition, file_index, file_index_with_refs, function_node,
+    node_for_definition, test_context_definition, ECON_BODY,
 };
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{EdgeChange, GraphEdge};
@@ -68,18 +68,21 @@ fn w005_silent_for_public_entrypoint_underscore_and_qualified() {
 }
 
 #[test]
-fn w005_go_init_is_entrypoint_not_dead() {
-    // Go runs `func init()` at package load — auto-invoked, never dead, even
-    // with zero call edges in the graph.
-    let store = SqliteGraphStore::in_memory().unwrap();
-    let def = definition("init", "src/app.go", false);
-    store.insert_node(&node_for_definition(1, &def)).unwrap();
-    let file = file_index("src/app.go", vec![def]);
-    let stored = store.get_nodes_in_file("src/app.go");
-    assert!(
-        check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
-        "Go `func init()` must be exempt from W005"
-    );
+fn w005_go_auto_invoked_entrypoints_not_dead() {
+    // Go's Tier-2 pass marks `init`/`main`/`TestMain` as auto-invoked (run by
+    // the runtime or test harness) — never dead, even with zero call edges.
+    // W005 keys off that parser flag, not a language-from-path special case.
+    for name in ["init", "main", "TestMain"] {
+        let store = SqliteGraphStore::in_memory().unwrap();
+        let def = auto_invoked_definition(name, "src/app.go");
+        store.insert_node(&node_for_definition(1, &def)).unwrap();
+        let file = file_index("src/app.go", vec![def]);
+        let stored = store.get_nodes_in_file("src/app.go");
+        assert!(
+            check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
+            "Go `{name}` (is_auto_invoked) must be exempt from W005"
+        );
+    }
 }
 
 #[test]
@@ -94,6 +97,32 @@ fn w005_rust_init_is_not_exempt() {
     let v = check_dead_code(&file, &store, &stored, &HashSet::new());
     assert_eq!(v.len(), 1, "Rust `init` is not an entrypoint: {v:?}");
     assert_eq!(v[0].code, "W005");
+}
+
+#[test]
+fn w005_test_prefixed_name_exempt_via_context_flag_not_name() {
+    // The old blind `name.starts_with("test_")` skip is gone. A Python
+    // `def test_helper()` is now exempt because its parser-set in_test_context
+    // is true — proving the deleted string branch's behavior is fully covered
+    // by precise AST marking.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = test_context_definition("test_helper", "src/mod_a.py");
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/mod_a.py", vec![def]);
+    let stored = store.get_nodes_in_file("src/mod_a.py");
+    assert!(
+        check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
+        "`test_helper` with in_test_context must be exempt from W005"
+    );
+
+    // Same name WITHOUT the context flag is no longer given a free pass by the
+    // name alone — the blind prefix check is truly removed.
+    let bare = definition("test_helper", "src/mod_a.py", false);
+    store.insert_node(&node_for_definition(2, &bare)).unwrap();
+    let file = file_index("src/mod_a.py", vec![bare]);
+    let stored = store.get_nodes_in_file("src/mod_a.py");
+    let v = check_dead_code(&file, &store, &stored, &HashSet::new());
+    assert_eq!(v.len(), 1, "test_-prefix alone no longer exempts: {v:?}");
 }
 
 #[test]

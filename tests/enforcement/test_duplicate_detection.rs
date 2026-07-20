@@ -64,6 +64,7 @@ fn make_func_def(name: &str, file: &str, line: u32) -> Definition {
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     }
 }
 
@@ -386,6 +387,7 @@ fn test_w002_class_not_reported() {
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     };
     let file = make_file("b.py", vec![class_def]);
 

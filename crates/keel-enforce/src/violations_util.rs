@@ -64,6 +64,15 @@ pub fn is_stub_file(path: &str) -> bool {
 /// Check if a file path is a test file by language convention.
 /// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
 /// *.test.js, *.spec.js, *_test.rs, *_tests.rs, *_tests_*.rs, tests.rs
+///
+/// Now that `Definition::in_test_context` marks test symbols precisely per
+/// grammar (Rust/Python/TS in the tree-sitter walk, Go in its Tier-2 pass),
+/// this coarse filename check has narrowed to a fallback: it is the only signal
+/// for a file whose `parse_file` returned no definitions, and a belt-and-braces
+/// safety net for test-support code the per-definition AST rules do not
+/// individually catch — pytest `@pytest.fixture` helpers with non-`test_`
+/// names, Go/TS test utilities. It is also still the sole test signal for the
+/// store-based cross-file filters, whose `GraphNode`s carry no context flags.
 pub fn is_test_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
 

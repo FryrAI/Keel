@@ -22,6 +22,7 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str, line: u32) -> 
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     }
 }
 

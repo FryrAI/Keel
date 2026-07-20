@@ -111,7 +111,10 @@ fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
 /// The three ancestry-derived flags a definition carries.
 #[derive(Default)]
 struct DefContexts {
-    /// Rust only: inside a `#[cfg(test)]` module or a `#[test]` function.
+    /// Inside a test context, marked per-grammar: a Rust `#[cfg(test)]` module
+    /// or `#[test]` fn; a Python `test_*` fn or a `unittest.TestCase` subclass;
+    /// a TS symbol nested in a `describe`/`it`/`test` block. Go's test marking
+    /// (`Test*`/`Benchmark*`) is applied in its Tier-2 pass, not here.
     in_test: bool,
     /// On a trait/interface contract surface (Rust trait or trait impl, TS
     /// interface or `implements` class).
@@ -163,14 +166,34 @@ fn definition_contexts(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -
     while let Some(n) = current {
         let kind = n.kind();
 
-        // Test context (Rust only) — starts at the node ITSELF, since a `#[test]`
-        // attribute annotates the function being classified.
-        if lang == "rust"
-            && !ctx.in_test
-            && matches!(kind, "function_item" | "mod_item")
-            && preceding_attrs_mark_test(n, source)
-        {
-            ctx.in_test = true;
+        // Test context — starts at the node ITSELF (a `#[test]` attribute, a
+        // `test_*` name, or a `TestCase` base annotates the very definition
+        // being classified), and is monotonic: once set, later ancestors leave
+        // it. NOT bounded by function scope, so a helper nested inside a test fn
+        // or block is still test code (the deliberate asymmetry above).
+        if !ctx.in_test {
+            match lang {
+                // Rust: `#[cfg(test)] mod` / `#[test]` / `#[tokio::test]` fn.
+                "rust"
+                    if matches!(kind, "function_item" | "mod_item")
+                        && preceding_attrs_mark_test(n, source) =>
+                {
+                    ctx.in_test = true;
+                }
+                // Python: pytest `def test_*`, or any method whose enclosing
+                // `class` derives from a `*TestCase` base (unittest ancestry).
+                "python" if python_marks_test(n, source) => {
+                    ctx.in_test = true;
+                }
+                // TypeScript: a `describe`/`it`/`test` call in the ancestry —
+                // marks NAMED helpers/consts declared inside such a block. The
+                // anonymous arrow callback itself is never captured as its own
+                // `Definition` by typescript.scm, so it cannot be marked here.
+                _ if is_ts && kind == "call_expression" && ts_call_is_test_block(n, source) => {
+                    ctx.in_test = true;
+                }
+                _ => {}
+            }
         }
 
         // The remaining two flags are about ANCESTRY, so skip the node itself.
@@ -239,6 +262,46 @@ fn has_implements_clause(class: tree_sitter::Node<'_>) -> bool {
                     .is_some_and(|c| c.kind() == "implements_clause")
             })
         })
+}
+
+/// True when a Python node marks a test context on its own.
+///
+/// - `function_definition` whose `name` starts with `test_` — the pytest
+///   collection convention (a bare module-level test function).
+/// - `class_definition` whose `superclasses` list names a `*TestCase` base —
+///   covers both `unittest.TestCase` and a bare `TestCase` import; every method
+///   of such a class is harness-invoked.
+fn python_marks_test(n: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    match n.kind() {
+        "function_definition" => n
+            .child_by_field_name("name")
+            .is_some_and(|name| node_text(name, source).starts_with("test_")),
+        "class_definition" => n
+            .child_by_field_name("superclasses")
+            .is_some_and(|bases| node_text(bases, source).contains("TestCase")),
+        _ => false,
+    }
+}
+
+/// True when a TS `call_expression` is a `describe`/`it`/`test` block.
+///
+/// The callee is read from the `function` field: a bare `identifier` uses its
+/// own text; a `member_expression` (e.g. `it.only`, `test.skip`, `describe.each`)
+/// uses its `object` text. Only these two forms are handled — the `.each(...)()`
+/// chained-call form is rare and deliberately not special-cased.
+fn ts_call_is_test_block(n: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let Some(func) = n.child_by_field_name("function") else {
+        return false;
+    };
+    let callee = match func.kind() {
+        "identifier" => node_text(func, source),
+        "member_expression" => func
+            .child_by_field_name("object")
+            .map(|o| node_text(o, source))
+            .unwrap_or(""),
+        _ => return false,
+    };
+    matches!(callee, "describe" | "it" | "test")
 }
 
 /// Scans the `attribute_item` siblings immediately preceding `item` for a
@@ -400,6 +463,10 @@ fn extract_definitions(
                 in_test_context: contexts.in_test,
                 in_trait_context: contexts.in_trait,
                 is_associated: is_go_method || contexts.is_associated,
+                // Tier 1 default; Go's Tier-2 pass is the only place that sets
+                // this true (init/main/TestMain). Other languages have no
+                // auto-invoked entrypoint names to mark here.
+                is_auto_invoked: false,
             });
         }
     }
@@ -530,3 +597,6 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_context;

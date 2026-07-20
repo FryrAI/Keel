@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
-use keel_parsers::resolver::FileIndex;
+use keel_parsers::resolver::{Definition, FileIndex};
 
 use crate::types::Violation;
 use crate::violations_util::{is_bench_file, is_stub_file, is_test_file, node_hash_matches};
@@ -29,14 +29,14 @@ const _: () = assert!(MIN_DUPLICATE_BODY_LEN >= keel_core::hash::MIN_INDEXED_BOD
 /// never dead.
 const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
 
-/// True when `name` is an auto-invoked entrypoint and therefore never dead.
+/// True when a definition is an auto-invoked entrypoint and therefore never dead.
 ///
-/// Language-aware so Go's `func init()` (run at package load) and `TestMain`
-/// (the test entry) are exempt WITHOUT blanket-exempting `init` in languages
-/// where an uncalled `init` really is dead code.
-fn is_entrypoint(name: &str, lang: Option<&str>) -> bool {
-    ENTRYPOINT_NAMES.contains(&name)
-        || (matches!(lang, Some("go")) && matches!(name, "init" | "TestMain"))
+/// `ENTRYPOINT_NAMES` holds only names universal across languages; anything
+/// language-specific (Go's `init`/`main`/`TestMain`) is carried by the parser's
+/// per-language `is_auto_invoked` flag, so this check no longer re-derives the
+/// language from the file path or accretes a match arm per runtime convention.
+fn is_entrypoint(def: &Definition) -> bool {
+    ENTRYPOINT_NAMES.contains(&def.name.as_str()) || def.is_auto_invoked
 }
 
 /// Collect every symbol name referenced anywhere in the compile batch,
@@ -108,8 +108,6 @@ pub fn check_dead_code(
         return violations;
     }
 
-    let lang = keel_parsers::treesitter::detect_language(std::path::Path::new(&file.file_path));
-
     for def in &file.definitions {
         if def.kind != NodeKind::Function
             || def.is_public
@@ -123,12 +121,11 @@ pub fn check_dead_code(
             // resolves to the trait declaration, not to each implementor — so
             // "no callers" is an artifact of the analysis, not dead code.
             || def.in_trait_context
-            // `test_*`/`bench_*` cover harness-invoked functions in
-            // co-located #[cfg(test)] modules and criterion benches.
-            || def.name.starts_with("test_")
+            // `bench_*` covers criterion benches outside `benches/`; no
+            // language's test-context marking covers benchmark naming.
             || def.name.starts_with("bench_")
             || def.name.contains('.')
-            || is_entrypoint(&def.name, lang)
+            || is_entrypoint(def)
         {
             continue;
         }

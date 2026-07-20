@@ -18,6 +18,7 @@ fn make_def(name: &str, is_public: bool, docstring: Option<&str>) -> Definition 
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     }
 }
 
@@ -95,6 +96,7 @@ fn test_e003_class_not_checked() {
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     };
     let file = make_file(vec![class_def]);
     let violations = check_missing_docstring(&file);

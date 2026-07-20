@@ -195,6 +195,7 @@ fn test_e004_function_still_exists_no_violation() {
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     };
     let file = FileIndex {
         file_path: "lib.py".to_string(),

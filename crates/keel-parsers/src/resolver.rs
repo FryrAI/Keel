@@ -111,6 +111,13 @@ pub struct Definition {
     /// bare name across unrelated types is idiomatic, not ambiguous — W002
     /// skips them. Go methods (receiver funcs) count too.
     pub is_associated: bool,
+    /// True when this definition is invoked by a language runtime or test
+    /// harness rather than by an explicit call in the codebase — so "no
+    /// callers" is vacuous and W005 must not flag it. Set per-language in the
+    /// Tier-2 pass: Go's `init`/`main`/`TestMain`. Lets the enforcement layer's
+    /// entrypoint list hold only genuinely universal names instead of accreting
+    /// a language arm per runtime convention. Other languages carry `false`.
+    pub is_auto_invoked: bool,
 }
 
 impl Definition {
@@ -327,6 +334,7 @@ mod tests {
                 in_test_context: false,
                 in_trait_context: false,
                 is_associated: false,
+                is_auto_invoked: false,
             }],
             references: vec![],
             imports: vec![],

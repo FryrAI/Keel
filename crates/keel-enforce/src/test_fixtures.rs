@@ -28,6 +28,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         in_test_context: false,
         in_trait_context: false,
         is_associated: false,
+        is_auto_invoked: false,
     }
 }
 
@@ -36,8 +37,16 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
 pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
     Definition {
         in_test_context: true,
-        in_trait_context: false,
-        is_associated: false,
+        ..definition(name, file, false)
+    }
+}
+
+/// A private function definition flagged as auto-invoked — what a language's
+/// Tier-2 pass sets for a runtime/harness entrypoint (Go `init`/`main`/
+/// `TestMain`). Exempt from W005 without any language-from-path re-derivation.
+pub(crate) fn auto_invoked_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        is_auto_invoked: true,
         ..definition(name, file, false)
     }
 }
