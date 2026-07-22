@@ -174,7 +174,7 @@ A private function has no callers anywhere in the graph and isn't referenced in 
 }
 ```
 
-**Fix:** Delete the function, or call it from somewhere and re-run `keel map` to refresh call edges. Public functions, entrypoints, tests, and underscore-prefixed names are exempt. Disable with `enforce.dead_code: false` in `keel.json`.
+**Fix:** Delete the function, or call it from somewhere and re-run `keel map` to refresh call edges. Public functions, entrypoints, tests, decorated functions (e.g. `@app.route`, `@pytest.fixture`), and underscore-prefixed names are exempt. For a function reached only through dynamic dispatch the graph can't see (`globals()[name]()`, `getattr`, a string-keyed handler table), add a `keel:keep` marker comment on its definition line or the line above (`# keel:keep`, `// keel:keep`) to suppress it individually. Disable the whole check with `enforce.dead_code: false` in `keel.json`.
 
 ### W006 — Duplicate Implementation
 

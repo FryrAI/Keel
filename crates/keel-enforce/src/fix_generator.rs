@@ -1,7 +1,18 @@
 use crate::types::{FixAction, FixPlan, Violation};
 use keel_core::store::GraphStore;
-use keel_core::types::EdgeDirection;
+use keel_core::types::{EdgeDirection, EdgeKind, GraphEdge};
 use std::path::Path;
+
+/// Incoming `calls` edges only. A `uses` edge (function passed as a value) has
+/// no argument list at its site, so it is never something to rewrite for a
+/// changed signature or arity.
+fn incoming_calls(store: &dyn GraphStore, node_id: u64) -> Vec<GraphEdge> {
+    store
+        .get_edges(node_id, EdgeDirection::Incoming)
+        .into_iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .collect()
+}
 
 /// Generate fix plans from a set of violations.
 ///
@@ -31,7 +42,7 @@ fn generate_plan_for_violation(v: &Violation, store: &dyn GraphStore) -> Option<
 /// E001: broken_caller — signature changed, callers need updating.
 fn generate_broken_caller_fix(v: &Violation, store: &dyn GraphStore) -> Option<FixPlan> {
     let node = store.get_node(&v.hash)?;
-    let callers = store.get_edges(node.id, EdgeDirection::Incoming);
+    let callers = incoming_calls(store, node.id);
 
     let mut actions = Vec::new();
     for edge in &callers {
@@ -91,7 +102,7 @@ fn generate_removed_function_fix(v: &Violation, _store: &dyn GraphStore) -> Opti
 /// E005: arity_mismatch — parameter count changed, callers need updating.
 fn generate_arity_mismatch_fix(v: &Violation, store: &dyn GraphStore) -> Option<FixPlan> {
     let node = store.get_node(&v.hash)?;
-    let callers = store.get_edges(node.id, EdgeDirection::Incoming);
+    let callers = incoming_calls(store, node.id);
 
     let mut actions = Vec::new();
     for edge in &callers {

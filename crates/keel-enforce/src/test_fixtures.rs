@@ -29,6 +29,8 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         in_trait_context: false,
         is_associated: false,
         is_auto_invoked: false,
+        is_decorated: false,
+        has_keep_marker: false,
     }
 }
 
@@ -47,6 +49,25 @@ pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
 pub(crate) fn auto_invoked_definition(name: &str, file: &str) -> Definition {
     Definition {
         is_auto_invoked: true,
+        ..definition(name, file, false)
+    }
+}
+
+/// A private function definition flagged as decorator-registered — what
+/// Python's parser sets for a `@register("evt")`/`@app.route(...)`-wrapped
+/// function. Exempt from W005: the decorator holds the reference, not a call.
+pub(crate) fn decorated_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        is_decorated: true,
+        ..definition(name, file, false)
+    }
+}
+
+/// A private function definition carrying a `keel:keep` marker — the
+/// language-agnostic per-symbol W005 escape hatch for dynamic dispatch.
+pub(crate) fn keep_marker_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        has_keep_marker: true,
         ..definition(name, file, false)
     }
 }

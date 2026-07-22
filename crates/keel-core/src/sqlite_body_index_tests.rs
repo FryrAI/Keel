@@ -161,9 +161,9 @@ fn test_clear_all_wipes_body_index() {
 }
 
 #[test]
-fn test_fresh_database_is_v5() {
+fn test_fresh_database_is_current() {
     let store = SqliteGraphStore::in_memory().unwrap();
-    assert_eq!(store.schema_version().unwrap(), 5);
+    assert_eq!(store.schema_version().unwrap(), 6);
 }
 
 /// A v4 database must migrate to v5 and gain a usable body index, with its
@@ -192,7 +192,7 @@ fn test_migration_v4_to_v5() {
     let mut store = SqliteGraphStore::open(db_str).unwrap();
 
     // THEN the version advanced and the index works.
-    assert_eq!(store.schema_version().unwrap(), 5, "v4 db should reach v5");
+    assert_eq!(store.schema_version().unwrap(), 6, "v4 db should reach v6");
     store
         .replace_body_index(vec![entry("n1", "b1", "f", "src/a.rs", 1)])
         .expect("body index usable after migration");
@@ -221,7 +221,7 @@ fn test_migration_v5_is_idempotent() {
     }
 
     let store = SqliteGraphStore::open(db_str).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 5);
+    assert_eq!(store.schema_version().unwrap(), 6);
     assert_eq!(
         store.find_body_matches("persisted").len(),
         1,

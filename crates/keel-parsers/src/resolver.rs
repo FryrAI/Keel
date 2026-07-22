@@ -101,9 +101,12 @@ pub struct Definition {
     /// W005 (dead code), and W006 (duplicate implementation) therefore skip
     /// them — renaming or deleting one is not a legal fix.
     ///
-    /// Go and Python definitions always carry `false`: Go's interfaces are
-    /// satisfied structurally (there is no syntactic marker on the method to
-    /// key off), and Python has no static interface declaration.
+    /// Python definitions always carry `false`: Python has no static
+    /// interface declaration. Go methods carry `false` UNLESS the method's
+    /// receiver type satisfies a same-file interface (Go's Tier-2 pass sets
+    /// `true` there — see `go::mod`) — Go interfaces are satisfied
+    /// structurally, so there is no syntactic marker on the method itself to
+    /// key off; the parser has to cross-reference the interface's method set.
     pub in_trait_context: bool,
     /// True when this definition is an associated item — a method or associated
     /// function inside a Rust `impl`/`trait` block or a TS/Python class body.
@@ -118,6 +121,24 @@ pub struct Definition {
     /// entrypoint list hold only genuinely universal names instead of accreting
     /// a language arm per runtime convention. Other languages carry `false`.
     pub is_auto_invoked: bool,
+    /// True when this definition sits directly under a decorator — a Python
+    /// `@register("evt")` / `@app.route(...)` / `@pytest.fixture`-wrapped
+    /// function (a `decorated_definition` node in tree-sitter-python).
+    /// Decorator syntax hands the function to the decorator rather than
+    /// leaving it called by name — a framework holds the reference, so "no
+    /// callers" is an artifact of the analysis, not dead code. W005 skips it;
+    /// E002 (type hints) and E003 (docstrings) still apply. Python-only for
+    /// now (TS decorators cannot wrap a plain function); other languages
+    /// always carry `false`.
+    pub is_decorated: bool,
+    /// True when the substring `keel:keep` appears on this definition's own
+    /// line or the line immediately above it (`# keel:keep`, `// keel:keep`,
+    /// `/* keel:keep */` all match — the scan is a dumb substring check, not
+    /// comment-aware). The language-agnostic per-symbol escape hatch for
+    /// statically-invisible dynamic dispatch (`globals()[name]()`, `getattr`,
+    /// a handler table keyed by string) that no exemption rule can see
+    /// through. W005 skips it.
+    pub has_keep_marker: bool,
 }
 
 impl Definition {
@@ -335,6 +356,8 @@ mod tests {
                 in_trait_context: false,
                 is_associated: false,
                 is_auto_invoked: false,
+                is_decorated: false,
+                has_keep_marker: false,
             }],
             references: vec![],
             imports: vec![],

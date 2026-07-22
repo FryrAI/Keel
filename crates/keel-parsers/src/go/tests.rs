@@ -210,3 +210,140 @@ func main() {
         "import source should contain cobra"
     );
 }
+
+#[test]
+fn test_go_interface_satisfying_method_is_trait_context() {
+    // Go interfaces are satisfied structurally — `worker.run` implements
+    // `runner` with no syntactic link, so a caller reaching it only through
+    // the interface would otherwise make `run` look dead (W005 false positive).
+    let resolver = GoResolver::new();
+    let source = r#"
+package main
+
+type runner interface {
+    run()
+}
+
+type worker struct{}
+
+func (w worker) run() {}
+"#;
+    let result = resolver.parse_file(Path::new("iface.go"), source);
+    let def = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "run")
+        .expect("missing def run");
+    assert!(
+        def.in_trait_context,
+        "method matching a same-file interface method name must be exempted from W005"
+    );
+}
+
+#[test]
+fn test_go_method_without_matching_interface_is_not_trait_context() {
+    // A method that doesn't satisfy any declared interface must still be
+    // eligible for W005 — genuinely dead methods must not be hidden.
+    let resolver = GoResolver::new();
+    let source = r#"
+package main
+
+type runner interface {
+    run()
+}
+
+type worker struct{}
+
+func (w worker) other() {}
+"#;
+    let result = resolver.parse_file(Path::new("iface_no_match.go"), source);
+    let def = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "other")
+        .expect("missing def other");
+    assert!(
+        !def.in_trait_context,
+        "a method with no matching interface method name must not be exempted"
+    );
+}
+
+#[test]
+fn test_go_interface_satisfier_is_precise_per_type() {
+    // Two structs each declare a `close()` method — same name, same
+    // interface's required method — but only `fullCloser` also implements
+    // `flush()`, so only `fullCloser` structurally satisfies `closer`.
+    // `partialCloser.close` must NOT be exempted just because some other
+    // type sharing the method name happens to satisfy the interface.
+    let resolver = GoResolver::new();
+    let source = r#"
+package main
+
+type closer interface {
+    close()
+    flush()
+}
+
+type fullCloser struct{}
+
+func (f fullCloser) close() {}
+func (f fullCloser) flush() {}
+
+type partialCloser struct{}
+
+func (p partialCloser) close() {}
+"#;
+    let result = resolver.parse_file(Path::new("iface_precise.go"), source);
+
+    let mut closes: Vec<_> = result
+        .definitions
+        .iter()
+        .filter(|d| d.name == "close")
+        .collect();
+    closes.sort_by_key(|d| d.line_start);
+    assert_eq!(closes.len(), 2, "expected two close() methods");
+    assert!(
+        closes[0].in_trait_context,
+        "fullCloser.close is exempt: fullCloser satisfies closer (has both close and flush)"
+    );
+    assert!(
+        !closes[1].in_trait_context,
+        "partialCloser.close must stay eligible for W005: partialCloser lacks flush() so it does not satisfy closer"
+    );
+
+    let flush = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "flush")
+        .expect("missing def flush");
+    assert!(
+        flush.in_trait_context,
+        "fullCloser.flush is exempt: fullCloser satisfies closer"
+    );
+}
+
+#[test]
+fn test_go_plain_function_matching_interface_name_is_not_trait_context() {
+    // A free function (no receiver) can never satisfy an interface, even if
+    // its name happens to collide with an interface method name.
+    let resolver = GoResolver::new();
+    let source = r#"
+package main
+
+type runner interface {
+    run()
+}
+
+func run() {}
+"#;
+    let result = resolver.parse_file(Path::new("iface_plain_fn.go"), source);
+    let def = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "run" && !d.is_associated)
+        .expect("missing plain function run");
+    assert!(
+        !def.in_trait_context,
+        "a receiver-less function must not be exempted just for sharing a name with an interface method"
+    );
+}

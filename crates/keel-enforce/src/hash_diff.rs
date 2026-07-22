@@ -53,6 +53,7 @@ impl EnforcementEngine {
                 EdgeKind::Imports => "import",
                 EdgeKind::Inherits => "type_ref",
                 EdgeKind::Contains => "re_export",
+                EdgeKind::Uses => "value_ref",
             };
             chain.push(ResolutionStep {
                 kind: kind.to_string(),

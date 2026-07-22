@@ -34,6 +34,11 @@ pub enum EdgeKind {
     Imports,
     Inherits,
     Contains,
+    /// A function named as a *value* rather than invoked — passed as a
+    /// callback, stored in a table, named in an attribute string. It proves the
+    /// target is used (W005 accepts it as a caller) but carries no argument
+    /// list, so it must never feed broken-caller/arity checking.
+    Uses,
 }
 
 impl EdgeKind {
@@ -44,6 +49,7 @@ impl EdgeKind {
             EdgeKind::Imports => "imports",
             EdgeKind::Inherits => "inherits",
             EdgeKind::Contains => "contains",
+            EdgeKind::Uses => "uses",
         }
     }
 }
@@ -100,8 +106,10 @@ pub struct GraphEdge {
     pub file_path: String,
     pub line: u32,
     /// Resolution confidence (0.0 = guess, 1.0 = certain).
-    /// Edges with confidence < 0.80 (dynamic dispatch, ambiguous resolution)
-    /// produce WARNINGs instead of ERRORs in enforcement.
+    /// `calls` edges with confidence < 0.80 (dynamic dispatch, ambiguous
+    /// resolution) produce WARNINGs instead of ERRORs in enforcement.
+    /// `uses` edges never feed severity regardless of confidence — every
+    /// error-producing check filters on kind first.
     #[serde(default = "default_edge_confidence")]
     pub confidence: f64,
 }

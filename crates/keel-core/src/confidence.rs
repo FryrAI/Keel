@@ -13,6 +13,14 @@
 /// most certain non-exact resolution the ladder produces.
 pub const SAME_FILE_CALL: f64 = 0.95;
 
+/// A same-file function *value* reference (`.map(render)`) matched by name
+/// against the file's own definitions. Slightly below [`SAME_FILE_CALL`]: the
+/// name match is certain, but a value reference proves only usage, never a
+/// call, so it never carries a call's authority. Numerically error-tier, yet
+/// outside the tier asserts below — `uses` edges are kind-filtered out of
+/// severity decisions entirely.
+pub const SAME_FILE_VALUE_REF: f64 = 0.9;
+
 /// Seed confidence for a cross-file call resolved by the path heuristics
 /// (import match, same-directory) when the language resolver reports none of
 /// its own. Error-tier: a confident structural edge.

@@ -83,6 +83,22 @@
 ; is captured as @ref.value and never becomes a `calls` edge.
 (arguments (identifier) @ref.value.name) @ref.value
 
+; Borrowed argument: `register(&handler)` — the identifier sits inside a
+; reference_expression, so the pattern above misses it.
+(arguments (reference_expression value: (identifier) @ref.value.name)) @ref.value
+
+; Struct-literal field value: `Holder { cb: stored_cb }`.
+(field_initializer value: (identifier) @ref.value.name) @ref.value
+
+; Alias binding: `let cb = stored_cb;`.
+(let_declaration value: (identifier) @ref.value.name) @ref.value
+
+; Array element: `let cbs = [first_cb, second_cb];`.
+(array_expression (identifier) @ref.value.name) @ref.value
+
+; Returned function: `return stored_cb;`.
+(return_expression (identifier) @ref.value.name) @ref.value
+
 ; --- Call-shaped references inside macro token trees ---
 ; Macro bodies are unparsed token trees in the grammar — `vec![helper()]` /
 ; `assert!(cond_fn())` never produce a `call_expression`, so a helper called

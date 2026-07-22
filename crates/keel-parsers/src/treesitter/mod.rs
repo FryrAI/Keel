@@ -108,7 +108,7 @@ fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
 }
 
-/// The three ancestry-derived flags a definition carries.
+/// The four ancestry-derived flags a definition carries.
 #[derive(Default)]
 struct DefContexts {
     /// Inside a test context, marked per-grammar: a Rust `#[cfg(test)]` module
@@ -122,6 +122,9 @@ struct DefContexts {
     /// An associated item — addressed through its type, so bare-name
     /// collisions across unrelated types are idiomatic and W002 skips it.
     is_associated: bool,
+    /// Directly wrapped in a Python `decorated_definition` — see
+    /// `Definition::is_decorated`.
+    is_decorated: bool,
 }
 
 /// Node kinds that introduce a new function scope, per supported grammar.
@@ -159,6 +162,7 @@ fn definition_contexts(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -
     let mut ctx = DefContexts::default();
     let mut trait_decided = false;
     let mut assoc_decided = false;
+    let mut decorator_decided = false;
     let is_ts = is_typescript_family(lang);
 
     let mut current = Some(node);
@@ -236,6 +240,20 @@ fn definition_contexts(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -
                 {
                     ctx.is_associated = true;
                     assoc_decided = true;
+                }
+            }
+
+            // Bounded exactly like `is_associated`: a function scope between
+            // us and any `decorated_definition` means the decorator wraps an
+            // OUTER function we merely happen to be nested inside, not this
+            // definition — a helper defined in a decorated function's body is
+            // not itself decorator-registered.
+            if !decorator_decided {
+                if is_function_scope(kind) {
+                    decorator_decided = true;
+                } else if lang == "python" && kind == "decorated_definition" {
+                    ctx.is_decorated = true;
+                    decorator_decided = true;
                 }
             }
         }
@@ -336,6 +354,20 @@ fn preceding_attrs_mark_test(item: tree_sitter::Node<'_>, source: &[u8]) -> bool
     false
 }
 
+/// True when `keel:keep` appears on the definition's own 1-based source line
+/// (`line_start`) or the line immediately above it. Dumb substring scan —
+/// deliberately not comment-aware, so `# keel:keep`, `// keel:keep`, and
+/// `/* keel:keep */` all match with no per-language comment syntax to track.
+fn has_keep_marker(lines: &[&str], line_start: u32) -> bool {
+    let own = line_start
+        .checked_sub(1)
+        .and_then(|i| lines.get(i as usize));
+    let above = line_start
+        .checked_sub(2)
+        .and_then(|i| lines.get(i as usize));
+    own.is_some_and(|l| l.contains("keel:keep")) || above.is_some_and(|l| l.contains("keel:keep"))
+}
+
 fn extract_definitions(
     query: &Query,
     root: tree_sitter::Node<'_>,
@@ -347,6 +379,9 @@ fn extract_definitions(
     let mut defs = Vec::new();
     let capture_names = query.capture_names();
     let mut matches = cursor.matches(query, root, source);
+    // Split once for the `keel:keep` marker scan below rather than per
+    // definition — the file's line count doesn't change during extraction.
+    let lines: Vec<&str> = std::str::from_utf8(source).unwrap_or("").lines().collect();
 
     while let Some(m) = matches.next() {
         let mut name = None;
@@ -442,7 +477,7 @@ fn extract_definitions(
             let docstring =
                 def_node.and_then(|node| docstrings::extract_docstring(node, body_node, source));
 
-            // One ancestor walk yields all three context flags.
+            // One ancestor walk yields all four context flags.
             let contexts = def_node
                 .map(|node| definition_contexts(node, lang, source))
                 .unwrap_or_default();
@@ -467,6 +502,8 @@ fn extract_definitions(
                 // this true (init/main/TestMain). Other languages have no
                 // auto-invoked entrypoint names to mark here.
                 is_auto_invoked: false,
+                is_decorated: contexts.is_decorated,
+                has_keep_marker: has_keep_marker(&lines, line_start),
             });
         }
     }
@@ -504,6 +541,18 @@ fn extract_references(
                         node_text(cap.node, source).to_string(),
                         cap.node.start_position().row as u32 + 1,
                     ));
+                }
+                "ref.jsx.name" => {
+                    // JSX element name (TSX grammar only — see
+                    // queries/typescript_jsx.scm). Intrinsic HTML elements
+                    // (`<div>`) start lowercase and must NOT count as a
+                    // reference; tree-sitter `#match?` predicates are not
+                    // evaluated by this walker, so the filter lives here.
+                    let text = node_text(cap.node, source);
+                    if text.starts_with(|c: char| c.is_uppercase()) {
+                        value_names
+                            .push((text.to_string(), cap.node.start_position().row as u32 + 1));
+                    }
                 }
                 "ref.attr.name" => {
                     // `"default_true"` — the string literal keeps its quotes.
@@ -600,3 +649,9 @@ mod tests;
 
 #[cfg(test)]
 mod tests_context;
+
+#[cfg(test)]
+mod tests_decorators;
+
+#[cfg(test)]
+mod tests_value_captures;

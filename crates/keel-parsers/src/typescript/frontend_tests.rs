@@ -62,6 +62,181 @@ export function Card(props) {
 }
 
 // ---------------------------------------------------------------------------
+// JSX element usage as references (W005 false-positive fix)
+// ---------------------------------------------------------------------------
+//
+// typescript.scm has no JSX captures, so a component used only as `<Comp />`
+// produced zero references and read as W005 dead code. typescript_jsx.scm
+// (compiled ONLY against the TSX grammar) fixes this.
+
+#[test]
+fn test_jsx_self_closing_component_usage_is_a_reference() {
+    use crate::resolver::ReferenceKind;
+
+    let resolver = TsResolver::new();
+    let source = r#"
+function Comp() {
+    return <span>hi</span>;
+}
+
+export function App() {
+    return <Comp />;
+}
+"#;
+    let result = resolver.parse_file(Path::new("App.tsx"), source);
+    let comp_ref = result
+        .references
+        .iter()
+        .find(|r| r.name == "Comp")
+        .unwrap_or_else(|| {
+            panic!(
+                "JSX self-closing usage must count as a reference, got {:?}",
+                result
+                    .references
+                    .iter()
+                    .map(|r| &r.name)
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(
+        comp_ref.kind,
+        ReferenceKind::Value,
+        "JSX usage is a value reference, not a call"
+    );
+}
+
+#[test]
+fn test_jsx_paired_element_component_usage_is_a_reference() {
+    let resolver = TsResolver::new();
+    let source = r#"
+function Panel() {
+    return <div />;
+}
+
+export function App() {
+    return <Panel><span>child</span></Panel>;
+}
+"#;
+    let result = resolver.parse_file(Path::new("App.tsx"), source);
+    let names: Vec<&str> = result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains(&"Panel"),
+        "opening tag of a paired JSX element must count as a reference: {names:?}"
+    );
+}
+
+#[test]
+fn test_jsx_member_expression_component_usage_is_a_reference() {
+    let resolver = TsResolver::new();
+    let source = r#"
+export function App() {
+    return <Foo.Bar />;
+}
+"#;
+    let result = resolver.parse_file(Path::new("App.tsx"), source);
+    let names: std::collections::HashSet<&str> =
+        result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains("Foo.Bar"),
+        "namespaced JSX name must be captured whole: {names:?}"
+    );
+    assert!(
+        names.contains("Foo"),
+        "the root of a namespaced JSX name must also count as a usage: {names:?}"
+    );
+}
+
+#[test]
+fn test_jsx_intrinsic_elements_yield_no_reference() {
+    let resolver = TsResolver::new();
+    let source = r#"
+export function App() {
+    return <div className="x"><span>hi</span></div>;
+}
+"#;
+    let result = resolver.parse_file(Path::new("App.tsx"), source);
+    let names: Vec<&str> = result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        !names.contains(&"div") && !names.contains(&"span"),
+        "lowercase intrinsic HTML elements must not become references: {names:?}"
+    );
+}
+
+#[test]
+fn test_jsx_attribute_value_identifier_is_a_reference() {
+    use crate::resolver::ReferenceKind;
+
+    let resolver = TsResolver::new();
+    let source = r#"
+function clickHandler() {}
+
+export function App() {
+    return <C onClick={clickHandler} label="x" />;
+}
+"#;
+    let result = resolver.parse_file(Path::new("App.tsx"), source);
+    let names: Vec<&str> = result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains(&"clickHandler"),
+        "a bare identifier in a JSX attribute value must count as a reference, \
+         even though it's lowercase: {names:?}"
+    );
+    assert!(
+        !names.contains(&"onClick"),
+        "the attribute NAME must never be captured as a reference: {names:?}"
+    );
+    let handler_ref = result
+        .references
+        .iter()
+        .find(|r| r.name == "clickHandler")
+        .expect("clickHandler must be present");
+    assert_eq!(handler_ref.kind, ReferenceKind::Value);
+}
+
+#[test]
+fn test_jsx_child_expression_identifier_is_a_reference() {
+    let resolver = TsResolver::new();
+    let source = r#"
+function child() {}
+
+export function App() {
+    return <div>{child}</div>;
+}
+"#;
+    let result = resolver.parse_file(Path::new("App.tsx"), source);
+    let names: Vec<&str> = result.references.iter().map(|r| r.name.as_str()).collect();
+    assert!(
+        names.contains(&"child"),
+        "a bare identifier used as a JSX expression child must count as a reference: {names:?}"
+    );
+}
+
+#[test]
+fn test_plain_ts_file_still_parses_with_jsx_query_added() {
+    // Guards the TSX-only wiring in queries::query_for_language: the JSX
+    // fragment must never reach a plain .ts file's query compilation.
+    let resolver = TsResolver::new();
+    let source = r#"
+function helper(): void {}
+
+export function run(): void {
+    helper();
+}
+"#;
+    let result = resolver.parse_file(Path::new("plain.ts"), source);
+    assert!(
+        result.definitions.iter().any(|d| d.name == "helper"),
+        "got {:?}",
+        result.definitions
+    );
+    assert!(
+        result.references.iter().any(|r| r.name == "helper"),
+        "got {:?}",
+        result.references
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Svelte components
 // ---------------------------------------------------------------------------
 

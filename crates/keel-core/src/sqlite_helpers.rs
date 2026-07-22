@@ -489,6 +489,7 @@ impl SqliteGraphStore {
             "calls" => EdgeKind::Calls,
             "imports" => EdgeKind::Imports,
             "inherits" => EdgeKind::Inherits,
+            "uses" => EdgeKind::Uses,
             "contains" => EdgeKind::Contains,
             _ => EdgeKind::Calls,
         };

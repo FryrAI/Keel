@@ -66,6 +66,8 @@ fn make_func_def(name: &str, file: &str) -> Definition {
         in_trait_context: false,
         is_associated: false,
         is_auto_invoked: false,
+        is_decorated: false,
+        has_keep_marker: false,
     }
 }
 
@@ -157,6 +159,8 @@ fn test_w001_class_not_checked() {
         in_trait_context: false,
         is_associated: false,
         is_auto_invoked: false,
+        is_decorated: false,
+        has_keep_marker: false,
     };
     let file = make_file("utils.py", vec![class_def]);
 

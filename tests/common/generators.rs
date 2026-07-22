@@ -53,7 +53,7 @@ pub fn generate_functions(lang: &str, count: usize, lines_per_fn: usize) -> Stri
 
 /// Generate a multi-file project structure for benchmark testing.
 ///
-/// Returns a Vec of (relative_path, content) suitable for `create_mapped_project`.
+/// Returns a Vec of (relative_path, content) suitable for `init_project`.
 #[allow(dead_code)]
 pub fn generate_project(
     files: usize,

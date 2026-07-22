@@ -85,3 +85,22 @@
 ; `http.HandleFunc("/", handler)`. Real usage for W005 dead-code analysis, but
 ; never a `calls` edge.
 (argument_list (identifier) @ref.value.name) @ref.value
+
+; Composite-literal element: `var jobs = []func(){runJob}`.
+(literal_value (literal_element (identifier) @ref.value.name)) @ref.value
+
+; Keyed composite-literal value: `map[string]Handler{"evt": onEvent}`,
+; `Server{Handler: onEvent}` — the value side only, never the key.
+(keyed_element value: (literal_element (identifier) @ref.value.name)) @ref.value
+
+; Returned function: `return handler` (Go wraps results in an expression_list).
+(return_statement (expression_list (identifier) @ref.value.name)) @ref.value
+
+; Alias binding: `h := onEvent`.
+(short_var_declaration right: (expression_list (identifier) @ref.value.name)) @ref.value
+
+; Alias binding: `h = onEvent`.
+(assignment_statement right: (expression_list (identifier) @ref.value.name)) @ref.value
+
+; Alias binding: `var h = onEvent`.
+(var_spec value: (expression_list (identifier) @ref.value.name)) @ref.value

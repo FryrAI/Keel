@@ -30,3 +30,5 @@ mod test_progressive_adoption;
 mod test_suppress;
 #[path = "enforcement/test_type_hints.rs"]
 mod test_type_hints;
+#[path = "enforcement/test_value_captures.rs"]
+mod test_value_captures;

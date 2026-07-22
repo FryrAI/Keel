@@ -18,7 +18,8 @@
 
 use std::path::Path;
 
-use keel_parsers::resolver::{Definition, Import, Reference};
+use keel_core::types::EdgeKind;
+use keel_parsers::resolver::{Definition, Import, Reference, ReferenceKind};
 
 use super::map_lang_resolve::{resolve_with, ResolverSet};
 use super::map_resolve::{
@@ -42,6 +43,22 @@ pub struct CallSiteCtx<'a> {
     pub definitions: &'a [Definition],
 }
 
+/// The edge a reference of this kind contributes, paired with the confidence a
+/// *same-file* name match carries (cross-file resolution reports its own).
+/// `None` for kinds that never produce a reference edge — imports and type
+/// refs have their own passes.
+///
+/// A [`ReferenceKind::Value`] becomes [`EdgeKind::Uses`], never `Calls`: it
+/// proves the target is used (so W005 stays quiet) but carries no argument
+/// list, so it must never reach broken-caller or arity checking.
+pub fn edge_for_reference(kind: &ReferenceKind) -> Option<(EdgeKind, f64)> {
+    match kind {
+        ReferenceKind::Call => Some((EdgeKind::Calls, keel_core::confidence::SAME_FILE_CALL)),
+        ReferenceKind::Value => Some((EdgeKind::Uses, keel_core::confidence::SAME_FILE_VALUE_REF)),
+        _ => None,
+    }
+}
+
 /// A resolved call edge target plus the tier and confidence that resolved it.
 pub struct ResolvedCall {
     pub target_id: u64,
@@ -49,12 +66,16 @@ pub struct ResolvedCall {
     pub tier: String,
 }
 
-/// Resolve one call `reference` to a target node, trying each tier in order.
+/// Resolve one call or value `reference` to a target node, trying each tier in
+/// order.
 ///
-/// Returns `None` when no tier resolves it (the caller then leaves the call
-/// unlinked, exactly as the map does). The order and the confidence/tier
-/// assignments mirror `keel map`'s second pass verbatim, so a compile-time
-/// re-resolution is behaviour-identical to a full map.
+/// Returns `None` when no tier resolves it (the caller then leaves the
+/// reference unlinked, exactly as the map does). The order and the
+/// confidence/tier assignments mirror `keel map`'s second pass verbatim, so a
+/// compile-time re-resolution is behaviour-identical to a full map. The ladder
+/// resolves a *name* to a definition, so value references (callbacks passed
+/// across files) ride the same rungs; only the edge kind the caller stores
+/// differs.
 pub fn resolve_call_reference(
     idx: &dyn CallIndex,
     ctx: &CallSiteCtx,

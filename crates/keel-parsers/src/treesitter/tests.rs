@@ -527,8 +527,10 @@ class Derived extends Base {\n\
     );
 }
 
+// Tier-1 leaves the flag false; Go's Tier-2 pass may still set it when a
+// receiver method structurally satisfies a same-file interface.
 #[test]
-fn go_and_python_are_never_trait_context() {
+fn go_and_python_default_to_not_trait_context() {
     let mut parser = TreeSitterParser::new();
     let go = parser
         .parse_file("go", Path::new("a.go"), "func Handle() {}\n")

@@ -62,8 +62,9 @@ pub fn is_stub_file(path: &str) -> bool {
 }
 
 /// Check if a file path is a test file by language convention.
-/// Patterns: *_test.go, test_*.py, *_test.py, *.test.ts, *.spec.ts,
-/// *.test.js, *.spec.js, *_test.rs, *_tests.rs, *_tests_*.rs, tests.rs
+/// Patterns: *_test.go, test_*.py, *_test.py, conftest.py, *.test.ts,
+/// *.spec.ts, *.test.js, *.spec.js, *_test.rs, *_tests.rs, *_tests_*.rs,
+/// tests.rs
 ///
 /// Now that `Definition::in_test_context` marks test symbols precisely per
 /// grammar (Rust/Python/TS in the tree-sitter walk, Go in its Tier-2 pass),
@@ -94,9 +95,12 @@ pub fn is_test_file(path: &str) -> bool {
     if basename.ends_with("_test.go") {
         return true;
     }
-    // Python: test_*.py or *_test.py
-    if basename.ends_with(".py")
-        && (basename.starts_with("test_") || basename.ends_with("_test.py"))
+    // Python: test_*.py, *_test.py, or the pytest fixture-root conftest.py —
+    // fixtures there are consumed via their parameter NAME by tests in other
+    // files, so the graph shows zero callers even though pytest invokes them.
+    if basename == "conftest.py"
+        || (basename.ends_with(".py")
+            && (basename.starts_with("test_") || basename.ends_with("_test.py")))
     {
         return true;
     }
@@ -458,5 +462,17 @@ mod tests {
         assert!(is_test_file("tests/helpers.py"));
         assert!(is_test_file("test/utils.go"));
         assert!(is_test_file("__tests__/handler.ts"));
+    }
+
+    #[test]
+    fn test_is_test_file_conftest() {
+        // pytest's fixture-root file: fixtures are consumed by parameter name
+        // in other test files, so it must be recognized as a test file even
+        // though its basename matches none of the test_*/{_test} patterns.
+        assert!(is_test_file("conftest.py"));
+        assert!(is_test_file("app/tests/conftest.py"));
+        // Exact basename match only — a name that merely contains "conftest"
+        // is ordinary production code.
+        assert!(!is_test_file("myconftest.py"));
     }
 }
