@@ -7,7 +7,7 @@ use crate::types::GraphError;
 #[path = "sqlite_profiles.rs"]
 mod profiles;
 
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 /// A persisted circuit-breaker entry:
 /// `(error_code, hash, consecutive_failures, downgraded, provenance_file,
@@ -42,6 +42,34 @@ const BODY_INDEX_DDL: &str = "
         PRIMARY KEY (node_hash, file_path, line)
     );
     CREATE INDEX IF NOT EXISTS idx_body_index_body_hash ON body_index(body_hash);
+";
+
+/// DDL for the `edges` table, parameterized on the table name.
+///
+/// Shared by `initialize_schema` (fresh databases) and `migrate_v5_to_v6`,
+/// which has to rebuild the table under a temporary name because SQLite cannot
+/// ALTER a CHECK constraint — sharing the DDL keeps the two from drifting.
+fn edges_table_ddl(table: &str) -> String {
+    format!(
+        "CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK (kind IN ('calls', 'imports', 'inherits', 'contains', 'uses')),
+            confidence REAL NOT NULL DEFAULT 1.0,
+            file_path TEXT NOT NULL,
+            line INTEGER NOT NULL,
+            UNIQUE(source_id, target_id, kind, file_path, line)
+        );"
+    )
+}
+
+/// Indexes on `edges`. Recreated by the v6 rebuild — dropping the old table
+/// drops its indexes with it.
+const EDGES_INDEX_DDL: &str = "
+    CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
+    CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+    CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_id, kind);
 ";
 
 /// SQLite-backed implementation of the GraphStore trait.
@@ -158,21 +186,6 @@ impl SqliteGraphStore {
             );
             CREATE INDEX IF NOT EXISTS idx_endpoints_node ON external_endpoints(node_id);
 
-            -- Edges
-            CREATE TABLE IF NOT EXISTS edges (
-                id INTEGER PRIMARY KEY,
-                source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-                target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-                kind TEXT NOT NULL CHECK (kind IN ('calls', 'imports', 'inherits', 'contains')),
-                confidence REAL NOT NULL DEFAULT 1.0,
-                file_path TEXT NOT NULL,
-                line INTEGER NOT NULL,
-                UNIQUE(source_id, target_id, kind, file_path, line)
-            );
-            CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-            CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_id, kind);
-
             -- Module profiles
             CREATE TABLE IF NOT EXISTS module_profiles (
                 module_id INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
@@ -218,6 +231,10 @@ impl SqliteGraphStore {
             );
             ",
         )?;
+
+        // Edges: shared DDL, see `edges_table_ddl` (the v6 rebuild reuses it).
+        self.conn.execute_batch(&edges_table_ddl("edges"))?;
+        self.conn.execute_batch(EDGES_INDEX_DDL)?;
 
         // Circuit-breaker provenance column (issue #36). The breaker table is
         // ephemeral runtime state (rebuilt as compiles run), so this is added
@@ -287,6 +304,46 @@ impl SqliteGraphStore {
         if current < 5 {
             self.migrate_v4_to_v5()?;
         }
+        if current < 6 {
+            self.migrate_v5_to_v6()?;
+        }
+        Ok(())
+    }
+
+    /// Migrate from schema v5 to v6: allow `uses` edges (function referenced as
+    /// a value — see [`crate::types::EdgeKind::Uses`]).
+    ///
+    /// SQLite cannot ALTER a CHECK constraint, so the table is rebuilt: create
+    /// it under a temporary name with the v6 CHECK, copy every row, drop the
+    /// old table, rename, and recreate the indexes (dropping a table drops its
+    /// indexes). Foreign keys are disabled for the swap — `edges` rows point at
+    /// `nodes`, and the DROP would otherwise be evaluated against the copy that
+    /// has not been renamed yet.
+    fn migrate_v5_to_v6(&self) -> Result<(), GraphError> {
+        // Migrations only run from `initialize_schema`, which always follows
+        // `set_performance_pragmas` — so foreign keys are on here and ON is the
+        // state to restore.
+        self.set_foreign_keys(false)?;
+        let rebuild = format!(
+            "BEGIN;
+             {}
+             INSERT INTO edges_v6 (id, source_id, target_id, kind, confidence, file_path, line)
+                 SELECT id, source_id, target_id, kind, confidence, file_path, line FROM edges;
+             DROP TABLE edges;
+             ALTER TABLE edges_v6 RENAME TO edges;
+             COMMIT;",
+            edges_table_ddl("edges_v6")
+        );
+        let result = self
+            .conn
+            .execute_batch(&rebuild)
+            .and_then(|_| self.conn.execute_batch(EDGES_INDEX_DDL));
+        self.set_foreign_keys(true)?;
+        result?;
+        self.conn.execute(
+            "UPDATE keel_meta SET value = '6' WHERE key = 'schema_version'",
+            [],
+        )?;
         Ok(())
     }
 
@@ -452,14 +509,17 @@ impl SqliteGraphStore {
         node_max.max(edge_max) as u64
     }
 
-    /// Delete every outgoing `calls` edge originating in `file_path`.
+    /// Delete every outgoing `calls` and `uses` edge originating in `file_path`.
     ///
-    /// Call edges are stored with the caller's file path, so this prunes a
-    /// single file's outgoing call edges before the incremental compile sync
-    /// re-resolves them. Returns the number of rows removed.
+    /// Both kinds are stored with the referencing file's path, so this prunes a
+    /// single file's outgoing reference edges before the incremental compile
+    /// sync re-resolves them. `uses` is included because the sync re-adds it
+    /// too: leaving it behind would keep a deleted value reference alive
+    /// forever and silence W005 on a function that really did go dead.
+    /// Returns the number of rows removed.
     pub fn prune_call_edges_from_file(&self, file_path: &str) -> Result<u64, GraphError> {
         let deleted = self.conn.execute(
-            "DELETE FROM edges WHERE file_path = ?1 AND kind = 'calls'",
+            "DELETE FROM edges WHERE file_path = ?1 AND kind IN ('calls', 'uses')",
             params![file_path],
         )?;
         Ok(deleted as u64)

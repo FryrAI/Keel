@@ -104,6 +104,8 @@ fn test_suppress_via_engine() {
             in_trait_context: false,
             is_associated: false,
             is_auto_invoked: false,
+            is_decorated: false,
+            has_keep_marker: false,
         }],
         references: vec![],
         imports: vec![],

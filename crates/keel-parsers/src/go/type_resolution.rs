@@ -64,7 +64,11 @@ pub fn build_type_methods(
 }
 
 /// Extract receiver info by scanning the raw source line of a method definition.
-fn extract_receiver_from_content(
+///
+/// `pub` so callers (e.g. the interface-satisfaction exemption in `go/mod.rs`)
+/// can recover a specific definition's receiver type using the exact same
+/// parsing [`build_type_methods`] relies on, rather than re-deriving it.
+pub fn extract_receiver_from_content(
     content: &str,
     method_name: &str,
     line_start: u32,

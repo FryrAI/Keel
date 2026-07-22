@@ -2,18 +2,28 @@ use std::collections::{HashMap, HashSet};
 
 use super::*;
 use crate::test_fixtures::{
-    auto_invoked_definition, call_ref, definition, file_index, file_index_with_refs, function_node,
-    node_for_definition, test_context_definition, ECON_BODY,
+    auto_invoked_definition, call_ref, decorated_definition, definition, file_index,
+    file_index_with_refs, function_node, keep_marker_definition, node_for_definition,
+    test_context_definition, ECON_BODY,
 };
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{EdgeChange, GraphEdge};
 
 fn calls_edge(id: u64, src: u64, tgt: u64) -> EdgeChange {
+    edge(id, src, tgt, EdgeKind::Calls)
+}
+
+/// A function named as a value (callback) rather than invoked.
+fn uses_edge(id: u64, src: u64, tgt: u64) -> EdgeChange {
+    edge(id, src, tgt, EdgeKind::Uses)
+}
+
+fn edge(id: u64, src: u64, tgt: u64, kind: EdgeKind) -> EdgeChange {
     EdgeChange::Add(GraphEdge {
         id,
         source_id: src,
         target_id: tgt,
-        kind: EdgeKind::Calls,
+        kind,
         file_path: "src/b.rs".to_string(),
         line: 3,
         confidence: 1.0,
@@ -154,6 +164,24 @@ fn w005_respects_graph_call_edges() {
 }
 
 #[test]
+fn w005_respects_graph_uses_edges() {
+    // A function whose only usage is a value reference (passed as a callback
+    // from another file) is used, not dead — the `uses` edge is the only
+    // evidence, since nothing calls it by name.
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let def = definition("callback", "src/a.rs", false);
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    store
+        .insert_node(&function_node(2, "callerHash000", "wiring", "src/b.rs"))
+        .unwrap();
+    store.update_edges(vec![uses_edge(1, 2, 1)]).unwrap();
+
+    let stored = store.get_nodes_in_file("src/a.rs");
+    let file = file_index("src/a.rs", vec![def]);
+    assert!(check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty());
+}
+
+#[test]
 fn w005_same_named_siblings_use_hash_to_pick_the_right_node() {
     // Two impl blocks in one file, both defining `parse`. Foo::parse is
     // called; Bar::parse is dead. Hash matching must consult the right
@@ -185,6 +213,37 @@ fn w005_same_named_siblings_use_hash_to_pick_the_right_node() {
     assert_eq!(
         v[0].hash, dead_node.hash,
         "the DEAD node's hash is reported"
+    );
+}
+
+#[test]
+fn w005_silent_for_decorated_function() {
+    // A Python `@register("evt")`-decorated function is handed to the
+    // decorator, not called by name — the parser's `is_decorated` flag must
+    // exempt it from W005 even with zero call edges.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = decorated_definition("handler", "src/handlers.py");
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/handlers.py", vec![def]);
+    let stored = store.get_nodes_in_file("src/handlers.py");
+    assert!(
+        check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
+        "a decorated function must be exempt from W005"
+    );
+}
+
+#[test]
+fn w005_silent_for_keep_marker_definition() {
+    // `keel:keep` is the language-agnostic escape hatch for dynamic dispatch
+    // (`globals()[name]()`) that no exemption rule can see through.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let def = keep_marker_definition("dynamic_handler", "src/dispatch.py");
+    store.insert_node(&node_for_definition(1, &def)).unwrap();
+    let file = file_index("src/dispatch.py", vec![def]);
+    let stored = store.get_nodes_in_file("src/dispatch.py");
+    assert!(
+        check_dead_code(&file, &store, &stored, &HashSet::new()).is_empty(),
+        "a keel:keep-marked function must be exempt from W005"
     );
 }
 

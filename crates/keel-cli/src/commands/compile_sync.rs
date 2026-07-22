@@ -6,7 +6,8 @@
 //!
 //! - insert nodes for definitions new since the last map,
 //! - remove nodes for definitions that vanished from a file,
-//! - re-resolve each compiled file's outgoing call edges (prune + re-add).
+//! - re-resolve each compiled file's outgoing reference edges — `calls` plus
+//!   the `uses` edges of functions named as values (prune + re-add).
 //!
 //! Re-resolution runs the SAME ladder as the map's second pass
 //! ([`super::call_resolve::resolve_call_reference`]), backed here by
@@ -32,10 +33,10 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::boundary::BoundaryProvider;
-use keel_parsers::resolver::{Definition, FileIndex, ReferenceKind};
+use keel_parsers::resolver::{Definition, FileIndex};
 use keel_parsers::treesitter::detect_language;
 
-use super::call_resolve::{resolve_call_reference, CallSiteCtx};
+use super::call_resolve::{edge_for_reference, resolve_call_reference, CallSiteCtx};
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::CallIndex;
 
@@ -390,20 +391,21 @@ fn resolve_outgoing_edges(
     };
 
     for reference in &file.references {
-        if reference.kind != ReferenceKind::Call {
+        let Some((kind, same_file_confidence)) = edge_for_reference(&reference.kind) else {
             continue;
-        }
-        // Same-file direct call: link against this file's own defs, exactly as
-        // the map's first pass does, at SAME_FILE_CALL confidence. The shared
-        // ladder only handles cross-file references (method calls still route
-        // through it via its same-file-method step).
+        };
+        // Same-file direct reference: link against this file's own defs,
+        // exactly as the map's first pass does. The shared ladder only handles
+        // cross-file references (method calls still route through it via its
+        // same-file-method step).
         if let Some(&tgt) = local.get(&reference.name) {
-            push_call_edge(
+            push_reference_edge(
                 file,
                 local,
                 reference.line,
                 tgt,
-                keel_core::confidence::SAME_FILE_CALL,
+                kind,
+                same_file_confidence,
                 "tier1",
                 next_id,
                 edge_changes,
@@ -412,11 +414,12 @@ fn resolve_outgoing_edges(
             continue;
         }
         if let Some(resolved) = resolve_call_reference(&idx, &ctx, reference) {
-            push_call_edge(
+            push_reference_edge(
                 file,
                 local,
                 reference.line,
                 resolved.target_id,
+                kind,
                 resolved.confidence,
                 &resolved.tier,
                 next_id,
@@ -427,13 +430,14 @@ fn resolve_outgoing_edges(
     }
 }
 
-/// Find the caller definition containing `line` and emit a `calls` edge from it.
+/// Find the definition containing `line` and emit a `calls`/`uses` edge from it.
 #[allow(clippy::too_many_arguments)]
-fn push_call_edge(
+fn push_reference_edge(
     file: &FileIndex,
     local: &HashMap<String, u64>,
     line: u32,
     target_id: u64,
+    kind: EdgeKind,
     confidence: f64,
     tier: &str,
     next_id: &mut u64,
@@ -448,18 +452,23 @@ fn push_call_edge(
     }
     let edge_id = *next_id;
     *next_id += 1;
+    let is_call = kind == EdgeKind::Calls;
     edge_changes.push(EdgeChange::Add(GraphEdge {
         id: edge_id,
         source_id,
         target_id,
-        kind: EdgeKind::Calls,
+        kind,
         file_path: file.file_path.clone(),
         line,
         confidence,
     }));
-    node_tiers
-        .entry(source_id)
-        .or_insert_with(|| tier.to_string());
+    // A node's tier describes its call-resolution quality, so value references
+    // do not set it (mirrors the map's second pass).
+    if is_call {
+        node_tiers
+            .entry(source_id)
+            .or_insert_with(|| tier.to_string());
+    }
 }
 
 /// True if `node_id` still has incoming `calls` edges from source nodes whose
@@ -581,6 +590,8 @@ mod tests {
             in_trait_context: false,
             is_associated: false,
             is_auto_invoked: false,
+            is_decorated: false,
+            has_keep_marker: false,
         }
     }
 
@@ -596,6 +607,114 @@ mod tests {
         }
     }
 
+    fn def_at(name: &str, file: &str, line_start: u32, line_end: u32) -> Definition {
+        Definition {
+            line_start,
+            line_end,
+            ..def(name, file)
+        }
+    }
+
+    fn value_ref(name: &str, file: &str, line: u32) -> keel_parsers::resolver::Reference {
+        keel_parsers::resolver::Reference {
+            name: name.to_string(),
+            file_path: file.to_string(),
+            line,
+            kind: keel_parsers::resolver::ReferenceKind::Value,
+            resolved_to: None,
+        }
+    }
+
+    fn empty_resolvers() -> ResolverSet<'static> {
+        ResolverSet {
+            ts: None,
+            py: None,
+            go: None,
+            rs: None,
+        }
+    }
+
+    fn incoming_of(store: &SqliteGraphStore, file: &str, name: &str) -> Vec<GraphEdge> {
+        let node = store
+            .get_nodes_in_file(file)
+            .into_iter()
+            .find(|n| n.name == name)
+            .expect("node exists");
+        store.get_edges(node.id, EdgeDirection::Incoming)
+    }
+
+    /// A same-file callback reference (`spawn(handler)`) is a usage, not a
+    /// call: it must land as a `uses` edge so W005 stays quiet, and must never
+    /// become a `calls` edge that feeds arity/broken-caller checks.
+    #[test]
+    fn same_file_value_reference_becomes_a_uses_edge() {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+
+        let mut file = index(
+            "src/a.rs",
+            vec![
+                def_at("handler", "src/a.rs", 1, 3),
+                def_at("wire", "src/a.rs", 10, 12),
+            ],
+        );
+        file.references = vec![value_ref("handler", "src/a.rs", 11)];
+        sync_compiled_files(&mut store, &cwd, &[file], &empty_resolvers(), false);
+
+        let incoming = incoming_of(&store, "src/a.rs", "handler");
+        let uses: Vec<_> = incoming
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Uses)
+            .collect();
+        assert_eq!(uses.len(), 1, "value ref must produce one uses edge");
+        assert!(
+            (uses[0].confidence - keel_core::confidence::SAME_FILE_VALUE_REF).abs() < f64::EPSILON
+        );
+        assert!(
+            !incoming.iter().any(|e| e.kind == EdgeKind::Calls),
+            "a value reference must never produce a calls edge"
+        );
+    }
+
+    /// The cross-file case W005 was false-positiving on: `child.rs` imports a
+    /// callback from `mod.rs` and passes it as a value. The import-based
+    /// resolution ladder must link it as a `uses` edge.
+    #[test]
+    fn cross_file_value_reference_resolves_to_a_uses_edge() {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        let resolvers = empty_resolvers();
+
+        // The callback's defining file is already in the graph.
+        let owner = index(
+            "src/mod.rs",
+            vec![def_at("cross_file_cb", "src/mod.rs", 1, 3)],
+        );
+        sync_compiled_files(&mut store, &cwd, &[owner], &resolvers, false);
+
+        // The user's file references it as a value through an import.
+        let mut caller = index("src/child.rs", vec![def_at("wire", "src/child.rs", 5, 9)]);
+        caller.references = vec![value_ref("cross_file_cb", "src/child.rs", 7)];
+        caller.imports = vec![keel_parsers::resolver::Import {
+            source: "src/mod.rs".to_string(),
+            imported_names: vec!["cross_file_cb".to_string()],
+            file_path: "src/child.rs".to_string(),
+            line: 1,
+            is_relative: true,
+        }];
+        sync_compiled_files(&mut store, &cwd, &[caller], &resolvers, false);
+
+        let incoming = incoming_of(&store, "src/mod.rs", "cross_file_cb");
+        assert!(
+            incoming.iter().any(|e| e.kind == EdgeKind::Uses),
+            "cross-file value reference must resolve to a uses edge: {incoming:?}"
+        );
+        assert!(
+            !incoming.iter().any(|e| e.kind == EdgeKind::Calls),
+            "a value reference must never produce a calls edge"
+        );
+    }
+
     /// Two files adding IDENTICAL new functions in one multi-file compile must
     /// not share a hash: without the in-batch assigned-hash guard, the second
     /// node silently overwrote the first's row and its edges dangled.
@@ -603,12 +722,7 @@ mod tests {
     fn same_batch_identical_defs_get_distinct_hashes() {
         let mut store = SqliteGraphStore::in_memory().unwrap();
         let cwd = std::env::current_dir().unwrap();
-        let resolvers = ResolverSet {
-            ts: None,
-            py: None,
-            go: None,
-            rs: None,
-        };
+        let resolvers = empty_resolvers();
 
         let files = vec![
             index("src/a.rs", vec![def("twin", "src/a.rs")]),

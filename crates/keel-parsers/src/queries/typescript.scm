@@ -66,3 +66,18 @@
 ; `registerCommand("keel.compile", cmdCompile)`, `arr.map(render)`. Real usage,
 ; so W005 dead-code analysis must see it, but it is never a `calls` edge.
 (arguments (identifier) @ref.value.name) @ref.value
+
+; Object-literal value: `const table = { compile: cmdCompile }`.
+(pair value: (identifier) @ref.value.name) @ref.value
+
+; Shorthand property: `const table = { cmdCompile }`.
+(object (shorthand_property_identifier) @ref.value.name) @ref.value
+
+; Array element: `const steps = [validate, publish]`.
+(array (identifier) @ref.value.name) @ref.value
+
+; Returned function: `return handler;`.
+(return_statement (identifier) @ref.value.name) @ref.value
+
+; Alias binding: `const h = myFn;`.
+(variable_declarator value: (identifier) @ref.value.name) @ref.value

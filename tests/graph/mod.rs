@@ -7,3 +7,4 @@ mod test_previous_hashes;
 mod test_schema_migration;
 mod test_sqlite_advanced;
 mod test_sqlite_storage;
+mod test_uses_edges;

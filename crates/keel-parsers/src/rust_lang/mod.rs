@@ -270,9 +270,20 @@ impl LanguageResolver for RustLangResolver {
             let func_name = &callee[sep_pos + 2..];
             let module_path = &callee[..sep_pos];
 
-            // Check mod_paths first for `mod foo;` declared modules
+            // Check mod_paths first for `mod foo;` declared modules.
+            //
+            // A scoped call path (`crate::core_mod::f()`, `super::a::b::f()`)
+            // names its module by route, while `mod_paths` is keyed by bare
+            // module name — so try the exact key, then the route's last module
+            // segment. Without the second lookup a cross-file scoped call
+            // produced no edge at all and its callee looked dead (W005).
             let mod_paths = self.mod_paths.lock().unwrap();
-            if let Some(mod_file) = mod_paths.get(module_path) {
+            let mod_file = mod_paths.get(module_path).or_else(|| {
+                module_path
+                    .rsplit_once("::")
+                    .and_then(|(_, tail)| mod_paths.get(tail))
+            });
+            if let Some(mod_file) = mod_file {
                 return Some(ResolvedEdge {
                     target_file: mod_file.to_string_lossy().to_string(),
                     target_name: func_name.to_string(),
@@ -296,6 +307,24 @@ impl LanguageResolver for RustLangResolver {
                     confidence: 0.80,
                     resolution_tier: "tier1".into(),
                 });
+            }
+
+            // A `crate::`/`super::` route with no `mod` declaration in view —
+            // `keel compile` parses a single file, so `mod_paths` holds only
+            // that file's declarations. Resolve the route against the
+            // filesystem exactly as a `use` path is resolved.
+            if module_path.starts_with("crate::") || module_path.starts_with("super::") {
+                let dir = Path::new(&call_site.file_path)
+                    .parent()
+                    .unwrap_or(Path::new("."));
+                if let Some(target_file) = resolve_rust_use_path(dir, module_path) {
+                    return Some(ResolvedEdge {
+                        target_file,
+                        target_name: func_name.to_string(),
+                        confidence: 0.80,
+                        resolution_tier: "tier2".into(),
+                    });
+                }
             }
         }
 

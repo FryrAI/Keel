@@ -5,7 +5,7 @@
 pub mod generators;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -96,25 +96,109 @@ pub fn keel_bin() -> PathBuf {
     fallback
 }
 
-/// Create a mapped project from a set of source files.
-///
-/// Each entry in `files` is `(relative_path, content)`.
-/// Returns (TempDir, project_root). Hold the TempDir to keep the directory alive.
+/// Run a keel subcommand in `dir` and assert it did not hit an internal error.
 #[allow(dead_code)]
-pub fn create_mapped_project(files: &[(&str, &str)]) -> (TempDir, PathBuf) {
+pub fn keel(dir: &Path, args: &[&str]) -> std::process::Output {
+    let out = Command::new(keel_bin())
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run `keel {}`: {e}", args.join(" ")));
+    assert_ne!(
+        out.status.code(),
+        Some(2),
+        "`keel {}` hit an internal error:\nstdout: {}\nstderr: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    out
+}
+
+/// Create a project dir with the given files and run `keel init`.
+#[allow(dead_code)]
+pub fn init_project(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();
-    let root = dir.path();
-
-    for (path, content) in files {
-        let full_path = root.join(path);
-        if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(&full_path, content).unwrap();
+    for (rel, content) in files {
+        let full = dir.path().join(rel);
+        fs::create_dir_all(full.parent().unwrap()).unwrap();
+        fs::write(&full, content).unwrap();
     }
+    let out = keel(dir.path(), &["init"]);
+    assert!(
+        out.status.success(),
+        "keel init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    dir
+}
 
-    let project_root = root.to_path_buf();
-    (dir, project_root)
+/// Create a project dir holding `files`, run `keel init` + `keel map`, and
+/// return the live TempDir.
+#[allow(dead_code)]
+pub fn mapped_project(files: &[(&str, &str)]) -> TempDir {
+    let dir = init_project(files);
+    keel(dir.path(), &["map"]);
+    dir
+}
+
+/// `keel compile <file> --json` -> parsed CompileResult value. A file with
+/// zero errors AND zero warnings prints nothing (the documented clean-compile
+/// contract), so empty stdout maps to an empty errors/warnings result rather
+/// than a parse panic.
+#[allow(dead_code)]
+pub fn compile_json(dir: &Path, file: &str) -> serde_json::Value {
+    let out = keel(dir, &["compile", file, "--json"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return serde_json::json!({ "errors": [], "warnings": [] });
+    }
+    serde_json::from_str(trimmed).unwrap_or_else(|e| {
+        panic!(
+            "compile --json did not emit JSON ({e}):\nstdout: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )
+    })
+}
+
+/// All violations (errors + warnings) in `result` whose `code` matches.
+#[allow(dead_code)]
+pub fn violations_with_code(result: &serde_json::Value, code: &str) -> Vec<serde_json::Value> {
+    result["errors"]
+        .as_array()
+        .into_iter()
+        .chain(result["warnings"].as_array())
+        .flatten()
+        .filter(|v| v["code"] == code)
+        .cloned()
+        .collect()
+}
+
+/// Find the first violation with `code` across the errors + warnings arrays.
+#[allow(dead_code)]
+pub fn find_violation(result: &serde_json::Value, code: &str) -> serde_json::Value {
+    violations_with_code(result, code)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a {code} violation, got:\nerrors: {}\nwarnings: {}",
+                result["errors"], result["warnings"]
+            )
+        })
+}
+
+/// Assert no violation with `code` appears in the errors + warnings arrays.
+#[allow(dead_code)]
+pub fn assert_no_violation(result: &serde_json::Value, code: &str) {
+    let hits = violations_with_code(result, code);
+    assert!(
+        hits.is_empty(),
+        "expected no {code} violation, got:\nerrors: {}\nwarnings: {}",
+        result["errors"],
+        result["warnings"]
+    );
 }
 
 /// Create an in-memory SqliteGraphStore for testing.

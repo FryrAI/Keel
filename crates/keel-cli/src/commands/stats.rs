@@ -34,6 +34,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
     let mut calls_count = 0u32;
     let mut imports_count = 0u32;
     let mut contains_count = 0u32;
+    let mut uses_count = 0u32;
     let mut seen_edges = std::collections::HashSet::new();
     for module in &modules {
         let nodes = keel_core::store::GraphStore::get_nodes_in_file(&store, &module.file_path);
@@ -52,13 +53,14 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
                         keel_core::types::EdgeKind::Calls => calls_count += 1,
                         keel_core::types::EdgeKind::Imports => imports_count += 1,
                         keel_core::types::EdgeKind::Contains => contains_count += 1,
+                        keel_core::types::EdgeKind::Uses => uses_count += 1,
                         _ => {}
                     }
                 }
             }
         }
     }
-    let edge_count = calls_count + imports_count + contains_count;
+    let edge_count = calls_count + imports_count + contains_count + uses_count;
 
     // Load telemetry aggregate
     let telemetry_agg = load_telemetry_aggregate(&keel_dir);
@@ -71,6 +73,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
             "functions": function_count,
             "files": file_set.len(),
             "edges": edge_count,
+            "uses_edges": uses_count,
         });
         if let Some(ref agg) = telemetry_agg {
             stats["telemetry"] = serde_json::to_value(agg).unwrap_or_default();
@@ -94,6 +97,7 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
         println!("    calls:    {}", calls_count);
         println!("    imports:  {}", imports_count);
         println!("    contains: {}", contains_count);
+        println!("    uses:     {}", uses_count);
 
         if verbose {
             println!("  db_path:   {}", db_path.display());

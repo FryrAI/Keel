@@ -1,6 +1,6 @@
 pub mod type_resolution;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -53,6 +53,32 @@ impl GoResolver {
             }
         };
 
+        // Tier 2: extract interface definitions for this file first — method
+        // definitions below are checked against interface method names so
+        // Go's structural (syntax-free) interface satisfaction can be
+        // recognized before it feeds W005 dead-code analysis.
+        let file_str = path.to_string_lossy().to_string();
+        let ifaces = type_resolution::extract_interfaces(&result, content, &file_str);
+
+        // Tier 2: extract type methods from receiver patterns. Hoisted above
+        // the enhancement loop below (it depends only on `result`/`content`,
+        // both already final) so the interface-exemption check can consult it.
+        let tm = type_resolution::build_type_methods(&result, content);
+
+        // Precompute which (type, method) pairs are structurally exempt: a
+        // same-file interface requires `method`, AND the type's full method
+        // set actually satisfies that interface per
+        // `type_resolution::find_interface_satisfiers` — not merely a
+        // same-named receiver method on some unrelated type.
+        let mut exempt_trait_methods: HashSet<(String, String)> = HashSet::new();
+        for iface in &ifaces {
+            for (type_name, _confidence) in type_resolution::find_interface_satisfiers(iface, &tm) {
+                for method in &iface.methods {
+                    exempt_trait_methods.insert((type_name.clone(), method.clone()));
+                }
+            }
+        }
+
         // Tier 2: enhance definitions with Go-specific analysis
         for def in &mut result.definitions {
             def.is_public = def.name.chars().next().is_some_and(|c| c.is_uppercase());
@@ -64,12 +90,35 @@ impl GoResolver {
                 // `init`/`main` run at package/program start; `TestMain` is the
                 // test-package entry — all auto-invoked, never dead code.
                 def.is_auto_invoked = matches!(def.name.as_str(), "init" | "main" | "TestMain");
+                // Go interfaces are satisfied structurally: no `impl Trait`
+                // syntax links a method to the interface(s) it implements, so
+                // (unlike Rust) `in_trait_context` is never set elsewhere for
+                // Go. A receiver method (`is_associated`) whose OWN RECEIVER
+                // TYPE structurally satisfies a same-file interface that
+                // requires this method name may be reached only through that
+                // interface, so W005 must not treat it as dead. Matching on
+                // name alone would be wrong: an unrelated type's method that
+                // merely shares a name with some other interface's method
+                // must not be exempted (see
+                // `test_go_interface_satisfier_is_precise_per_type`). Scope is
+                // same-file only: interfaces declared in other files aren't
+                // visible here without new cross-file plumbing (none of the
+                // other Tier-2 maps on `GoResolver` are keyed for that either
+                // — see `type_resolution::InterfaceInfo`).
+                if def.is_associated {
+                    if let Some(receiver) = type_resolution::extract_receiver_from_content(
+                        content,
+                        &def.name,
+                        def.line_start,
+                    ) {
+                        if exempt_trait_methods.contains(&(receiver.type_name, def.name.clone())) {
+                            def.in_trait_context = true;
+                        }
+                    }
+                }
             }
         }
 
-        // Tier 2: extract type methods from receiver patterns
-        let file_str = path.to_string_lossy().to_string();
-        let tm = type_resolution::build_type_methods(&result, content);
         {
             let mut type_methods = self.type_methods.lock().unwrap();
             for (type_name, methods) in tm {
@@ -86,8 +135,8 @@ impl GoResolver {
             }
         }
 
-        // Tier 2: extract interface definitions
-        let ifaces = type_resolution::extract_interfaces(&result, content, &file_str);
+        // Tier 2: cache this file's interface definitions (already extracted
+        // above, ahead of the enhancement loop)
         {
             let mut interfaces = self.interfaces.lock().unwrap();
             interfaces.extend(ifaces);

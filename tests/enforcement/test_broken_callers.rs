@@ -23,6 +23,8 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str, line: u32) -> 
         in_trait_context: false,
         is_associated: false,
         is_auto_invoked: false,
+        is_decorated: false,
+        has_keep_marker: false,
     }
 }
 

@@ -10,7 +10,7 @@ use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, N
 use keel_parsers::resolver::LanguageResolver;
 use keel_parsers::walker::WalkEntry;
 
-use super::call_resolve::{resolve_call_reference, CallSiteCtx};
+use super::call_resolve::{edge_for_reference, resolve_call_reference, CallSiteCtx};
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::{find_containing_def, resolve_import_to_module, CallIndex};
 use keel_core::paths::make_relative;
@@ -166,33 +166,32 @@ pub fn first_pass(
             }));
         }
 
-        // Create same-file call edges from references
+        // Create same-file call/value edges from references
         for reference in &result.references {
-            if reference.kind == keel_parsers::resolver::ReferenceKind::Call {
-                if let Some(&target_id) =
-                    name_to_id.get(&(file_path.clone(), reference.name.clone()))
-                {
-                    let source_id = find_containing_def(
-                        &result.definitions,
-                        reference.line,
-                        &file_path,
-                        name_to_id,
-                        Some(module_id),
-                    );
-                    if let Some(src_id) = source_id {
-                        if src_id != target_id {
-                            let edge_id = *next_id;
-                            *next_id += 1;
-                            edge_changes.push(EdgeChange::Add(GraphEdge {
-                                id: edge_id,
-                                source_id: src_id,
-                                target_id,
-                                kind: EdgeKind::Calls,
-                                file_path: file_path.clone(),
-                                line: reference.line,
-                                confidence: keel_core::confidence::SAME_FILE_CALL,
-                            }));
-                        }
+            let Some((kind, confidence)) = edge_for_reference(&reference.kind) else {
+                continue;
+            };
+            if let Some(&target_id) = name_to_id.get(&(file_path.clone(), reference.name.clone())) {
+                let source_id = find_containing_def(
+                    &result.definitions,
+                    reference.line,
+                    &file_path,
+                    name_to_id,
+                    Some(module_id),
+                );
+                if let Some(src_id) = source_id {
+                    if src_id != target_id {
+                        let edge_id = *next_id;
+                        *next_id += 1;
+                        edge_changes.push(EdgeChange::Add(GraphEdge {
+                            id: edge_id,
+                            source_id: src_id,
+                            target_id,
+                            kind,
+                            file_path: file_path.clone(),
+                            line: reference.line,
+                            confidence,
+                        }));
                     }
                 }
             }
@@ -278,12 +277,13 @@ pub fn second_pass(
             definitions: &file_data.definitions,
         };
 
-        // Resolve cross-file call references (same-file calls were already
-        // linked in the first pass, so skip references to a same-file def).
+        // Resolve cross-file call and value references (same-file ones were
+        // already linked in the first pass, so skip references to a same-file
+        // def).
         for reference in &file_data.references {
-            if reference.kind != keel_parsers::resolver::ReferenceKind::Call {
+            let Some((kind, _)) = edge_for_reference(&reference.kind) else {
                 continue;
-            }
+            };
             if name_to_id.contains_key(&(file_path.clone(), reference.name.clone())) {
                 continue;
             }
@@ -303,22 +303,27 @@ pub fn second_pass(
                 if src_id != resolved.target_id {
                     let edge_id = *next_id;
                     *next_id += 1;
+                    let is_call = kind == EdgeKind::Calls;
                     edge_changes.push(EdgeChange::Add(GraphEdge {
                         id: edge_id,
                         source_id: src_id,
                         target_id: resolved.target_id,
-                        kind: EdgeKind::Calls,
+                        kind,
                         file_path: file_path.clone(),
                         line: reference.line,
                         confidence: resolved.confidence,
                     }));
-                    // Record which tier resolved this caller's edges, keeping
-                    // the highest-confidence tier seen for the source node.
-                    let entry = node_tiers
-                        .entry(src_id)
-                        .or_insert_with(|| (resolved.tier.clone(), resolved.confidence));
-                    if resolved.confidence >= entry.1 {
-                        *entry = (resolved.tier.clone(), resolved.confidence);
+                    // Record which tier resolved this caller's CALL edges,
+                    // keeping the highest-confidence tier seen for the source
+                    // node. Value references are excluded: the node's tier
+                    // describes its call-resolution quality.
+                    if is_call {
+                        let entry = node_tiers
+                            .entry(src_id)
+                            .or_insert_with(|| (resolved.tier.clone(), resolved.confidence));
+                        if resolved.confidence >= entry.1 {
+                            *entry = (resolved.tier.clone(), resolved.confidence);
+                        }
                     }
                 }
             }

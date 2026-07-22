@@ -1,6 +1,7 @@
 //! Economy checks: keep the codebase lean.
 //!
-//! - W005 `dead_code` — private function with no callers in the graph.
+//! - W005 `dead_code` — private function with no callers or value usages in
+//!   the graph.
 //! - W006 `duplicate_implementation` — body identical (whitespace-normalized)
 //!   to a function in another file.
 //! - W007 `oversized_file` — file exceeds the configured line budget and grew.
@@ -88,12 +89,14 @@ pub fn batch_trait_context_bodies(files: &[FileIndex]) -> HashMap<String, HashSe
     bodies
 }
 
-/// W005: private functions in this file with zero incoming call edges in the
-/// graph and no reference to them anywhere in the current compile batch.
+/// W005: private functions in this file with zero incoming `calls`/`uses`
+/// edges in the graph and no reference to them anywhere in the current
+/// compile batch.
 ///
 /// Precision depends on graph freshness: edges reflect the last `keel map`.
 /// Public functions, entrypoints, tests, stubs, underscore-prefixed names,
-/// and qualified (method-like) names are exempt.
+/// qualified (method-like) names, decorated functions, and `keel:keep`-marked
+/// definitions are exempt.
 pub fn check_dead_code(
     file: &FileIndex,
     store: &dyn GraphStore,
@@ -126,6 +129,13 @@ pub fn check_dead_code(
             || def.name.starts_with("bench_")
             || def.name.contains('.')
             || is_entrypoint(def)
+            // A Python `@register("evt")` / `@app.route(...)`-decorated
+            // function is handed to the decorator, not called by name — a
+            // framework holds the reference. E002/E003 still apply.
+            || def.is_decorated
+            // `keel:keep` — the per-symbol escape hatch for dynamic dispatch
+            // (`globals()[name]()`, a handler table) no exemption rule can see.
+            || def.has_keep_marker
         {
             continue;
         }
@@ -153,10 +163,13 @@ pub fn check_dead_code(
             None if candidates.len() == 1 => candidates[0],
             None => continue,
         };
+        // `Uses` counts as a caller: a function handed around as a value
+        // (callback, handler table, `#[serde(default = "...")]`) is used, even
+        // though nothing in the graph calls it by name.
         let has_callers = store
             .get_edges(node.id, EdgeDirection::Incoming)
             .iter()
-            .any(|e| e.kind == EdgeKind::Calls);
+            .any(|e| e.kind == EdgeKind::Calls || e.kind == EdgeKind::Uses);
         if has_callers {
             continue;
         }

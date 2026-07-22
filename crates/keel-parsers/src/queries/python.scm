@@ -66,3 +66,29 @@
 ; `sorted(xs, key=rank)`, `register(handler)`. Real usage for W005 dead-code
 ; analysis, but never a `calls` edge.
 (argument_list (identifier) @ref.value.name) @ref.value
+
+; Keyword-argument value: `sorted(xs, key=sort_key)` — the identifier is a
+; child of keyword_argument, not of argument_list, so the pattern above misses it.
+(keyword_argument value: (identifier) @ref.value.name) @ref.value
+
+; Dispatch-table value: `HANDLERS = {"evt": on_event}`.
+(pair value: (identifier) @ref.value.name) @ref.value
+
+; Container element: `STEPS = [validate, publish]`.
+(list (identifier) @ref.value.name) @ref.value
+
+; Container element: `STEPS = (validate, publish)`.
+(tuple (identifier) @ref.value.name) @ref.value
+
+; Container element: `STEPS = {validate, publish}`.
+(set (identifier) @ref.value.name) @ref.value
+
+; Returned function/closure: `return deco`.
+(return_statement (identifier) @ref.value.name) @ref.value
+
+; Bare decorator name: `@register` (the call form `@register("evt")` stays a
+; Call reference — its decorator child is a `call`, not an identifier).
+(decorator (identifier) @ref.value.name) @ref.value
+
+; Alias binding: `handler = my_fn`.
+(assignment right: (identifier) @ref.value.name) @ref.value

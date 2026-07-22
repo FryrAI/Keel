@@ -15,102 +15,10 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
-use tempfile::TempDir;
-
-/// Locate the `keel` binary next to the test executable, falling back to the
-/// workspace `target/debug/keel` (built by CI / a prior `cargo build`).
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fallback = workspace.join("target/debug/keel");
-    if fallback.exists() {
-        return fallback;
-    }
-    let status = Command::new("cargo")
-        .args(["build", "-p", "keel-cli"])
-        .current_dir(&workspace)
-        .status()
-        .expect("Failed to build keel");
-    assert!(status.success(), "Failed to build keel binary");
-    fallback
-}
-
-/// Run a keel subcommand in `dir` and assert it did not hit an internal error.
-fn keel(dir: &Path, args: &[&str]) -> std::process::Output {
-    let out = Command::new(keel_bin())
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run `keel {}`: {e}", args.join(" ")));
-    assert_ne!(
-        out.status.code(),
-        Some(2),
-        "`keel {}` hit an internal error:\nstdout: {}\nstderr: {}",
-        args.join(" "),
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr),
-    );
-    out
-}
-
-/// `keel compile <file> --json` -> parsed CompileResult value. A file with
-/// zero errors AND zero warnings prints nothing (the documented clean-compile
-/// contract), so empty stdout maps to an empty errors/warnings result rather
-/// than a parse panic.
-fn compile_json(dir: &Path, file: &str) -> serde_json::Value {
-    let out = keel(dir, &["compile", file, "--json"]);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return serde_json::json!({ "errors": [], "warnings": [] });
-    }
-    serde_json::from_str(trimmed).unwrap_or_else(|e| {
-        panic!(
-            "compile --json did not emit JSON ({e}):\nstdout: {stdout}\nstderr: {}",
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
-
-/// Find the first violation with `code` across the errors + warnings arrays.
-fn find_violation(result: &serde_json::Value, code: &str) -> serde_json::Value {
-    result["errors"]
-        .as_array()
-        .into_iter()
-        .chain(result["warnings"].as_array())
-        .flatten()
-        .find(|v| v["code"] == code)
-        .cloned()
-        .unwrap_or_else(|| {
-            panic!(
-                "expected a {code} violation, got:\nerrors: {}\nwarnings: {}",
-                result["errors"], result["warnings"]
-            )
-        })
-}
-
-/// Assert no violation with `code` appears in the errors + warnings arrays.
-fn assert_no_violation(result: &serde_json::Value, code: &str) {
-    let hit = result["errors"]
-        .as_array()
-        .into_iter()
-        .chain(result["warnings"].as_array())
-        .flatten()
-        .any(|v| v["code"] == code);
-    assert!(
-        !hit,
-        "expected no {code} violation, got:\nerrors: {}\nwarnings: {}",
-        result["errors"], result["warnings"]
-    );
-}
+use crate::common::{
+    assert_no_violation, compile_json, find_violation, init_project, keel, mapped_project,
+};
 
 /// Lower the W007 line budget so the oversized-file fixture stays small.
 fn set_max_file_lines(dir: &Path, n: u64) {
@@ -121,34 +29,16 @@ fn set_max_file_lines(dir: &Path, n: u64) {
     fs::write(&cfg_path, serde_json::to_string_pretty(&cfg).unwrap()).unwrap();
 }
 
-/// Create a project dir with the given files and run `keel init`.
-fn init_project(files: &[(&str, &str)]) -> TempDir {
-    let dir = TempDir::new().unwrap();
-    for (rel, content) in files {
-        let full = dir.path().join(rel);
-        fs::create_dir_all(full.parent().unwrap()).unwrap();
-        fs::write(&full, content).unwrap();
-    }
-    let out = keel(dir.path(), &["init"]);
-    assert!(
-        out.status.success(),
-        "keel init failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    dir
-}
-
 /// W005: a private (non-exported) function nothing calls, present in the graph
 /// at map time, must surface as a WARNING with confidence 0.7.
 #[test]
 fn test_w005_dead_code_surfaces() {
-    let dir = init_project(&[(
+    let dir = mapped_project(&[(
         "src/util.ts",
         // `deadHelper` is module-private (not exported) and called nowhere, so
         // it has zero incoming call edges after `keel map` -> W005.
         "function deadHelper(x: number): number {\n  return x + 1;\n}\n",
     )]);
-    keel(dir.path(), &["map"]);
 
     let result = compile_json(dir.path(), "src/util.ts");
     let v = find_violation(&result, "W005");
@@ -165,7 +55,7 @@ fn test_w006_duplicate_implementation_surfaces() {
     // chars) so it is indexed at map time and matched cross-file at compile.
     let body = "  const a = x + 1;\n  const b = a * 2;\n  const c = b - 3;\n  \
                 const d = c + a;\n  return a + b + c + d;\n";
-    let dir = init_project(&[
+    let dir = mapped_project(&[
         (
             "src/alpha.ts",
             &format!("function computeAlpha(x: number): number {{\n{body}}}\n"),
@@ -175,7 +65,6 @@ fn test_w006_duplicate_implementation_surfaces() {
             &format!("function computeBeta(x: number): number {{\n{body}}}\n"),
         ),
     ]);
-    keel(dir.path(), &["map"]);
 
     let result = compile_json(dir.path(), "src/beta.ts");
     let v = find_violation(&result, "W006");
@@ -205,6 +94,42 @@ fn test_w007_oversized_file_surfaces() {
     assert_eq!(v["confidence"].as_f64().unwrap(), 0.8);
 }
 
+/// A Python function decorated with `@register(...)` is handed to the
+/// decorator/framework, never called by name — keel must not flag it dead
+/// even with zero call edges. `__all__` deliberately excludes it so the
+/// exemption under test is `is_decorated`, not the unrelated public-export one.
+#[test]
+fn test_w005_skips_decorated_python_function() {
+    let dir = mapped_project(&[(
+        "src/handlers.py",
+        "__all__ = [\"public_api\"]\n\n\
+         def register(name):\n    def deco(fn):\n        return fn\n    return deco\n\n\
+         @register(\"evt\")\ndef handler():\n    pass\n\n\
+         def public_api():\n    return 1\n",
+    )]);
+
+    let result = compile_json(dir.path(), "src/handlers.py");
+    assert_no_violation(&result, "W005");
+}
+
+/// A function marked `# keel:keep` is the language-agnostic escape hatch for
+/// dynamic dispatch (`globals()[name]()`) the graph cannot see through —
+/// keel must not flag it dead. `__all__` again excludes it from the
+/// unrelated public-export exemption.
+#[test]
+fn test_w005_skips_keel_keep_marked_function() {
+    let dir = mapped_project(&[(
+        "src/dispatch.py",
+        "__all__ = [\"public_api\"]\n\n\
+         # keel:keep\n\
+         def dynamic_handler():\n    pass\n\n\
+         def public_api():\n    return 1\n",
+    )]);
+
+    let result = compile_json(dir.path(), "src/dispatch.py");
+    assert_no_violation(&result, "W005");
+}
+
 /// Issue #45 (Part 1): a private helper in an `engine_tests_*.rs` split-file
 /// (the `#[path = "..._tests.rs"]`-included convention) must be recognized as
 /// living in a test file, so it never fires W005/W002. When each split file is
@@ -214,11 +139,10 @@ fn test_w007_oversized_file_surfaces() {
 fn test_w005_skips_engine_tests_split_files() {
     // Bare private helper, genuinely uncalled — the `engine_tests_*.rs`
     // basename is the only thing that must suppress W005 here.
-    let dir = init_project(&[(
+    let dir = mapped_project(&[(
         "src/engine_tests_helper.rs",
         "fn build_row(x: i32) -> i32 {\n    x + 1\n}\n",
     )]);
-    keel(dir.path(), &["map"]);
 
     let result = compile_json(dir.path(), "src/engine_tests_helper.rs");
     assert_no_violation(&result, "W005");
@@ -232,13 +156,12 @@ fn test_w005_skips_engine_tests_split_files() {
 /// the warning at compile time.
 #[test]
 fn test_w005_skips_helper_used_only_in_macro_body() {
-    let dir = init_project(&[(
+    let dir = mapped_project(&[(
         "src/rows.rs",
         "fn make_item(x: i32) -> i32 {\n    x + 1\n}\n\n\
          /// Build the rows.\n\
          pub fn build() -> Vec<i32> {\n    vec![make_item(1), make_item(2)]\n}\n",
     )]);
-    keel(dir.path(), &["map"]);
 
     let result = compile_json(dir.path(), "src/rows.rs");
     assert_no_violation(&result, "W005");
