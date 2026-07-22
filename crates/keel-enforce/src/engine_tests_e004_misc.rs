@@ -207,8 +207,9 @@ fn test_config_defaults_enable_all() {
 /// Two identical `fn default() -> Self { Self::new() }` in DIFFERENT files
 /// normalize to the same content hash. `keel map` stores the second one under
 /// its file-salted (disambiguated) identity; the engine's re-baseline pass must
-/// do the same, or it hands both nodes one hash and `update_nodes` aborts the
-/// entire persist with `HashCollision`.
+/// do the same, or it hands both nodes one hash and the persist layer falls
+/// back to a body-blind re-salt that churns on every later compile (before
+/// #48 it aborted the entire persist with `HashCollision`).
 ///
 /// Regression: `keel compile` on this repo printed
 /// "failed to persist node updates: Hash collision detected for hash
@@ -330,7 +331,8 @@ fn same_named_defs_in_one_file_bind_to_distinct_nodes() {
 ///
 /// Disambiguating with the file path alone yields only a second identity, so
 /// defs 2 and 3 both landed on it and `update_nodes` aborted the entire
-/// persist with a `HashCollision` — leaving every node in the file stale.
+/// persist with a `HashCollision` (pre-#48; today it would re-salt blindly
+/// and churn) — either way, every def needs its own stable identity here.
 #[test]
 fn three_identical_defs_in_one_file_get_three_distinct_hashes() {
     let store = SqliteGraphStore::in_memory().unwrap();
@@ -378,7 +380,7 @@ fn three_identical_defs_in_one_file_get_three_distinct_hashes() {
     for (id, h) in hashes.iter().enumerate() {
         assert!(
             !h.starts_with("stale"),
-            "node {} kept its stale hash — the persist aborted: {:?}",
+            "node {} kept its stale hash — re-baseline failed to persist: {:?}",
             id + 1,
             hashes
         );
@@ -444,5 +446,73 @@ fn exact_line_matches_claim_their_node_before_name_only_fallback() {
     assert_ne!(
         node1.hash, node2.hash,
         "distinct bodies keep distinct hashes"
+    );
+}
+
+/// A collision absorbed by the persist layer's body-blind fallback
+/// (`persist_disambiguated_hash`) must converge to stable body-aware
+/// identities via the engine's re-baseline on the next compile of the file —
+/// the claim the fallback's doc comment makes (#48).
+#[test]
+fn persist_fallback_identity_converges_on_next_compile() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    // Force the persist-time fallback: two different-named nodes arrive with
+    // the same hash; update_nodes re-salts the second one body-blind.
+    store
+        .update_nodes(vec![keel_core::types::NodeChange::Add(make_node(
+            1,
+            "SHAREDhash1",
+            "alpha",
+            "fn alpha()",
+            "src/x.rs",
+        ))])
+        .unwrap();
+    store
+        .update_nodes(vec![keel_core::types::NodeChange::Add(make_node(
+            2,
+            "SHAREDhash1",
+            "beta",
+            "fn beta()",
+            "src/x.rs",
+        ))])
+        .unwrap();
+    let fallback = store.get_node_by_id(2).expect("collider persisted").hash;
+    assert_ne!(fallback, "SHAREDhash1", "collider was re-salted");
+
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    let mut beta_def = make_definition("beta", "fn beta()", "{ 2 }", "src/x.rs");
+    beta_def.line_start = 30;
+    beta_def.line_end = 40;
+    let files = vec![FileIndex {
+        file_path: "src/x.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![
+            make_definition("alpha", "fn alpha()", "{ 1 }", "src/x.rs"),
+            beta_def,
+        ],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    }];
+
+    engine.compile(&files);
+    let after_first: Vec<String> = (1u64..=2)
+        .map(|id| engine.store.get_node_by_id(id).expect("node survives").hash)
+        .collect();
+    assert_ne!(
+        after_first[1], fallback,
+        "body-blind fallback identity was replaced by a body-aware one"
+    );
+    assert_ne!(after_first[0], after_first[1], "identities stay distinct");
+
+    // Fixed point: a second identical compile must not churn the hashes.
+    engine.compile(&files);
+    let after_second: Vec<String> = (1u64..=2)
+        .map(|id| engine.store.get_node_by_id(id).expect("node survives").hash)
+        .collect();
+    assert_eq!(
+        after_first, after_second,
+        "identities are stable (converged)"
     );
 }

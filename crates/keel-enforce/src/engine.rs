@@ -11,10 +11,7 @@ use crate::types::{CompileInfo, CompileResult, Violation};
 use crate::violations;
 use crate::violations_economy;
 
-/// Safety bound on the re-baseline disambiguation walk (see `compile`). Far
-/// above any real file's same-named-definition count; it exists only so a
-/// pathological store state cannot spin the loop forever.
-const MAX_DISAMBIGUATION_ORDINAL: u32 = 64;
+use keel_core::hash::MAX_DISAMBIGUATION_ORDINAL;
 
 /// Core enforcement engine. Owns a GraphStore and orchestrates validation.
 pub struct EnforcementEngine {
@@ -226,8 +223,9 @@ impl EnforcementEngine {
             // `fn is_available(&self) -> bool` impls in `python/ty.rs`) to the
             // same node: that node then received two conflicting hash updates
             // while its sibling was orphaned, and the second update tried to
-            // claim the hash the sibling legitimately owns — aborting the whole
-            // persist with a HashCollision.
+            // claim the hash the sibling legitimately owns — which used to
+            // abort the whole persist with a HashCollision (update_nodes now
+            // re-salts non-fatally, but the identity would still be wrong).
             // Bind in TWO passes, not greedily per def. A single greedy pass
             // that prefers an exact (name, line) match but falls back to the
             // first unclaimed same-named node mis-pairs when two same-named defs
@@ -279,10 +277,10 @@ impl EnforcementEngine {
                         // the plain file-path salt, so the common two-def case
                         // still lands on the identity `keel map` would assign;
                         // 2+ only appear once a third same-named def exists.
-                        // A single non-iterating fallback left every same-file
-                        // duplicate sharing ONE disambiguated hash, and
-                        // `update_nodes` then aborted the whole persist with a
-                        // HashCollision.
+                        // Assigning stable, body-aware identities here keeps the
+                        // persist layer's body-blind collision fallback
+                        // (`persist_disambiguated_hash`, which would churn on
+                        // the next compile) a rare last resort.
                         let mut candidate = Some(new_hash.clone());
                         let mut ordinal = 0u32;
                         while let Some(ref h) = candidate {
@@ -300,15 +298,14 @@ impl EnforcementEngine {
                             } else if ordinal <= MAX_DISAMBIGUATION_ORDINAL {
                                 Some(crate::violations_util::definition_hash_salted(
                                     def,
-                                    &format!("{}#{}", file.file_path, ordinal),
+                                    &keel_core::hash::disambiguation_salt(&file.file_path, ordinal),
                                 ))
                             } else {
                                 // Exhausted (needs 65+ identical same-named
                                 // defs in one file): skip this node's
-                                // re-baseline rather than persist a hash that
-                                // was never verified free — an unverified write
-                                // is exactly the HashCollision full-persist
-                                // abort this loop exists to prevent.
+                                // re-baseline rather than hand the persist
+                                // layer an unverified hash it would have to
+                                // re-salt blindly.
                                 None
                             };
                         }

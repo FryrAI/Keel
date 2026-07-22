@@ -1,7 +1,7 @@
 // Tests for SqliteGraphStore advanced features (Spec 000 - Graph Schema)
 //
-// Module profiles, resolution cache, circuit breaker, bulk atomicity,
-// concurrent reads, and auto-create schema.
+// Module profiles, resolution cache, circuit breaker, non-fatal bulk
+// collision handling, concurrent reads, and auto-create schema.
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;

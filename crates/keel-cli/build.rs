@@ -13,20 +13,23 @@ fn git(args: &[&str]) -> Option<String> {
 /// Falls back to the plain crate version when there is no git context
 /// (e.g. a crates.io build).
 fn main() {
-    let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+    let version = env!("CARGO_PKG_VERSION");
     let full = match git(&["rev-parse", "--short=9", "HEAD"]) {
         Some(sha) => format!("{version} ({sha})"),
-        None => version,
+        None => version.to_string(),
     };
     println!("cargo:rustc-env=KEEL_VERSION_FULL={full}");
 
-    // Re-embed when HEAD moves; skip missing ref files (packed refs).
+    // Re-embed when HEAD moves. The reflog is appended on every commit and
+    // checkout even when refs are packed; loose paths are skipped if missing
+    // so cargo doesn't treat them as perpetually changed.
     if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
-        println!("cargo:rerun-if-changed={dir}/HEAD");
-        if let Some(head_ref) = git(&["symbolic-ref", "-q", "HEAD"]) {
-            let ref_path = format!("{dir}/{head_ref}");
-            if std::path::Path::new(&ref_path).exists() {
-                println!("cargo:rerun-if-changed={ref_path}");
+        for path in [format!("{dir}/HEAD"), format!("{dir}/logs/HEAD")]
+            .into_iter()
+            .chain(git(&["symbolic-ref", "-q", "HEAD"]).map(|head_ref| format!("{dir}/{head_ref}")))
+        {
+            if std::path::Path::new(&path).exists() {
+                println!("cargo:rerun-if-changed={path}");
             }
         }
     }
