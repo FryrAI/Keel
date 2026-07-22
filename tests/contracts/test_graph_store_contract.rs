@@ -6,7 +6,7 @@
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{
-    EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphError, GraphNode, NodeChange, NodeKind,
+    EdgeChange, EdgeDirection, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind,
 };
 
 /// Helper to create a minimal test node.
@@ -333,25 +333,21 @@ fn contract_hash_collision_different_names() {
     let n1 = test_node(1, "collision_hash", "func_a", NodeKind::Function, 0);
     store.update_nodes(vec![NodeChange::Add(n1)]).unwrap();
 
+    // A different-named node claiming the same hash is re-salted, not
+    // rejected (#48) — the persist must never abort on a colliding pair.
     let n2 = test_node(2, "collision_hash", "func_b", NodeKind::Function, 0);
-    let result = store.update_nodes(vec![NodeChange::Add(n2)]);
-    assert!(
-        result.is_err(),
-        "Should detect hash collision for different function names"
-    );
+    store
+        .update_nodes(vec![NodeChange::Add(n2)])
+        .expect("collision must be auto-disambiguated, not fatal");
 
-    match result.unwrap_err() {
-        GraphError::HashCollision {
-            hash,
-            existing,
-            new_fn,
-        } => {
-            assert_eq!(hash, "collision_hash");
-            assert_eq!(existing, "func_a");
-            assert_eq!(new_fn, "func_b");
-        }
-        other => panic!("Expected HashCollision error, got: {:?}", other),
-    }
+    assert_eq!(
+        store.get_node("collision_hash").unwrap().name,
+        "func_a",
+        "existing node keeps its hash"
+    );
+    let salted = store.get_node_by_id(2).expect("collider persisted");
+    assert_eq!(salted.name, "func_b");
+    assert_ne!(salted.hash, "collision_hash");
 }
 
 #[test]

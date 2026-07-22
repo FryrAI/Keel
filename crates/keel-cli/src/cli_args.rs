@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     name = "keel",
-    version,
+    version = env!("KEEL_VERSION_FULL"),
     about = "Structural code enforcement for LLM agents"
 )]
 pub(crate) struct Cli {

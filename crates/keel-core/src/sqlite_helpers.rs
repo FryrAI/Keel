@@ -358,6 +358,49 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Last-resort persist-time collision fallback (#48): find a free
+    /// file-path-salted hash for `node` instead of aborting the whole persist.
+    ///
+    /// The normalized body is not available here, so this cannot reproduce the
+    /// parse layer's disambiguated identity — later compiles converge on it
+    /// through the normal re-baseline path. Walks ordinals like the engine's
+    /// salt loop; only if all 64 candidates are taken does the original
+    /// `HashCollision` surface as an error.
+    pub(crate) fn persist_disambiguated_hash(
+        tx: &rusqlite::Transaction<'_>,
+        node: &GraphNode,
+        existing_name: &str,
+    ) -> Result<String, GraphError> {
+        const MAX_ORDINAL: u32 = 64;
+        let doc = node.docstring.as_deref().unwrap_or("");
+        for ordinal in 1..=MAX_ORDINAL {
+            let salt = if ordinal == 1 {
+                node.file_path.clone()
+            } else {
+                format!("{}#{}", node.file_path, ordinal)
+            };
+            let candidate =
+                crate::hash::compute_hash_disambiguated(&node.signature, "", doc, &salt);
+            let taken: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM nodes WHERE hash = ?1",
+                params![candidate],
+                |row| row.get(0),
+            )?;
+            if taken == 0 {
+                eprintln!(
+                    "[keel] warning: hash collision for {} between '{}' and '{}' — auto-disambiguated to {}",
+                    node.hash, existing_name, node.name, candidate
+                );
+                return Ok(candidate);
+            }
+        }
+        Err(GraphError::HashCollision {
+            hash: node.hash.clone(),
+            existing: existing_name.to_string(),
+            new_fn: node.name.clone(),
+        })
+    }
+
     /// Update an existing node by ID, preserving the old hash in previous_hashes.
     pub fn update_node_in_db(&self, node: &GraphNode) -> Result<(), GraphError> {
         // Store old hash as previous hash
