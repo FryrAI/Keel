@@ -5,6 +5,24 @@ All notable changes to keel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-07-21
+
+First release since v0.4.2 picking up 75 commits of main (#48): Svelte/SvelteKit
+parsing and resolution, test-context enforcement exemptions (#38/#39), parser
+attribution fixes for same-named members (`de05056`), MCP protocol compliance,
+economy enforcement (W005–W007), and the deep-clean backlog (#19–#46).
+
+### Fixed
+- Hash collisions at persist time are non-fatal (#48): a colliding node is
+  re-salted with a file-path ordinal instead of aborting the whole compile
+  with `failed to persist node updates`.
+
+### Changed
+- `keel --version` now embeds the git short SHA (e.g. `0.4.3 (abc123def)`), so
+  an unreleased dev build can no longer masquerade as a released version (#48).
+
+[0.4.3]: https://github.com/FryrAI/Keel/compare/v0.4.2...v0.4.3
+
 ## [0.3.0] - 2026-02-22
 
 ### Added

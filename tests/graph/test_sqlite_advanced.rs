@@ -1,11 +1,11 @@
 // Tests for SqliteGraphStore advanced features (Spec 000 - Graph Schema)
 //
-// Module profiles, resolution cache, circuit breaker, bulk atomicity,
-// concurrent reads, and auto-create schema.
+// Module profiles, resolution cache, circuit breaker, non-fatal bulk
+// collision handling, concurrent reads, and auto-create schema.
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
-use keel_core::types::{GraphError, GraphNode, NodeChange, NodeKind};
+use keel_core::types::{GraphNode, NodeChange, NodeKind};
 
 fn make_node(id: u64, hash: &str, name: &str, kind: NodeKind) -> GraphNode {
     GraphNode {
@@ -216,8 +216,9 @@ fn test_sqlite_circuit_breaker_state() {
 }
 
 #[test]
-/// Bulk insertion with a duplicate hash (different name) should fail atomically.
-fn test_sqlite_bulk_insert_atomicity() {
+/// Bulk insertion with a duplicate hash (different name) must not abort the
+/// batch (#48) — the collider is re-salted and everything persists.
+fn test_sqlite_bulk_insert_collision_non_fatal() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
 
     // Seed a node so the collision target exists
@@ -231,29 +232,18 @@ fn test_sqlite_bulk_insert_atomicity() {
         NodeChange::Add(make_node(4, "unique_b", "fn_b", NodeKind::Function)),
     ];
 
-    let result = store.update_nodes(batch);
-    assert!(
-        result.is_err(),
-        "batch with hash collision should fail: {:?}",
-        result
-    );
-    if let Err(GraphError::HashCollision { hash, .. }) = &result {
-        assert_eq!(hash, "dup_hash");
-    } else {
-        panic!("expected HashCollision error, got: {:?}", result);
-    }
+    store
+        .update_nodes(batch)
+        .expect("collision must not abort the batch (#48)");
 
-    // None of the batch nodes should have been persisted (transaction rolled back)
-    assert!(
-        store.get_node("unique_a").is_none(),
-        "transaction should have rolled back node unique_a"
-    );
-    assert!(
-        store.get_node("unique_b").is_none(),
-        "transaction should have rolled back node unique_b"
-    );
-    // Original node should still be intact
-    assert!(store.get_node("dup_hash").is_some());
+    // Every node persisted; the original keeps its hash, the collider got a
+    // salted one.
+    assert!(store.get_node("unique_a").is_some());
+    assert!(store.get_node("unique_b").is_some());
+    assert_eq!(store.get_node("dup_hash").unwrap().name, "original_fn");
+    let collider = store.get_node_by_id(3).expect("collider persisted");
+    assert_eq!(collider.name, "collider_fn");
+    assert_ne!(collider.hash, "dup_hash");
 }
 
 #[test]

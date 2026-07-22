@@ -141,7 +141,7 @@ impl GraphStore for SqliteGraphStore {
         let tx = self.conn.transaction()?;
         for change in changes {
             match change {
-                NodeChange::Add(node) => {
+                NodeChange::Add(mut node) => {
                     // Check for hash collision (different function, same hash)
                     let existing: Option<String> = tx
                         .query_row(
@@ -152,11 +152,11 @@ impl GraphStore for SqliteGraphStore {
                         .ok();
                     if let Some(existing_name) = existing {
                         if existing_name != node.name {
-                            return Err(GraphError::HashCollision {
-                                hash: node.hash.clone(),
-                                existing: existing_name,
-                                new_fn: node.name.clone(),
-                            });
+                            // Non-fatal (#48): re-salt this node instead of
+                            // aborting — one colliding pair must not take down
+                            // the compile gate for an entire repo.
+                            node.hash =
+                                Self::persist_disambiguated_hash(&tx, &node, &existing_name)?;
                         }
                     }
                     // UPSERT to handle re-map without cascade-deleting related rows
@@ -209,7 +209,7 @@ impl GraphStore for SqliteGraphStore {
                         Self::append_previous_hashes(&tx, stored_id, &node.previous_hashes)?;
                     }
                 }
-                NodeChange::Update(node) => {
+                NodeChange::Update(mut node) => {
                     // Check for hash collision (different node, same hash)
                     let existing: Option<(u64, String)> = tx
                         .query_row(
@@ -220,11 +220,9 @@ impl GraphStore for SqliteGraphStore {
                         .ok();
                     if let Some((existing_id, existing_name)) = existing {
                         if existing_id != node.id {
-                            return Err(GraphError::HashCollision {
-                                hash: node.hash.clone(),
-                                existing: existing_name,
-                                new_fn: node.name.clone(),
-                            });
+                            // Non-fatal (#48): same fallback as the Add arm.
+                            node.hash =
+                                Self::persist_disambiguated_hash(&tx, &node, &existing_name)?;
                         }
                     }
                     tx.execute(

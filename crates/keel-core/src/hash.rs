@@ -43,6 +43,23 @@ pub fn compute_hash(canonical_signature: &str, body_normalized: &str, docstring:
     base62_encode(hash_value)
 }
 
+/// Cap on the disambiguation-ordinal walk shared by every layer that assigns
+/// salted identities (engine re-baseline, persist-time fallback).
+pub const MAX_DISAMBIGUATION_ORDINAL: u32 = 64;
+
+/// Salt for the Nth disambiguation candidate of a definition in `file_path`:
+/// ordinal 1 is the plain file path (the identity `keel map` assigns to the
+/// common two-def case — several parse-layer call sites inline it directly),
+/// 2+ append `#<ordinal>`. Walks that go past ordinal 1 must derive their
+/// candidates here so the engine and persist layers stay in lockstep.
+pub fn disambiguation_salt(file_path: &str, ordinal: u32) -> String {
+    if ordinal == 1 {
+        file_path.to_string()
+    } else {
+        format!("{file_path}#{ordinal}")
+    }
+}
+
 /// Compute a disambiguated hash when a collision is detected.
 /// Appends the file path to the input to create a unique hash.
 pub fn compute_hash_disambiguated(

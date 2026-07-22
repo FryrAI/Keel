@@ -3,7 +3,7 @@
 use keel_core::hash::{compute_hash, compute_hash_disambiguated};
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
-use keel_core::types::{GraphError, GraphNode, NodeChange, NodeKind};
+use keel_core::types::{GraphNode, NodeChange, NodeKind};
 
 fn make_node(id: u64, hash: &str, name: &str, kind: NodeKind) -> GraphNode {
     GraphNode {
@@ -28,8 +28,10 @@ fn make_node(id: u64, hash: &str, name: &str, kind: NodeKind) -> GraphNode {
 }
 
 #[test]
-/// When two different functions produce the same hash, collision should be detected.
-fn test_collision_detected_on_duplicate_hash() {
+/// When two different functions produce the same hash, the collision is
+/// resolved by re-salting the second node — never by aborting the persist
+/// (#48: one colliding pair must not take down the gate for a whole repo).
+fn test_collision_auto_disambiguates_on_duplicate_hash() {
     // GIVEN two functions with different names that share the same hash
     let mut store = SqliteGraphStore::in_memory().expect("in-memory store");
     let colliding_hash = "abcDEF12345";
@@ -40,19 +42,20 @@ fn test_collision_detected_on_duplicate_hash() {
     let result_a = store.update_nodes(vec![NodeChange::Add(node_a)]);
     assert!(result_a.is_ok(), "First insert should succeed");
 
-    // THEN inserting the second node with the same hash but different name should error
-    let result_b = store.update_nodes(vec![NodeChange::Add(node_b)]);
-    assert!(
-        result_b.is_err(),
-        "Second insert with colliding hash should error"
-    );
+    // THEN inserting the second node with the same hash but different name
+    // succeeds under a file-path-salted hash
+    store
+        .update_nodes(vec![NodeChange::Add(node_b)])
+        .expect("collision must not abort the persist");
 
-    match result_b.unwrap_err() {
-        GraphError::HashCollision { hash, .. } => {
-            assert_eq!(hash, colliding_hash);
-        }
-        other => panic!("Expected HashCollision, got: {:?}", other),
-    }
+    assert_eq!(
+        store.get_node(colliding_hash).unwrap().name,
+        "func_alpha",
+        "original node keeps its hash"
+    );
+    let salted = store.get_node_by_id(2).expect("collider persisted");
+    assert_eq!(salted.name, "func_beta");
+    assert_ne!(salted.hash, colliding_hash, "collider got a distinct hash");
 }
 
 #[test]
@@ -94,66 +97,61 @@ fn test_disambiguated_hash_generation() {
 }
 
 #[test]
-/// Collision reporting should include both conflicting node names and the hash.
-fn test_collision_report_includes_both_nodes() {
-    // GIVEN a store with an existing node
+/// An Update that tries to claim a hash owned by a DIFFERENT node is re-salted
+/// instead of aborting (#48) — the owner keeps its hash.
+fn test_update_collision_auto_disambiguates() {
+    // GIVEN a store with two nodes under distinct hashes
     let mut store = SqliteGraphStore::in_memory().expect("in-memory store");
-    let hash = "XYZ98765432";
-    let node_existing = make_node(1, hash, "existing_func", NodeKind::Function);
+    let owned_hash = "XYZ98765432";
+    let node_owner = make_node(1, owned_hash, "existing_func", NodeKind::Function);
+    let node_other = make_node(2, "other4567890", "new_func", NodeKind::Function);
     store
-        .update_nodes(vec![NodeChange::Add(node_existing)])
-        .expect("first insert succeeds");
+        .update_nodes(vec![
+            NodeChange::Add(node_owner),
+            NodeChange::Add(node_other),
+        ])
+        .expect("seed inserts succeed");
 
-    // WHEN a second node with the same hash but different name is inserted
-    let node_new = make_node(2, hash, "new_func", NodeKind::Function);
-    let err = store
-        .update_nodes(vec![NodeChange::Add(node_new)])
-        .unwrap_err();
+    // WHEN node 2 is updated to claim node 1's hash
+    let mut claiming = make_node(2, owned_hash, "new_func", NodeKind::Function);
+    claiming.file_path = "other.rs".into();
+    store
+        .update_nodes(vec![NodeChange::Update(claiming)])
+        .expect("update collision must not abort the persist");
 
-    // THEN the error includes hash, existing function name, and new function name
-    match err {
-        GraphError::HashCollision {
-            hash: reported_hash,
-            existing,
-            new_fn,
-        } => {
-            assert_eq!(reported_hash, hash, "reported hash must match");
-            assert_eq!(existing, "existing_func", "existing name must match");
-            assert_eq!(new_fn, "new_func", "new function name must match");
-        }
-        other => panic!("Expected HashCollision, got: {:?}", other),
-    }
+    // THEN the owner keeps its hash and node 2 landed on a salted one
+    assert_eq!(store.get_node(owned_hash).unwrap().name, "existing_func");
+    let salted = store.get_node_by_id(2).expect("updated node persisted");
+    assert_ne!(salted.hash, owned_hash);
 }
 
 #[test]
-/// Insert first node OK, second with same hash but different name should error.
+/// Repeated collisions against the same hash each get their own salted
+/// identity — three same-hash inserts end as three distinct nodes.
 fn test_multiple_collisions_on_same_hash() {
     // GIVEN a store
     let mut store = SqliteGraphStore::in_memory().expect("in-memory store");
     let hash = "COLLIDEhash";
 
-    // WHEN the first node is inserted
-    let node1 = make_node(1, hash, "first_fn", NodeKind::Function);
-    let r1 = store.update_nodes(vec![NodeChange::Add(node1)]);
-    assert!(r1.is_ok(), "First insert should succeed");
-
-    // THEN the second node with same hash but different name triggers HashCollision
-    let node2 = make_node(2, hash, "second_fn", NodeKind::Function);
-    let r2 = store.update_nodes(vec![NodeChange::Add(node2)]);
-    assert!(r2.is_err(), "Second insert should fail with collision");
-
-    match r2.unwrap_err() {
-        GraphError::HashCollision {
-            hash: h,
-            existing,
-            new_fn,
-        } => {
-            assert_eq!(h, hash);
-            assert_eq!(existing, "first_fn");
-            assert_eq!(new_fn, "second_fn");
-        }
-        other => panic!("Expected HashCollision, got: {:?}", other),
+    // WHEN three different-named nodes are inserted under the same hash with
+    // identical signatures and file paths — the ordinal walk must separate
+    // them (a single file-path salt would give nodes 2 and 3 the same hash)
+    for (id, name) in [(1, "first_fn"), (2, "second_fn"), (3, "third_fn")] {
+        let mut node = make_node(id, hash, name, NodeKind::Function);
+        node.signature = "identical_sig()".into();
+        store
+            .update_nodes(vec![NodeChange::Add(node)])
+            .expect("collisions must not abort the persist");
     }
+
+    // THEN all three persisted with pairwise-distinct hashes
+    let hashes: Vec<String> = (1..=3)
+        .map(|id| store.get_node_by_id(id).expect("node persisted").hash)
+        .collect();
+    assert_eq!(hashes[0], hash, "first insert keeps the plain hash");
+    assert_ne!(hashes[0], hashes[1]);
+    assert_ne!(hashes[0], hashes[2]);
+    assert_ne!(hashes[1], hashes[2]);
 }
 
 #[test]

@@ -274,15 +274,19 @@ fn test_circuit_breaker_empty_roundtrip() {
 }
 
 #[test]
-fn test_hash_collision_different_names_still_errors() {
+fn test_hash_collision_different_names_auto_disambiguates() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let node1 = test_node(1, "collision_hash", "func_a");
     store.update_nodes(vec![NodeChange::Add(node1)]).unwrap();
     let node2 = test_node(2, "collision_hash", "func_b");
-    assert!(
-        store.update_nodes(vec![NodeChange::Add(node2)]).is_err(),
-        "Hash collision between different functions should still error"
-    );
+    store
+        .update_nodes(vec![NodeChange::Add(node2)])
+        .expect("collision must not abort the persist (#48)");
+    // Original keeps its hash; the collider is stored under a salted one.
+    assert_eq!(store.get_node("collision_hash").unwrap().name, "func_a");
+    let salted = store.get_node_by_id(2).expect("collider persisted");
+    assert_eq!(salted.name, "func_b");
+    assert_ne!(salted.hash, "collision_hash");
 }
 
 #[test]
