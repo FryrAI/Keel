@@ -9,32 +9,10 @@
 //! reset, and it never creates a doc file for a tool that wasn't already
 //! integrated — only refreshes what `keel init` previously wrote.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::compile_note::apply_honest_compile_note;
-use super::{generators, hook_script, merge, templates};
-
-/// (repo-root-relative path, composed template) pairs for every doc file
-/// `keel init` can write a keel-managed marker block into. Order mirrors the
-/// generator functions in `generators.rs`; settings.json/hooks.json files are
-/// deliberately excluded — this command only refreshes docs and the on-edit
-/// hook script, per its own doc comment.
-fn markdown_targets(cwd: &Path) -> Vec<(PathBuf, &'static str)> {
-    vec![
-        (cwd.join("AGENTS.md"), templates::AGENTS_MD),
-        (cwd.join("CLAUDE.md"), templates::CLAUDE_CODE_INSTRUCTIONS),
-        (cwd.join("GEMINI.md"), templates::GEMINI_INSTRUCTIONS),
-        (
-            cwd.join(".github/copilot-instructions.md"),
-            templates::COPILOT_INSTRUCTIONS,
-        ),
-        (
-            cwd.join(".aider/keel-instructions.md"),
-            templates::AIDER_INSTRUCTIONS,
-        ),
-        (cwd.join("LETTA.md"), templates::LETTA_INSTRUCTIONS),
-    ]
-}
+use super::{generators, hook_script, merge};
 
 /// Run `keel init --update-docs` against the project rooted at `cwd`.
 pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
@@ -49,8 +27,13 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     // claim automatic post-edit compilation (see `apply_honest_compile_note`).
     let on_edit = keel_dir.join("hooks/post-edit.sh").exists();
 
+    // `generators::MANAGED_DOCS` is the shared table: whatever `keel init`
+    // can create, this refreshes. settings.json/hooks.json files are not on
+    // it — this command only touches docs and the on-edit hook script, per its
+    // own doc comment.
     let mut file_count = 0;
-    for (path, template) in markdown_targets(cwd) {
+    for (rel, template) in generators::MANAGED_DOCS {
+        let path = cwd.join(rel);
         if !path.exists() {
             continue; // refresh existing integrations only, never create new ones
         }

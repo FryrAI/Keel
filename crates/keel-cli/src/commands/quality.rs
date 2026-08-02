@@ -28,10 +28,11 @@ pub struct QualityArgs {
 /// (no initialized graph, an unwritable database) exits 2, per the CLI
 /// contract.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, args: QualityArgs) -> i32 {
-    let (cwd, store) = match super::open_store("quality") {
+    let ctx = match super::open_repo("quality") {
         Ok(x) => x,
         Err(code) => return code,
     };
+    let (cwd, store) = (ctx.cwd, ctx.store);
 
     let commit = keel_enforce::gitdiff::head_commit(&cwd);
     let mut report = QualityReport::new(commit.clone());
@@ -54,8 +55,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, args: QualityArgs) ->
         };
         report.trend = Some(build_trend(&rows));
     } else {
-        let keel_dir = keel_core::paths::keel_dir(&cwd);
-        let config = keel_core::config::KeelConfig::load(&keel_dir);
+        let config = keel_core::config::KeelConfig::load(&ctx.keel_dir);
         let metrics = compute_metrics(&store, config.enforce.max_file_lines);
         report.metrics = Some(metrics);
 

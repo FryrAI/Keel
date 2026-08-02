@@ -170,6 +170,11 @@ fn sanitize_for_remote(
 /// Returns the JoinHandle so the caller can wait before process exit.
 /// Silently swallows all errors — telemetry must never degrade UX.
 /// The thread has a 2s timeout so the CLI never hangs.
+///
+/// INVARIANT (T1.1): this returns `None` for every hot-path command, so the
+/// caller never has a handle to block on for them. `main` joins whatever
+/// handle it gets unconditionally — keeping the hot path off the network is
+/// this function's job alone. Do not relax the check below.
 fn try_send_remote(
     config: &KeelConfig,
     keel_dir: &Path,

@@ -280,7 +280,12 @@ case "$url" in
     else [ -f "$state/comment.txt" ] && cat "$state/comment.txt"; fi ;;
   */comments)
     if [ "$method" = "POST" ]; then printf '%s' "$body" > "$state/comment.txt"; echo '{}';
-    else [ -f "$state/comment.txt" ] && echo 1; fi ;;
+    elif [ -f "$state/comment.txt" ]; then
+      # What the script's --jq extracts from the list response: id and the
+      # body-hash the comment carries, from the ONE call.
+      h=$(grep -m1 -o 'keel:body-hash [0-9a-f]*' "$state/comment.txt" | cut -d' ' -f2)
+      printf '1\t%s\n' "$h"
+    fi ;;
 esac
 exit 0
 "#;
@@ -359,14 +364,15 @@ fn the_sticky_comment_is_posted_once_and_only_rewritten_on_change() {
     let calls = h.run("execute() signature changed in a.ts\n", false);
     assert_eq!(
         calls,
-        ["GET", "GET"],
-        "an unchanged re-push must not rewrite the comment (no new notification)"
+        ["GET"],
+        "an unchanged re-push must not rewrite the comment (no new notification), \
+         and the one list call must answer both id and body-hash"
     );
 
     let calls = h.run("other() removed from b.ts\n", false);
     assert_eq!(
         calls,
-        ["GET", "GET", "PATCH"],
+        ["GET", "PATCH"],
         "changed content must update the existing comment in place"
     );
     assert!(h.comment().contains("other() removed"));
@@ -374,7 +380,7 @@ fn the_sticky_comment_is_posted_once_and_only_rewritten_on_change() {
     let calls = h.run("", false);
     assert_eq!(
         calls,
-        ["GET", "GET", "PATCH"],
+        ["GET", "PATCH"],
         "a diff that went clean must update the comment rather than leave it scary"
     );
     assert!(h.comment().contains("No contract changes"));

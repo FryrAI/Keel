@@ -7,6 +7,7 @@ use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
+    StatsResult,
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
@@ -497,6 +498,10 @@ impl OutputFormatter for HumanFormatter {
 
     fn format_quality(&self, result: &QualityReport) -> String {
         crate::quality_fmt::human(result)
+    }
+
+    fn format_stats(&self, result: &StatsResult) -> String {
+        crate::stats_fmt::human(result)
     }
 
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String {

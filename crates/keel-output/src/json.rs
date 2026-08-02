@@ -6,6 +6,7 @@ use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
+    StatsResult,
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
@@ -52,6 +53,7 @@ impl OutputFormatter for JsonFormatter {
         format_semantic_map: SemanticMapResult,
         format_review: ReviewResult,
         format_quality: QualityReport,
+        format_stats: StatsResult,
     }
 }
 

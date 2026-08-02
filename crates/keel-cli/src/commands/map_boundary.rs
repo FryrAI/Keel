@@ -78,7 +78,8 @@ pub fn inject_boundary_symbols(
             0,
         );
 
-        for sym in funcs {
+        // Functions first, then classes — the order fixes the node-id sequence.
+        for sym in funcs.iter().chain(classes) {
             let node_id = alloc_node(
                 next_id,
                 valid_node_ids,
@@ -92,25 +93,12 @@ pub fn inject_boundary_symbols(
                 module_id,
             );
             push_contains(edge_changes, next_id, module_id, node_id, file, sym.line);
-            fn_index
-                .entry(sym.name.clone())
-                .or_insert((node_id, confidence));
-        }
-
-        for sym in classes {
-            let node_id = alloc_node(
-                next_id,
-                valid_node_ids,
-                assigned_hashes,
-                node_changes,
-                sym.kind.clone(),
-                &sym.name,
-                file,
-                sym.signature.clone(),
-                sym.line,
-                module_id,
-            );
-            push_contains(edge_changes, next_id, module_id, node_id, file, sym.line);
+            // Only functions are call targets, so only they enter the index.
+            if sym.kind == NodeKind::Function {
+                fn_index
+                    .entry(sym.name.clone())
+                    .or_insert((node_id, confidence));
+            }
         }
     }
 

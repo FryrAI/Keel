@@ -1,7 +1,11 @@
+use keel_enforce::types::StatsResult;
 use keel_output::OutputFormatter;
 
 /// Run `keel stats` — display telemetry dashboard.
-pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool, llm: bool) -> i32 {
+///
+/// Rendering is the formatter's job (`--json`/`--llm` already picked it in
+/// `main`); this function only measures the graph.
+pub fn run(formatter: &dyn OutputFormatter, verbose: bool) -> i32 {
     let repo = match super::open_repo("stats") {
         Ok(x) => x,
         Err(code) => return code,
@@ -62,173 +66,28 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool, llm: boo
     }
     let edge_count = calls_count + imports_count + contains_count + uses_count;
 
-    // Load telemetry aggregate
-    let telemetry_agg = load_telemetry_aggregate(&keel_dir);
+    let result = StatsResult {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        command: "stats".to_string(),
+        modules: module_count,
+        functions: function_count,
+        files: file_set.len(),
+        edges: edge_count,
+        uses_edges: uses_count,
+        calls_edges: calls_count,
+        imports_edges: imports_count,
+        contains_edges: contains_count,
+        telemetry: load_telemetry_aggregate(&keel_dir),
+        // The two --verbose extras are carried on the result rather than
+        // passed to the formatter: whether they are shown is the command's
+        // decision, rendering them is the formatter's.
+        db_path: verbose.then(|| db_path.display().to_string()),
+        schema_version: verbose.then(|| store.schema_version().ok()).flatten(),
+    };
 
-    if json {
-        let mut stats = serde_json::json!({
-            "version": env!("CARGO_PKG_VERSION"),
-            "command": "stats",
-            "modules": module_count,
-            "functions": function_count,
-            "files": file_set.len(),
-            "edges": edge_count,
-            "uses_edges": uses_count,
-        });
-        if let Some(ref agg) = telemetry_agg {
-            stats["telemetry"] = serde_json::to_value(agg).unwrap_or_default();
-        }
-        if verbose {
-            stats["db_path"] = serde_json::Value::String(db_path.display().to_string());
-            if let Ok(v) = store.schema_version() {
-                stats["schema_version"] = serde_json::Value::Number(v.into());
-            }
-        }
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&stats).unwrap_or_default()
-        );
-    } else if llm {
-        println!(
-            "STATS modules={} functions={} files={} edges={}",
-            module_count,
-            function_count,
-            file_set.len(),
-            edge_count
-        );
-        if let Some(agg) = &telemetry_agg {
-            println!("{}", telemetry_llm_line(agg));
-        }
-    } else {
-        println!("keel stats");
-        println!("  modules:   {}", module_count);
-        println!("  functions: {}", function_count);
-        println!("  files:     {}", file_set.len());
-        println!("  edges:     {}", edge_count);
-        println!("    calls:    {}", calls_count);
-        println!("    imports:  {}", imports_count);
-        println!("    contains: {}", contains_count);
-        println!("    uses:     {}", uses_count);
-
-        if verbose {
-            println!("  db_path:   {}", db_path.display());
-            if let Ok(v) = store.schema_version() {
-                println!("  schema:    v{}", v);
-            }
-        }
-
-        // Telemetry section
-        if let Some(agg) = telemetry_agg {
-            print_telemetry_human(&agg);
-        }
-    }
+    println!("{}", formatter.format_stats(&result));
 
     0
-}
-
-/// Compact `TELEMETRY key=value ...` line for `keel stats --llm` — the
-/// standing regression guard for T1.1: `compile_p50_ms`/`compile_p95_ms`
-/// surface a re-introduced network round trip on the compile hot path.
-fn telemetry_llm_line(agg: &keel_core::telemetry::TelemetryAggregate) -> String {
-    let mut parts = vec![format!("invocations={}", agg.total_invocations)];
-    if let Some(v) = agg.avg_compile_ms {
-        parts.push(format!("avg_compile_ms={}", v as u64));
-    }
-    if let Some(v) = agg.compile_p50_ms {
-        parts.push(format!("compile_p50_ms={}", v as u64));
-    }
-    if let Some(v) = agg.compile_p95_ms {
-        parts.push(format!("compile_p95_ms={}", v as u64));
-    }
-    if let Some(v) = agg.avg_map_ms {
-        parts.push(format!("avg_map_ms={}", v as u64));
-    }
-    parts.push(format!("errors={}", agg.total_errors));
-    parts.push(format!("warnings={}", agg.total_warnings));
-    format!("TELEMETRY {}", parts.join(" "))
-}
-
-fn print_telemetry_human(agg: &keel_core::telemetry::TelemetryAggregate) {
-    println!();
-    println!("  telemetry (last 30 days):");
-    println!("    invocations: {}", agg.total_invocations);
-    if let Some(avg) = agg.avg_compile_ms {
-        println!("    avg compile:  {}ms", avg as u64);
-    }
-    if agg.compile_p50_ms.is_some() || agg.compile_p95_ms.is_some() {
-        println!(
-            "    compile p50/p95: {}ms / {}ms",
-            agg.compile_p50_ms.map(|v| v as u64).unwrap_or(0),
-            agg.compile_p95_ms.map(|v| v as u64).unwrap_or(0)
-        );
-    }
-    if let Some(avg) = agg.avg_map_ms {
-        let formatted = if avg >= 1000.0 {
-            format!("{:.1}s", avg / 1000.0)
-        } else {
-            format!("{}ms", avg as u64)
-        };
-        println!("    avg map:      {}", formatted);
-    }
-    println!("    errors:       {}", agg.total_errors);
-    println!("    warnings:     {}", agg.total_warnings);
-
-    if !agg.command_counts.is_empty() {
-        let mut cmds: Vec<_> = agg.command_counts.iter().collect();
-        cmds.sort_by(|a, b| b.1.cmp(a.1));
-        let top: Vec<String> = cmds
-            .iter()
-            .take(5)
-            .map(|(k, v)| format!("{} ({})", k, v))
-            .collect();
-        println!("    top commands: {}", top.join(", "));
-    }
-
-    if !agg.language_percentages.is_empty() {
-        let mut langs: Vec<_> = agg.language_percentages.iter().collect();
-        langs.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let lang_str: Vec<String> = langs
-            .iter()
-            .map(|(k, v)| format!("{} {:.0}%", k, v))
-            .collect();
-        println!("    languages:    {}", lang_str.join(", "));
-    }
-
-    // Top error codes
-    if !agg.top_error_codes.is_empty() {
-        let mut codes: Vec<_> = agg.top_error_codes.iter().collect();
-        codes.sort_by(|a, b| b.1.cmp(a.1));
-        let top: Vec<String> = codes
-            .iter()
-            .take(5)
-            .map(|(k, v)| format!("{} ({})", k, v))
-            .collect();
-        println!("    top errors:   {}", top.join(", "));
-    }
-
-    // Agent adoption stats
-    if !agg.agent_stats.is_empty() {
-        println!();
-        println!("    agent adoption:");
-        let mut agents: Vec<_> = agg.agent_stats.iter().collect();
-        agents.sort_by_key(|a| std::cmp::Reverse(a.1.sessions));
-        for (name, stats) in agents {
-            println!(
-                "      {}: {} sessions, avg {:.0} tool calls/session",
-                name, stats.sessions, stats.avg_tool_calls_per_session
-            );
-            if !stats.tool_usage.is_empty() {
-                let mut tools: Vec<_> = stats.tool_usage.iter().collect();
-                tools.sort_by(|a, b| b.1.cmp(a.1));
-                let tool_str: Vec<String> = tools
-                    .iter()
-                    .take(5)
-                    .map(|(k, v)| format!("{} ({})", k, v))
-                    .collect();
-                println!("        top tools: {}", tool_str.join(", "));
-            }
-        }
-    }
 }
 
 fn load_telemetry_aggregate(

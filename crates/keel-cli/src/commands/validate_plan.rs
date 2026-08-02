@@ -2,6 +2,7 @@
 //! execution, via the shared [`keel_enforce::validate_plan`] core.
 
 use std::io::Read;
+use std::path::Path;
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_enforce::circuit_breaker::{BreakerAction, CircuitBreaker};
@@ -23,10 +24,11 @@ const PLAN_SCOPE: &str = "<plan>";
 /// errors (no initialized graph, unreadable plan input) still exit 2 per the
 /// CLI contract.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, plan: String, strict: bool) -> i32 {
-    let (_cwd, store) = match super::open_store("validate-plan") {
+    let ctx = match super::open_repo("validate-plan") {
         Ok(x) => x,
         Err(code) => return code,
     };
+    let store = ctx.store;
 
     let plan_text = match read_plan(&plan) {
         Ok(t) => t,
@@ -37,7 +39,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, plan: String, strict:
     };
 
     let mut result = validate_plan(&store, &plan_text);
-    apply_circuit_breaker(&store, &mut result);
+    apply_circuit_breaker(&store, &ctx.keel_dir, &mut result);
 
     if verbose {
         eprintln!(
@@ -67,7 +69,11 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, plan: String, strict:
 /// attempts, not compiles" rule: a reworded-but-still-wrong claim advances the
 /// counter, a byte-identical re-submission does not. Three strikes downgrade
 /// the finding to INFO, which drops it out of `--strict`'s exit code.
-fn apply_circuit_breaker(store: &SqliteGraphStore, result: &mut PlanValidationResult) {
+fn apply_circuit_breaker(
+    store: &SqliteGraphStore,
+    keel_dir: &Path,
+    result: &mut PlanValidationResult,
+) {
     let rows = match store.load_circuit_breaker() {
         Ok(rows) => rows,
         Err(_) => return,
@@ -77,8 +83,7 @@ fn apply_circuit_breaker(store: &SqliteGraphStore, result: &mut PlanValidationRe
         return;
     }
 
-    let keel_dir = keel_core::paths::keel_dir(&std::env::current_dir().unwrap_or_default());
-    let config = keel_core::config::KeelConfig::load(&keel_dir);
+    let config = keel_core::config::KeelConfig::load(keel_dir);
     let mut breaker = CircuitBreaker::with_max_failures(config.circuit_breaker.max_failures);
     breaker.import_state(&rows);
 

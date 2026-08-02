@@ -236,7 +236,7 @@ pub(crate) enum Commands {
         #[arg(long)]
         strict_cycles: bool,
         /// Max findings to print with --llm (0 = no cap)
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = keel_output::llm::audit::DEFAULT_TOP)]
         top: usize,
     },
 
@@ -380,6 +380,9 @@ mod tests;
 #[cfg(test)]
 #[path = "cli_args_context_tests.rs"]
 mod context_tests;
+#[cfg(test)]
+#[path = "cli_args_misc_tests.rs"]
+mod misc_tests;
 #[cfg(test)]
 #[path = "cli_args_session_tests.rs"]
 mod session_tests;

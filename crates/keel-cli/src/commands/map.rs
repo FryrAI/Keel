@@ -35,11 +35,12 @@ pub fn run(
     };
     let keel_dir = keel_core::paths::keel_dir(&cwd);
 
+    // One config load serves both the drift check and the walk below.
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
+
     // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
     // At most one line, emitted once per invocation.
-    if let Some(msg) = super::version_drift::version_drift_message(&cwd, &keel_dir) {
-        eprintln!("{msg}");
-    }
+    super::version_drift::warn(&cwd, &config);
 
     // --cached: read from existing graph.db instead of re-parsing
     if cached {
@@ -47,7 +48,6 @@ pub fn run(
     }
 
     // Walk all source files (with optional monorepo package annotation)
-    let config = keel_core::config::KeelConfig::load(&keel_dir);
     let walker = FileWalker::new(&cwd);
     let entries = if config.monorepo.enabled {
         let layout = keel_parsers::monorepo::detect_monorepo(&cwd);

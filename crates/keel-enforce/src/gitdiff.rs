@@ -149,16 +149,10 @@ pub fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Ancestry {
 /// no git, no repository, or a repository whose first commit does not exist
 /// yet (`git init` with nothing committed).
 pub fn head_commit(dir: &Path) -> Option<String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let sha = run_git_checked(dir, &["rev-parse", "HEAD"])
+        .ok()??
+        .trim()
+        .to_string();
     (!sha.is_empty()).then_some(sha)
 }
 

@@ -77,11 +77,12 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
+    // One config load serves both the drift check and the engine below.
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
+
     // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
     // At most one line, emitted once per invocation.
-    if let Some(msg) = super::version_drift::version_drift_message(&cwd, &keel_dir) {
-        eprintln!("{msg}");
-    }
+    super::version_drift::warn(&cwd, &config);
 
     // Acquire compile lock to prevent concurrent corruption
     let _lock = match acquire_compile_lock(&keel_dir, verbose) {
@@ -154,7 +155,6 @@ pub fn run(
     // literal edge it cannot reproduce would be deleted until the next map.
     let literal_keys = super::map_boundary::persisted_literal_keys(&cwd, &store);
 
-    let config = keel_core::config::KeelConfig::load(&keel_dir);
     let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
     engine.import_circuit_breaker(&cb_state);
 
@@ -302,20 +302,14 @@ pub fn run(
         // repo with no boundary surface, which disables literals entirely).
         let resolver: &dyn LanguageResolver = match lang {
             l if keel_parsers::treesitter::is_typescript_family(l) => ts.get_or_insert_with(|| {
-                let r = TsResolver::with_project_root(&cwd);
-                r.set_boundary_literals(literal_keys.clone());
-                r
+                TsResolver::with_project_root(&cwd).with_boundary_literals(literal_keys.clone())
             }),
             "python" => py.get_or_insert_with(|| {
-                let r = PyResolver::detect();
-                r.set_boundary_literals(literal_keys.clone());
-                r
+                PyResolver::detect().with_boundary_literals(literal_keys.clone())
             }),
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
             "rust" => rs.get_or_insert_with(|| {
-                let r = RustLangResolver::new();
-                r.set_boundary_literals(literal_keys.clone());
-                r
+                RustLangResolver::new().with_boundary_literals(literal_keys.clone())
             }),
             _ => continue,
         };

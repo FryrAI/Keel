@@ -44,6 +44,17 @@ pub trait BoundaryLiterals {
             .unwrap()
             .set_boundary_literals(keys);
     }
+
+    /// [`BoundaryLiterals::set_boundary_literals`] as a builder step, for the
+    /// "construct a resolver and install the key set before its first parse"
+    /// shape every lazily-built resolver in `keel compile` needs.
+    fn with_boundary_literals(self, keys: Arc<HashSet<String>>) -> Self
+    where
+        Self: Sized,
+    {
+        self.set_boundary_literals(keys);
+        self
+    }
 }
 
 /// A declaration discovered at a language boundary — a call target keel has no

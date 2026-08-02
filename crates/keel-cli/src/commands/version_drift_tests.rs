@@ -22,7 +22,10 @@ fn matching_keel_json_and_no_agents_md_is_silent() {
     let keel_dir = dir.path().join(".keel");
     write_keel_json(&keel_dir, BINARY_VERSION);
 
-    assert_eq!(version_drift_message(dir.path(), &keel_dir), None);
+    assert_eq!(
+        version_drift_message(dir.path(), &KeelConfig::load(&keel_dir)),
+        None
+    );
 }
 
 #[test]
@@ -31,7 +34,8 @@ fn stale_keel_json_reports_exactly_one_line_naming_both_versions() {
     let keel_dir = dir.path().join(".keel");
     write_keel_json(&keel_dir, "0.1.0");
 
-    let msg = version_drift_message(dir.path(), &keel_dir).expect("expected drift message");
+    let msg = version_drift_message(dir.path(), &KeelConfig::load(&keel_dir))
+        .expect("expected drift message");
     assert_eq!(msg.lines().count(), 1, "message must be exactly one line");
     assert!(msg.starts_with("keel: .keel/keel.json records 0.1.0, binary is "));
     assert!(msg.contains(BINARY_VERSION));
@@ -53,7 +57,8 @@ fn fresh_keel_json_but_stale_docs_stamp_still_reports_drift() {
     )
     .unwrap();
 
-    let msg = version_drift_message(dir.path(), &keel_dir).expect("expected drift message");
+    let msg = version_drift_message(dir.path(), &KeelConfig::load(&keel_dir))
+        .expect("expected drift message");
     assert_eq!(msg.lines().count(), 1);
     assert!(msg.starts_with("keel: AGENTS.md records 0.0.1, binary is "));
 }
@@ -69,7 +74,10 @@ fn fresh_keel_json_and_fresh_docs_stamp_is_silent() {
     )
     .unwrap();
 
-    assert_eq!(version_drift_message(dir.path(), &keel_dir), None);
+    assert_eq!(
+        version_drift_message(dir.path(), &KeelConfig::load(&keel_dir)),
+        None
+    );
 }
 
 #[test]

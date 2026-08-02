@@ -1,5 +1,8 @@
 use super::*;
 
+use keel_enforce::validate_plan::PlanValidationResult;
+use keel_enforce::validate_plan_findings::PlanFinding;
+
 /// Every command substring that must appear in each "full list" template's
 /// Commands section — mirrors the real CLI surface in `cli_args.rs`. This is
 /// what actually drifted (issue: missing `keel audit`/`keel context` and
@@ -189,4 +192,94 @@ fn the_github_actions_scaffold_calls_the_maintained_action() {
             "the scaffold must not keep its own divergent recipe (`{forbidden}`)"
         );
     }
+}
+
+/// The exact `grep -E` pattern `.keel/hooks/plan-check.sh` filters `keel
+/// validate-plan --llm` output with. Only the lines it matches ever reach the
+/// model, so these prefixes are a contract between the hook and the LLM
+/// formatter — not a formatting detail.
+const PLAN_HOOK_GREP: &str = r"'^(P00[12] |  at: |  fix: )'";
+
+/// The hook's pattern, transcribed to Rust.
+fn plan_hook_matches(line: &str) -> bool {
+    line.starts_with("P001 ")
+        || line.starts_with("P002 ")
+        || line.starts_with("  at: ")
+        || line.starts_with("  fix: ")
+}
+
+fn plan_finding(code: &str, symbol: &str, hash: &str, line: u32) -> PlanFinding {
+    PlanFinding {
+        code: code.to_string(),
+        severity: "WARNING".to_string(),
+        category: "unknown_symbol".to_string(),
+        symbol: symbol.to_string(),
+        message: "the plan calls a symbol the graph does not have".to_string(),
+        hash: hash.to_string(),
+        file: if hash.is_empty() {
+            String::new()
+        } else {
+            "src/lib.rs".to_string()
+        },
+        line,
+        claimed: format!("{symbol}(a, b)"),
+        actual: None,
+        fix_hint: "check the name against `keel search`".to_string(),
+        confidence: 0.9,
+        downgraded: false,
+    }
+}
+
+/// Renders a P001 and a P002 finding through the real LLM formatter and asserts
+/// the hook's grep still selects exactly the finding lines. Without this, a
+/// formatter reflow would silently empty the plan hook (no findings shown reads
+/// as a clean plan — the worst possible failure mode).
+#[test]
+fn plan_check_hook_grep_matches_the_llm_formatters_finding_lines() {
+    assert!(
+        PLAN_CHECK_HOOK.contains(PLAN_HOOK_GREP),
+        "the hook's grep pattern changed; update PLAN_HOOK_GREP and plan_hook_matches together"
+    );
+
+    let result = PlanValidationResult {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        command: "validate-plan".to_string(),
+        actions: Vec::new(),
+        symbols_detected: 2,
+        files_detected: vec!["src/lib.rs".to_string()],
+        unrecognized: false,
+        findings: vec![
+            plan_finding("P001", "make_widget", "", 0),
+            plan_finding("P002", "execute", "abc12345678", 42),
+        ],
+    };
+
+    let rendered = keel_output::llm::validate_plan::format_validate_plan(&result);
+    let matched: Vec<&str> = rendered.lines().filter(|l| plan_hook_matches(l)).collect();
+
+    assert!(
+        matched
+            .iter()
+            .any(|l| l.starts_with("P001 WARNING make_widget")),
+        "hook must still see the P001 line: {rendered}"
+    );
+    assert!(
+        matched
+            .iter()
+            .any(|l| l.starts_with("P002 WARNING execute")),
+        "hook must still see the P002 line: {rendered}"
+    );
+    assert!(
+        matched.iter().any(|l| l.starts_with("  at: src/lib.rs:42")),
+        "hook must still see the location line: {rendered}"
+    );
+    assert_eq!(
+        matched.iter().filter(|l| l.starts_with("  fix: ")).count(),
+        2,
+        "hook must still see one fix line per finding: {rendered}"
+    );
+    assert!(
+        !matched.iter().any(|l| l.starts_with("VALIDATE-PLAN")),
+        "the summary line must stay filtered out: {rendered}"
+    );
 }

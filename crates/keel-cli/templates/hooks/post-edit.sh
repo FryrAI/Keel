@@ -20,11 +20,12 @@ if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
   exit 2
 fi
 
+ARGS=(compile --delta --llm)
 if [ -n "$CLIENT" ]; then
-  RESULT=$(timeout 5 keel compile --delta --llm --client "$CLIENT" -- "$FILE_PATH" 2>&1)
-else
-  RESULT=$(timeout 5 keel compile --delta --llm -- "$FILE_PATH" 2>&1)
+  ARGS+=(--client "$CLIENT")
 fi
+
+RESULT=$(timeout 5 keel "${ARGS[@]}" -- "$FILE_PATH" 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then

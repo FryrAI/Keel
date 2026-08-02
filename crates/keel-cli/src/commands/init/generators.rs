@@ -11,6 +11,42 @@ use super::merge;
 use super::templates;
 use super::HookSelection;
 
+/// One keel-managed markdown doc: its repo-relative path and the template
+/// whose `<!-- keel:start -->` block keel owns.
+///
+/// These pairs are the single source of truth for both halves of the
+/// lifecycle: the generators below create the file, and
+/// `update_docs::run` refreshes every one that already exists. A doc added to
+/// a generator but missing from [`MANAGED_DOCS`] would silently stop being
+/// refreshed by `keel init --update-docs` and drift a version behind forever.
+pub type ManagedDoc = (&'static str, &'static str);
+
+/// `AGENTS.md` — the universal fallback, always written.
+pub const AGENTS_MD_DOC: ManagedDoc = ("AGENTS.md", templates::AGENTS_MD);
+/// `CLAUDE.md` — Claude Code.
+pub const CLAUDE_MD_DOC: ManagedDoc = ("CLAUDE.md", templates::CLAUDE_CODE_INSTRUCTIONS);
+/// `GEMINI.md` — Gemini CLI.
+pub const GEMINI_MD_DOC: ManagedDoc = ("GEMINI.md", templates::GEMINI_INSTRUCTIONS);
+/// `LETTA.md` — Letta Code.
+pub const LETTA_MD_DOC: ManagedDoc = ("LETTA.md", templates::LETTA_INSTRUCTIONS);
+/// `.github/copilot-instructions.md` — GitHub Copilot.
+pub const COPILOT_MD_DOC: ManagedDoc = (
+    ".github/copilot-instructions.md",
+    templates::COPILOT_INSTRUCTIONS,
+);
+/// `.aider/keel-instructions.md` — Aider.
+pub const AIDER_MD_DOC: ManagedDoc = (".aider/keel-instructions.md", templates::AIDER_INSTRUCTIONS);
+
+/// Every keel-managed markdown doc, in generator order.
+pub const MANAGED_DOCS: &[ManagedDoc] = &[
+    AGENTS_MD_DOC,
+    CLAUDE_MD_DOC,
+    GEMINI_MD_DOC,
+    COPILOT_MD_DOC,
+    AIDER_MD_DOC,
+    LETTA_MD_DOC,
+];
+
 /// Inject PostToolUse hook into a JSON settings string (for on-edit mode).
 ///
 /// `client` (e.g. `"claude-code"`) is appended as an argument to the shared
@@ -79,8 +115,9 @@ pub fn generate_claude_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf,
     }
 
     // CLAUDE.md — markdown marker merge
-    let md_path = root.join("CLAUDE.md");
-    let md_content = apply_honest_compile_note(templates::CLAUDE_CODE_INSTRUCTIONS, hooks.on_edit);
+    let (rel, template) = CLAUDE_MD_DOC;
+    let md_path = root.join(rel);
+    let md_content = apply_honest_compile_note(template, hooks.on_edit);
     match merge::merge_markdown_file(&md_path, &md_content) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: CLAUDE.md merge failed: {}", e),
@@ -134,8 +171,9 @@ pub fn generate_gemini_cli(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, 
     }
 
     // GEMINI.md — markdown marker merge
-    let md_path = root.join("GEMINI.md");
-    let md_content = apply_honest_compile_note(templates::GEMINI_INSTRUCTIONS, hooks.on_edit);
+    let (rel, template) = GEMINI_MD_DOC;
+    let md_path = root.join(rel);
+    let md_content = apply_honest_compile_note(template, hooks.on_edit);
     match merge::merge_markdown_file(&md_path, &md_content) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: GEMINI.md merge failed: {}", e),
@@ -190,8 +228,9 @@ pub fn generate_letta_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, 
     }
 
     // Instruction file — markdown marker merge
-    let md_path = root.join("LETTA.md");
-    let md_content = apply_honest_compile_note(templates::LETTA_INSTRUCTIONS, hooks.on_edit);
+    let (rel, template) = LETTA_MD_DOC;
+    let md_path = root.join(rel);
+    let md_content = apply_honest_compile_note(template, hooks.on_edit);
     match merge::merge_markdown_file(&md_path, &md_content) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: LETTA.md merge failed: {}", e),
@@ -204,8 +243,9 @@ pub fn generate_letta_code(root: &Path, hooks: &HookSelection) -> Vec<(PathBuf, 
 pub fn generate_copilot(root: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
-    let md_path = root.join(".github/copilot-instructions.md");
-    match merge::merge_markdown_file(&md_path, templates::COPILOT_INSTRUCTIONS) {
+    let (rel, template) = COPILOT_MD_DOC;
+    let md_path = root.join(rel);
+    match merge::merge_markdown_file(&md_path, template) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!(
             "keel init: warning: copilot-instructions.md merge failed: {}",
@@ -227,8 +267,9 @@ pub fn generate_aider(root: &Path) -> Vec<(PathBuf, String)> {
     }
 
     // Instruction file — markdown marker merge
-    let md_path = root.join(".aider/keel-instructions.md");
-    match merge::merge_markdown_file(&md_path, templates::AIDER_INSTRUCTIONS) {
+    let (rel, template) = AIDER_MD_DOC;
+    let md_path = root.join(rel);
+    match merge::merge_markdown_file(&md_path, template) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: aider instructions merge failed: {}", e),
     }
@@ -284,8 +325,9 @@ pub fn generate_github_actions(root: &Path) -> Vec<(PathBuf, String)> {
 pub fn generate_agents_md(root: &Path) -> Vec<(PathBuf, String)> {
     let mut files = Vec::new();
 
-    let md_path = root.join("AGENTS.md");
-    match merge::merge_markdown_file(&md_path, templates::AGENTS_MD) {
+    let (rel, template) = AGENTS_MD_DOC;
+    let md_path = root.join(rel);
+    match merge::merge_markdown_file(&md_path, template) {
         Ok(content) => files.push((md_path, content)),
         Err(e) => eprintln!("keel init: warning: AGENTS.md merge failed: {}", e),
     }

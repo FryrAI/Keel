@@ -2,16 +2,30 @@
 //! pinned version, and the `<!-- keel:version X -->` stamp `keel init`
 //! writes into generated agent docs (see `init::templates`).
 //!
-//! `map` and `compile` call [`version_drift_message`] once per invocation and
-//! print its result (if any) to stderr. keel only *detects* drift here — it
-//! never rewrites a file on its own; `keel init --update-docs` is the
+//! `map`, `compile` and `review` call [`warn`] once per invocation, which
+//! prints the diagnostic (if any) to stderr. keel only *detects* drift here —
+//! it never rewrites a file on its own; `keel init --update-docs` is the
 //! human-authorized fix (Principle 7: never auto-rewrite user files).
 
 use std::path::Path;
 
-/// Compute the one-line version-drift diagnostic `map`/`compile` print at
-/// most once per invocation, or `None` when the binary matches both
+use keel_core::config::KeelConfig;
+
+/// Print the version-drift diagnostic for this project to stderr, if there is
+/// one. The single call site shape for every command that reports drift.
+pub(crate) fn warn(cwd: &Path, config: &KeelConfig) {
+    if let Some(msg) = version_drift_message(cwd, config) {
+        eprintln!("{msg}");
+    }
+}
+
+/// Compute the one-line version-drift diagnostic `map`/`compile`/`review`
+/// print at most once per invocation, or `None` when the binary matches both
 /// `.keel/keel.json`'s pinned version and the generated docs' stamp.
+///
+/// Takes the already-loaded config: every caller needs it anyway a few lines
+/// later, and re-reading `keel.json` here would just be a second parse of the
+/// same file.
 ///
 /// Checks `.keel/keel.json` first since it is the authoritative "what
 /// version was this project set up with" record; if that already matches the
@@ -20,9 +34,9 @@ use std::path::Path;
 /// still carries an older stamp, that is reported instead. A project with no
 /// stamped `AGENTS.md` (never had `keel init` run past this change, or the
 /// file was removed) is not treated as drift beyond the `keel.json` check.
-pub(crate) fn version_drift_message(cwd: &Path, keel_dir: &Path) -> Option<String> {
+pub(crate) fn version_drift_message(cwd: &Path, config: &KeelConfig) -> Option<String> {
     let binary_version = env!("CARGO_PKG_VERSION");
-    let config_version = keel_core::config::KeelConfig::load(keel_dir).version;
+    let config_version = &config.version;
     if config_version != binary_version {
         return Some(format!(
             "keel: .keel/keel.json records {config_version}, binary is {binary_version} — run keel init --update-docs"

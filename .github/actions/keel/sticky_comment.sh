@@ -55,16 +55,14 @@ content_hash() {
 # GitHub REST
 # --------------------------------------------------------------------------
 
-# Id of the existing keel comment, or empty.
-find_comment_id() {
+# The existing keel comment as "<id><TAB><body-hash>", or empty when there is
+# none. The list response already carries every body, so the hash comes out of
+# the same call — a second GET per run bought nothing. The hash is empty when
+# the comment predates the body-hash marker.
+find_comment() {
   gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
-    --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" 2>/dev/null | head -n1
-}
-
-# The body-hash recorded in comment $1, or empty when it carries none.
-comment_hash() {
-  gh api "repos/${GITHUB_REPOSITORY}/issues/comments/$1" --jq '.body' 2>/dev/null |
-    grep -m1 -o 'keel:body-hash [0-9a-f]*' | cut -d' ' -f2
+    --jq ".[] | select(.body | contains(\"${MARKER}\")) | [.id, ((.body | capture(\"keel:body-hash (?<h>[0-9a-f]+)\").h) // \"\")] | @tsv" \
+    2>/dev/null | head -n1
 }
 
 write_summary() {
@@ -76,7 +74,7 @@ write_summary() {
 
 main() {
   local file="${1:-}"
-  local raw content hash body existing old_hash
+  local raw content hash body found existing old_hash
 
   # No file at all means keel review did not produce a report (it failed, or
   # never ran). An empty file means it ran and found nothing — a real result.
@@ -109,7 +107,10 @@ ${content}"
     return 0
   fi
 
-  existing="$(find_comment_id)"
+  found="$(find_comment)"
+  existing=""
+  old_hash=""
+  [ -n "$found" ] && IFS=$'\t' read -r existing old_hash <<<"$found"
 
   if [ -z "$existing" ] && [ -z "$raw" ]; then
     # Clean diff and nothing posted yet: say nothing at all. Same contract as
@@ -119,7 +120,6 @@ ${content}"
   fi
 
   if [ -n "$existing" ]; then
-    old_hash="$(comment_hash "$existing")"
     if [ "$old_hash" = "$hash" ]; then
       echo "keel: comment ${existing} is already current (${hash}) — not updating"
       return 0
