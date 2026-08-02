@@ -315,8 +315,10 @@ pub(crate) fn parse_signature(sig: &str) -> Option<ParsedSig> {
 /// Count parameters from a signature string. Returns 0 if unable to parse.
 ///
 /// Delegates to `parse_signature`, so a nested generic (`HashMap<K, V>` is one
-/// parameter, not two) and a receiver (`&self`/`cls`/`this`, never written at
-/// the call site) are counted the way E005's caller-side count sees them.
+/// parameter, not two) and a receiver (`&self`/`cls`/`this`) are excluded from
+/// the count. Note this is deliberately NOT symmetric with `count_call_args`,
+/// which counts a textual `self`/`cls` argument — see the note there and on
+/// `check_arity_mismatch` for the open call-side question.
 /// A parameter list the precise parser declines to count at all — variadic,
 /// defaulted or optional — falls back to the naive comma split, keeping those
 /// signatures exactly as E005 compared them before.

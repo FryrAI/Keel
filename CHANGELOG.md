@@ -140,8 +140,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on both sides — otherwise every Rust method mismatches every TypeScript
   function. Each finding carries the real hash, `file:line`, the stored
   signature and a `fix_hint`. Precision is bought with documented heuristics:
-  bare call syntax only (a dotted or path-qualified call is stdlib until proven
-  otherwise), names the plan proposes to create are excluded plan-wide, variadic
+  claim names shorter than 3 characters or containing non-ASCII stay silent
+  (the single widest filter — prose shapes like `t("key")` and `cb(err, res)`
+  must never fire), bare call syntax only (a dotted or path-qualified call is
+  stdlib until proven otherwise), names the plan proposes to create are
+  excluded plan-wide, variadic
   / defaulted / elided argument lists are skipped, same-named candidates must
   agree, and a plan that already declares a signature change is not told its
   target signature is wrong. **`keel validate-plan` still exits 0** — the
