@@ -86,12 +86,9 @@ fn run_hook(dir: &std::path::Path, plan: &str, env: &[(&str, &str)]) -> std::pro
         cmd.env(k, v);
     }
     let mut child = cmd.spawn().expect("failed to spawn hook");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(payload.as_bytes())
-        .unwrap();
+    // A bypassed hook (KEEL_PLAN_HOOK=0) exits before reading stdin, so the
+    // write races the child's exit — EPIPE here is expected, not a failure.
+    let _ = child.stdin.take().unwrap().write_all(payload.as_bytes());
     child.wait_with_output().unwrap()
 }
 
