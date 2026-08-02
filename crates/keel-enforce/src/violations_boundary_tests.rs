@@ -106,6 +106,7 @@ fn call(name: &str, line: u32, file: &str) -> Reference {
         line,
         kind: ReferenceKind::Call,
         resolved_to: None,
+        call_arity: None,
     }
 }
 

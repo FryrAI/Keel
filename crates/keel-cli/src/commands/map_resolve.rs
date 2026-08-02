@@ -265,18 +265,28 @@ pub fn resolve_import_to_module(
 
 /// Resolve an unqualified cross-file call by looking in the same directory.
 /// In Go, all files in the same directory share a package namespace.
+///
+/// Requires a UNIQUE same-directory match. Two same-named definitions in the
+/// caller's directory (legal in every language but Go — e.g. this repo's
+/// `checkpoint::changed_files` next to `gitdiff::changed_files`) made this
+/// return whichever candidate the store listed first: a coin-flip edge that
+/// poisoned E001/E004/W005 quietly and, once E005 went live, flagged correct
+/// call sites against the wrong function's signature. Ambiguity now resolves
+/// to nothing — an unresolved reference, not a guessed one.
 pub fn resolve_same_directory_call(candidates: &[(String, u64)], caller_file: &str) -> Option<u64> {
     let caller_dir = Path::new(caller_file).parent()?.to_str()?;
+    let mut unique: Option<u64> = None;
     for (file, node_id) in candidates {
-        if file != caller_file {
-            if let Some(dir) = Path::new(file.as_str()).parent().and_then(|p| p.to_str()) {
-                if dir == caller_dir {
-                    return Some(*node_id);
-                }
+        if file != caller_file
+            && Path::new(file.as_str()).parent().and_then(|p| p.to_str()) == Some(caller_dir)
+        {
+            if unique.is_some() {
+                return None;
             }
+            unique = Some(*node_id);
         }
     }
-    None
+    unique
 }
 
 /// Resolve a cross-package import by matching a package name to nodes in that package.

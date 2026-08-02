@@ -166,6 +166,36 @@ impl CircuitBreaker {
         }
     }
 
+    /// [`reset_resolved`](Self::reset_resolved) restricted to entries whose
+    /// recorded provenance is `file_path` (or that predate provenance
+    /// tracking). E005 needs this restriction: its entries are keyed by the
+    /// TARGET's hash, which every caller of that target shares — so without
+    /// it, any unrelated file that cleanly resolves the same target resets a
+    /// counter a *different* caller's failures accumulated, and lifts that
+    /// caller's downgrade behind its back.
+    fn reset_resolved_for_file(
+        &mut self,
+        codes: &[&str],
+        scope: &HashSet<String>,
+        active: &HashSet<(String, String)>,
+        file_path: &str,
+    ) {
+        let stale: Vec<(String, String)> = self
+            .state
+            .iter()
+            .filter(|(key, st)| {
+                codes.contains(&key.0.as_str())
+                    && scope.contains(&key.1)
+                    && (st.file == file_path || st.file.is_empty())
+                    && !active.contains(*key)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in stale {
+            self.state.remove(&key);
+        }
+    }
+
     /// Clear tracked entries whose provenance is `file_path` but that did not
     /// fire this compile — regardless of whether their hash is still in scope.
     ///
@@ -196,7 +226,10 @@ impl CircuitBreaker {
     ///
     /// - E001/E002/E003/E004 are scoped to hashes of nodes already in the
     ///   file (plus the file path itself, for the empty-hash fallback).
-    /// - E005 is scoped to the hashes this file's call references resolve to.
+    /// - E005 is scoped to the hashes this file's call references resolve to,
+    ///   AND to entries this file's own compiles recorded — the target hash
+    ///   is shared by every caller, so hash scope alone would let one caller
+    ///   clear another's counter.
     ///
     /// Disabled checks (e.g. type_hints off) need no special-casing: their
     /// counters can never fire again, so clearing them is harmless.
@@ -224,7 +257,10 @@ impl CircuitBreaker {
             .collect();
 
         self.reset_resolved(&["E001", "E002", "E003", "E004"], &node_scope, &active);
-        self.reset_resolved(&["E005"], &ref_scope, &active);
+        // E005's key hash is the call TARGET's, shared by every caller — the
+        // reset must stay scoped to entries THIS file's compiles recorded, or
+        // one caller compiling clean would clear another caller's counter.
+        self.reset_resolved_for_file(&["E005"], &ref_scope, &active, file_path);
 
         // Provenance sweep: clear any entry that originated in this file but did
         // not re-fire — catches nodes/calls deleted from the file, whose hash is
@@ -426,6 +462,40 @@ mod tests {
             BreakerAction::WiderContext
         );
         assert_eq!(cb2.failure_count("E001", "abc", "file.rs"), 2);
+    }
+
+    #[test]
+    fn test_e005_reconcile_scoped_to_recording_file() {
+        // E005 entries are keyed by the call TARGET's hash, which every
+        // caller shares. A different caller compiling clean must not reset a
+        // counter (or lift a downgrade) another file's failures earned.
+        let mut cb = CircuitBreaker::new();
+        cb.record_failure("E005", "hashX", "fp1", "src/a.rs");
+        cb.record_failure("E005", "hashX", "fp2", "src/a.rs");
+        cb.record_failure("E005", "hashX", "fp3", "src/a.rs");
+        assert!(cb.is_downgraded("E005", "hashX", "src/a.rs"));
+
+        // src/c.rs also resolves target X — cleanly. A's state must survive.
+        cb.reconcile_file(
+            "src/c.rs",
+            std::iter::empty(),
+            ["hashX".to_string()].into_iter(),
+            &[],
+        );
+        assert!(
+            cb.is_downgraded("E005", "hashX", "src/a.rs"),
+            "another caller's clean compile must not lift this file's state"
+        );
+
+        // Compiling src/a.rs itself with the violation gone clears it.
+        cb.reconcile_file(
+            "src/a.rs",
+            std::iter::empty(),
+            ["hashX".to_string()].into_iter(),
+            &[],
+        );
+        assert!(!cb.is_downgraded("E005", "hashX", "src/a.rs"));
+        assert_eq!(cb.failure_count("E005", "hashX", "src/a.rs"), 0);
     }
 
     #[test]

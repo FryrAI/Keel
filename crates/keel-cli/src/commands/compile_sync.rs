@@ -22,6 +22,12 @@
 //! diff against the pre-edit graph; the refreshed edges are then in place for
 //! the next compile. Only the compiled files' edges are re-resolved, keeping
 //! the single-file path well within its latency budget.
+//!
+//! The module's second job is the mirror image: [`resolve_call_targets`] runs
+//! the same ladder *before* enforcement, read-only, to populate
+//! [`Reference::resolved_to`] for E005 arity checking (issue #54). Both jobs
+//! share one per-reference entry point ([`resolve_reference`]) so they cannot
+//! drift.
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -33,11 +39,11 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::boundary::BoundaryProvider;
-use keel_parsers::resolver::{Definition, FileIndex};
+use keel_parsers::resolver::{Definition, FileIndex, Reference, ReferenceKind};
 use keel_parsers::treesitter::detect_language;
 
 use super::call_resolve::{
-    edge_for_reference, resolve_call_reference, tier_for_reference, CallSiteCtx,
+    edge_for_reference, resolve_call_reference, tier_for_reference, CallSiteCtx, ResolvedCall,
 };
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::CallIndex;
@@ -176,6 +182,139 @@ impl CallIndex for GraphIndex<'_> {
     fn boundary_index(&self) -> &HashMap<String, (u64, f64)> {
         &self.base.boundary_index
     }
+}
+
+/// Resolve each compiled file's call references to their target node's hash
+/// *before* enforcement runs, populating [`Reference::resolved_to`] — the
+/// field E005 arity checking keys on (issue #54: nothing ever set it, so E005
+/// was unreachable).
+///
+/// Runs the same ladder as the post-enforcement edge sync below (via the
+/// shared [`resolve_reference`]), read-only against the pre-edit graph, plus
+/// two gates of its own that the edge sync does not apply. Only `Call`
+/// references that carry a syntactic argument count are resolved (they are
+/// the only ones E005 can judge), and only resolutions at error-tier
+/// confidence stick: a heuristic match (unknown receiver, cross-package name,
+/// boundary surface) must never escalate into an arity ERROR against what may
+/// be the wrong function.
+pub fn resolve_call_targets(
+    store: &SqliteGraphStore,
+    cwd: &Path,
+    files: &mut [FileIndex],
+    resolvers: &ResolverSet,
+) {
+    let countable_call = |r: &Reference| r.kind == ReferenceKind::Call && r.call_arity.is_some();
+    if !files.iter().flat_map(|f| &f.references).any(countable_call) {
+        return; // nothing E005 could judge — skip the index build entirely
+    }
+    let base = GraphIndexBase::build(store, cwd);
+    // id -> hash memo across the whole pass: repeated calls to one target must
+    // not re-run the store's full node load per call site.
+    let mut hash_memo: HashMap<u64, Option<String>> = HashMap::new();
+    for file in files.iter_mut() {
+        let FileIndex {
+            file_path,
+            references,
+            imports,
+            definitions,
+            ..
+        } = file;
+        if !references.iter().any(countable_call) {
+            continue;
+        }
+        let language = detect_language(Path::new(file_path.as_str())).unwrap_or("");
+        let abs_file = cwd.join(file_path.as_str());
+        // Bare-name -> node id for this file's stored defs, and the names that
+        // appear MORE THAN ONCE. A file legally holding two same-named defs (a
+        // free `search_graph` next to a `search_graph` method) collapses to
+        // one map entry, so a name-keyed binding is a coin flip — ambiguity
+        // must refuse to resolve rather than guess (same rule as the
+        // same-directory rung). Deliberately THIS pass only, not the shared
+        // `resolve_reference`: an ERROR-tier arity claim against the wrong
+        // sibling is worse than no claim, but the edge sync's best-effort
+        // binding still lands inside the right file/module, and pruning those
+        // edges would trade a rare mis-attributed edge for fresh W005 noise.
+        let mut local: HashMap<String, u64> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        for node in store.get_nodes_in_file(file_path) {
+            if node.kind == NodeKind::Module {
+                continue;
+            }
+            if local.insert(node.name.clone(), node.id).is_some() {
+                ambiguous.insert(node.name);
+            }
+        }
+        // The freshly-parsed definitions know duplicate names authoritatively
+        // — the stored side can lag (the edge sync inserts only one node per
+        // name), so a name the CURRENT file text defines twice is ambiguous
+        // even when the graph holds a single sibling.
+        let mut seen: HashSet<&str> = HashSet::new();
+        for def in definitions.iter() {
+            if !seen.insert(def.name.as_str()) {
+                ambiguous.insert(def.name.clone());
+            }
+        }
+        let idx = GraphIndex::new(&base, &local, file_path);
+        let ctx = CallSiteCtx {
+            resolvers,
+            language,
+            file_path,
+            abs_file: &abs_file,
+            imports,
+            definitions,
+        };
+        for reference in references.iter_mut() {
+            if !countable_call(reference) {
+                continue;
+            }
+            let Some(resolved) = resolve_reference(&local, &idx, &ctx, reference) else {
+                continue;
+            };
+            // Refuse only a SAME-FILE bind on an ambiguous name — that is the
+            // coin flip. The callee segment covers both `search_graph(..)`
+            // and `self.search_graph(..)`; a cross-file resolution of the
+            // same bare name (import, package) is unaffected by this file's
+            // local collision and stays eligible.
+            let callee = reference
+                .name
+                .rsplit(['.', ':'])
+                .next()
+                .unwrap_or(reference.name.as_str());
+            if ambiguous.contains(callee) && local.get(callee) == Some(&resolved.target_id) {
+                continue;
+            }
+            if resolved.confidence < keel_core::confidence::ERROR_TIER_THRESHOLD {
+                continue;
+            }
+            let hash = hash_memo
+                .entry(resolved.target_id)
+                .or_insert_with(|| store.get_node_by_id(resolved.target_id).map(|n| n.hash));
+            reference.resolved_to.clone_from(hash);
+        }
+    }
+}
+
+/// The ONE per-reference resolution entry both the pre-enforcement pass above
+/// and the edge sync's [`resolve_outgoing_edges`] use: a same-file direct name
+/// hit binds against the file's own definitions first (at the reference
+/// kind's same-file confidence, exactly as the map's first pass), everything
+/// else runs the shared ladder. Two mirrored copies of this sequence is the
+/// documented failure mode this module exists to prevent.
+fn resolve_reference(
+    local: &HashMap<String, u64>,
+    idx: &GraphIndex,
+    ctx: &CallSiteCtx,
+    reference: &Reference,
+) -> Option<ResolvedCall> {
+    if let Some(&target_id) = local.get(&reference.name) {
+        let (_, same_file_confidence) = edge_for_reference(&reference.kind)?;
+        return Some(ResolvedCall {
+            target_id,
+            confidence: same_file_confidence,
+            tier: tier_for_reference(&reference.kind).to_string(),
+        });
+    }
+    resolve_call_reference(idx, ctx, reference)
 }
 
 /// Refresh the graph for the compiled files. Best-effort: a failure is logged
@@ -393,29 +532,10 @@ fn resolve_outgoing_edges(
     };
 
     for reference in &file.references {
-        let Some((kind, same_file_confidence)) = edge_for_reference(&reference.kind) else {
+        let Some((kind, _)) = edge_for_reference(&reference.kind) else {
             continue;
         };
-        // Same-file direct reference: link against this file's own defs,
-        // exactly as the map's first pass does. The shared ladder only handles
-        // cross-file references (method calls still route through it via its
-        // same-file-method step).
-        if let Some(&tgt) = local.get(&reference.name) {
-            push_reference_edge(
-                file,
-                local,
-                reference.line,
-                tgt,
-                kind,
-                same_file_confidence,
-                tier_for_reference(&reference.kind),
-                next_id,
-                edge_changes,
-                node_tiers,
-            );
-            continue;
-        }
-        if let Some(resolved) = resolve_call_reference(&idx, &ctx, reference) {
+        if let Some(resolved) = resolve_reference(local, &idx, &ctx, reference) {
             push_reference_edge(
                 file,
                 local,
@@ -572,189 +692,5 @@ fn definition_node(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use keel_core::types::EdgeDirection;
-
-    fn def(name: &str, file: &str) -> Definition {
-        Definition {
-            name: name.to_string(),
-            kind: NodeKind::Function,
-            signature: format!("fn {}()", name),
-            file_path: file.to_string(),
-            line_start: 1,
-            line_end: 3,
-            docstring: None,
-            is_public: true,
-            type_hints_present: true,
-            body_text: "{ return 42; }".to_string(),
-            in_test_context: false,
-            in_trait_context: false,
-            is_associated: false,
-            is_auto_invoked: false,
-            is_decorated: false,
-            has_keep_marker: false,
-            is_macro: false,
-        }
-    }
-
-    fn index(file: &str, defs: Vec<Definition>) -> FileIndex {
-        FileIndex {
-            file_path: file.to_string(),
-            content_hash: 1,
-            definitions: defs,
-            references: vec![],
-            imports: vec![],
-            external_endpoints: vec![],
-            parse_duration_us: 0,
-        }
-    }
-
-    fn def_at(name: &str, file: &str, line_start: u32, line_end: u32) -> Definition {
-        Definition {
-            line_start,
-            line_end,
-            ..def(name, file)
-        }
-    }
-
-    fn value_ref(name: &str, file: &str, line: u32) -> keel_parsers::resolver::Reference {
-        keel_parsers::resolver::Reference {
-            name: name.to_string(),
-            file_path: file.to_string(),
-            line,
-            kind: keel_parsers::resolver::ReferenceKind::Value,
-            resolved_to: None,
-        }
-    }
-
-    fn empty_resolvers() -> ResolverSet<'static> {
-        ResolverSet {
-            ts: None,
-            py: None,
-            go: None,
-            rs: None,
-        }
-    }
-
-    fn incoming_of(store: &SqliteGraphStore, file: &str, name: &str) -> Vec<GraphEdge> {
-        let node = store
-            .get_nodes_in_file(file)
-            .into_iter()
-            .find(|n| n.name == name)
-            .expect("node exists");
-        store.get_edges(node.id, EdgeDirection::Incoming)
-    }
-
-    /// A same-file callback reference (`spawn(handler)`) is a usage, not a
-    /// call: it must land as a `uses` edge so W005 stays quiet, and must never
-    /// become a `calls` edge that feeds arity/broken-caller checks.
-    #[test]
-    fn same_file_value_reference_becomes_a_uses_edge() {
-        let mut store = SqliteGraphStore::in_memory().unwrap();
-        let cwd = std::env::current_dir().unwrap();
-
-        let mut file = index(
-            "src/a.rs",
-            vec![
-                def_at("handler", "src/a.rs", 1, 3),
-                def_at("wire", "src/a.rs", 10, 12),
-            ],
-        );
-        file.references = vec![value_ref("handler", "src/a.rs", 11)];
-        sync_compiled_files(&mut store, &cwd, &[file], &empty_resolvers(), false);
-
-        let incoming = incoming_of(&store, "src/a.rs", "handler");
-        let uses: Vec<_> = incoming
-            .iter()
-            .filter(|e| e.kind == EdgeKind::Uses)
-            .collect();
-        assert_eq!(uses.len(), 1, "value ref must produce one uses edge");
-        assert!(
-            (uses[0].confidence - keel_core::confidence::SAME_FILE_VALUE_REF).abs() < f64::EPSILON
-        );
-        assert!(
-            !incoming.iter().any(|e| e.kind == EdgeKind::Calls),
-            "a value reference must never produce a calls edge"
-        );
-    }
-
-    /// The cross-file case W005 was false-positiving on: `child.rs` imports a
-    /// callback from `mod.rs` and passes it as a value. The import-based
-    /// resolution ladder must link it as a `uses` edge.
-    #[test]
-    fn cross_file_value_reference_resolves_to_a_uses_edge() {
-        let mut store = SqliteGraphStore::in_memory().unwrap();
-        let cwd = std::env::current_dir().unwrap();
-        let resolvers = empty_resolvers();
-
-        // The callback's defining file is already in the graph.
-        let owner = index(
-            "src/mod.rs",
-            vec![def_at("cross_file_cb", "src/mod.rs", 1, 3)],
-        );
-        sync_compiled_files(&mut store, &cwd, &[owner], &resolvers, false);
-
-        // The user's file references it as a value through an import.
-        let mut caller = index("src/child.rs", vec![def_at("wire", "src/child.rs", 5, 9)]);
-        caller.references = vec![value_ref("cross_file_cb", "src/child.rs", 7)];
-        caller.imports = vec![keel_parsers::resolver::Import {
-            source: "src/mod.rs".to_string(),
-            imported_names: vec!["cross_file_cb".to_string()],
-            file_path: "src/child.rs".to_string(),
-            line: 1,
-            is_relative: true,
-        }];
-        sync_compiled_files(&mut store, &cwd, &[caller], &resolvers, false);
-
-        let incoming = incoming_of(&store, "src/mod.rs", "cross_file_cb");
-        assert!(
-            incoming.iter().any(|e| e.kind == EdgeKind::Uses),
-            "cross-file value reference must resolve to a uses edge: {incoming:?}"
-        );
-        assert!(
-            !incoming.iter().any(|e| e.kind == EdgeKind::Calls),
-            "a value reference must never produce a calls edge"
-        );
-    }
-
-    /// Two files adding IDENTICAL new functions in one multi-file compile must
-    /// not share a hash: without the in-batch assigned-hash guard, the second
-    /// node silently overwrote the first's row and its edges dangled.
-    #[test]
-    fn same_batch_identical_defs_get_distinct_hashes() {
-        let mut store = SqliteGraphStore::in_memory().unwrap();
-        let cwd = std::env::current_dir().unwrap();
-        let resolvers = empty_resolvers();
-
-        let files = vec![
-            index("src/a.rs", vec![def("twin", "src/a.rs")]),
-            index("src/b.rs", vec![def("twin", "src/b.rs")]),
-        ];
-        sync_compiled_files(&mut store, &cwd, &files, &resolvers, false);
-
-        let a_nodes: Vec<_> = store
-            .get_nodes_in_file("src/a.rs")
-            .into_iter()
-            .filter(|n| n.kind == NodeKind::Function)
-            .collect();
-        let b_nodes: Vec<_> = store
-            .get_nodes_in_file("src/b.rs")
-            .into_iter()
-            .filter(|n| n.kind == NodeKind::Function)
-            .collect();
-        assert_eq!(a_nodes.len(), 1, "first file's node must survive");
-        assert_eq!(b_nodes.len(), 1, "second file's node must be inserted");
-        assert_ne!(
-            a_nodes[0].hash, b_nodes[0].hash,
-            "identical same-batch defs must get disambiguated hashes"
-        );
-        // Both files' Contains edges resolve to live nodes (nothing dangles).
-        for n in a_nodes.iter().chain(b_nodes.iter()) {
-            assert!(
-                !store.get_edges(n.id, EdgeDirection::Incoming).is_empty(),
-                "each node keeps its module Contains edge"
-            );
-        }
-    }
-}
+#[path = "compile_sync_tests.rs"]
+mod tests;

@@ -251,3 +251,38 @@ fn test_extract_package_name_variants() {
     assert_eq!(extract_package_name("crate::store"), None);
     assert_eq!(extract_package_name("super::sibling"), None);
 }
+
+/// The same-directory rung binds only on a UNIQUE match: two same-named
+/// definitions in the caller's directory (`checkpoint::changed_files` next to
+/// `gitdiff::changed_files`) used to resolve to whichever the store listed
+/// first — a coin-flip edge that fed E001/E004/W005 and, once E005 went live,
+/// compared correct call sites against the wrong function's signature.
+#[test]
+fn test_same_directory_call_requires_unique_match() {
+    let unique = vec![("src/gitdiff.rs".to_string(), 7u64)];
+    assert_eq!(
+        resolve_same_directory_call(&unique, "src/checkpoint_tests.rs"),
+        Some(7)
+    );
+
+    let ambiguous = vec![
+        ("src/checkpoint.rs".to_string(), 3u64),
+        ("src/gitdiff.rs".to_string(), 7u64),
+    ];
+    assert_eq!(
+        resolve_same_directory_call(&ambiguous, "src/checkpoint_tests.rs"),
+        None,
+        "two same-named defs in the directory is ambiguity, not a resolution"
+    );
+
+    // A candidate in a DIFFERENT directory does not make the same-dir match
+    // ambiguous.
+    let other_dir = vec![
+        ("src/gitdiff.rs".to_string(), 7u64),
+        ("other/place.rs".to_string(), 9u64),
+    ];
+    assert_eq!(
+        resolve_same_directory_call(&other_dir, "src/checkpoint_tests.rs"),
+        Some(7)
+    );
+}

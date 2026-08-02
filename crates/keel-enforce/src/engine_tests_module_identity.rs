@@ -108,6 +108,7 @@ fn w009_keeps_the_module_hash_when_a_definition_starts_on_its_line() {
         line: 12,
         kind: ReferenceKind::Call,
         resolved_to: None,
+        call_arity: None,
     }];
     file.imports = vec![Import {
         source: "core::ingest".into(),

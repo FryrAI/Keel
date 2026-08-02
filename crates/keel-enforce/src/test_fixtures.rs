@@ -104,6 +104,7 @@ pub(crate) fn call_ref(name: &str, file: &str) -> Reference {
         line: 5,
         kind: ReferenceKind::Call,
         resolved_to: None,
+        call_arity: None,
     }
 }
 

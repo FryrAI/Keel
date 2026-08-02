@@ -1,4 +1,5 @@
-//! Shared file-parsing logic used by both `compile` and `serve --watch`.
+//! Shared file-parsing logic for the commands that run `engine.compile()`
+//! outside `keel compile` itself (`keel fix`, `keel checkpoint`).
 
 use std::fs;
 use std::path::Path;
@@ -12,12 +13,16 @@ use keel_parsers::typescript::TsResolver;
 
 use keel_core::paths::make_relative;
 
-/// Parse a list of file paths into `FileIndex` entries suitable for `engine.compile()`.
+/// Parse a list of file paths into `FileIndex` entries suitable for
+/// `engine.compile()`, with call references resolved against the stored graph
+/// (`resolve_call_targets`) so E005 arity checking sees real targets on every
+/// compile path in this binary, not just `keel compile`.
 ///
 /// Skips files with unrecognized extensions or read errors.
 pub fn parse_files_to_indices(
     file_paths: &[std::path::PathBuf],
     root_dir: &Path,
+    store: &keel_core::sqlite::SqliteGraphStore,
 ) -> Vec<FileIndex> {
     let ts = TsResolver::with_project_root(root_dir);
     let py = PyResolver::detect();
@@ -50,6 +55,14 @@ pub fn parse_files_to_indices(
 
         indices.push(FileIndex::from_parse(&rel_path, &content, result));
     }
+
+    let resolvers = super::map_lang_resolve::ResolverSet {
+        ts: Some(&ts),
+        py: Some(&py),
+        go: Some(&go_resolver),
+        rs: Some(&rs),
+    };
+    super::compile_sync::resolve_call_targets(store, root_dir, &mut indices, &resolvers);
 
     indices
 }

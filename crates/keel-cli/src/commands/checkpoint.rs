@@ -49,7 +49,7 @@ pub fn run(
     }
 
     let paths: Vec<PathBuf> = changed.iter().map(|f| cwd.join(f)).collect();
-    let file_indices = parse_files_to_indices(&paths, cwd);
+    let file_indices = parse_files_to_indices(&paths, cwd, store);
 
     // Diff against the PRE-edit graph before compiling: `engine.compile`
     // persists re-baselined hashes to the same database, which would erase the

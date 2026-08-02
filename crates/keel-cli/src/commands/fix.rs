@@ -39,10 +39,10 @@ pub fn run(
         vec![]
     };
 
+    // Parse files (resolving call targets against the pre-edit graph) before
+    // the engine takes ownership of the store, then compile to get violations.
+    let file_indices = super::parse_util::parse_files_to_indices(&file_paths, &cwd, &store);
     let mut engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
-
-    // Parse files and compile to get violations
-    let file_indices = super::parse_util::parse_files_to_indices(&file_paths, &cwd);
     let compile_result = engine.compile(&file_indices);
 
     // Filter violations by hash if specified

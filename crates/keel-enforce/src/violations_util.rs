@@ -138,11 +138,26 @@ pub(crate) struct ParsedSig {
     pub(crate) arity: usize,
     /// Whether an explicit `-> T` follows the parameter list.
     pub(crate) has_return: bool,
+    /// Whether a leading `self`/`cls`/`this` receiver was removed from the
+    /// count — the signal that a call site *may* legally spell the receiver as
+    /// its first argument (`Base.__init__(self, x)`, `Rc::clone(&x)`).
+    pub(crate) has_receiver: bool,
 }
 
 /// True for characters that may appear inside an identifier.
 pub(crate) fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// True when the `'` at `chars[i]` opens a character literal (`'x'`, `'\n'`)
+/// rather than starting a Rust lifetime (`'a`, `'static`). A literal closes
+/// within two characters (one payload char, or a backslash escape); a lifetime
+/// is `'` + identifier with no closing quote at all. Treating a lifetime as a
+/// string opener swallowed everything up to the *next* tick — in
+/// `(node: Node<'a>, source: &'a [u8])` that includes the top-level comma, so
+/// the arity came out one short and E005 mis-fired on every caller.
+pub(crate) fn tick_opens_literal(chars: &[char], i: usize) -> bool {
+    matches!(chars.get(i + 1), Some('\\')) || matches!(chars.get(i + 2), Some('\''))
 }
 
 /// Index of the `)` closing the `(` at `open`, or `None` when the span is
@@ -164,7 +179,8 @@ pub(crate) fn match_paren(chars: &[char], open: usize) -> Option<usize> {
             continue;
         }
         match ch {
-            '"' | '\'' | '`' => in_str = Some(ch),
+            '"' | '`' => in_str = Some(ch),
+            '\'' if tick_opens_literal(chars, open + offset) => in_str = Some(ch),
             '\n' => {
                 newlines += 1;
                 if newlines > 6 {
@@ -187,14 +203,17 @@ pub(crate) fn match_paren(chars: &[char], open: usize) -> Option<usize> {
 
 /// Split an argument list on top-level commas, tracking `()`, `[]`, `{}`,
 /// generic `<>` (only when the `<` follows an identifier, so `a < b` is not a
-/// bracket) and string literals.
+/// bracket) and string literals. A `'` opens a literal only when it closes as
+/// one ([`tick_opens_literal`]) — a Rust lifetime tick must not swallow the
+/// rest of the list.
 pub(crate) fn split_top_level(args: &str) -> Vec<String> {
+    let chars: Vec<char> = args.chars().collect();
     let mut parts = Vec::new();
     let (mut round, mut square, mut curly, mut angle) = (0i32, 0i32, 0i32, 0i32);
     let mut in_str: Option<char> = None;
     let mut cur = String::new();
     let mut prev = '\0';
-    for ch in args.chars() {
+    for (i, &ch) in chars.iter().enumerate() {
         if let Some(q) = in_str {
             cur.push(ch);
             if ch == q && prev != '\\' {
@@ -204,7 +223,11 @@ pub(crate) fn split_top_level(args: &str) -> Vec<String> {
             continue;
         }
         match ch {
-            '"' | '\'' | '`' => {
+            '"' | '`' => {
+                in_str = Some(ch);
+                cur.push(ch);
+            }
+            '\'' if tick_opens_literal(&chars, i) => {
                 in_str = Some(ch);
                 cur.push(ch);
             }
@@ -253,8 +276,9 @@ pub(crate) fn split_top_level(args: &str) -> Vec<String> {
 
 /// Drop a leading receiver parameter (`self`, `&self`, `&mut self`, `cls`,
 /// `this`): it is never written at the call site, so counting it would make
-/// every method call look like it is one argument short.
-pub(crate) fn strip_receiver(parts: &mut Vec<String>) {
+/// every method call look like it is one argument short. Returns whether a
+/// receiver was actually removed.
+pub(crate) fn strip_receiver(parts: &mut Vec<String>) -> bool {
     let is_receiver = parts.first().is_some_and(|first| {
         let t = first
             .trim()
@@ -271,6 +295,7 @@ pub(crate) fn strip_receiver(parts: &mut Vec<String>) {
     if is_receiver {
         parts.remove(0);
     }
+    is_receiver
 }
 
 /// Countable argument count, or `None` when the list is variadic (`*args`,
@@ -303,59 +328,31 @@ pub(crate) fn parse_signature(sig: &str) -> Option<ParsedSig> {
     let close = match_paren(&chars, open)?;
     let args: String = chars[open + 1..close].iter().collect();
     let mut parts = split_top_level(&args);
-    strip_receiver(&mut parts);
+    let has_receiver = strip_receiver(&mut parts);
     let arity = countable_arity(&parts)?;
     let tail: String = chars[close + 1..].iter().collect();
     Some(ParsedSig {
         arity,
         has_return: tail.contains("->"),
+        has_receiver,
     })
 }
 
-/// Count parameters from a signature string. Returns 0 if unable to parse.
+/// True when a qualified call name's receiver segment names a *type* rather
+/// than a value — `Base.__init__`, `Rc::clone`, `Self::new` — the one call
+/// shape where the first written argument may legally be the receiver itself.
 ///
-/// Delegates to `parse_signature`, so a nested generic (`HashMap<K, V>` is one
-/// parameter, not two) and a receiver (`&self`/`cls`/`this`) are excluded from
-/// the count. Note this is deliberately NOT symmetric with `count_call_args`,
-/// which counts a textual `self`/`cls` argument — see the note there and on
-/// `check_arity_mismatch` for the open call-side question.
-/// A parameter list the precise parser declines to count at all — variadic,
-/// defaulted or optional — falls back to the naive comma split, keeping those
-/// signatures exactly as E005 compared them before.
-pub fn count_params(sig: &str) -> usize {
-    if let Some(parsed) = parse_signature(sig) {
-        return parsed.arity;
-    }
-    let Some(start) = sig.find('(') else { return 0 };
-    let Some(end) = sig.find(')') else { return 0 };
-    let params = sig[start + 1..end].trim();
-    if params.is_empty() {
-        return 0;
-    }
-    params.split(',').count()
-}
-
-/// Count args in a call expression. Rough heuristic — returns 0 if cannot parse.
-///
-/// Every comma-separated argument is counted, including a leading `self`/`cls`.
-/// That is *not* symmetric with `count_params`, which strips the receiver from
-/// the definition side — see the note on `check_arity_mismatch`. Stripping here
-/// too was tried and reverted: `registry.register(self)` passes `self` as a
-/// genuine argument far more often than a call site spells the receiver
-/// explicitly (`Base.__init__(self, x)`), so the strip trades a rare phantom
-/// `E005` for a common missed one. Settling it needs call-site context this
-/// function does not have.
-pub fn count_call_args(name: &str) -> usize {
-    // In practice, the parser provides arg count. This is a fallback.
-    let Some(start) = name.find('(') else {
-        return 0;
+/// The receiver is everything before the last `.`/`::`; only its final path
+/// segment is judged (so `mod::Type::method` looks at `Type`). Type-like means
+/// an uppercase initial (the universal type convention in all four languages)
+/// or the literal `Self`. A bare unqualified name has no receiver and is never
+/// type-like.
+pub(crate) fn receiver_is_type_like(call_name: &str) -> bool {
+    let Some(cut) = call_name.rfind("::").max(call_name.rfind('.')) else {
+        return false;
     };
-    let Some(end) = name.rfind(')') else { return 0 };
-    let args = &name[start + 1..end].trim();
-    if args.is_empty() {
-        return 0;
-    }
-    args.split(',').count()
+    let segment = call_name[..cut].rsplit(['.', ':']).next().unwrap_or("");
+    segment == "Self" || segment.starts_with(|c: char| c.is_uppercase())
 }
 
 /// Strip all whitespace so signatures can be compared ignoring pure
@@ -453,72 +450,84 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_count_params() {
-        assert_eq!(count_params("fn foo()"), 0);
-        assert_eq!(count_params("fn foo(a: i32)"), 1);
-        assert_eq!(count_params("fn foo(a: i32, b: str)"), 2);
-        assert_eq!(count_params("def bar(x, y, z)"), 3);
-    }
-
-    // E005 edge cases: zero params, many params, edge patterns
-    #[test]
-    fn test_count_params_zero() {
-        assert_eq!(count_params("fn foo()"), 0);
-        assert_eq!(count_params("def bar()"), 0);
-        assert_eq!(count_params("func Baz()"), 0);
-    }
-
-    #[test]
-    fn test_count_params_no_parens() {
-        assert_eq!(count_params("fn foo"), 0);
-        assert_eq!(count_params(""), 0);
-    }
-
-    #[test]
-    fn test_count_params_many() {
-        assert_eq!(count_params("fn f(a: i32, b: i32, c: i32, d: i32)"), 4);
-        assert_eq!(count_params("def g(a, b, c, d, e)"), 5);
+    fn test_parse_signature_counts_params() {
+        // Zero, one, many; nested generic/fn-pointer commas are one param.
+        assert_eq!(parse_signature("fn foo()").unwrap().arity, 0);
+        assert_eq!(parse_signature("fn foo(a: i32, b: str)").unwrap().arity, 2);
+        assert_eq!(parse_signature("def bar(x, y, z)").unwrap().arity, 3);
+        assert_eq!(
+            parse_signature("fn f(m: HashMap<String, i32>, n: u8)")
+                .unwrap()
+                .arity,
+            2
+        );
+        assert_eq!(
+            parse_signature("fn f(cb: fn(a: i32, b: i32) -> i32)")
+                .unwrap()
+                .arity,
+            1
+        );
+        assert!(parse_signature("fn foo").is_none());
     }
 
     #[test]
-    fn test_count_params_self_receiver() {
-        // The receiver is never written at the call site, so it is not counted:
-        // `obj.method(x)` passes one argument and the definition takes one.
-        assert_eq!(count_params("fn method(&self, x: i32)"), 1);
-        assert_eq!(count_params("def method(self, x)"), 1);
-        assert_eq!(count_params("fn method(&mut self)"), 0);
+    fn test_parse_signature_receiver_stripped_and_reported() {
+        // The receiver is never written at an ordinary call site, so it is not
+        // counted — but its presence is reported so E005 can tolerate the
+        // explicit-receiver call shape (`Base.__init__(self, x)`).
+        let sig = parse_signature("fn method(&self, x: i32)").unwrap();
+        assert_eq!(sig.arity, 1);
+        assert!(sig.has_receiver);
+        let sig = parse_signature("def method(self, x)").unwrap();
+        assert_eq!(sig.arity, 1);
+        assert!(sig.has_receiver);
+        let free = parse_signature("fn free(x: i32)").unwrap();
+        assert!(!free.has_receiver);
     }
 
     #[test]
-    fn test_count_params_nested_generics_are_one_param() {
-        // A comma inside `<>` / `()` / `[]` does not start a new parameter.
-        assert_eq!(count_params("fn f(m: HashMap<String, i32>)"), 1);
-        assert_eq!(count_params("fn f(m: HashMap<String, i32>, n: u8)"), 2);
-        assert_eq!(count_params("fn f(cb: fn(a: i32, b: i32) -> i32)"), 1);
+    fn test_parse_signature_rust_lifetimes_do_not_swallow_commas() {
+        // A lifetime tick used to open the "string literal" state, swallowing
+        // everything up to the next tick — including top-level commas. The
+        // repo's own `node_text(node: Node<'a>, source: &'a [u8])` counted as
+        // ONE parameter, so E005 flagged all 19 correct two-argument callers.
+        let sig =
+            parse_signature("node_text(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str")
+                .unwrap();
+        assert_eq!(sig.arity, 2);
+        assert!(sig.has_return);
+        // A lone lifetime (no second tick anywhere) must not unbalance the
+        // paren scan either.
+        let sig = parse_signature("first(x: &'a str)").unwrap();
+        assert_eq!(sig.arity, 1);
+        // Real character literals still open (and close) as literals.
+        let parts = split_top_level("'a', 'b'");
+        assert_eq!(parts.len(), 2);
+        // An escaped-quote char literal keeps its interior comma protected.
+        let parts = split_top_level("f(',', x), y");
+        assert_eq!(parts.len(), 2);
     }
 
     #[test]
-    fn test_count_params_uncountable_lists_keep_the_naive_count() {
-        // Variadic/defaulted/optional lists are not comparable to a call site;
-        // the fallback keeps E005's pre-existing behavior for them.
-        assert_eq!(count_params("def f(a, b=1)"), 2);
-        assert_eq!(count_params("def f(*args)"), 1);
-        assert_eq!(count_params("function f(a: number, b?: number)"), 2);
+    fn test_parse_signature_uncountable_lists_are_none() {
+        // Variadic/defaulted/optional lists are not comparable to a call
+        // site's argument count — E005 must skip them, not guess.
+        assert!(parse_signature("def f(a, b=1)").is_none());
+        assert!(parse_signature("def f(*args)").is_none());
+        assert!(parse_signature("function f(a: number, b?: number)").is_none());
     }
 
     #[test]
-    fn test_count_call_args_empty() {
-        assert_eq!(count_call_args("foo()"), 0);
-    }
-
-    #[test]
-    fn test_count_call_args_no_parens() {
-        assert_eq!(count_call_args("foo"), 0);
-    }
-
-    #[test]
-    fn test_count_call_args_multiple() {
-        assert_eq!(count_call_args("foo(a, b, c)"), 3);
+    fn test_receiver_is_type_like() {
+        assert!(receiver_is_type_like("Base.__init__"));
+        assert!(receiver_is_type_like("Rc::clone"));
+        assert!(receiver_is_type_like("Self::new"));
+        assert!(receiver_is_type_like("mod::Type::method"));
+        // Value receivers, packages, bare names: not type-like.
+        assert!(!receiver_is_type_like("registry.register"));
+        assert!(!receiver_is_type_like("self.render"));
+        assert!(!receiver_is_type_like("fmt.Println"));
+        assert!(!receiver_is_type_like("plain_call"));
     }
 
     #[test]

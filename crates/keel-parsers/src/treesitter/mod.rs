@@ -567,6 +567,10 @@ fn extract_references(
         let mut receiver = None;
         let mut line = 0u32;
         let mut is_call = false;
+        // The whole call-expression node, kept so the argument count can be
+        // read off its `arguments` field. Macro invocations never set it —
+        // their token tree is not an argument list.
+        let mut call_node: Option<tree_sitter::Node<'_>> = None;
         // Functions named as values rather than invoked. Collected separately
         // from calls so they never reach edge-building or E005 arity checks.
         let mut value_names: Vec<(String, u32)> = Vec::new();
@@ -629,6 +633,7 @@ fn extract_references(
                 }
                 "ref.call" => {
                     line = cap.node.start_position().row as u32 + 1;
+                    call_node = Some(cap.node);
                 }
                 "ref.macro_invocation.name" => {
                     // Capture macro invocations as calls with ! suffix
@@ -649,6 +654,7 @@ fn extract_references(
                 line: value_line,
                 kind: ReferenceKind::Value,
                 resolved_to: None,
+                call_arity: None,
             });
         }
 
@@ -659,6 +665,7 @@ fn extract_references(
                 line: literal_line,
                 kind: ReferenceKind::Literal,
                 resolved_to: None,
+                call_arity: None,
             });
         }
 
@@ -682,11 +689,44 @@ fn extract_references(
                     line,
                     kind: ReferenceKind::Call,
                     resolved_to: None,
+                    call_arity: call_node.and_then(call_argument_count),
                 });
             }
         }
     }
     refs
+}
+
+/// Count the arguments a call expression actually writes, reading the
+/// `arguments` field every grammar keel parses puts on its call node.
+///
+/// Returns `None` when the count is not knowable from syntax alone: no
+/// argument list at all (macro invocations), or a splat/spread argument
+/// (`f(*args)`, `f(...rest)`) that expands to an unknown number at runtime.
+/// Comments inside the argument list are named children in every grammar and
+/// must not count as arguments.
+fn call_argument_count(call_node: tree_sitter::Node<'_>) -> Option<u32> {
+    let args = call_node.child_by_field_name("arguments")?;
+    // The `arguments` field is not always an argument list: Python hangs a
+    // bare `generator_expression` there (`total(x for x in xs)`) and
+    // TypeScript a `template_string` for tagged templates (`` sql`...` ``).
+    // Their named children are comprehension/template internals, not
+    // arguments — counting them would hand E005 a wrong arity.
+    if !matches!(args.kind(), "arguments" | "argument_list") {
+        return None;
+    }
+    let mut count = 0u32;
+    let mut cursor = args.walk();
+    for child in args.named_children(&mut cursor) {
+        match child.kind() {
+            "comment" | "line_comment" | "block_comment" => {}
+            "list_splat" | "dictionary_splat" | "spread_element" | "variadic_argument" => {
+                return None
+            }
+            _ => count += 1,
+        }
+    }
+    Some(count)
 }
 
 /// Returns true when `lang` (a [`detect_language`] result) belongs to the
@@ -728,3 +768,6 @@ mod tests_literal_captures;
 
 #[cfg(test)]
 mod tests_import_names;
+
+#[cfg(test)]
+mod tests_call_arity;
