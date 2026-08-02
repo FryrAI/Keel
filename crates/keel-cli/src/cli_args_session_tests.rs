@@ -58,7 +58,13 @@ fn parse_checkpoint_since_staged_output() {
 #[test]
 fn parse_validate_plan_file() {
     match parse(&["keel", "validate-plan", "plan.md"]).command {
-        Commands::ValidatePlan { plan } => assert_eq!(plan, "plan.md"),
+        Commands::ValidatePlan { plan, strict } => {
+            assert_eq!(plan, "plan.md");
+            assert!(
+                !strict,
+                "strict must default off — the never-fails contract"
+            );
+        }
         _ => panic!("expected ValidatePlan"),
     }
 }
@@ -66,7 +72,18 @@ fn parse_validate_plan_file() {
 #[test]
 fn parse_validate_plan_stdin() {
     match parse(&["keel", "validate-plan", "-"]).command {
-        Commands::ValidatePlan { plan } => assert_eq!(plan, "-"),
+        Commands::ValidatePlan { plan, .. } => assert_eq!(plan, "-"),
+        _ => panic!("expected ValidatePlan"),
+    }
+}
+
+#[test]
+fn parse_validate_plan_strict() {
+    match parse(&["keel", "validate-plan", "-", "--strict"]).command {
+        Commands::ValidatePlan { plan, strict } => {
+            assert_eq!(plan, "-");
+            assert!(strict);
+        }
         _ => panic!("expected ValidatePlan"),
     }
 }

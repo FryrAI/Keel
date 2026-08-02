@@ -155,7 +155,7 @@ keel where a7Bx3kM9f2Q
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
 | `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <1s |
-| `keel validate-plan <file\|->` | Validate a plan against the graph before execution | <100ms |
+| `keel validate-plan <file\|-> [--strict]` | Validate a plan against the graph before execution (callers at risk + P001/P002) | <100ms |
 | `keel quality [--snapshot\|--trend]` | Countable maintainability metrics, persisted per commit, with their trend | <100ms |
 | `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |
@@ -318,6 +318,8 @@ scripts/
 | W007 | Oversized file | WARNING |
 | W009 | New cross-boundary dependency | WARNING |
 | S001 | Suppressed | INFO |
+| P001 | Unknown symbol (plan-time, `keel validate-plan` only) | WARNING |
+| P002 | Signature mismatch (plan-time, `keel validate-plan` only) | WARNING |
 
 ### Exit Codes
 

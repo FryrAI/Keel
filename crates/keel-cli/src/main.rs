@@ -233,8 +233,8 @@ fn main() {
             ),
             Default::default(),
         ),
-        Commands::ValidatePlan { plan } => (
-            commands::validate_plan::run(&*formatter, cli.verbose, plan),
+        Commands::ValidatePlan { plan, strict } => (
+            commands::validate_plan::run(&*formatter, cli.verbose, plan, strict),
             Default::default(),
         ),
         Commands::Serve { mcp, http, watch } => (

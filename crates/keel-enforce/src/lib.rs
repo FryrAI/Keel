@@ -38,6 +38,7 @@ pub mod suppress;
 pub(crate) mod test_fixtures;
 pub mod types;
 pub mod validate_plan;
+pub mod validate_plan_findings;
 pub mod violations;
 pub mod violations_boundary;
 pub mod violations_economy;

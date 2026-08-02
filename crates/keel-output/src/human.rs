@@ -453,14 +453,22 @@ impl OutputFormatter for HumanFormatter {
     }
 
     fn format_validate_plan(&self, result: &PlanValidationResult) -> String {
-        if result.unrecognized {
+        if result.unrecognized && result.findings.is_empty() {
             return "No graph-relevant actions detected in the plan.\n".to_string();
         }
         let mut out = format!(
-            "Plan validation: {} action(s), {} symbol(s) detected\n",
+            "Plan validation: {} action(s), {} symbol(s), {} finding(s) detected\n",
             result.actions.len(),
             result.symbols_detected,
+            result.findings.len(),
         );
+        for f in &result.findings {
+            out.push_str(&format!("\n[{}] {} {}\n", f.code, f.severity, f.message));
+            if !f.hash.is_empty() {
+                out.push_str(&format!("  --> {}:{} (hash={})\n", f.file, f.line, f.hash));
+            }
+            out.push_str(&format!("  fix: {}\n", f.fix_hint));
+        }
         for a in &result.actions {
             out.push_str(&format!(
                 "\n[{}] {} `{}` (hash={})\n  --> {}:{}\n  risk: {} ({} caller(s))\n",

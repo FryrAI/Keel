@@ -15,6 +15,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".keel/hooks/plan-check.sh"
+          }
+        ]
+      }
     ]
   }
 }

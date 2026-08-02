@@ -170,3 +170,146 @@ fn test_validate_plan_stdin() {
         "stdin plan not read: {stdout}"
     );
 }
+
+// --- T2.5: P001/P002 plan findings ---
+
+#[test]
+fn test_validate_plan_wrong_signature_is_p002() {
+    let dir = mapped_fixture();
+    let plan = dir.path().join("plan.md");
+    fs::write(&plan, "1. In run, call foo(a, b) and log the result.\n").unwrap();
+
+    let out = keel(dir.path(), &["validate-plan", "plan.md", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "default must never fail");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+    let findings = json["findings"].as_array().expect("findings present");
+    assert_eq!(findings.len(), 1, "expected exactly one P002: {findings:?}");
+    assert_eq!(findings[0]["code"], "P002");
+    assert_eq!(findings[0]["symbol"], "foo");
+    assert_eq!(findings[0]["actual"], "foo(x: number) -> number");
+    assert!(findings[0]["file"].as_str().unwrap().contains("lib.ts"));
+    assert!(findings[0]["line"].as_u64().unwrap() >= 1);
+    assert!(!findings[0]["hash"].as_str().unwrap().is_empty());
+    assert!(!findings[0]["fix_hint"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn test_validate_plan_strict_exits_1_only_with_findings() {
+    let dir = mapped_fixture();
+    let bad = dir.path().join("bad.md");
+    fs::write(&bad, "1. In run, call foo(a, b) and log the result.\n").unwrap();
+    let out = keel(
+        dir.path(),
+        &["validate-plan", "bad.md", "--strict", "--llm"],
+    );
+    assert_eq!(out.status.code(), Some(1), "--strict must gate on findings");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("P002"), "P002 line missing: {stdout}");
+
+    let good = dir.path().join("good.md");
+    fs::write(&good, "1. In run, call foo(a) and log the result.\n").unwrap();
+    let out = keel(
+        dir.path(),
+        &["validate-plan", "good.md", "--strict", "--llm"],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a correct plan must pass --strict: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
+fn test_validate_plan_unknown_call_target_is_p001() {
+    let dir = mapped_fixture();
+    let plan = dir.path().join("plan.md");
+    fs::write(
+        &plan,
+        "1. In run, call computeTotals(rows) before returning foo(1).\n",
+    )
+    .unwrap();
+
+    let out = keel(dir.path(), &["validate-plan", "plan.md", "--json"]);
+    assert_eq!(out.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+    let findings = json["findings"].as_array().expect("findings present");
+    let p001: Vec<_> = findings.iter().filter(|f| f["code"] == "P001").collect();
+    assert_eq!(p001.len(), 1, "{findings:?}");
+    assert_eq!(p001[0]["symbol"], "computeTotals");
+}
+
+#[test]
+fn test_validate_plan_correct_plan_keeps_the_old_report() {
+    let dir = mapped_fixture();
+    let plan = dir.path().join("plan.md");
+    fs::write(&plan, "Delete foo entirely.\n").unwrap();
+
+    let out = keel(dir.path(), &["validate-plan", "plan.md", "--json"]);
+    assert_eq!(out.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+    assert!(
+        json.get("findings").is_none(),
+        "no findings must serialize exactly as the pre-P-namespace report: {json}"
+    );
+    assert_eq!(json["actions"][0]["symbol"], "foo");
+}
+
+/// T2.6: three strikes on the same P-code auto-downgrade, so a stubborn claim
+/// degrades to advice instead of deadlocking a session. The breaker counts fix
+/// ATTEMPTS, so each strike must be a genuinely different claim.
+#[test]
+fn test_repeat_findings_downgrade_after_three_strikes() {
+    let dir = mapped_fixture();
+    let plan = dir.path().join("plan.md");
+
+    for (attempt, claim) in ["foo(a, b)", "foo(a, b, c)", "foo(a, b, c, d)"]
+        .into_iter()
+        .enumerate()
+    {
+        fs::write(&plan, format!("1. In run, call {claim} and log it.\n")).unwrap();
+        let out = keel(
+            dir.path(),
+            &["validate-plan", "plan.md", "--strict", "--json"],
+        );
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+        let finding = &json["findings"][0];
+        assert_eq!(finding["code"], "P002", "attempt {attempt}: {json}");
+        if attempt < 2 {
+            assert_eq!(
+                out.status.code(),
+                Some(1),
+                "attempt {attempt} must still gate"
+            );
+            assert_eq!(finding["severity"], "WARNING");
+            assert_eq!(finding["downgraded"], false);
+        } else {
+            assert_eq!(finding["downgraded"], true, "third strike must downgrade");
+            assert_eq!(finding["severity"], "INFO");
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "a downgraded finding must stop failing --strict"
+            );
+        }
+    }
+}
+
+/// An identical re-submission is not a fix attempt: the counter must not move,
+/// matching the compile-side circuit breaker's semantics.
+#[test]
+fn test_identical_replans_do_not_escalate() {
+    let dir = mapped_fixture();
+    let plan = dir.path().join("plan.md");
+    fs::write(&plan, "1. In run, call foo(a, b) and log it.\n").unwrap();
+
+    for _ in 0..4 {
+        let out = keel(
+            dir.path(),
+            &["validate-plan", "plan.md", "--strict", "--json"],
+        );
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+        assert_eq!(json["findings"][0]["downgraded"], false);
+        assert_eq!(out.status.code(), Some(1));
+    }
+}

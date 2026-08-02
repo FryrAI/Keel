@@ -6,15 +6,27 @@ const MAX_CALLERS: usize = 8;
 
 /// Render a plan-validation report in the compact LLM format.
 pub fn format_validate_plan(result: &PlanValidationResult) -> String {
-    if result.unrecognized {
+    if result.unrecognized && result.findings.is_empty() {
         return "VALIDATE-PLAN no graph-relevant actions detected\n".to_string();
     }
 
     let mut out = format!(
-        "VALIDATE-PLAN actions={} symbols={}\n",
+        "VALIDATE-PLAN actions={} symbols={} findings={}\n",
         result.actions.len(),
         result.symbols_detected,
+        result.findings.len(),
     );
+
+    for f in &result.findings {
+        out.push_str(&format!(
+            "{} {} {} {}\n",
+            f.code, f.severity, f.symbol, f.message
+        ));
+        if !f.hash.is_empty() {
+            out.push_str(&format!("  at: {}:{} hash={}\n", f.file, f.line, f.hash));
+        }
+        out.push_str(&format!("  fix: {}\n", f.fix_hint));
+    }
 
     for a in &result.actions {
         out.push_str(&format!(

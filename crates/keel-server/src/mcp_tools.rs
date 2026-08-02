@@ -227,12 +227,13 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/validate-plan".into(),
-            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, and a callers-first suggested order".into(),
+            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, a callers-first suggested order, and P001/P002 plan findings (unknown call target, signature mismatch)".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["plan"],
                 "properties": {
-                    "plan": { "type": "string", "description": "Plan text (markdown/plain)" }
+                    "plan": { "type": "string", "description": "Plan text (markdown/plain)" },
+                    "strict": { "type": "boolean", "description": "Add a `strict_failed` boolean saying whether a live P001/P002 finding is present (default false; the report itself never fails)" }
                 }
             }),
         },

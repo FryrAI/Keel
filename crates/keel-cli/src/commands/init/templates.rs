@@ -104,6 +104,7 @@ pub const ANTIGRAVITY_SKILL: &str = include_str!("../../../templates/antigravity
 
 // --- Shared hooks ---
 pub const POST_EDIT_HOOK: &str = include_str!("../../../templates/hooks/post-edit.sh");
+pub const PLAN_CHECK_HOOK: &str = include_str!("../../../templates/hooks/plan-check.sh");
 pub const PRE_COMMIT_HOOK: &str = include_str!("../../../templates/hooks/pre-commit.sh");
 
 // --- CI ---

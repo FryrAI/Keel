@@ -340,6 +340,39 @@ for the counts anyway). Requires full git history in CI (`fetch-depth: 0`).
 
 ---
 
+## keel validate-plan
+
+Check a plan against the graph **before** any code exists. Resteering a plan is cheap;
+resteering 2,000 lines is not.
+
+```bash
+keel validate-plan plan.md
+cat plan.md | keel validate-plan --llm -
+keel validate-plan plan.md --strict
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<file>` or `-` | (required) | Plan file (markdown/plain), or `-` to read stdin |
+| `--strict` | off | Exit 1 when a live P001/P002 finding is present |
+
+Two outputs from one free-text scan:
+
+1. **The risk report** (unchanged): symbols the plan names that exist in the graph, the
+   action detected near them (`remove`, `rename`, `change_signature`, `add_param`), the
+   callers at risk, a risk level, and a callers-first suggested order.
+2. **Plan findings**: [`P001 unknown_symbol`](error-codes.md#p001--unknown-symbol) — the
+   plan calls something the graph does not have — and
+   [`P002 signature_mismatch`](error-codes.md#p002--signature-mismatch) — the plan's call
+   does not match the stored signature. Each carries the real hash, `file:line`, the
+   stored signature, and a `fix_hint`.
+
+**The report never fails.** Exit is 0 whatever it finds, unless `--strict` is passed.
+That contract is what lets the [`ExitPlanMode` hook](agent-integration.md#pretooluse-exitplanmode-plan-check)
+run on every plan without ever blocking a session.
+
+---
+
 ## keel serve
 
 Run a persistent server for real-time enforcement.

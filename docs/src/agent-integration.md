@@ -212,6 +212,41 @@ The standard hook pattern uses two lifecycle events:
 
 Runs `keel map --llm --depth 1` once at the start of the session. This gives the agent a structural overview: modules, hotspots, and the graph shape. Costs roughly 200-500 tokens depending on project size.
 
+### PreToolUse (ExitPlanMode plan check)
+
+**Claude Code only.** `keel init` installs `.keel/hooks/plan-check.sh` and wires it to
+`ExitPlanMode` in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [{ "type": "command", "command": ".keel/hooks/plan-check.sh" }]
+      }
+    ]
+  }
+}
+```
+
+The script reads `tool_input.plan` from the hook payload, pipes it into
+`keel validate-plan --llm -`, and prints any
+[`P001`/`P002`](error-codes.md#plan-findings) findings to stderr, where Claude Code shows
+them to the model. This is the one hook that fires **before any code exists**.
+
+- **Advisory by default** — it always exits 0. No session is ever blocked by the default
+  config.
+- `KEEL_PLAN_STRICT=1` makes it blocking (exit 2 on a live finding).
+- `KEEL_PLAN_HOOK=0` is the one-line bypass.
+- Repeat findings route through keel's circuit breaker: after three genuinely different
+  but still-wrong claims on the same P-code and symbol, the finding auto-downgrades to
+  INFO and stops failing `--strict`.
+
+Not scaffolded for Cursor, Windsurf, or Gemini CLI: their plan-payload shapes are
+unverified, and a hook that silently no-ops is worse than none — the absence of findings
+reads as a clean bill of health.
+
 ### PostToolUse (post-edit)
 
 Runs after every file edit. The `scripts/post-edit.sh` hook:

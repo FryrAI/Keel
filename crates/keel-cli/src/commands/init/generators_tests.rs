@@ -61,6 +61,84 @@ fn test_generated_instructions_match_hook_selection() {
     }
 }
 
+/// T2.6: Claude Code — and only Claude Code — gets the `ExitPlanMode`
+/// PreToolUse hook. Other tools' payload shapes are unverified, and a hook that
+/// silently no-ops is worse than none (no findings reads as a clean plan).
+#[test]
+fn test_claude_code_gets_exit_plan_mode_hook_and_others_do_not() {
+    let root = tempfile::tempdir().unwrap();
+
+    let files = generate_claude_code(root.path(), &hooks_with_on_edit(false));
+    let settings: serde_json::Value =
+        serde_json::from_str(content_for(&files, "settings.json")).unwrap();
+    let pre = settings["hooks"]["PreToolUse"]
+        .as_array()
+        .expect("PreToolUse must be present for Claude Code");
+    let entry = pre
+        .iter()
+        .find(|e| e["matcher"] == "ExitPlanMode")
+        .expect("matcher must be ExitPlanMode");
+    assert_eq!(entry["hooks"][0]["type"], "command");
+    assert_eq!(entry["hooks"][0]["command"], ".keel/hooks/plan-check.sh");
+
+    let others: &[(&str, GeneratorFn, &str)] = &[
+        ("gemini", generate_gemini_cli, "settings.json"),
+        ("letta", generate_letta_code, "settings.json"),
+        ("cursor", generate_cursor, "hooks.json"),
+        ("windsurf", generate_windsurf, "hooks.json"),
+    ];
+    for (tool, generate, file) in others {
+        let files = generate(root.path(), &hooks_with_on_edit(false));
+        assert!(
+            !content_for(&files, file).contains("ExitPlanMode"),
+            "{tool} must not scaffold an ExitPlanMode hook"
+        );
+    }
+}
+
+/// The plan-check hook is advisory: it must never exit non-zero on the default
+/// path, and it must document both the bypass and the opt-in blocking mode.
+#[test]
+fn test_plan_check_hook_is_advisory_by_default() {
+    let script = templates::PLAN_CHECK_HOOK;
+    assert!(script.contains("validate-plan --llm -") || script.contains("validate-plan --llm"));
+    assert!(
+        script.contains(".tool_input.plan"),
+        "must read the plan payload"
+    );
+    assert!(
+        script.contains("KEEL_PLAN_HOOK=0"),
+        "must document the bypass"
+    );
+    assert!(
+        script.contains("KEEL_PLAN_STRICT"),
+        "must document opt-in blocking"
+    );
+    // The only non-zero exit statement sits inside the opt-in strict branch.
+    let code_lines: Vec<(usize, &str)> = script
+        .lines()
+        .enumerate()
+        .map(|(i, l)| (i, l.trim()))
+        .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    let strict_gate = code_lines
+        .iter()
+        .position(|(_, l)| l.starts_with("if [ \"$STRICT\" = \"1\" ]"))
+        .expect("strict branch must exist");
+    let blocking: Vec<usize> = code_lines
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, l))| l.starts_with("exit 2"))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(blocking.len(), 1, "exactly one blocking exit expected");
+    assert!(
+        blocking[0] > strict_gate,
+        "exit 2 must only be reachable from the opt-in strict branch"
+    );
+    assert!(script.trim_end().ends_with("exit 0"));
+}
+
 /// The single shared `.keel/hooks/post-edit.sh` cannot infer which tool
 /// invoked it, so each tool's own on-edit hook JSON must pass its client
 /// name as an explicit argument (T1.6: env-var detection does not reliably

@@ -249,6 +249,13 @@ pub fn run(
     if hook_selection.on_edit {
         hook_script::install_post_edit_hook(&cwd, verbose);
     }
+    // The Claude Code settings template wires `ExitPlanMode` to this script.
+    // Not gated behind a hook selection: it is advisory (always exits 0), so
+    // there is nothing for a user to opt out of except noise they can silence
+    // with `KEEL_PLAN_HOOK=0`.
+    if selected_tools.contains(&&DetectedTool::ClaudeCode) {
+        hook_script::install_plan_check_hook(&cwd, verbose);
+    }
 
     for tool in &selected_tools {
         let files = match tool {

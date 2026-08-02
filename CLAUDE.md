@@ -72,7 +72,7 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | `keel skeleton <file>` | Signature-only view of a file | <100ms |
 | `keel focus <hash\|file>` | Minimal context set for an edit | <50ms |
 | `keel checkpoint` | Session-state summary (git + graph) | <1s |
-| `keel validate-plan <file\|->` | Pre-execution plan risk check | <100ms |
+| `keel validate-plan <file\|->` | Pre-execution plan risk check + P001/P002 | <100ms |
 | `keel review --base <ref>` | Two-sided graph diff vs a base ref | <3s for a 54-file diff |
 | `keel quality [--snapshot\|--trend]` | Countable maintainability metrics + their trend | <100ms |
 | `keel serve` | MCP/HTTP/watch server | ~50-100MB memory |
@@ -109,6 +109,8 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | W007 | oversized_file | WARNING |
 | W009 | new_cross_boundary_dep | WARNING |
 | S001 | suppressed | INFO |
+| P001 | unknown_symbol | WARNING (plan-time only) |
+| P002 | signature_mismatch | WARNING (plan-time only) |
 
 W005-W007 are the v0.5 "economy" additions — additive only; existing codes/severities/exit codes unchanged.
 
@@ -116,6 +118,9 @@ W009 fires when a file starts depending on a package it did not depend on before
 (everything in the graph is grandfathered), needs no config, and is silent in repos that declare no
 packages. E006 is its escalation for ordered pairs listed in `architecture.deny` in keel.json — strictly
 opt-in, and the only new ERROR.
+
+P001/P002 are the plan-time namespace, emitted only by `keel validate-plan` — never by `keel compile`, never
+in the compile exit code. `keel validate-plan` still exits 0 by default; `--strict` is the opt-in gate.
 
 Every ERROR has `fix_hint`. Every violation has `confidence` (0.0-1.0) and `resolution_tier`.
 
@@ -228,7 +233,7 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel skeleton <file>` — compressed signature-only view (`--docs`, `--private`, `--budget <tokens>`)
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary for re-injection after context loss
-- `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, suggested order)
+- `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution (callers at risk, suggested order) plus P001 unknown_symbol / P002 signature_mismatch findings. Always exits 0 unless `--strict`
 - `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
 - `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
 - `keel watch` — auto-compile on file changes
@@ -258,7 +263,7 @@ The keel MCP server exposes these tools directly to your IDE:
 - `keel/skeleton` — compressed signature-only view of a file
 - `keel/focus` — minimal context set to safely modify a target
 - `keel/checkpoint` — compact session-state summary for re-injection after context loss
-- `keel/validate-plan` — validate a plan against the graph before execution
+- `keel/validate-plan` — validate a plan against the graph before execution (`strict: true` adds `strict_failed`)
 - `keel/review` — two-sided graph diff vs a base ref (contracts moved, callers left behind, violations the diff introduced)
 
 ### Common Mistakes:

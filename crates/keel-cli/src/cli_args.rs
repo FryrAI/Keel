@@ -324,6 +324,10 @@ pub(crate) enum Commands {
     ValidatePlan {
         /// Plan file to read (markdown/text), or `-` for stdin
         plan: String,
+
+        /// Exit 1 when a P001/P002 plan finding is present (default: always exit 0)
+        #[arg(long)]
+        strict: bool,
     },
 
     /// Remove all keel-generated files

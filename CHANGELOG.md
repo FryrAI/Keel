@@ -129,6 +129,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-readable output.
 
 ### Added
+- **`keel validate-plan` checks the plan's claims, not just its risk (T2.5).**
+  The command already found symbol names in a plan's free text; it now also
+  checks what the plan *says about them*, in a deliberately separate `P`
+  namespace so plan findings are never lost in a compile stream. **`P001
+  unknown_symbol`** fires on a bare call target no graph node answers to (the
+  hallucinated callee); **`P002 signature_mismatch`** fires when a call claim
+  disagrees with the stored `GraphNode.signature`, comparing **name + arity +
+  return presence only**, with the receiver (`self`/`cls`/`this`) normalized out
+  on both sides — otherwise every Rust method mismatches every TypeScript
+  function. Each finding carries the real hash, `file:line`, the stored
+  signature and a `fix_hint`. Precision is bought with documented heuristics:
+  bare call syntax only (a dotted or path-qualified call is stdlib until proven
+  otherwise), names the plan proposes to create are excluded plan-wide, variadic
+  / defaulted / elided argument lists are skipped, same-named candidates must
+  agree, and a plan that already declares a signature change is not told its
+  target signature is wrong. **`keel validate-plan` still exits 0** — the
+  never-fails contract is intact; `--strict` is the one opt-in gate, and MCP
+  `keel/validate-plan` gains `strict: bool` (adding only a `strict_failed`
+  boolean, with `findings` omitted entirely when empty, so existing callers see
+  the byte-identical envelope).
+- **An `ExitPlanMode` advisory hook (T2.6).** `keel init` now scaffolds a Claude
+  Code `PreToolUse` hook on `ExitPlanMode` (`.keel/hooks/plan-check.sh`) that
+  pipes `tool_input.plan` into `keel validate-plan --llm -` and prints P001/P002
+  findings to stderr — the one hook that fires *before any code exists*, when
+  resteering is still free. **Advisory by default: it always exits 0**, so no
+  session is ever blocked out of the box. `KEEL_PLAN_STRICT=1` makes it blocking,
+  `KEEL_PLAN_HOOK=0` is the one-line bypass. Repeat findings route through the
+  existing circuit breaker (keyed on P-code + symbol, fingerprinted by the claim
+  text), so three still-wrong revisions downgrade the finding to INFO instead of
+  deadlocking the session. Claude Code only — the other tools' plan payloads are
+  unverified, and a hook that silently no-ops reads as a clean bill of health.
+  Measured at 17ms end-to-end on a debug build, against a 150ms budget.
 - **`keel quality`: persisted snapshots and a trend (T2.4).** Every keel surface
   answered a question about *now*, so nobody could say whether a codebase was
   improving or rotting: `keel map` clears and rebuilds the graph, which makes two

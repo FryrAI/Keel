@@ -66,6 +66,11 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     }
 
     hook_script::install_post_edit_hook(cwd, verbose);
+    // Refresh, never create: an ExitPlanMode hook the user never installed has
+    // nothing in `.claude/settings.json` pointing at it.
+    if keel_dir.join("hooks/plan-check.sh").exists() {
+        hook_script::install_plan_check_hook(cwd, verbose);
+    }
 
     let binary_version = env!("CARGO_PKG_VERSION");
     if let Err(e) = keel_core::config::KeelConfig::sync_version(&keel_dir, binary_version) {

@@ -15,6 +15,9 @@ use keel_core::store::GraphStore;
 use keel_core::types::NodeKind;
 
 use crate::checkpoint::{callers_of, CallerRef};
+use crate::validate_plan_findings::{detect_plan_findings, PlanContext};
+
+pub use crate::validate_plan_findings::PlanFinding;
 
 /// One detected (action, symbol) pair with its risk assessment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +47,19 @@ pub struct PlanValidationResult {
     pub files_detected: Vec<String>,
     /// True when no graph-relevant actions were detected.
     pub unrecognized: bool,
+    /// Plan-time findings (`P001`/`P002`). Omitted from JSON when empty so a
+    /// clean plan serializes exactly as it did before the `P` namespace
+    /// existed — the never-fails report shape is a contract.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<PlanFinding>,
+}
+
+impl PlanValidationResult {
+    /// True when at least one finding is still live (not circuit-breaker
+    /// downgraded) — i.e. `--strict` should exit 1.
+    pub fn has_live_findings(&self) -> bool {
+        self.findings.iter().any(|f| !f.downgraded)
+    }
 }
 
 /// Split text into identifier-like tokens (length >= 3) for word-boundary
@@ -201,6 +217,25 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
         .filter(|p| !p.is_empty() && plan.contains(p.as_str()))
         .collect();
 
+    // P001/P002 reuse the resolution work above rather than re-querying.
+    let caller_counts: HashMap<String, usize> = symbol_callers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.len()))
+        .collect();
+    let plan_actions: HashMap<String, &'static str> = sym_action
+        .iter()
+        .map(|(name, (action, _))| (name.clone(), *action))
+        .collect();
+    let findings = detect_plan_findings(
+        store,
+        plan,
+        &PlanContext {
+            symbol_node: &symbol_node,
+            caller_counts: &caller_counts,
+            actions: &plan_actions,
+        },
+    );
+
     PlanValidationResult {
         version: env!("CARGO_PKG_VERSION").to_string(),
         command: "validate-plan".to_string(),
@@ -208,6 +243,7 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
         symbols_detected: symbol_node.len(),
         actions,
         files_detected,
+        findings,
     }
 }
 
