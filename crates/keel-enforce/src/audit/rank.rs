@@ -127,7 +127,7 @@ pub fn ranked_findings(result: &AuditResult) -> Vec<&AuditFinding> {
             all.push((rank_key(&dim.name, finding, fails, warns), finding));
         }
     }
-    all.sort_by(|(a, _), (b, _)| a.cmp(b));
+    all.sort_by(|a, b| a.0.cmp(&b.0));
     all.into_iter().map(|(_, f)| f).collect()
 }
 

@@ -100,6 +100,9 @@ pub fn keel_bin() -> PathBuf {
 ///
 /// Identity and signing are forced on the command line so the suite works on a
 /// machine with no git identity configured and never blocks on a GPG prompt.
+/// Hooks are disabled (`core.hooksPath` pointed at a non-directory) because
+/// fixtures that run `keel init` get a pre-commit hook that shells out to
+/// `keel` from PATH — present on dev machines, absent on CI runners.
 #[allow(dead_code)]
 pub fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -110,6 +113,8 @@ pub fn git(dir: &Path, args: &[&str]) {
             "user.name=keel test",
             "-c",
             "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
         ])
         .args(args)
         .current_dir(dir)
