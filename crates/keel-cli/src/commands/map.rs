@@ -335,6 +335,21 @@ pub fn run(
 
     let _ = store.set_foreign_keys(true);
 
+    // Stamp "this graph has been mapped". W009's bootstrap guard reads it to
+    // tell an empty edge set apart from a graph that was never built — without
+    // the marker, the first compile after `keel init` would report every
+    // dependency in the repo as new.
+    let mapped_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+    if let Err(e) = store.set_meta_value(keel_core::sqlite_boundary::LAST_MAP_AT, &mapped_at) {
+        if verbose {
+            eprintln!("keel map: failed to record map timestamp: {}", e);
+        }
+    }
+
     match store.cleanup_orphaned_edges() {
         Ok(n) if n > 0 && verbose => {
             eprintln!("keel map: cleaned up {} orphaned edges", n);

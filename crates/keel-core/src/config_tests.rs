@@ -72,6 +72,13 @@ fn test_roundtrip_all_non_default_values() {
             },
             prefer_scip: false,
         },
+        architecture: ArchitectureConfig {
+            count_type_deps: true, // default is false
+            deny: vec![
+                ("core".to_string(), "frontend".to_string()),
+                ("canonical".to_string(), "harness".to_string()),
+            ],
+        },
         telemetry_id: Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string()),
     };
 
@@ -128,10 +135,36 @@ fn test_roundtrip_all_non_default_values() {
         &vec!["pyright-langserver", "--stdio"]
     );
     assert!(!roundtripped.tier3.prefer_scip);
+    assert!(roundtripped.architecture.count_type_deps);
+    assert_eq!(
+        roundtripped.architecture.deny,
+        vec![
+            ("core".to_string(), "frontend".to_string()),
+            ("canonical".to_string(), "harness".to_string()),
+        ]
+    );
     assert_eq!(
         roundtripped.telemetry_id,
         Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string())
     );
+}
+
+/// The documented `"architecture": {"deny": [["a","b"]]}` shape must parse —
+/// a deny pair is a JSON array of two strings, not an object.
+#[test]
+fn test_load_architecture_deny_pairs() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "version": "0.1.0",
+        "languages": ["rust"],
+        "architecture": { "deny": [["core", "frontend"], ["canonical", "harness"]] }
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+    let cfg = KeelConfig::load(dir.path());
+    assert!(!cfg.architecture.count_type_deps, "off unless asked for");
+    assert_eq!(cfg.architecture.deny.len(), 2);
+    assert_eq!(cfg.architecture.deny[0].0, "core");
+    assert_eq!(cfg.architecture.deny[0].1, "frontend");
 }
 
 #[test]

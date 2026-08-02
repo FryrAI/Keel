@@ -6,6 +6,8 @@ mod common;
 mod test_arity_mismatch;
 #[path = "enforcement/test_batch_mode.rs"]
 mod test_batch_mode;
+#[path = "enforcement/test_boundaries.rs"]
+mod test_boundaries;
 #[path = "enforcement/test_broken_callers.rs"]
 mod test_broken_callers;
 #[path = "enforcement/test_circuit_breaker.rs"]

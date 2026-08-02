@@ -164,6 +164,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the old 15-second one — and syncs `.keel/keel.json`'s pinned version.
   `keel upgrade` syncs that same pinned version automatically after a
   successful binary swap.
+- **`W009 new_cross_boundary_dep` — architectural erosion caught at the edit
+  (T1.7).** A file that starts calling into a package it did not depend on
+  before now produces one WARNING (confidence 0.9) whose `fix_hint` names that
+  package's most-called public symbol as the façade to go through instead. A
+  cross-package edge is a design decision that today gets zero review because
+  it looks like one added `use` line in a diff of 400, and it is cheapest to
+  reverse the moment it is made.
+  Self-baselining and zero-config: every boundary the file's module already
+  reaches in the graph is grandfathered, so only new erosion fires, and once
+  the compile syncs the new edge the dependency stops being new — there is no
+  baseline file. One warning per boundary, not per call site. Boundaries come
+  from the monorepo package a node belongs to, falling back to the first path
+  segment for unpackaged files (`frontend/` vs `crates/`); a repo that declares
+  no packages stays completely silent, because a guessed boundary produces
+  confident wrong warnings. Nothing fires before the first `keel map`, or in a
+  directory whose stored nodes have no call edges yet — that guard is per
+  *module*, not per file, so a brand-new file in a mapped module does fire.
+  The detector is deliberately kept no wider than the graph it is diffed
+  against, since anything it can see but `keel map` cannot resolve would be
+  reported on an unchanged tree forever: only `calls` count (type-only
+  references are a dependency on an abstraction; enable
+  `architecture.count_type_deps` to include them), only names the file
+  imported explicitly count, and the name must resolve to exactly one
+  boundary's public, non-associated function — method dispatch (`from`,
+  `collect`, `get_edges`) never does. Validated against keel's own 6-crate
+  workspace: 113 files compile with zero W009 on an unchanged tree, while a
+  synthetic `keel-output` → `keel-core` call fires exactly one with
+  `compute_hash` named as the façade. Measured cost: ~0.8 ms per file in an
+  unoptimized build (0.23 ms release) against a 2 ms budget.
+- **`E006 layer_violation` (opt-in).** `"architecture": {"deny": [["harness",
+  "core"]]}` in `.keel/keel.json` escalates a denied ordered pair from W009 to
+  an ERROR that gates exit 1. Empty by default — keel never decides on its own
+  which layers a repo has.
 
 ## [0.4.3] - 2026-07-21
 

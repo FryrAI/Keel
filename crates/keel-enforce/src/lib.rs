@@ -8,6 +8,8 @@
 //! - E005: arity mismatch (caller passes wrong number of arguments)
 //! - W001: placement suggestion (function may belong in a different module)
 //! - W002: duplicate name (same function name in multiple modules)
+//! - W005-W007: economy checks (dead code, duplicate impls, oversized files)
+//! - W009: new cross-boundary dependency (+ opt-in E006 layer violation)
 
 pub mod analyze;
 pub mod audit;
@@ -34,6 +36,7 @@ pub(crate) mod test_fixtures;
 pub mod types;
 pub mod validate_plan;
 pub mod violations;
+pub mod violations_boundary;
 pub mod violations_economy;
 pub mod violations_extended;
 pub mod violations_util;

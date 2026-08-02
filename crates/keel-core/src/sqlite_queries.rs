@@ -3,8 +3,8 @@ use rusqlite::params;
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
-    BodyIndexEntry, EdgeChange, EdgeDirection, GraphEdge, GraphError, GraphNode, ModuleProfile,
-    NodeChange, ResolutionCacheEntry,
+    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
+    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, ResolutionCacheEntry,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -386,5 +386,21 @@ impl GraphStore for SqliteGraphStore {
         entries: Vec<ResolutionCacheEntry>,
     ) -> Result<(), GraphError> {
         self.resolution_cache_replace(entries)
+    }
+
+    fn meta_value(&self, key: &str) -> Option<String> {
+        self.query_meta_value(key)
+    }
+
+    fn module_boundary_info(&self, dir: &str) -> ModuleBoundaryInfo {
+        self.query_module_boundary_info(dir)
+    }
+
+    fn find_boundary_targets(&self, names: &[&str], exclude_file: &str) -> Vec<BoundaryTarget> {
+        self.query_boundary_targets(names, exclude_file)
+    }
+
+    fn boundary_facade(&self, boundary: &Boundary) -> Option<String> {
+        self.query_boundary_facade(boundary)
     }
 }

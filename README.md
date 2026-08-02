@@ -309,11 +309,13 @@ scripts/
 | E003 | Missing docstring | ERROR |
 | E004 | Function removed | ERROR |
 | E005 | Arity mismatch | ERROR |
+| E006 | Layer violation (opt-in `architecture.deny`) | ERROR |
 | W001 | Placement issue | WARNING |
 | W002 | Duplicate name | WARNING |
 | W005 | Dead code | WARNING |
 | W006 | Duplicate implementation | WARNING |
 | W007 | Oversized file | WARNING |
+| W009 | New cross-boundary dependency | WARNING |
 | S001 | Suppressed | INFO |
 
 ### Exit Codes

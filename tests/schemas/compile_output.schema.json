@@ -69,11 +69,13 @@
             "missing_docstring",
             "function_removed",
             "arity_mismatch",
+            "layer_violation",
             "placement",
             "duplicate_name",
             "dead_code",
             "duplicate_implementation",
             "oversized_file",
+            "new_cross_boundary_dep",
             "suppressed"
           ],
           "description": "Violation category"

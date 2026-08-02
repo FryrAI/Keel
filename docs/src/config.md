@@ -43,6 +43,12 @@ The main configuration file. All fields have sensible defaults -- you only need 
 | `batch.timeout_seconds` | `u64` | `60` | Seconds of inactivity before batch mode auto-expires. Batch mode defers E002, E003, and W001 checks during rapid iteration. |
 | `ignore_patterns` | `string[]` | `[]` | Additional glob patterns for files to ignore (beyond `.keelignore`). Uses gitignore syntax. |
 | `tier3.enabled` | `bool` | `false` | Enable Tier 3 (LSP/SCIP) resolution for references tree-sitter and per-language enhancers can't resolve. Higher precision, slower — on-demand only. |
+| `architecture.count_type_deps` | `bool` | `false` | Count type-only references as cross-boundary dependencies for W009. Off by default: depending on another package's *types* is the behaviour you want, and in a workspace sharing a canonical types crate that pattern dominates. Only `calls` count unless this is enabled. |
+| `architecture.deny` | `[string, string][]` | `[]` | Ordered boundary pairs that must never depend on each other, e.g. `[["harness", "core"]]`. A dependency matching a pair is reported as E006 `layer_violation` (ERROR, exit 1) instead of W009. Empty by default — keel stays non-opinionated about which layers a repo has. |
+
+W009 itself has no toggle: it is self-baselining (everything already in the graph is grandfathered) and silent
+in repos that declare no packages, so there is nothing to turn off. Use `keel compile --suppress W009` for a
+one-off run.
 
 ### Enforcement per Language
 

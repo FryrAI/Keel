@@ -108,7 +108,12 @@ fn now_unix() -> u64 {
 /// Type hints (E002), docstrings (E003), placement (W001), duplicates (W002) are deferred.
 // Economy checks (W005-W007) defer too: mid-scaffold, "no callers yet" and
 // "file still growing" are expected states, not violations.
-const DEFERRABLE_CODES: &[&str] = &["E002", "E003", "W001", "W002", "W005", "W006", "W007"];
+// W009 defers as well — mid-scaffold a new package's first files legitimately
+// reach across boundaries before the façade they will go through exists. E006
+// does not: an explicitly denied pair is an error at any point in the scaffold.
+const DEFERRABLE_CODES: &[&str] = &[
+    "E002", "E003", "W001", "W002", "W005", "W006", "W007", "W009",
+];
 
 /// Returns true if this code should be deferred in batch mode.
 pub fn is_deferrable(code: &str) -> bool {

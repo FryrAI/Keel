@@ -6,11 +6,13 @@
 | E003 | missing_docstring — public function lacks documentation |
 | E004 | function_removed — a function was deleted but callers remain |
 | E005 | arity_mismatch — caller passes wrong number of arguments |
+| E006 | layer_violation — dependency denied by `architecture.deny` in keel.json (opt-in) |
 | W001 | placement — function is in a non-ideal module |
 | W002 | duplicate_name — another function with the same name exists |
 | W005 | dead_code — private function has no callers in the graph |
 | W006 | duplicate_implementation — function body is identical to one elsewhere |
 | W007 | oversized_file — file exceeds the configured line budget and grew |
+| W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
 
 ### If compile keeps failing (circuit breaker):

@@ -16,6 +16,7 @@ pub mod hash;
 pub mod paths;
 pub mod sqlite;
 pub mod sqlite_batch;
+pub mod sqlite_boundary;
 pub mod sqlite_helpers;
 pub mod sqlite_queries;
 pub mod store;

@@ -28,6 +28,8 @@ pub struct KeelConfig {
     pub monorepo: MonorepoConfig,
     #[serde(default)]
     pub tier3: Tier3Config,
+    #[serde(default)]
+    pub architecture: ArchitectureConfig,
     /// Stable random identifier for telemetry project deduplication.
     /// Generated at `keel init` time; avoids path-based hash inflation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,6 +116,28 @@ impl Default for Tier3Config {
             prefer_scip: true,
         }
     }
+}
+
+/// Architectural-boundary enforcement (W009 / E006).
+///
+/// W009 `new_cross_boundary_dep` itself needs no configuration — it is
+/// self-baselining, so everything already in the graph is grandfathered and
+/// only new erosion fires. Both fields below are strictly opt-in additions.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ArchitectureConfig {
+    /// Count type-only references (`use canonical::Verfahren`) as
+    /// cross-boundary dependencies. Off by default: depending on another
+    /// package's *types* is the behaviour you want, and on a workspace sharing
+    /// a canonical types crate that pattern dominates. Only `calls` count
+    /// unless this is enabled.
+    #[serde(default)]
+    pub count_type_deps: bool,
+    /// Ordered `[from, to]` boundary pairs that must never depend on each
+    /// other. A dependency matching a denied pair is reported as `E006`
+    /// `layer_violation` (ERROR, gates exit 1) instead of `W009`. Empty by
+    /// default — keel stays non-opinionated about which layers exist.
+    #[serde(default)]
+    pub deny: Vec<(String, String)>,
 }
 
 /// Enforcement severity toggles.
@@ -216,6 +240,7 @@ impl Default for KeelConfig {
             telemetry: TelemetryConfig::default(),
             monorepo: MonorepoConfig::default(),
             tier3: Tier3Config::default(),
+            architecture: ArchitectureConfig::default(),
             telemetry_id: None,
         }
     }
