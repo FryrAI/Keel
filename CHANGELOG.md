@@ -120,6 +120,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-readable output.
 
 ### Added
+- **`keel review --base <ref>` — the two-sided graph diff as a PR cover letter
+  (T2.1).** GitHub can show which lines moved; it cannot say which *contracts*
+  moved and which callers the change left behind. `keel review` parses the base
+  side straight out of git (`git show <base>:<path>`) in memory — no checkout,
+  no worktree, no stored history, no schema change — and diffs it against the
+  working tree, with `--name-status -M` rename detection so a moved file
+  reports `Moved` instead of an add plus a remove. Per symbol: signature
+  differs = a contract change; same signature with a different content hash =
+  body-only (or doc-only), so the report can say "12 functions changed, only 3
+  changed their contract". Each contract change carries the stored callers that
+  live in files the diff does **not** touch, counted over `calls` edges only —
+  the same set E001/E004/E005 use, because the question is whose code breaks.
+  Changed files keel has no grammar for (`.sql`, `.baml`, fixtures) are named
+  under `UNANALYZED` rather than silently omitted. Both sides are parsed with
+  tree-sitter alone (`resolution: tier1`) so a reported difference is a real
+  difference and not a tier artifact. Available as an MCP `keel/review` tool
+  and in all three output formats; honors the clean-output contract (a
+  body-only PR prints nothing and exits 0). Review-time only — nothing here
+  runs in the compile hot path. Requires `fetch-depth: 0` in CI.
 - **A `.baml` function dispatched by string literal now has real callers
   (T1.4).** Code that drives a boundary function through a name string —
   `run_baml("PlanBerichtSection", input)`, a `match` arm on the same key, a

@@ -1,5 +1,6 @@
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
@@ -48,6 +49,7 @@ impl OutputFormatter for JsonFormatter {
         format_checkpoint: CheckpointResult,
         format_validate_plan: PlanValidationResult,
         format_semantic_map: SemanticMapResult,
+        format_review: ReviewResult,
     }
 }
 

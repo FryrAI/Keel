@@ -275,6 +275,35 @@ keel name "parse configuration file" --json
 
 ---
 
+## keel review
+
+Two-sided graph diff against a base ref — the PR cover letter GitHub cannot write.
+
+```bash
+keel review --base main
+keel review --base origin/main --json
+```
+
+Parses the base side straight out of git (`git show <base>:<path>`) in memory — no
+checkout, no worktree — and diffs it against the working tree. For every symbol it
+reports whether the **contract** moved (signature changed, added, removed, moved) or
+only the body or docstring did, so the report can say "12 functions changed, only 3
+changed their contract".
+
+Each contract change carries the stored callers that live in files this diff does
+**not** touch — literally the call sites the change did not update. Changed files keel
+has no grammar for (`.sql`, `.baml`, fixtures) are listed under `UNANALYZED` rather
+than silently omitted.
+
+Both sides are parsed with tree-sitter only (`resolution: tier1`) so the two sides are
+symmetric. Review-time only: nothing here runs in the compile hot path.
+
+Honors the clean-output contract — a diff that moved no contract and touched no
+unparsed file prints nothing and exits 0 (use `--verbose` for the counts anyway).
+Requires full git history in CI (`fetch-depth: 0`).
+
+---
+
 ## keel serve
 
 Run a persistent server for real-time enforcement.

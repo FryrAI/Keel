@@ -73,6 +73,7 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | `keel focus <hash\|file>` | Minimal context set for an edit | <50ms |
 | `keel checkpoint` | Session-state summary (git + graph) | <1s |
 | `keel validate-plan <file\|->` | Pre-execution plan risk check | <100ms |
+| `keel review --base <ref>` | Two-sided graph diff vs a base ref | <3s for a 54-file diff |
 | `keel serve` | MCP/HTTP/watch server | ~50-100MB memory |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |
@@ -222,6 +223,7 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary for re-injection after context loss
 - `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, suggested order)
+- `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved and which callers were left outside the diff
 - `keel watch` — auto-compile on file changes
 - `keel check <hash>` — pre-edit risk assessment (callers, risk level)
 - `keel fix [--apply]` — generate and optionally apply fix plans
@@ -250,6 +252,7 @@ The keel MCP server exposes these tools directly to your IDE:
 - `keel/focus` — minimal context set to safely modify a target
 - `keel/checkpoint` — compact session-state summary for re-injection after context loss
 - `keel/validate-plan` — validate a plan against the graph before execution
+- `keel/review` — two-sided graph diff vs a base ref (contracts moved, callers left behind)
 
 ### Common Mistakes:
 - **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.

@@ -274,6 +274,14 @@ pub(crate) enum Commands {
         output: Option<String>,
     },
 
+    /// Two-sided graph diff against a base ref: which contracts moved, and
+    /// which callers the change left behind
+    Review {
+        /// Base ref to diff the working tree against (e.g. `main`, `origin/main`)
+        #[arg(long)]
+        base: String,
+    },
+
     /// Validate a plan against the dependency graph before executing it
     ValidatePlan {
         /// Plan file to read (markdown/text), or `-` for stdin

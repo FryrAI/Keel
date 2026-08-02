@@ -75,3 +75,16 @@ fn parse_validate_plan_stdin() {
 fn parse_validate_plan_missing_arg() {
     Cli::try_parse_from(["keel", "validate-plan"]).expect_err("expected parse failure");
 }
+
+#[test]
+fn parse_review_base() {
+    match parse(&["keel", "review", "--base", "origin/main"]).command {
+        Commands::Review { base } => assert_eq!(base, "origin/main"),
+        _ => panic!("expected Review"),
+    }
+}
+
+#[test]
+fn parse_review_requires_base() {
+    Cli::try_parse_from(["keel", "review"]).expect_err("expected parse failure");
+}

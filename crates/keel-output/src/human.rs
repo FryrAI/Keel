@@ -1,6 +1,7 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
@@ -479,6 +480,10 @@ impl OutputFormatter for HumanFormatter {
             ));
         }
         out
+    }
+
+    fn format_review(&self, result: &ReviewResult) -> String {
+        crate::human_review::format_review_human(result)
     }
 
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String {

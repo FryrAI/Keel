@@ -607,3 +607,53 @@ fn test_checkpoint_returns_shaped_result() {
     assert!(result["commits"].is_array());
     assert!(result["affected_callers"].is_array());
 }
+
+// --- keel/review tests ---
+
+#[test]
+fn test_review_returns_shaped_result() {
+    // Runs git in the crate cwd against the current HEAD, so the diff is
+    // whatever the working tree holds. With an empty in-memory store the
+    // caller counts are all zero; we assert only shape and the fixed fields.
+    let store = test_store();
+    let params = serde_json::json!({"base": "HEAD"});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/review", Some(params)),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "review");
+    assert_eq!(result["base"], "HEAD");
+    assert_eq!(result["resolution"], "tier1");
+    assert!(result["changes"].is_array());
+    assert!(result["unanalyzed"].is_array());
+}
+
+#[test]
+fn test_review_missing_base() {
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/review", None),
+    ));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("base"));
+}
+
+#[test]
+fn test_review_unresolvable_base_is_an_execution_error() {
+    let store = test_store();
+    let params = serde_json::json!({"base": "keel-no-such-ref"});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/review", Some(params)),
+    ));
+    assert_eq!(resp["error"]["code"], -32603);
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("keel-no-such-ref"));
+}

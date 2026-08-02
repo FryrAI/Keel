@@ -18,6 +18,7 @@ mod mcp_discover;
 mod mcp_fix;
 mod mcp_focus;
 mod mcp_name;
+mod mcp_review;
 mod mcp_search;
 mod mcp_skeleton;
 pub mod mcp_stdio;

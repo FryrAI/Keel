@@ -9,6 +9,7 @@ pub mod fix;
 pub mod focus;
 pub mod map;
 pub mod name;
+pub mod review;
 pub mod semantic;
 pub mod skeleton;
 pub mod validate_plan;
@@ -16,6 +17,7 @@ pub mod violation;
 
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
@@ -176,6 +178,10 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String {
         semantic::format_semantic_map(result)
+    }
+
+    fn format_review(&self, result: &ReviewResult) -> String {
+        review::format_review(result)
     }
 }
 

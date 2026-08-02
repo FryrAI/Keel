@@ -201,6 +201,10 @@ fn main() {
             commands::checkpoint::run(&*formatter, cli.verbose, since, staged, output),
             Default::default(),
         ),
+        Commands::Review { base } => (
+            commands::review::run(&*formatter, cli.verbose, base),
+            Default::default(),
+        ),
         Commands::ValidatePlan { plan } => (
             commands::validate_plan::run(&*formatter, cli.verbose, plan),
             Default::default(),

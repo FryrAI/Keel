@@ -7,12 +7,14 @@
 
 pub mod human;
 pub(crate) mod human_helpers;
+pub(crate) mod human_review;
 pub mod json;
 pub mod llm;
 pub mod radar;
 pub mod token_budget;
 
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
@@ -40,4 +42,6 @@ pub trait OutputFormatter {
     fn format_validate_plan(&self, result: &PlanValidationResult) -> String;
     /// Format a `keel map --semantic` enriched map.
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String;
+    /// Format a `keel review --base <ref>` PR cover letter.
+    fn format_review(&self, result: &ReviewResult) -> String;
 }

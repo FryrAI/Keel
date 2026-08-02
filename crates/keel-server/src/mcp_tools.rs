@@ -215,6 +215,17 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
             }),
         },
         ToolInfo {
+            name: "keel/review".into(),
+            description: "Two-sided graph diff against a base ref: which contracts moved (signature changed / added / removed / moved), the callers left outside the diff, and the changed files keel could not parse".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["base"],
+                "properties": {
+                    "base": { "type": "string", "description": "Base ref to diff the working tree against (e.g. `main`)" }
+                }
+            }),
+        },
+        ToolInfo {
             name: "keel/validate-plan".into(),
             description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, and a callers-first suggested order".into(),
             input_schema: serde_json::json!({
@@ -258,6 +269,7 @@ pub(crate) fn dispatch_tool(
         "keel/checkpoint" => {
             crate::mcp_checkpoint::handle_checkpoint(store, engine, root, arguments)
         }
+        "keel/review" => crate::mcp_review::handle_review(store, root, arguments),
         "keel/validate-plan" => crate::mcp_validate_plan::handle_validate_plan(store, arguments),
         _ => return None,
     })
