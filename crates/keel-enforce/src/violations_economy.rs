@@ -28,7 +28,11 @@ const _: () = assert!(MIN_DUPLICATE_BODY_LEN >= keel_core::hash::MIN_INDEXED_BOD
 
 /// Names that are entrypoints or conventionally uncalled in every language —
 /// never dead.
-const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
+///
+/// Shared with `crate::quality`'s `dead_private_fns` metric, which counts the
+/// same population from the stored graph: a trend line that includes `main` is
+/// measuring keel's exemption list, not the codebase.
+pub(crate) const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
 
 /// True when a definition is an auto-invoked entrypoint and therefore never dead.
 ///

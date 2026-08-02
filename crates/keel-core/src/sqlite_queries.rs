@@ -4,7 +4,7 @@ use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
     BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
-    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, ResolutionCacheEntry,
+    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -402,5 +402,9 @@ impl GraphStore for SqliteGraphStore {
 
     fn boundary_facade(&self, boundary: &Boundary) -> Option<String> {
         self.query_boundary_facade(boundary)
+    }
+
+    fn quality_inputs(&self) -> QualityInputs {
+        self.query_quality_inputs()
     }
 }

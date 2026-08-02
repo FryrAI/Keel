@@ -113,3 +113,58 @@ fn parse_review_rejects_an_unknown_format() {
 fn parse_review_requires_base() {
     Cli::try_parse_from(["keel", "review"]).expect_err("expected parse failure");
 }
+
+#[test]
+fn parse_quality_defaults_to_the_current_reading() {
+    match parse(&["keel", "quality"]).command {
+        Commands::Quality {
+            snapshot,
+            trend,
+            since,
+            last,
+        } => {
+            assert!(!snapshot, "reading the graph never writes by default");
+            assert!(!trend);
+            assert!(since.is_none() && last.is_none());
+        }
+        _ => panic!("expected Quality"),
+    }
+}
+
+#[test]
+fn parse_quality_snapshot_and_trend_windows() {
+    match parse(&["keel", "quality", "--snapshot"]).command {
+        Commands::Quality { snapshot, .. } => assert!(snapshot),
+        _ => panic!("expected Quality"),
+    }
+    match parse(&["keel", "quality", "--trend", "--last", "20"]).command {
+        Commands::Quality { trend, last, .. } => {
+            assert!(trend);
+            assert_eq!(last, Some(20));
+        }
+        _ => panic!("expected Quality"),
+    }
+    match parse(&["keel", "quality", "--trend", "--since", "a1b2c3d"]).command {
+        Commands::Quality { trend, since, .. } => {
+            assert!(trend);
+            assert_eq!(since.as_deref(), Some("a1b2c3d"));
+        }
+        _ => panic!("expected Quality"),
+    }
+}
+
+#[test]
+fn parse_quality_rejects_contradictory_flags() {
+    // Capturing a reading and reporting the series are two different runs.
+    Cli::try_parse_from(["keel", "quality", "--snapshot", "--trend"])
+        .expect_err("--snapshot and --trend are mutually exclusive");
+    // A window needs a series to window.
+    Cli::try_parse_from(["keel", "quality", "--last", "5"]).expect_err("--last requires --trend");
+    Cli::try_parse_from(["keel", "quality", "--since", "abc"])
+        .expect_err("--since requires --trend");
+    // Two windows are one too many.
+    Cli::try_parse_from([
+        "keel", "quality", "--trend", "--since", "abc", "--last", "5",
+    ])
+    .expect_err("--since and --last are mutually exclusive");
+}

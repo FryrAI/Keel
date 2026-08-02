@@ -129,6 +129,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-readable output.
 
 ### Added
+- **`keel quality`: persisted snapshots and a trend (T2.4).** Every keel surface
+  answered a question about *now*, so nobody could say whether a codebase was
+  improving or rotting: `keel map` clears and rebuilds the graph, which makes two
+  consecutive audits produce no diff. `keel quality` measures four countable
+  properties of the stored graph — `files_over_budget`, `cycle_count`,
+  `dead_private_fns`, and `cross_module_edge_ratio` (trend-only) — `keel quality
+  --snapshot` records one point per commit, and `keel quality --trend [--since
+  <sha>|--last N]` reports each metric's direction with the commit that moved it
+  most. Test files, generated clients and `.sql`/`.baml` surfaces are excluded
+  from the size metric, so the series tracks production decay rather than fixture
+  growth. **Exit code is always 0** — the report is the product; there is no
+  ratchet, no tolerance and no gate. Schema **v7** adds `quality_snapshots`, the
+  one table `clear_all()` does not delete, so the series survives every re-map;
+  its metrics blob is versioned and `--trend` refuses to compare across versions
+  rather than silently re-baselining. The shipped CI action takes one snapshot per
+  merge on the default branch and writes the reading to the job summary. Measured
+  at ~10ms against keel's own 463-file graph.
 - **One CI recipe, a graph that cannot lie, and one sticky comment (T2.3).**
   `keel init` scaffolded a workflow that ran `curl install.sh` + `keel map
   --json --strict` while the maintained composite action ran `compile

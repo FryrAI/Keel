@@ -142,6 +142,44 @@ runs:
 
         exit $exit_code
 
+    - name: Quality snapshot
+      # One reading per merge on the default branch — the time axis `keel
+      # quality --trend` reads. Push-only and default-branch-only: a pull
+      # request's graph describes the merge base, not the merged result, so
+      # snapshotting one would record a state that never existed.
+      #
+      # `always()`: a merge that carried violations is still a merge, and the
+      # series must not develop holes wherever the build went red.
+      #
+      # Honest limitation: the graph cache is keyed on the exact commit, so a
+      # push run always starts from a graph built for THIS commit and the
+      # series accumulates in the developer's local `.keel/graph.db` (which
+      # `keel map` deliberately does not clear), not in CI. This step is what
+      # puts the reading in front of a human on every merge.
+      if: ${{ always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      shell: bash
+      run: |
+        set -uo pipefail
+
+        if [ ! -f .keel/graph.db ]; then
+          echo "keel: no graph to measure — skipping the quality snapshot"
+          exit 0
+        fi
+
+        # ~10ms of graph work. `keel quality` never gates, and neither does
+        # this step: a failed measurement must not turn a green merge red.
+        reading="$(keel quality --snapshot --llm)" || reading=""
+        if [ -n "$reading" ]; then
+          echo "$reading"
+          {
+            echo "### keel quality"
+            echo ""
+            echo '```'
+            echo "$reading"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+        fi
+
     - name: Sticky review comment
       # `always()`: a red compile in review mode must still leave the report on
       # the PR, and a fork's read-only token must never turn into a red run.

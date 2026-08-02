@@ -293,6 +293,29 @@ impl ModuleBoundaryInfo {
     }
 }
 
+/// Raw graph facts the `keel quality` metrics are computed from.
+///
+/// One bundle rather than four store methods, because they are always read
+/// together and a partial read would produce a snapshot whose metrics describe
+/// different graph states. Everything here is deduplicated by the store: a file
+/// with two stored module rows (hash-salt collisions do happen) contributes one
+/// entry, or the size metric would count it twice.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QualityInputs {
+    /// One entry per mapped file: `(file_path, line_count)`.
+    pub file_lines: Vec<(String, u32)>,
+    /// Private, non-associated functions with no incoming `calls`/`uses` edge:
+    /// `(file_path, name)`. Naming and file-class exemptions are applied by the
+    /// caller, which owns those rules.
+    pub uncalled_private_fns: Vec<(String, String)>,
+    /// Distinct cross-file module dependencies: `(source_file, target_file)`.
+    pub module_deps: Vec<(String, String)>,
+    /// Stored dependency edges (`calls` + `uses`) with a resolvable target.
+    pub dependency_edges: u64,
+    /// How many of those cross a file boundary.
+    pub cross_file_dependency_edges: u64,
+}
+
 /// Errors that can occur during graph operations.
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {

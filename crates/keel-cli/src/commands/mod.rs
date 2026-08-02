@@ -31,6 +31,7 @@ pub mod map_tier3;
 pub mod name;
 pub mod parse_util;
 pub mod push;
+pub mod quality;
 pub mod review;
 pub mod search;
 pub mod serve;

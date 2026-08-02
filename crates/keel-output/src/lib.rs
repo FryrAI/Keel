@@ -15,10 +15,12 @@ pub(crate) mod human_helpers;
 pub(crate) mod human_review;
 pub mod json;
 pub mod llm;
+pub(crate) mod quality_fmt;
 pub mod radar;
 pub mod token_budget;
 
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
 use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
@@ -49,4 +51,6 @@ pub trait OutputFormatter {
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String;
     /// Format a `keel review --base <ref>` PR cover letter.
     fn format_review(&self, result: &ReviewResult) -> String;
+    /// Format a `keel quality` reading or trend.
+    fn format_quality(&self, result: &QualityReport) -> String;
 }

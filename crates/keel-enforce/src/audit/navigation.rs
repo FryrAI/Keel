@@ -15,6 +15,22 @@ use crate::types::{AuditFinding, AuditSeverity};
 /// arrow chain. Cycles this long are dropped unless `--strict-cycles`.
 const MAX_ACTIONABLE_CYCLE: usize = 8;
 
+/// True for the edge kinds that make one MODULE depend on another.
+///
+/// A resolved call or an import is a load-order relationship between files; a
+/// `uses` edge (a name handed around as a value) is not, and `contains` is
+/// intra-file by construction. This is the single definition of "module A
+/// depends on module B" — the audit's `circular_dep`/`high_coupling` checks and
+/// `crate::quality`'s `cycle_count` metric both read it, so a change here moves
+/// both together instead of silently splitting them.
+///
+/// Deliberately NOT `queries::is_dependency_edge`: that answers "does this
+/// SYMBOL depend on that one" for fan-in counting, where a callback reference
+/// absolutely counts.
+pub(crate) fn is_module_dep_edge(kind: &EdgeKind) -> bool {
+    matches!(kind, EdgeKind::Calls | EdgeKind::Imports)
+}
+
 /// Whether a module cycle is a real defect worth reporting.
 ///
 /// `circular_dep` is **disabled for Rust**: intra-crate module cycles are legal,
@@ -26,7 +42,11 @@ const MAX_ACTIONABLE_CYCLE: usize = 8;
 ///
 /// A mixed-language cycle is still reported — that one crosses a boundary the
 /// compiler does not police.
-fn is_reportable_cycle(cycle: &[String]) -> bool {
+///
+/// Shared with `crate::quality`, whose `cycle_count` metric must count exactly
+/// the cycles `keel audit` would report — a trend line that disagrees with the
+/// finding list it summarizes is worse than no trend line.
+pub(crate) fn is_reportable_cycle(cycle: &[String]) -> bool {
     if cycle.len() > MAX_ACTIONABLE_CYCLE {
         return false;
     }
@@ -77,7 +97,7 @@ pub fn check_navigation(
         for node in &nodes {
             let outgoing = store.get_edges(node.id, EdgeDirection::Outgoing);
             for edge in &outgoing {
-                if edge.kind == EdgeKind::Calls || edge.kind == EdgeKind::Imports {
+                if is_module_dep_edge(&edge.kind) {
                     if let Some(target) = store.get_node_by_id(edge.target_id) {
                         if target.file_path != *path {
                             deps.insert(target.file_path.clone());
@@ -303,7 +323,11 @@ fn bfs_max_depth(store: &dyn GraphStore, start_id: u64) -> u32 {
 
 /// Find cycles in a directed graph using iterative Tarjan's SCC algorithm.
 /// Returns cycles as vectors of node names (file paths).
-fn find_cycles(graph: &HashMap<String, HashSet<String>>) -> Vec<Vec<String>> {
+///
+/// Shared with `crate::quality` so the `cycle_count` metric and the audit's
+/// `circular_dep` findings are the same computation, not two that agree by
+/// coincidence.
+pub(crate) fn find_cycles(graph: &HashMap<String, HashSet<String>>) -> Vec<Vec<String>> {
     let mut index_counter = 0u32;
     let mut stack: Vec<String> = Vec::new();
     let mut on_stack: HashSet<String> = HashSet::new();

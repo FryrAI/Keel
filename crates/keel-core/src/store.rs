@@ -1,6 +1,6 @@
 use crate::types::{
     BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
-    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, ResolutionCacheEntry,
+    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
 };
 
 /// FROZEN CONTRACT — GraphStore trait.
@@ -123,6 +123,18 @@ pub trait GraphStore {
     fn boundary_facade(&self, boundary: &Boundary) -> Option<String> {
         let _ = boundary;
         None
+    }
+
+    /// Everything the `keel quality` metrics are computed from — see
+    /// [`QualityInputs`].
+    ///
+    /// Additive with an empty default: a backend that cannot answer reports no
+    /// metrics rather than wrong ones. The SQLite implementation answers the
+    /// whole bundle in four aggregate queries, which is what keeps a
+    /// measurement off the "walk every node's edges" path and inside the CI
+    /// step's budget.
+    fn quality_inputs(&self) -> QualityInputs {
+        QualityInputs::default()
     }
 }
 

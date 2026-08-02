@@ -1,6 +1,7 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
 use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
@@ -484,6 +485,10 @@ impl OutputFormatter for HumanFormatter {
 
     fn format_review(&self, result: &ReviewResult) -> String {
         crate::human_review::format_review_human(result)
+    }
+
+    fn format_quality(&self, result: &QualityReport) -> String {
+        crate::quality_fmt::human(result)
     }
 
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String {

@@ -1,5 +1,6 @@
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
 use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
@@ -50,6 +51,7 @@ impl OutputFormatter for JsonFormatter {
         format_validate_plan: PlanValidationResult,
         format_semantic_map: SemanticMapResult,
         format_review: ReviewResult,
+        format_quality: QualityReport,
     }
 }
 

@@ -7,7 +7,7 @@ use crate::types::GraphError;
 #[path = "sqlite_profiles.rs"]
 mod profiles;
 
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 
 /// A persisted circuit-breaker entry:
 /// `(error_code, hash, consecutive_failures, downgraded, provenance_file,
@@ -268,6 +268,11 @@ impl SqliteGraphStore {
         self.drop_stale_body_index()?;
         self.conn.execute_batch(BODY_INDEX_DDL)?;
 
+        // Quality snapshots (schema v7) — shared DDL, see
+        // `crate::sqlite_quality::QUALITY_SNAPSHOTS_DDL`.
+        self.conn
+            .execute_batch(crate::sqlite_quality::QUALITY_SNAPSHOTS_DDL)?;
+
         // Set schema version if not present (new databases get current version)
         self.conn.execute(
             "INSERT OR IGNORE INTO keel_meta (key, value) VALUES ('schema_version', ?1)",
@@ -307,6 +312,26 @@ impl SqliteGraphStore {
         if current < 6 {
             self.migrate_v5_to_v6()?;
         }
+        if current < 7 {
+            self.migrate_v6_to_v7()?;
+        }
+        Ok(())
+    }
+
+    /// Migrate from schema v6 to v7: add the `quality_snapshots` table.
+    ///
+    /// Purely additive — one `CREATE TABLE IF NOT EXISTS` plus its index, no
+    /// table rebuild and no existing row touched, so an interrupted upgrade
+    /// cannot lose graph data. `initialize_schema` has already run the same DDL
+    /// by the time migrations run; it is repeated here so the step is
+    /// self-contained and safe against a v6 database opened by any path.
+    fn migrate_v6_to_v7(&self) -> Result<(), GraphError> {
+        self.conn
+            .execute_batch(crate::sqlite_quality::QUALITY_SNAPSHOTS_DDL)?;
+        self.conn.execute(
+            "UPDATE keel_meta SET value = '7' WHERE key = 'schema_version'",
+            [],
+        )?;
         Ok(())
     }
 
@@ -527,6 +552,14 @@ impl SqliteGraphStore {
 
     /// Clear all graph data (nodes, edges, etc.) for a full re-map.
     /// Preserves schema and metadata.
+    ///
+    /// The DELETE batch below enumerates tables EXPLICITLY, and
+    /// `quality_snapshots` is deliberately absent from it: every other table
+    /// here is derived from source and rebuilt by the map that follows, while
+    /// the snapshot series is keel's only memory of what the codebase looked
+    /// like before. Deleting it would make `keel quality --trend` a report on
+    /// the current map and nothing else. Do not add it — the regression test
+    /// `tests/graph/test_quality_snapshots.rs` will fail if you do.
     pub fn clear_all(&mut self) -> Result<(), GraphError> {
         self.conn.execute_batch(
             "

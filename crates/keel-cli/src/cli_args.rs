@@ -302,6 +302,24 @@ pub(crate) enum Commands {
         gate: bool,
     },
 
+    /// Countable maintainability metrics from the stored graph, and their
+    /// trend across snapshots
+    Quality {
+        /// Capture the current reading as a snapshot against HEAD (one per
+        /// merge; CI runs this on the default branch)
+        #[arg(long, conflicts_with = "trend")]
+        snapshot: bool,
+        /// Report the stored series instead of the current reading
+        #[arg(long)]
+        trend: bool,
+        /// Start the trend at this commit (short prefixes accepted)
+        #[arg(long, requires = "trend", conflicts_with = "last")]
+        since: Option<String>,
+        /// Cap the trend to the last N snapshots
+        #[arg(long, requires = "trend")]
+        last: Option<usize>,
+    },
+
     /// Validate a plan against the dependency graph before executing it
     ValidatePlan {
         /// Plan file to read (markdown/text), or `-` for stdin

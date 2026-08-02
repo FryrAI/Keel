@@ -215,6 +215,24 @@ fn main() {
             ),
             Default::default(),
         ),
+        Commands::Quality {
+            snapshot,
+            trend,
+            since,
+            last,
+        } => (
+            commands::quality::run(
+                &*formatter,
+                cli.verbose,
+                commands::quality::QualityArgs {
+                    snapshot,
+                    trend,
+                    since,
+                    last,
+                },
+            ),
+            Default::default(),
+        ),
         Commands::ValidatePlan { plan } => (
             commands::validate_plan::run(&*formatter, cli.verbose, plan),
             Default::default(),

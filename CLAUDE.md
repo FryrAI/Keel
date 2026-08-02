@@ -74,6 +74,7 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | `keel checkpoint` | Session-state summary (git + graph) | <1s |
 | `keel validate-plan <file\|->` | Pre-execution plan risk check | <100ms |
 | `keel review --base <ref>` | Two-sided graph diff vs a base ref | <3s for a 54-file diff |
+| `keel quality [--snapshot\|--trend]` | Countable maintainability metrics + their trend | <100ms |
 | `keel serve` | MCP/HTTP/watch server | ~50-100MB memory |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |
@@ -141,6 +142,11 @@ Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Us
 
 ### Clean Compile Output
 When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**. This is critical — the LLM should never see output unless something needs attention.
+
+### Quality Snapshots Survive `keel map`
+`clear_all()` in `crates/keel-core/src/sqlite.rs` enumerates its tables explicitly and **`quality_snapshots` is deliberately not in the list** — that omission is the entire mechanism giving keel a memory across re-maps. Adding it would silently turn `keel quality --trend` into a report on the current map.
+
+`quality_snapshots` (schema v7) stores a versioned JSON blob keyed on `commit_sha` (UNIQUE — a second capture at the same commit *updates* in place). Bump `keel_enforce::quality::METRICS_VERSION` whenever a metric's *definition* changes: `--trend` then refuses to compare across versions rather than silently re-baselining. `dead_private_fns` is computed from the graph alone, so it over-counts relative to W005 (no decorator/trait-context/`keel:keep` awareness) — it is a trend line, not a violation count.
 
 The one exception is **honesty about files keel cannot parse**: compiling a `.sql`, `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .sql is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
 
@@ -224,6 +230,7 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary for re-injection after context loss
 - `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, suggested order)
 - `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
+- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
 - `keel watch` — auto-compile on file changes
 - `keel check <hash>` — pre-edit risk assessment (callers, risk level)
 - `keel fix [--apply]` — generate and optionally apply fix plans

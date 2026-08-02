@@ -11,7 +11,9 @@
 #                   THIS diff introduced (never the repo's backlog).
 #   push         -> keel compile --changed, and — the real payoff — the graph
 #                   for this commit lands in the cache, so pull requests based
-#                   on it start warm instead of paying for a full map.
+#                   on it start warm instead of paying for a full map. A push to
+#                   the default branch also records one `keel quality` snapshot,
+#                   so the codebase gets a time axis instead of only a "now".
 name: keel
 
 on:

@@ -37,6 +37,8 @@ mod test_init_merge;
 mod test_map;
 #[path = "cli/test_name.rs"]
 mod test_name;
+#[path = "cli/test_quality.rs"]
+mod test_quality;
 #[path = "cli/test_review.rs"]
 mod test_review;
 #[path = "cli/test_search.rs"]

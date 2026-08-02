@@ -62,7 +62,7 @@ fn test_v5_to_v6_migration_preserves_edges_and_allows_uses() {
     let mut store = SqliteGraphStore::open(db_str).unwrap();
 
     // THEN the version advanced and the pre-existing edge survived the rebuild
-    assert_eq!(store.schema_version().unwrap(), 6, "v5 db should reach v6");
+    assert_eq!(store.schema_version().unwrap(), 7, "v5 db should reach v7");
     let incoming = store.get_edges(2, EdgeDirection::Incoming);
     assert_eq!(incoming.len(), 1, "existing edge must survive the rebuild");
     assert_eq!(incoming[0].kind, EdgeKind::Calls);
@@ -111,7 +111,7 @@ fn test_schema_version_tracking() {
         .expect("schema_version should succeed");
 
     // THEN it reports the current version
-    assert_eq!(version, 6, "initial schema version should be 6");
+    assert_eq!(version, 7, "initial schema version should be 7");
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn test_v1_to_v2_migration() {
 
     // THEN schema version is now 2
     let version = store.schema_version().unwrap();
-    assert_eq!(version, 6, "v1 database should be migrated to v6");
+    assert_eq!(version, 7, "v1 database should be migrated to v7");
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn test_migrated_data_accessible() {
     let store = SqliteGraphStore::open(db_str).unwrap();
 
     // THEN the migrated data is queryable
-    assert_eq!(store.schema_version().unwrap(), 6);
+    assert_eq!(store.schema_version().unwrap(), 7);
 
     // Drop store so we can open raw connection
     drop(store);
@@ -265,7 +265,7 @@ fn test_future_schema_version_not_rejected() {
     // First create a valid database
     {
         let store = SqliteGraphStore::open(db_str).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 6);
+        assert_eq!(store.schema_version().unwrap(), 7);
     }
 
     // Manually set schema_version to 99 via raw SQL
@@ -299,7 +299,7 @@ fn test_migration_idempotency() {
     {
         let store = SqliteGraphStore::open(db_path_str).expect("first open");
         let v = store.schema_version().expect("version check");
-        assert_eq!(v, 6, "first open should be v6");
+        assert_eq!(v, 7, "first open should be v7");
     }
 
     // AND the store is opened again at the same path
@@ -308,6 +308,6 @@ fn test_migration_idempotency() {
         let v = store.schema_version().expect("version check");
 
         // THEN the schema version is unchanged (no corruption or double-migration)
-        assert_eq!(v, 6, "second open should still be v6");
+        assert_eq!(v, 7, "second open should still be v7");
     }
 }

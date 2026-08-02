@@ -17,6 +17,7 @@ pub mod violation;
 
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
 use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
@@ -182,6 +183,10 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_review(&self, result: &ReviewResult) -> String {
         review::format_review(result)
+    }
+
+    fn format_quality(&self, result: &QualityReport) -> String {
+        crate::quality_fmt::llm(result)
     }
 }
 

@@ -156,6 +156,7 @@ keel where a7Bx3kM9f2Q
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
 | `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <1s |
 | `keel validate-plan <file\|->` | Validate a plan against the graph before execution | <100ms |
+| `keel quality [--snapshot\|--trend]` | Countable maintainability metrics, persisted per commit, with their trend | <100ms |
 | `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |

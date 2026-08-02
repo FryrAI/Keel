@@ -27,6 +27,7 @@ pub mod map;
 pub mod naming;
 pub mod parse_util;
 pub mod progressive;
+pub mod quality;
 pub mod queries;
 pub mod review;
 pub mod semantic;
