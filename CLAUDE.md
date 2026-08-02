@@ -188,7 +188,7 @@ Low-confidence call edges (trait dispatch, interface methods) produce **WARNING 
 - [Constitution](constitution.md) — non-negotiable articles
 
 <!-- keel:start -->
-<!-- keel:version 0.4.3 -->
+<!-- keel:version 0.5.0 -->
 ## keel — Code Graph Enforcement
 
 This project uses keel (keel.engineer) for code graph enforcement.
