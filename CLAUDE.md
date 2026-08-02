@@ -134,6 +134,15 @@ Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Us
 ### Clean Compile Output
 When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**. This is critical — the LLM should never see output unless something needs attention.
 
+The one exception is **honesty about files keel cannot parse**: compiling a `.sql`, `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .sql is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
+
+### What the Audit Grades
+`keel audit` grades size and naming smells (`function_size`, `god_file`, `public_ratio`, `cryptic_name`) on **hand-written source only**. `FileClass` (keel-enforce `file_class.rs`) classifies every path as Source / Boundary (`.baml`, `.proto`, `.graphql`) / Generated (`baml_client`, `baml_sdk`) / Data (`.sql`) / Test (`violations_util::is_test_file`), deriving Source from the canonical `detect_language` table so the two can't drift. Only Source is graded; `orphan_file` deliberately still applies to `.baml` (T1.4 gives those files real edges — real edges beat exemptions).
+
+`circular_dep` is **disabled for Rust**: intra-crate module cycles are legal, idiomatic Rust and cargo already forbids the illegal inter-crate ones. It still applies to TS/Python/Go, capped at cycles of ≤8 modules. `--strict-cycles` restores the old behavior.
+
+Findings are deduplicated on rule+file+symbol before scoring, then ranked by (severity, agent-config over per-file smells, dimension-score impact, count). `--llm` prints the top 20 and states how many it omitted; `--top 0` lifts the cap.
+
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.
 
@@ -211,7 +220,7 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel fix [--apply]` — generate and optionally apply fix plans
 - `keel name <description>` — suggest names for new code
 - `keel analyze <file>` — architectural analysis of a file
-- `keel audit [dimension]` — repo-wide architectural audit
+- `keel audit [dimension] [--top N] [--strict-cycles]` — repo-wide architectural audit (ranked, top 20 by default; `--top 0` for all)
 - `keel context <file>` — module context for a file
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.

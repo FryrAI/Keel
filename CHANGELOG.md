@@ -57,6 +57,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   graph re-populates on the next map.
 
 ### Changed
+- **`keel audit` is now a list a human will read to the end (T1.5).** Five
+  changes, all noise removal:
+  1. Test files are exempt from `function_size`, `god_file`, `public_ratio`
+     and `cryptic_name` (via the shared `violations_util::is_test_file`) — a
+     253-line integration test is not a maintainability defect.
+  2. Findings are deduplicated on rule+file+symbol **before** scoring, so a
+     file visited twice by a dimension's walk no longer double-reports (and no
+     longer double-depresses its dimension score).
+  3. `circular_dep` is disabled for Rust: intra-crate module cycles are legal,
+     idiomatic Rust and cargo already forbids the illegal inter-crate ones, so
+     the check could only ever report the legal kind. It still applies to
+     TS/Python/Go, now capped at cycles of 8 modules or fewer. The new
+     `keel audit --strict-cycles` restores the old behavior.
+  4. A new `FileClass` (`Source | Boundary | Generated | Data | Test`), derived
+     from the canonical `detect_language` table rather than a parallel
+     extension list, exempts `.baml`/`.proto`/`.graphql` (Boundary),
+     `baml_client`/`baml_sdk` (Generated) and `.sql` (Data) from those same
+     four checks. `orphan_file` deliberately still applies to `.baml` — T1.4
+     gives those files real edges, and real edges beat exemptions.
+  5. Output is ranked by (severity, agent-config over per-file smells,
+     dimension-score impact, count) instead of file-scan order. `--llm` prints
+     the top 20 and states how many findings it omitted; `--top 0` lifts the
+     cap. Measured on this repo: the top-of-list finding is now the one whose
+     dimension score actually moves.
+- **`keel compile` no longer reports a silent all-clear for files it cannot
+  parse (T1.5).** Compiling a `.sql`, `.baml`, `.proto` or `.graphql` file —
+  named explicitly or matched by `--changed` — prints one stderr line,
+  `keel: .sql is not a tracked language — no checks ran`. Exit stays 0 and
+  stdout stays empty (the clean-compile contract is intact), but a hook that
+  reads exit 0 as verification is no longer told an unchecked migration
+  passed. Never fires for `.md`, `.json`, `.lock` or any other extension.
 - **`callers` / `callees` now count `uses` edges, not only `calls` (T1.3).**
   `keel search`, `keel discover` and `keel focus` answer "what depends on
   this?", and a function reached only through a callback, a handler table or a

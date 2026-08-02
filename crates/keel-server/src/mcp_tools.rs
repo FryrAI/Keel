@@ -151,7 +151,8 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 "type": "object",
                 "properties": {
                     "dimension": { "type": "string", "enum": ["structure", "discoverability", "navigation", "config"] },
-                    "strict": { "type": "boolean", "default": false }
+                    "strict": { "type": "boolean", "default": false },
+                    "strict_cycles": { "type": "boolean", "default": false }
                 }
             }),
         },

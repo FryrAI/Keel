@@ -473,3 +473,103 @@ fn test_bare_compile_without_git_falls_back_to_full_scan() {
         "a non-git bare compile must still scan every file (old default preserved): {stdout}"
     );
 }
+
+#[test]
+/// T1.5: compiling a structurally significant file keel has no grammar for
+/// (`.sql`) must say so on stderr rather than report a silent all-clear — a
+/// hook that reads exit 0 as verification would otherwise mark 27 unchecked
+/// migrations as verified. The exit code stays 0: nothing failed.
+fn test_compile_untracked_language_notice() {
+    let dir = init_and_map_project(&[(
+        "src/db.ts",
+        "export function query(sql: string): string { return sql; }\n",
+    )]);
+    fs::create_dir_all(dir.path().join("migrations")).unwrap();
+    fs::write(
+        dir.path().join("migrations/001_init.sql"),
+        "CREATE TABLE users (id INT);\n",
+    )
+    .unwrap();
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["compile", "migrations/001_init.sql"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "unparsed file is not a failure; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(".sql is not a tracked language"),
+        "expected the untracked-language notice, got: {stderr}"
+    );
+    assert_eq!(
+        stderr.matches("not a tracked language").count(),
+        1,
+        "the notice must be exactly one line, got: {stderr}"
+    );
+}
+
+#[test]
+/// T1.5: the notice must NOT leak to documentation or config edits — those are
+/// the edits where extra hook output is pure noise.
+fn test_compile_no_notice_for_docs_and_config() {
+    let dir = init_and_map_project(&[(
+        "src/db.ts",
+        "export function query(sql: string): string { return sql; }\n",
+    )]);
+    fs::write(dir.path().join("README.md"), "# Title\n").unwrap();
+    let keel = keel_bin();
+
+    let output = Command::new(&keel)
+        .args(["compile", "README.md"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(
+        stderr.trim().is_empty() && stdout.trim().is_empty(),
+        "compiling README.md must print nothing; stdout: {stdout} stderr: {stderr}"
+    );
+}
+
+#[test]
+/// T1.5: a `.sql` file reached via `--changed` gets the same notice as one
+/// named explicitly — the migration edit is exactly the case that must not
+/// pass silently.
+fn test_compile_changed_reports_untracked_sql() {
+    let dir = init_and_map_project(&[(
+        "src/a.py",
+        "def a(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+    )]);
+    fs::create_dir_all(dir.path().join("migrations")).unwrap();
+    fs::write(dir.path().join("migrations/001_init.sql"), "SELECT 1;\n").unwrap();
+    git_init_and_commit(&dir);
+
+    fs::write(
+        dir.path().join("migrations/001_init.sql"),
+        "ALTER TABLE users ADD COLUMN email TEXT;\n",
+    )
+    .unwrap();
+
+    let output = Command::new(keel_bin())
+        .args(["compile", "--changed"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(
+        stderr.contains(".sql is not a tracked language"),
+        "expected the untracked-language notice under --changed, got: {stderr}"
+    );
+}

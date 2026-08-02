@@ -735,3 +735,39 @@ fn parse_push_yes_short() {
     let cli = parse(&["keel", "push", "-y"]);
     assert!(matches!(cli.command, Commands::Push { yes: true }));
 }
+
+// --- Audit ---
+
+#[test]
+fn parse_audit_defaults() {
+    let cli = parse(&["keel", "audit"]);
+    assert!(matches!(
+        cli.command,
+        Commands::Audit {
+            changed: false,
+            strict: false,
+            min_score: None,
+            dimension: None,
+            strict_cycles: false,
+            top: 20,
+        }
+    ));
+}
+
+#[test]
+fn parse_audit_strict_cycles() {
+    let cli = parse(&["keel", "audit", "--strict-cycles"]);
+    assert!(matches!(
+        cli.command,
+        Commands::Audit {
+            strict_cycles: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn parse_audit_top() {
+    let cli = parse(&["keel", "audit", "--top", "0"]);
+    assert!(matches!(cli.command, Commands::Audit { top: 0, .. }));
+}

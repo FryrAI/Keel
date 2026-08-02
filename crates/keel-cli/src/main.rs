@@ -32,13 +32,20 @@ fn main() {
         _ => None,
     };
 
+    // `--top` on audit caps how many ranked findings the LLM output prints.
+    let audit_top = match &cli.command {
+        Commands::Audit { top, .. } => Some(*top),
+        _ => None,
+    };
+
     let formatter: Box<dyn keel_output::OutputFormatter> = if cli.json {
         Box::new(keel_output::json::JsonFormatter)
     } else if cli.llm {
         Box::new(
             keel_output::llm::LlmFormatter::with_depths(map_depth, compile_depth)
                 .with_max_tokens(cli.max_tokens)
-                .with_budget(budget),
+                .with_budget(budget)
+                .with_audit_top(audit_top),
         )
     } else {
         Box::new(keel_output::human::HumanFormatter)
@@ -144,6 +151,8 @@ fn main() {
             strict,
             min_score,
             dimension,
+            strict_cycles,
+            top: _,
         } => (
             commands::audit::run(
                 &*formatter,
@@ -152,6 +161,7 @@ fn main() {
                 strict,
                 min_score,
                 dimension,
+                strict_cycles,
             ),
             Default::default(),
         ),

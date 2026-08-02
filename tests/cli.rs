@@ -1,6 +1,8 @@
 // CLI test entry point for keel command tests.
 #[path = "cli/test_analyze.rs"]
 mod test_analyze;
+#[path = "cli/test_audit.rs"]
+mod test_audit;
 #[path = "cli/test_check.rs"]
 mod test_check;
 #[path = "cli/test_checkpoint.rs"]

@@ -205,6 +205,13 @@ pub(crate) enum Commands {
         /// Only run one dimension: structure, discoverability, navigation, config
         #[arg(long)]
         dimension: Option<String>,
+        /// Report every module cycle, including Rust ones (legal, idiomatic)
+        /// and cycles longer than 8 modules
+        #[arg(long)]
+        strict_cycles: bool,
+        /// Max findings to print with --llm (0 = no cap)
+        #[arg(long, default_value_t = 20)]
+        top: usize,
     },
 
     /// Minimal structural context for safely editing a file

@@ -30,7 +30,7 @@
 - `keel fix [--apply]` — generate and optionally apply fix plans
 - `keel name <description>` — suggest names for new code
 - `keel analyze <file>` — architectural analysis of a file
-- `keel audit` — AI-readiness scorecard (structure, discoverability, navigation, config)
+- `keel audit [--top N]` — AI-readiness scorecard (structure, discoverability, navigation, config); ranked worst-first, top 20 by default, `--top 0` for all
 - `keel context <file>` — minimal structural context for safely editing a file
 - `keel skeleton <file>` — compressed signature-only view (`--docs`, `--private`, `--budget <tokens>`)
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)

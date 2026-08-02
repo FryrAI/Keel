@@ -1,18 +1,52 @@
 //! Navigation dimension — circular deps, coupling, unstable APIs, orphans, deep chains.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
 use crate::types::{AuditFinding, AuditSeverity};
 
+/// Longest module cycle still worth reporting.
+///
+/// A 30-module strongly-connected component is not a defect a reader can act
+/// on — it is a whole-architecture observation rendered as one unreadable
+/// arrow chain. Cycles this long are dropped unless `--strict-cycles`.
+const MAX_ACTIONABLE_CYCLE: usize = 8;
+
+/// Whether a module cycle is a real defect worth reporting.
+///
+/// `circular_dep` is **disabled for Rust**: intra-crate module cycles are legal,
+/// idiomatic Rust (`mod a` and `mod b` may freely `use` each other — the crate
+/// is one compilation unit), and cargo already forbids the illegal inter-crate
+/// ones at build time, so keel can only ever report the legal kind. The check
+/// remains meaningful for TypeScript, Python and Go, whose module systems all
+/// make an import cycle a genuine load-order hazard.
+///
+/// A mixed-language cycle is still reported — that one crosses a boundary the
+/// compiler does not police.
+fn is_reportable_cycle(cycle: &[String]) -> bool {
+    if cycle.len() > MAX_ACTIONABLE_CYCLE {
+        return false;
+    }
+    !cycle
+        .iter()
+        .all(|p| keel_parsers::treesitter::detect_language(Path::new(p)) == Some("rust"))
+}
+
 /// Audit the navigation dimension: can a reader find their way around?
 ///
 /// Flags modules that are unreachable from any other module (no incoming
 /// edges) and modules whose fan-in is so high they act as chokepoints.
 /// `files`, when given, restricts the audit to those module paths.
-pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec<AuditFinding> {
+/// `strict_cycles` restores the pre-v0.5 `circular_dep` behavior: every cycle
+/// reported, Rust and over-long ones included.
+pub fn check_navigation(
+    store: &dyn GraphStore,
+    files: Option<&[String]>,
+    strict_cycles: bool,
+) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
 
     let modules = match files {
@@ -58,6 +92,9 @@ pub fn check_navigation(store: &dyn GraphStore, files: Option<&[String]>) -> Vec
     // Circular dependency detection (Tarjan's SCC)
     let cycles = find_cycles(&module_deps);
     for cycle in &cycles {
+        if !strict_cycles && !is_reportable_cycle(cycle) {
+            continue;
+        }
         let chain = cycle.join(" → ");
         let first = cycle.first().cloned().unwrap_or_default();
         let second = cycle.get(1).cloned().unwrap_or_default();
@@ -352,4 +389,44 @@ fn find_cycles(graph: &HashMap<String, HashSet<String>>) -> Vec<Vec<String>> {
     }
 
     cycles
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cycle(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn rust_only_cycles_are_not_reported() {
+        assert!(!is_reportable_cycle(&cycle(&[
+            "crates/keel-core/src/a.rs",
+            "crates/keel-core/src/b.rs",
+        ])));
+    }
+
+    #[test]
+    fn other_languages_still_report_cycles() {
+        assert!(is_reportable_cycle(&cycle(&["src/a.ts", "src/b.ts"])));
+        assert!(is_reportable_cycle(&cycle(&["app/a.py", "app/b.py"])));
+        assert!(is_reportable_cycle(&cycle(&["pkg/a.go", "pkg/b.go"])));
+    }
+
+    #[test]
+    fn mixed_language_cycles_are_reported() {
+        // Not all-Rust: this one crosses a boundary no compiler polices.
+        assert!(is_reportable_cycle(&cycle(&["src/a.rs", "src/b.py"])));
+    }
+
+    #[test]
+    fn over_long_cycles_are_dropped() {
+        let long: Vec<&str> = vec![
+            "a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts", "h.ts", "i.ts",
+        ];
+        assert_eq!(long.len(), MAX_ACTIONABLE_CYCLE + 1);
+        assert!(!is_reportable_cycle(&cycle(&long)));
+        assert!(is_reportable_cycle(&cycle(&long[..MAX_ACTIONABLE_CYCLE])));
+    }
 }

@@ -5,6 +5,7 @@ use std::path::Path;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
+use crate::file_class::grades_size_and_naming;
 use crate::types::{AuditFinding, AuditSeverity};
 
 /// Audit the structure dimension: is the code organized into coherent units?
@@ -37,6 +38,10 @@ pub fn check_structure(
     for module in &modules {
         let line_count = module.line_end.saturating_sub(module.line_start) + 1;
         let nodes = store.get_nodes_in_file(&module.file_path);
+        // Size smells are graded on hand-written source only: a 253-line
+        // integration test, a generated client, or a `.sql`/`.baml` file is not
+        // a maintainability defect (see `file_class`).
+        let graded = grades_size_and_naming(&module.file_path);
 
         // File size checks
         if line_count > 800 {
@@ -70,7 +75,7 @@ pub fn check_structure(
 
         // God file: >20 symbols, FAIL at >35
         let symbol_count = nodes.iter().filter(|n| n.kind != NodeKind::Module).count();
-        if symbol_count > 35 {
+        if graded && symbol_count > 35 {
             findings.push(AuditFinding {
                 severity: AuditSeverity::Fail,
                 check: "god_file".into(),
@@ -83,7 +88,7 @@ pub fn check_structure(
                 file: Some(module.file_path.clone()),
                 count: None,
             });
-        } else if symbol_count > 20 {
+        } else if graded && symbol_count > 20 {
             let stem = std::path::Path::new(&module.file_path)
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -109,7 +114,7 @@ pub fn check_structure(
             }
             let fn_lines = node.line_end.saturating_sub(node.line_start) + 1;
 
-            if fn_lines > 200 {
+            if graded && fn_lines > 200 {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Fail,
                     check: "function_size".into(),
@@ -125,7 +130,7 @@ pub fn check_structure(
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
-            } else if fn_lines > 100 {
+            } else if graded && fn_lines > 100 {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Warn,
                     check: "function_size".into(),

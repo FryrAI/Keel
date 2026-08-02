@@ -6,14 +6,36 @@
 pub mod agent_config;
 pub mod discoverability;
 pub mod navigation;
+pub mod rank;
 pub mod structure;
 pub mod verification;
 
 use keel_core::store::GraphStore;
 
+pub use rank::ranked_findings;
+
 use crate::types::{
-    compute_dimension_score, AuditDimension, AuditOptions, AuditResult, AuditSeverity,
+    compute_dimension_score, AuditDimension, AuditFinding, AuditOptions, AuditResult, AuditSeverity,
 };
+
+/// Build one scored dimension from its raw findings.
+///
+/// Every dimension goes through here so the two things that must happen before
+/// a score exists — deduplication and ranking — cannot be forgotten by a new
+/// check: duplicates would inflate the FAIL count and depress the score, and
+/// scan order would decide what the reader sees first.
+fn scored_dimension(name: &str, mut findings: Vec<AuditFinding>) -> AuditDimension {
+    rank::dedup_findings(&mut findings);
+    let score = compute_dimension_score(&findings);
+    let mut dim = AuditDimension {
+        name: name.into(),
+        score,
+        max_score: 5,
+        findings,
+    };
+    rank::sort_dimension(&mut dim);
+    dim
+}
 
 /// Run a full audit of the repository and return a scored result.
 pub fn audit_repo(
@@ -32,58 +54,38 @@ pub fn audit_repo(
     };
 
     if run_dim("structure") {
-        let findings = structure::check_structure(store, root_dir, files);
-        let score = compute_dimension_score(&findings);
-        dimensions.push(AuditDimension {
-            name: "structure".into(),
-            score,
-            max_score: 5,
-            findings,
-        });
+        dimensions.push(scored_dimension(
+            "structure",
+            structure::check_structure(store, root_dir, files),
+        ));
     }
 
     if run_dim("discoverability") {
-        let findings = discoverability::check_discoverability(store, root_dir, files);
-        let score = compute_dimension_score(&findings);
-        dimensions.push(AuditDimension {
-            name: "discoverability".into(),
-            score,
-            max_score: 5,
-            findings,
-        });
+        dimensions.push(scored_dimension(
+            "discoverability",
+            discoverability::check_discoverability(store, root_dir, files),
+        ));
     }
 
     if run_dim("navigation") {
-        let findings = navigation::check_navigation(store, files);
-        let score = compute_dimension_score(&findings);
-        dimensions.push(AuditDimension {
-            name: "navigation".into(),
-            score,
-            max_score: 5,
-            findings,
-        });
+        dimensions.push(scored_dimension(
+            "navigation",
+            navigation::check_navigation(store, files, options.strict_cycles),
+        ));
     }
 
     if run_dim("config") {
-        let findings = agent_config::check_agent_config(root_dir);
-        let score = compute_dimension_score(&findings);
-        dimensions.push(AuditDimension {
-            name: "config".into(),
-            score,
-            max_score: 5,
-            findings,
-        });
+        dimensions.push(scored_dimension(
+            "config",
+            agent_config::check_agent_config(root_dir),
+        ));
     }
 
     if run_dim("verification") {
-        let findings = verification::check_verification(root_dir);
-        let score = compute_dimension_score(&findings);
-        dimensions.push(AuditDimension {
-            name: "verification".into(),
-            score,
-            max_score: 5,
-            findings,
-        });
+        dimensions.push(scored_dimension(
+            "verification",
+            verification::check_verification(root_dir),
+        ));
     }
 
     let total_score: u32 = dimensions.iter().map(|d| d.score).sum();
@@ -148,3 +150,7 @@ pub fn should_fail(result: &AuditResult, options: &AuditOptions) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+#[path = "audit_tests.rs"]
+mod tests;

@@ -1,13 +1,23 @@
+use keel_enforce::audit::ranked_findings;
 use keel_enforce::types::{AuditFinding, AuditResult};
 
 use crate::token_budget;
 
+/// How many findings `keel audit --llm` shows before it stops.
+///
+/// A 1,799-line wall in scan order is not review leverage, it is review
+/// defeat. Twenty ranked findings is a list a human (or an agent with a
+/// context budget) will actually read to the end; `--top 0` lifts the cap.
+pub const DEFAULT_TOP: usize = 20;
+
 /// Token-efficient audit output for LLM agents.
 ///
-/// Findings are sorted worst-first (FAIL, then WARN, then TIP, then PASS) and
-/// truncated to `max_tokens` so a large audit doesn't drown the summary line
-/// in low-priority findings — mirrors how `compile` output is budgeted.
-pub fn format_audit(result: &AuditResult, max_tokens: usize) -> String {
+/// Findings are ranked worst-first by `keel_enforce::audit::ranked_findings`
+/// (severity, then agent-config over per-file smells, then dimension-score
+/// impact, then count), capped at `top`, and finally truncated to `max_tokens`.
+/// The trailing note always states how many findings were left out, so a capped
+/// list is never mistaken for the whole story.
+pub fn format_audit(result: &AuditResult, max_tokens: usize, top: usize) -> String {
     let dim_scores: Vec<String> = result
         .dimensions
         .iter()
@@ -21,27 +31,31 @@ pub fn format_audit(result: &AuditResult, max_tokens: usize) -> String {
         dim_scores.join(" "),
     );
 
-    let mut findings: Vec<&AuditFinding> = result
-        .dimensions
-        .iter()
-        .flat_map(|d| d.findings.iter())
-        .collect();
-    findings.sort_by_key(|f| std::cmp::Reverse(f.severity));
+    let findings: Vec<&AuditFinding> = ranked_findings(result);
+    let total = findings.len();
+    let capped = if top == 0 { total } else { top.min(total) };
 
-    let lines: Vec<String> = findings.iter().map(|f| format_finding(f)).collect();
+    let lines: Vec<String> = findings[..capped]
+        .iter()
+        .map(|f| format_finding(f))
+        .collect();
     // The header spends part of the budget too — findings get what's left.
     let line_budget = max_tokens.saturating_sub(token_budget::estimate_tokens(&header));
-    let (kept, overflow) = token_budget::truncate_to_budget(&lines, line_budget);
+    let (kept, _) = token_budget::truncate_to_budget(&lines, line_budget);
 
     let mut out = header;
     for line in &kept {
         out.push_str(line);
         out.push('\n');
     }
-    if overflow > 0 {
+    let omitted = total.saturating_sub(kept.len());
+    if omitted > 0 {
         out.push_str(&format!(
-            "... +{} more finding(s) (raise --max-tokens for full list)\n",
-            overflow
+            "... +{} more finding(s) omitted (showing top {} of {}; \
+             --top 0 or --json for the full list)\n",
+            omitted,
+            kept.len(),
+            total,
         ));
     }
 
@@ -102,7 +116,7 @@ mod tests {
             finding(AuditSeverity::Tip, "t", "consider this"),
             finding(AuditSeverity::Warn, "w", "watch out"),
         ]);
-        let out = format_audit(&result, 5000);
+        let out = format_audit(&result, 5000, DEFAULT_TOP);
         let fail_pos = out.find("FAIL:f").unwrap();
         let warn_pos = out.find("WARN:w").unwrap();
         let tip_pos = out.find("TIP:t").unwrap();
@@ -125,8 +139,8 @@ mod tests {
             .collect();
         let result = result_with(findings);
 
-        let small = format_audit(&result, 20);
-        let large = format_audit(&result, 5000);
+        let small = format_audit(&result, 20, 0);
+        let large = format_audit(&result, 5000, 0);
 
         assert!(
             small.lines().count() < large.lines().count(),
@@ -141,8 +155,37 @@ mod tests {
     #[test]
     fn test_no_findings_still_has_header() {
         let result = result_with(vec![]);
-        let out = format_audit(&result, 500);
+        let out = format_audit(&result, 500, DEFAULT_TOP);
         assert!(out.contains("audit:10/25"));
         assert_eq!(out.lines().count(), 1);
+    }
+
+    #[test]
+    fn test_caps_at_top_and_reports_omissions() {
+        let findings: Vec<AuditFinding> = (0..50)
+            .map(|i| finding(AuditSeverity::Warn, "w", &format!("finding {i}")))
+            .collect();
+        let result = result_with(findings);
+
+        // Generous token budget: the cap, not the budget, is what bites.
+        let out = format_audit(&result, 100_000, DEFAULT_TOP);
+        let finding_lines = out.lines().filter(|l| l.starts_with("WARN:")).count();
+        assert_eq!(finding_lines, DEFAULT_TOP);
+        assert!(
+            out.contains("+30 more finding(s) omitted (showing top 20 of 50"),
+            "expected an omission note, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_top_zero_lifts_the_cap() {
+        let findings: Vec<AuditFinding> = (0..50)
+            .map(|i| finding(AuditSeverity::Warn, "w", &format!("finding {i}")))
+            .collect();
+        let result = result_with(findings);
+
+        let out = format_audit(&result, 100_000, 0);
+        assert_eq!(out.lines().filter(|l| l.starts_with("WARN:")).count(), 50);
+        assert!(!out.contains("omitted"));
     }
 }

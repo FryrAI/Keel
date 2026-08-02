@@ -65,7 +65,11 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 /// Names of generated BAML client directories.
-const CLIENT_DIRS: &[&str] = &["baml_client", "baml_sdk"];
+///
+/// The single source of truth for "this path is generated BAML client code":
+/// the scan below skips these dirs, and `keel-enforce`'s file classifier reads
+/// the same list so audit checks never grade generated output.
+pub const CLIENT_DIRS: &[&str] = &["baml_client", "baml_sdk"];
 
 /// Maximum recursion depth for the scan (guards against pathological trees).
 const MAX_DEPTH: u32 = 8;

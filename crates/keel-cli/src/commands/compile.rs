@@ -144,14 +144,28 @@ pub fn run(
 
     // Resolve target files: --changed, --since, default-to-changed, explicit
     // list, or (only for a non-git bare compile) all.
+    //
+    // `untracked_targets` holds the paths that were *asked about* but that keel
+    // has no grammar for. Only these produce the untracked-language notice
+    // below: a repo-wide walk must never emit it, or every compile in a repo
+    // with one `.sql` file carries a permanent warning.
     let mut effective_files = files;
+    let mut untracked_targets: Vec<String> = effective_files.clone();
     if changed || since.is_some() || default_to_changed {
         match git_changed_files(&since) {
             Ok(git_files) => {
+                effective_files = git_files
+                    .iter()
+                    .filter(|f| detect_language(Path::new(f)).is_some())
+                    .cloned()
+                    .collect();
+                untracked_targets = git_files;
                 if verbose {
-                    eprintln!("keel compile: {} file(s) changed in git", git_files.len());
+                    eprintln!(
+                        "keel compile: {} file(s) changed in git",
+                        effective_files.len()
+                    );
                 }
-                effective_files = git_files;
             }
             Err(e) => {
                 eprintln!("keel compile: git diff failed: {}", e);
@@ -205,6 +219,13 @@ pub fn run(
                 return (2, EventMetrics::default());
             }
         }
+    }
+
+    // Exit 0 on a file keel never parsed is a false all-clear for any hook that
+    // reads the exit code as verification. One line, for structurally
+    // significant extensions only (never .md/.json/.lock).
+    if let Some(notice) = keel_enforce::file_class::untracked_language_notice(&untracked_targets) {
+        eprintln!("{}", notice);
     }
 
     let mut file_indices: Vec<FileIndex> = Vec::new();
@@ -449,6 +470,11 @@ pub fn run(
 }
 
 /// Get files changed according to git diff.
+///
+/// Unfiltered: the caller keeps the parseable ones as compile targets and reads
+/// the rest to decide whether a changed `.sql`/`.baml`/`.proto`/`.graphql` file
+/// deserves the untracked-language notice. Filtering here would hide those
+/// paths from the very check that exists to stop them passing silently.
 fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
     let cwd = std::env::current_dir().map_err(|e| format!("failed to get cwd: {}", e))?;
     let mode = match since {
@@ -457,7 +483,7 @@ fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
         // `--changed` means working tree vs HEAD.
         None => keel_enforce::gitdiff::DiffMode::Since(None),
     };
-    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, true)
+    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, false)
 }
 
 fn output_result(
