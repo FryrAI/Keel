@@ -155,18 +155,6 @@ pub fn run(
     // literal edge it cannot reproduce would be deleted until the next map.
     let literal_keys = super::map_boundary::persisted_literal_keys(&cwd, &store);
 
-    let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
-    engine.import_circuit_breaker(&cb_state);
-
-    // Apply suppressions
-    if let Some(code) = &suppress {
-        engine.suppress(code);
-    }
-
-    if batch_deferring {
-        engine.batch_start();
-    }
-
     // Whether the user explicitly named the target files (not --changed/--since,
     // not a bare full-repo compile). Only then is a missing file a hard error;
     // git-deleted paths under --changed/--since must still skip silently.
@@ -324,6 +312,34 @@ pub fn run(
         eprintln!("keel compile: checking {} file(s)", file_indices.len());
     }
 
+    // The same `ResolverSet` the map uses; `keel compile` only constructs
+    // resolvers for the languages it touched, so the untouched fields stay
+    // `None`. Shared by the pre-enforcement resolution pass here and the
+    // post-enforcement edge sync below.
+    let resolvers = super::map_lang_resolve::ResolverSet {
+        ts: ts.as_ref().map(|r| r as &dyn LanguageResolver),
+        py: py.as_ref().map(|r| r as &dyn LanguageResolver),
+        go: go_resolver.as_ref().map(|r| r as &dyn LanguageResolver),
+        rs: rs.as_ref().map(|r| r as &dyn LanguageResolver),
+    };
+
+    // Resolve call references against the pre-edit graph so E005 arity
+    // checking has real targets — before the engine takes ownership of the
+    // store, and before enforcement mutates anything.
+    super::compile_sync::resolve_call_targets(&store, &cwd, &mut file_indices, &resolvers);
+
+    let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
+    engine.import_circuit_breaker(&cb_state);
+
+    // Apply suppressions
+    if let Some(code) = &suppress {
+        engine.suppress(code);
+    }
+
+    if batch_deferring {
+        engine.batch_start();
+    }
+
     let result = engine.compile(&file_indices);
 
     // Persist circuit-breaker state and run the incremental graph sync. Both
@@ -364,15 +380,6 @@ pub fn run(
             }
         }
         if need_sync {
-            // The same `ResolverSet` the map uses; `keel compile` only
-            // constructs resolvers for the languages it touched, so the
-            // untouched fields stay `None`.
-            let resolvers = super::map_lang_resolve::ResolverSet {
-                ts: ts.as_ref().map(|r| r as &dyn LanguageResolver),
-                py: py.as_ref().map(|r| r as &dyn LanguageResolver),
-                go: go_resolver.as_ref().map(|r| r as &dyn LanguageResolver),
-                rs: rs.as_ref().map(|r| r as &dyn LanguageResolver),
-            };
             super::compile_sync::sync_compiled_files(ps, &cwd, &file_indices, &resolvers, verbose);
         }
     }

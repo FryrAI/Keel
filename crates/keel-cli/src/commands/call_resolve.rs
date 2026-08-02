@@ -301,6 +301,7 @@ mod tests {
             line: 7,
             kind: ReferenceKind::Literal,
             resolved_to: None,
+            call_arity: None,
         }
     }
 

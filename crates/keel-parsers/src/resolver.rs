@@ -249,6 +249,12 @@ pub struct Reference {
     pub kind: ReferenceKind,
     /// If already resolved, the hash/id of the target definition.
     pub resolved_to: Option<String>,
+    /// How many arguments the call site actually writes, when that is knowable
+    /// from syntax alone. `None` for non-call references, for call-shaped
+    /// references with no argument list (attribute macros, template markup
+    /// hits), and for argument lists containing a splat/spread — E005 arity
+    /// checking must skip all of those rather than compare against a guess.
+    pub call_arity: Option<u32>,
 }
 
 /// An import statement extracted from source.

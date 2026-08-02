@@ -87,9 +87,13 @@ impl EnforcementEngine {
         // not visible to `get_node` until the transaction runs.
         let mut assigned_hashes: HashSet<String> = HashSet::new();
 
-        // Build batch file set: callers in the same compile batch are skipped
-        // by E001/E004 since the user likely updated them in the same commit.
-        let batch_file_set: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
+        // The compile batch as a lookup — E005 judges a call target compiled
+        // alongside against its freshly-parsed signature, not the stored one.
+        let batch_file_indices: std::collections::HashMap<&str, &FileIndex> =
+            files.iter().map(|f| (f.file_path.as_str(), f)).collect();
+        // Its key set: callers in the same compile batch are skipped by
+        // E001/E004 since the user likely updated them in the same commit.
+        let batch_file_set: HashSet<&str> = batch_file_indices.keys().copied().collect();
         // Economy-check state shared across the batch: names referenced
         // anywhere in it (W005) and body hashes seen so far (W006). Shared
         // with `keel review --base`, which must run W005/W006/W007 exactly as
@@ -123,8 +127,13 @@ impl EnforcementEngine {
                 &existing_nodes,
                 &batch_file_set,
             ));
-            // E005: arity mismatch
-            file_violations.extend(violations::check_arity_mismatch(file, &*self.store));
+            // E005: arity mismatch (batch-aware: same-batch targets are judged
+            // against their freshly-parsed signature)
+            file_violations.extend(violations::check_arity_mismatch(
+                file,
+                &*self.store,
+                &batch_file_indices,
+            ));
             // W001: placement (gated by config)
             if self.enforce_config.placement {
                 file_violations.extend(violations::check_placement(file, &*self.store));

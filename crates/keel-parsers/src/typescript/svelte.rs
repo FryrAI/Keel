@@ -328,6 +328,7 @@ pub(crate) fn extract_template_references(
                             line,
                             kind,
                             resolved_to: None,
+                            call_arity: None,
                         });
                     }
                 }

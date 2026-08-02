@@ -6,7 +6,7 @@ use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
 use crate::violations_util::{
-    count_call_args, count_params, extract_prefix, is_test_file, normalize_signature,
+    extract_prefix, is_test_file, normalize_signature, parse_signature, receiver_is_type_like,
 };
 
 /// Check E004: function_removed — a function was removed but callers still exist.
@@ -91,19 +91,40 @@ pub fn check_removed_functions_with_cache(
 }
 
 /// Check E005: arity_mismatch — caller passes wrong number of arguments.
-/// Compares reference argument counts against definition parameter counts.
+/// Compares the parser-counted call-site arguments against the target
+/// definition's parameter count.
 ///
-/// **Open question — call-side receivers.** `count_params` strips a leading
-/// `self`/`cls`/`&self` from the definition; `count_call_args` strips nothing.
-/// The asymmetry is deliberate for now: a call site writing the receiver
-/// explicitly (`Base.__init__(self, x)`) is far rarer than one passing `self`
-/// as a real argument (`registry.register(self)`), so stripping both sides
-/// would swap a rare false positive for a common false negative. Nothing is
-/// currently affected — every reference reaching here needs `resolved_to`, and
-/// no production site sets it — so this is a decision to make when E005's
-/// resolution is wired up, with call-site context available to disambiguate.
-pub fn check_arity_mismatch(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
+/// Honest by construction — the comparison only runs when every input is
+/// precisely known: the reference must be resolved (`resolved_to`, set by the
+/// compile pipeline's pre-enforcement resolution pass at error-tier confidence
+/// only), the call site must carry a syntactic argument count (`call_arity` is
+/// `None` for splats/spreads and call-shaped non-calls), and the signature
+/// must be exactly countable (`parse_signature` returns `None` for variadic,
+/// defaulted, or optional parameter lists).
+///
+/// **Call-side receivers.** `parse_signature` strips a definition-side
+/// `self`/`cls`/`this` (never written at an ordinary call site). The one call
+/// shape that *does* write the receiver as its first argument goes through
+/// the type — `Base.__init__(self, x)`, `Rc::clone(&x)` — so when the
+/// reference's receiver segment is type-like and the target can take an
+/// explicit receiver, one extra argument is tolerated. `registry.register
+/// (self)` (a value receiver passing `self` as a genuine argument) gets no
+/// tolerance and is compared exactly.
+///
+/// `batch_files` maps the file paths of this compile batch to their freshly
+/// parsed indices: when the target lives in the batch, its *current*
+/// signature wins over the stored (pre-edit) one, so changing a signature and
+/// its callers in the same compile is judged against the new contract.
+pub fn check_arity_mismatch(
+    file: &FileIndex,
+    store: &dyn GraphStore,
+    batch_files: &std::collections::HashMap<&str, &FileIndex>,
+) -> Vec<Violation> {
     let mut violations = Vec::new();
+    // hash -> stored node memo: a file typically calls the same target many
+    // times, and each store lookup is several SQLite statements.
+    let mut node_memo: std::collections::HashMap<&str, Option<keel_core::types::GraphNode>> =
+        std::collections::HashMap::new();
 
     for reference in &file.references {
         if reference.kind != keel_parsers::resolver::ReferenceKind::Call {
@@ -112,44 +133,92 @@ pub fn check_arity_mismatch(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vio
         let Some(target_hash) = &reference.resolved_to else {
             continue;
         };
-
-        let Some(target_node) = store.get_node(target_hash) else {
+        let Some(call_arity) = reference.call_arity else {
+            continue;
+        };
+        if !node_memo.contains_key(target_hash.as_str()) {
+            node_memo.insert(target_hash.as_str(), store.get_node(target_hash));
+        }
+        let Some(target_node) = node_memo.get(target_hash.as_str()).and_then(|n| n.as_ref()) else {
             continue;
         };
 
-        // Count params from signature (rough heuristic: count commas + 1)
-        let expected_arity = count_params(&target_node.signature);
-        let call_arity = count_call_args(&reference.name);
+        // The freshest facts available: the batch's parsed definition if the
+        // target's file was compiled alongside, else the stored node. A batch
+        // file that no longer defines the target means the function was
+        // removed — that is E004's finding, not an arity comparison.
+        let (signature, is_associated) = match batch_files.get(target_node.file_path.as_str()) {
+            Some(target_file) => {
+                // Same-named defs can swap lines in one edit: prefer the
+                // exact (name, line) match, then fall back to name — but only
+                // when the name is UNIQUE in the file. Two same-named defs
+                // make the fallback a coin flip, and a wrong signature here
+                // becomes a wrong ERROR (same refusal rule as the resolution
+                // pass's ambiguity guards).
+                let defs = &target_file.definitions;
+                let def = defs
+                    .iter()
+                    .find(|d| d.name == target_node.name && d.line_start == target_node.line_start)
+                    .or_else(|| {
+                        let mut same_named = defs.iter().filter(|d| d.name == target_node.name);
+                        match (same_named.next(), same_named.next()) {
+                            (Some(only), None) => Some(only),
+                            _ => None,
+                        }
+                    });
+                match def {
+                    Some(def) => (def.signature.as_str(), def.is_associated),
+                    None => continue,
+                }
+            }
+            None => (target_node.signature.as_str(), target_node.is_associated),
+        };
+        let Some(sig) = parse_signature(signature) else {
+            continue;
+        };
 
-        // Only compare when both sides were parseable (count_params/count_call_args
-        // return 0 both for genuinely zero params AND for unparseable signatures).
-        // We flag mismatches when at least one side has params, which means the
-        // zero on the other side is a real zero (not a parse failure).
-        if (expected_arity > 0 || call_arity > 0) && expected_arity != call_arity {
-            violations.push(Violation {
-                code: "E005".to_string(),
-                severity: "ERROR".to_string(),
-                category: "arity_mismatch".to_string(),
-                message: format!(
-                    "Call to `{}` passes {} arg(s) but function expects {}",
-                    target_node.name, call_arity, expected_arity
-                ),
-                file: file.file_path.clone(),
-                line: reference.line,
-                hash: target_node.hash.clone(),
-                confidence: 0.85,
-                resolution_tier: "tree-sitter".to_string(),
-                fix_hint: Some(format!(
-                    "Update call to `{}` to pass {} argument(s)",
-                    target_node.name, expected_arity
-                )),
-                suppressed: false,
-                suppress_hint: None,
-                affected: vec![],
-                suggested_module: None,
-                existing: None,
-            });
+        // `is_associated` widens the receiver tolerance ONLY for Go: a Go
+        // method's stored signature carries no receiver token, so
+        // `has_receiver` cannot see it, yet a method expression `T.Scan(t, x)`
+        // legally writes the receiver first. For every other language an
+        // associated function without a receiver in its signature really
+        // takes none — `Foo::new(bogus, x)` is a genuine extra argument and
+        // must keep firing.
+        let go_method = is_associated
+            && keel_parsers::treesitter::detect_language(std::path::Path::new(
+                &target_node.file_path,
+            )) == Some("go");
+        let call_arity = call_arity as usize;
+        let explicit_receiver_ok = (sig.has_receiver || go_method)
+            && receiver_is_type_like(&reference.name)
+            && call_arity == sig.arity + 1;
+        if call_arity == sig.arity || explicit_receiver_ok {
+            continue;
         }
+
+        violations.push(Violation {
+            code: "E005".to_string(),
+            severity: "ERROR".to_string(),
+            category: "arity_mismatch".to_string(),
+            message: format!(
+                "Call to `{}` passes {} arg(s) but function expects {}",
+                target_node.name, call_arity, sig.arity
+            ),
+            file: file.file_path.clone(),
+            line: reference.line,
+            hash: target_node.hash.clone(),
+            confidence: 0.85,
+            resolution_tier: "tree-sitter".to_string(),
+            fix_hint: Some(format!(
+                "Update call to `{}` to pass {} argument(s)",
+                target_node.name, sig.arity
+            )),
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![],
+            suggested_module: None,
+            existing: None,
+        });
     }
 
     violations

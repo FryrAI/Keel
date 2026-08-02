@@ -160,6 +160,7 @@ impl RustLangResolver {
                 line,
                 kind: ReferenceKind::TypeRef,
                 resolved_to: None,
+                call_arity: None,
             });
         }
         for (name, line) in helpers::extract_attribute_macros(content) {
@@ -169,6 +170,7 @@ impl RustLangResolver {
                 line,
                 kind: ReferenceKind::Call,
                 resolved_to: None,
+                call_arity: None,
             });
         }
 

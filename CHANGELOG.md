@@ -5,6 +5,28 @@ All notable changes to keel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **E005 arity_mismatch is reachable (#54).** No production site ever set
+  `Reference::resolved_to`, so the check compared nothing and E005 could not
+  fire outside unit tests. `keel compile` now resolves each compiled file's
+  call references against the pre-edit graph (the same ladder the edge sync
+  runs) before enforcement, at error-tier confidence only — a heuristic match
+  (unknown receiver, cross-package name, boundary surface) never escalates
+  into an arity ERROR. Call sites now carry a parser-counted argument count
+  (`Reference::call_arity`); splat/spread arguments, macro token trees, and
+  markup-derived "calls" record none and are skipped rather than guessed at.
+  Signatures are compared only when precisely countable (variadic, defaulted,
+  and optional parameter lists are skipped), a target compiled in the same
+  batch is judged against its freshly-parsed signature instead of the stored
+  one, and a type-qualified call (`Base.__init__(self, x)`, `Rc::clone(&x)`)
+  tolerates the explicitly-written receiver while a value-receiver call
+  (`registry.register(self)`) is compared exactly. Wired into `keel compile`,
+  `keel fix`, and `keel checkpoint`; the MCP server's `keel/compile` still
+  compiles without a resolution pass and keeps E005 silent for now (the
+  ladder lives in keel-cli, which the server cannot depend on).
+
 ## [0.5.0] - 2026-08-02
 
 ### Fixed

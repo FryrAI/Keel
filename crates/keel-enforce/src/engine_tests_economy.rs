@@ -273,6 +273,7 @@ fn w005_counts_value_references_as_usage() {
             line: 21,
             kind: ReferenceKind::Value,
             resolved_to: None,
+            call_arity: None,
         }],
         imports: vec![],
         external_endpoints: vec![],
