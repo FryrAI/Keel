@@ -394,6 +394,7 @@ fn extract_definitions(
         let mut def_node = None;
         let mut body_node = None;
         let mut capture_was_method = false;
+        let mut capture_was_macro = false;
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize];
@@ -411,6 +412,7 @@ fn extract_definitions(
                 "def.macro.name" => {
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Function); // macro_rules treated as Function kind
+                    capture_was_macro = true;
                 }
                 "def.mod.name" => {
                     name = Some(node_text(cap.node, source).to_string());
@@ -504,6 +506,8 @@ fn extract_definitions(
                 is_auto_invoked: false,
                 is_decorated: contexts.is_decorated,
                 has_keep_marker: has_keep_marker(&lines, line_start),
+                // Only `macro_rules!` sets this; the node stays a Function.
+                is_macro: capture_was_macro,
             });
         }
     }

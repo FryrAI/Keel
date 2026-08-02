@@ -1,6 +1,7 @@
 mod test_edge_creation;
 mod test_hash_collision;
 mod test_hash_computation;
+mod test_macro_edges;
 mod test_module_profile;
 mod test_node_creation;
 mod test_previous_hashes;

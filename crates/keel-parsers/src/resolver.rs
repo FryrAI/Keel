@@ -139,6 +139,15 @@ pub struct Definition {
     /// a handler table keyed by string) that no exemption rule can see
     /// through. W005 skips it.
     pub has_keep_marker: bool,
+    /// True when this definition is a macro rather than a function — today
+    /// only a Rust `macro_rules! name` block. The node keeps
+    /// `NodeKind::Function` so nothing downstream changes shape; this flag
+    /// exists so macro *invocations* (`name!(...)`) resolve to macro
+    /// definitions and never to a same-named function. Deliberately
+    /// in-memory only: its sole consumer is the Rust resolver, which reads
+    /// the parse cache rather than the graph, so there is no `nodes.is_macro`
+    /// column and no schema bump. Other languages always carry `false`.
+    pub is_macro: bool,
 }
 
 impl Definition {
@@ -358,6 +367,7 @@ mod tests {
                 is_auto_invoked: false,
                 is_decorated: false,
                 has_keep_marker: false,
+                is_macro: false,
             }],
             references: vec![],
             imports: vec![],

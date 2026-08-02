@@ -199,6 +199,7 @@ fn test_e004_function_still_exists_no_violation() {
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     };
     let file = FileIndex {
         file_path: "lib.py".to_string(),

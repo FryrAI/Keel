@@ -68,6 +68,7 @@ fn make_func_def(name: &str, file: &str) -> Definition {
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     }
 }
 
@@ -161,6 +162,7 @@ fn test_w001_class_not_checked() {
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     };
     let file = make_file("utils.py", vec![class_def]);
 

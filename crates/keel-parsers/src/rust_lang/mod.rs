@@ -1,5 +1,6 @@
 mod helpers;
 pub mod mod_resolution;
+pub mod resolution_gates;
 pub mod trait_resolution;
 
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ use crate::resolver::{
 };
 use crate::treesitter::TreeSitterParser;
 use helpers::{find_import_for_name, resolve_rust_use_path, rust_is_public};
+use resolution_gates::{files_defining, is_rust_prelude_macro, MAX_NAME_ONLY_DEFINITION_FILES};
 
 /// A recorded `impl Trait for Type` block, with the methods defined inside.
 #[derive(Debug, Clone)]
@@ -218,11 +220,18 @@ impl LanguageResolver for RustLangResolver {
         // Tier 2: macro invocation resolution (callee ends with `!`)
         if callee.ends_with('!') {
             let macro_name = &callee[..callee.len() - 1];
-            // Same-file macro_rules definition
+            // A prelude macro is external to every repo keel maps: no edge,
+            // and crucially no lookup, so it can never land on a same-named
+            // function (`format!` vs `fn format`).
+            if is_rust_prelude_macro(macro_name) {
+                return None;
+            }
+            // Same-file `macro_rules!` definition. Only a macro definition
+            // counts — a function sharing the name is a different symbol.
             let same_file = caller_result
                 .definitions
                 .iter()
-                .any(|d| d.name == macro_name);
+                .any(|d| d.name == macro_name && d.is_macro);
             if same_file {
                 return Some(ResolvedEdge {
                     target_file: call_site.file_path.clone(),
@@ -231,36 +240,52 @@ impl LanguageResolver for RustLangResolver {
                     resolution_tier: "tier2".into(),
                 });
             }
-            // Cross-file: search all cached parse results
-            for (path, pr) in cache.iter() {
-                if path == &caller_file {
-                    continue;
-                }
-                if pr.definitions.iter().any(|d| d.name == macro_name) {
-                    return Some(ResolvedEdge {
-                        target_file: path.to_string_lossy().to_string(),
-                        target_name: macro_name.to_string(),
-                        confidence: 0.50,
-                        resolution_tier: "tier2".into(),
-                    });
-                }
+            // Cross-file: a name-only search of every cached parse result.
+            // Nothing at the call site says which crate the macro came from,
+            // so past MAX_NAME_ONLY_DEFINITION_FILES candidates keel reports
+            // no edge instead of guessing the first one.
+            let candidates: Vec<&Path> = files_defining(&cache, macro_name, |d| d.is_macro)
+                .into_iter()
+                .filter(|path| *path != caller_file.as_path())
+                .collect();
+            if candidates.len() > MAX_NAME_ONLY_DEFINITION_FILES {
+                return None;
             }
-            return None;
+            return candidates.first().map(|path| ResolvedEdge {
+                target_file: path.to_string_lossy().to_string(),
+                target_name: macro_name.to_string(),
+                confidence: 0.50,
+                resolution_tier: "tier2".into(),
+            });
         }
 
         // Check if callee is brought in via `use` import
         let import = find_import_for_name(&caller_result.imports, callee);
 
         if let Some(imp) = import {
-            let confidence = if imp.source.contains("::") {
-                0.80 // direct use path
-            } else {
-                0.50 // trait method or glob import
-            };
+            if imp.source.contains("::") {
+                // Direct use path — the path itself names the target.
+                return Some(ResolvedEdge {
+                    target_file: imp.source.clone(),
+                    target_name: callee.clone(),
+                    confidence: 0.80,
+                    resolution_tier: "tier1".into(),
+                });
+            }
+            // Trait method or glob import: the import proves the name is in
+            // scope but its source is a bare file path, so the target is
+            // carried by the name alone. Honour it when that file really does
+            // define the name; otherwise refuse to guess once the name is
+            // spread across more than MAX_NAME_ONLY_DEFINITION_FILES files.
+            let defining = files_defining(&cache, callee, |_| true);
+            let confirmed = defining.iter().any(|p| *p == Path::new(&imp.source));
+            if !confirmed && defining.len() > MAX_NAME_ONLY_DEFINITION_FILES {
+                return None;
+            }
             return Some(ResolvedEdge {
                 target_file: imp.source.clone(),
                 target_name: callee.clone(),
-                confidence,
+                confidence: 0.50,
                 resolution_tier: "tier1".into(),
             });
         }

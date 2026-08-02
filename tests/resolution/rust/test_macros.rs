@@ -122,6 +122,127 @@ fn main() {
 }
 
 #[test]
+/// A prelude macro is external to the repo: `format!` must resolve to nothing
+/// even when the very same file defines `fn format`.
+fn test_prelude_macro_invocation_resolves_to_nothing() {
+    let resolver = RustLangResolver::new();
+    let source = r#"
+pub fn format(cents: i64) -> String {
+    (cents / 100).to_string()
+}
+
+fn render(cents: i64) -> String {
+    format!("{}", format(cents))
+}
+"#;
+    let path = Path::new("figures.rs");
+    resolver.parse_file(path, source);
+
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "figures.rs".into(),
+        line: 7,
+        callee_name: "format!".into(),
+        receiver: None,
+    });
+    assert!(
+        edge.is_none(),
+        "format! is a prelude macro and must not resolve to `fn format`, got {edge:?}"
+    );
+
+    // The plain call in the same expression still resolves normally.
+    let call = resolver.resolve_call_edge(&CallSite {
+        file_path: "figures.rs".into(),
+        line: 7,
+        callee_name: "format".into(),
+        receiver: None,
+    });
+    assert!(
+        call.is_some(),
+        "the bare `format(...)` call must still resolve"
+    );
+}
+
+#[test]
+/// Only a `macro_rules!` definition carries `is_macro`; a plain function of
+/// the same name does not.
+fn test_is_macro_flag_distinguishes_macro_from_function() {
+    let resolver = RustLangResolver::new();
+    let source = r#"
+macro_rules! log {
+    ($m:expr) => { let _ = $m; };
+}
+
+fn log(message: &str) -> usize {
+    message.len()
+}
+"#;
+    let result = resolver.parse_file(Path::new("both.rs"), source);
+    let mac = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "log" && d.is_macro)
+        .expect("macro_rules! log must be flagged is_macro");
+    let func = result
+        .definitions
+        .iter()
+        .find(|d| d.name == "log" && !d.is_macro)
+        .expect("fn log must not be flagged is_macro");
+    assert!(mac.line_start < func.line_start);
+}
+
+#[test]
+/// The bang branch must skip a same-file function and reach the macro defined
+/// in another file.
+fn test_macro_invocation_skips_same_file_function() {
+    let resolver = RustLangResolver::new();
+    resolver.parse_file(
+        Path::new("/repo/src/macros.rs"),
+        "macro_rules! log {\n    ($m:expr) => { let _ = $m; };\n}\n",
+    );
+    resolver.parse_file(
+        Path::new("/repo/src/app.rs"),
+        "fn log(m: &str) -> usize { m.len() }\nfn run() { log!(\"x\"); }\n",
+    );
+
+    let edge = resolver
+        .resolve_call_edge(&CallSite {
+            file_path: "/repo/src/app.rs".into(),
+            line: 2,
+            callee_name: "log!".into(),
+            receiver: None,
+        })
+        .expect("log! must resolve to the macro definition");
+    assert_eq!(edge.target_file, "/repo/src/macros.rs");
+    assert_eq!(edge.target_name, "log");
+}
+
+#[test]
+/// A macro name defined in more than two files is genuinely ambiguous, so the
+/// name-only cross-file search reports no edge rather than a coin flip.
+fn test_macro_name_in_many_files_resolves_to_nothing() {
+    let resolver = RustLangResolver::new();
+    let mac = "macro_rules! shared_mac {\n    () => { () };\n}\n";
+    for file in ["/repo/src/a.rs", "/repo/src/b.rs", "/repo/src/c.rs"] {
+        resolver.parse_file(Path::new(file), mac);
+    }
+    resolver.parse_file(
+        Path::new("/repo/src/caller.rs"),
+        "fn go() { shared_mac!(); }\n",
+    );
+
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: "/repo/src/caller.rs".into(),
+        line: 1,
+        callee_name: "shared_mac!".into(),
+        receiver: None,
+    });
+    assert!(
+        edge.is_none(),
+        "3 candidate files must produce no edge, got {edge:?}"
+    );
+}
+
+#[test]
 /// Derive macro usage should create references for each derive name.
 fn test_derive_macro_resolution() {
     let resolver = RustLangResolver::new();

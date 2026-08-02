@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Rust macro invocations no longer resolve to same-named functions (T1.2).**
+  `format!`, `vec!`, `write!`, `println!` and the rest of the Rust prelude are
+  now recognised as external before any lookup happens, so a repo function
+  named `format` stops collecting a `calls` edge from every file that formats
+  a string. On one 25k-edge repo that single collision made a small currency
+  formatter the graph's #1 hotspot at 1,385 phantom callers — edges that fed
+  E001/E004/E005 and masked genuinely dead helpers. Macro definitions now
+  carry an in-memory `is_macro` flag, so `name!(...)` resolves only to a
+  `macro_rules! name`, never to a `fn name`. The same gate applies to
+  attribute-macro paths.
+- **Name-only cross-file matches spread across more than two files now emit no
+  edge at all.** Picking the first cached hit at 0.50 confidence turned an
+  ambiguity into a silent wrong answer; an honest absence is strictly better,
+  and it stops the next instance of this bug class.
+- **Total edge counts drop after these fixes — run `keel map` to re-map.** The
+  removed edges were false, not data: they are phantom callers this release
+  stops inventing. Measured on keel's own repo, `calls` edges go 4,097 →
+  4,071 (total 10,129 → 10,103); every removed edge is a prelude-macro
+  collision — `write!`/`writeln!` invocations that had been landing on a test
+  helper named `write` (41 → 18 callers, the 18 real ones kept), and `json!`
+  invocations landing on the `json` module. Repos with more such name
+  collisions will see a proportionally larger drop. No schema change; the
+  graph re-populates on the next map.
+
 ### Changed
 - **The compile hot path no longer waits on the network (T1.1).** `compile`,
   `where`, `discover`, `focus`, `skeleton`, `explain`, `check`, `search`, and
