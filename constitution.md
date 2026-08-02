@@ -229,8 +229,17 @@ Progressive adoption (v0.5): E002/E003 on functions unmodified since the last fu
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `confidence` | float 0.0-1.0 | Always | Resolution confidence. 1.0 = certain. <0.7 = heuristic/ambiguous |
-| `resolution_tier` | string enum | Always | `tier1_treesitter`, `tier2_oxc`, `tier2_ty`, `tier2_treesitter_heuristic`, `tier2_rust_analyzer`, `tier3_lsp`, `tier3_scip` |
+| `resolution_tier` | string enum | Always | `tier1_treesitter`, `tier1_template`, `tier1_boundary_literal`, `tier2_oxc`, `tier2_ty`, `tier2_treesitter_heuristic`, `tier2_rust_analyzer`, `tier3_lsp`, `tier3_scip` |
 | `fix_hint` | string | ERROR: always. WARNING: where applicable | Text instruction telling the LLM what to do |
+
+The two v0.5 tier-1 additions are lexical recoveries, not parses — both produce `uses` edges only and can
+never raise E001/E004/E005 or a fix plan, because neither carries an argument list:
+
+- `tier1_template` — a name read out of template markup a parser does not enter (a `{ ... }` expression in a
+  `.svelte` component). Confidence 0.70.
+- `tier1_boundary_literal` — a string literal whose text exactly equals a declared boundary symbol (a
+  `function` in `baml_src/*.baml`), captured only as a call argument, `match`/`case` pattern, or map key.
+  Confidence 0.75.
 
 **Clean compile behavior:** Zero errors AND zero warnings = exit 0, empty stdout. `info` block only with `--verbose` or alongside errors/warnings.
 

@@ -1,12 +1,14 @@
-//! `quality_snapshots` (schema v7) — the one table in keel's graph that a full
-//! re-map does not delete.
+//! `quality_snapshots` (schema v7) — one of the two tables in keel's graph that
+//! a full re-map does not delete (the other is `keel_meta`, see
+//! [`crate::sqlite_meta`]).
 //!
-//! Every other table here is derived: `keel map` calls
+//! Every table holding graph content is derived: `keel map` calls
 //! [`SqliteGraphStore::clear_all`](crate::sqlite::SqliteGraphStore::clear_all)
 //! and rebuilds them from source, which is why two consecutive audits of a
 //! decaying codebase produce no diff and nobody can say whether it is improving
-//! or rotting. This table is the exception, and its absence from that DELETE
-//! batch is the entire mechanism that gives keel a memory across maps.
+//! or rotting. This table is the exception that carries *measurements* across
+//! that rebuild, and its absence from that DELETE batch is the entire mechanism
+//! that gives keel a memory across maps.
 //!
 //! The `metrics` column holds a versioned JSON blob rather than one column per
 //! metric, so adding a metric never needs a migration — and a *changed*

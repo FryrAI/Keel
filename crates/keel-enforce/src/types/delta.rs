@@ -23,26 +23,44 @@ impl ViolationKey {
         }
     }
 
-    /// The identity that survives a pure line shift: `(code, hash, file)`.
-    ///
-    /// Every delta keel ships across two runs of the *same* revision —
-    /// `compile --delta` and the adoption metrics behind it — compares
-    /// violations with this key. Including `line` made inserting a single line
-    /// at the top of a file report every violation below it as brand new,
-    /// which is exactly the noise that makes a delta unusable. The hash is
-    /// AST-derived from the signature, normalized body and docstring, so it is
-    /// stable under reformatting and travels with the code it describes.
-    ///
-    /// Diffing across two *revisions* is a different question with a different
-    /// key — see `crate::review::baseline`.
-    ///
-    /// Violations that carry **no** hash — W006, and W005/W007 on code the
-    /// graph has never stored — collapse onto one key per `(code, file)`.
-    /// Those are by construction findings on unmapped code; under-counting
-    /// them is the deliberate trade for not resurrecting line sensitivity.
-    pub fn stable(&self) -> (&str, &str, &str) {
-        (&self.code, &self.hash, &self.file)
+    /// The identity that survives a pure line shift — see `stable_identity`.
+    pub fn stable(&self) -> (&str, &str, &str, u32) {
+        stable_identity(&self.code, &self.hash, &self.file, self.line)
     }
+}
+
+/// The identity a violation keeps across two runs of the same revision.
+///
+/// `(code, hash, file)` for a violation that carries a hash, plus `line` for
+/// one that does not.
+///
+/// Every delta keel ships across two runs of the *same* revision —
+/// `compile --delta` and the adoption metrics behind it — compares violations
+/// with this key. Including `line` unconditionally made inserting a single line
+/// at the top of a file report every violation below it as brand new, which is
+/// exactly the noise that makes a delta unusable. The hash is AST-derived from
+/// the signature, normalized body and docstring, so it is stable under
+/// reformatting and travels with the code it describes — hash-bearing
+/// violations are therefore line-independent here.
+///
+/// Violations that carry **no** hash — W006, W005 and W007 on code the graph
+/// has no node for, which is every finding in a file created since the last
+/// `keel map` — have nothing else to tell them apart, so `line` is the
+/// discriminator. Without it every same-code hash-less finding in one file
+/// collapses onto a single key: `--delta` counts one where there are five, and
+/// `--format github` marks all five new the moment any one of them is. The
+/// trade is the historical pre-v0.5 behavior for exactly those findings: a pure
+/// line shift of a hash-less finding reads as one new plus one resolved.
+///
+/// Diffing across two *revisions* is a different question with a different key
+/// — see `crate::review::baseline`.
+pub fn stable_identity<'a>(
+    code: &'a str,
+    hash: &'a str,
+    file: &'a str,
+    line: u32,
+) -> (&'a str, &'a str, &'a str, u32) {
+    (code, hash, file, if hash.is_empty() { line } else { 0 })
 }
 
 /// Delta between two compile runs.

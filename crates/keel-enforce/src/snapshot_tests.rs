@@ -123,6 +123,39 @@ fn differences_come_out_in_a_deterministic_order() {
     );
 }
 
+/// A finding on a definition the graph has no node for carries no hash — every
+/// W006 in a file created since the last `keel map`, for instance. With
+/// `(code, hash, file)` alone, five of them in one file were ONE key: the delta
+/// counted one, and resolving four showed as nothing resolved.
+#[test]
+fn hash_less_findings_in_one_file_are_counted_separately() {
+    let before = ViolationSnapshot::from_compile_result(&result(vec![], vec![]));
+    let after = result(
+        vec![],
+        vec![
+            violation("W006", "", "src/lib.rs", 20),
+            violation("W006", "", "src/lib.rs", 61),
+        ],
+    );
+
+    let delta = compute_delta(&before, &after);
+    assert_eq!(
+        delta.new_warnings.len(),
+        2,
+        "two duplicate implementations are two findings: {:?}",
+        delta.new_warnings
+    );
+    assert_eq!(delta.net_warnings, 2);
+
+    // And fixing exactly one of them resolves exactly one.
+    let both = ViolationSnapshot::from_compile_result(&after);
+    let one_left = result(vec![], vec![violation("W006", "", "src/lib.rs", 61)]);
+    let delta = compute_delta(&both, &one_left);
+    assert!(delta.new_warnings.is_empty());
+    assert_eq!(delta.resolved_warnings.len(), 1);
+    assert_eq!(delta.resolved_warnings[0].line, 20);
+}
+
 #[test]
 fn resolved_violations_are_reported_from_the_previous_side() {
     let before = ViolationSnapshot::from_compile_result(&result(

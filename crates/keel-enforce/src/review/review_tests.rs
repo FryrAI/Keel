@@ -246,6 +246,61 @@ fn a_pure_rename_reports_moved_not_add_plus_remove() {
     assert_eq!(moved.hash_base, moved.hash_head);
 }
 
+/// A rename whose symbol ALSO changed contract classifies as
+/// `SignatureChanged`, never `Moved` — so `Moved { from }` cannot supply the
+/// base path, and the graph (mapped before the rename) still files the symbol
+/// under the old one. This is the case with callers to strand, and it read
+/// zero until `attach_callers` was given the rename map.
+#[test]
+fn a_renamed_file_whose_symbol_also_changed_still_finds_its_callers() {
+    // Enough unchanged text around the changed symbol to clear git's default
+    // 50% rename-similarity threshold — below it the rename is reported as an
+    // add plus a delete, which is a different case entirely.
+    const UNCHANGED: &str = "pub fn untouched(a: u8, b: u8) -> u8 {\n    a.wrapping_add(b)\n}\n\n\
+         pub fn also_untouched(a: u8, b: u8) -> u8 {\n    a.wrapping_sub(b)\n}\n\n\
+         pub fn third(a: u8) -> u8 {\n    a.wrapping_mul(3)\n}\n\n";
+    let base = format!("{UNCHANGED}pub fn execute(cmd: u8) -> u8 {{\n    cmd\n}}\n");
+    let dir = repo(&[
+        ("src/old_name.rs", base.as_str()),
+        (
+            "src/main.rs",
+            "fn main() {\n    let _ = crate::old_name::execute(1);\n}\n",
+        ),
+    ]);
+    std::fs::rename(
+        dir.path().join("src/old_name.rs"),
+        dir.path().join("src/new_name.rs"),
+    )
+    .unwrap();
+    write(
+        dir.path(),
+        "src/new_name.rs",
+        &format!(
+            "{UNCHANGED}pub fn execute(cmd: u8, dry_run: bool) -> u8 {{\n    \
+             if dry_run {{ 0 }} else {{ cmd }}\n}}\n"
+        ),
+    );
+    git(dir.path(), &["add", "-A"]);
+
+    // The graph was mapped before the rename: `execute` sits under the old path.
+    let store = store_with_caller("execute", "src/old_name.rs", "main", "src/main.rs");
+    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
+
+    let exec = result.changes.iter().find(|c| c.name == "execute").unwrap();
+    assert_eq!(
+        exec.kind,
+        ChangeKind::SignatureChanged,
+        "a contract change outranks the move: {:?}",
+        exec.kind
+    );
+    assert_eq!(exec.file, "src/new_name.rs");
+    assert_eq!(
+        exec.callers_outside_diff_count, 1,
+        "the caller under the OLD path must still be found"
+    );
+    assert_eq!(exec.callers_outside_diff[0].name, "main");
+}
+
 #[test]
 fn unparsed_structural_files_are_named_not_omitted() {
     let dir = repo(&[("src/lib.rs", "pub fn a() -> u8 {\n    1\n}\n")]);

@@ -208,6 +208,47 @@ fn the_keel_action_provisions_the_graph_by_full_repo_reference() {
     );
 }
 
+/// `args:` is documented as overriding `mode` entirely, and the mode is what
+/// the review plumbing keys off. If a custom-args run kept the event-derived
+/// mode, a `pull_request` with `args: 'compile --since HEAD~5'` would run the
+/// user's command AND a second `keel review`, then post a sticky comment nobody
+/// asked for. So the args branch must claim its own mode, and it must do so
+/// before the mode reaches `$GITHUB_OUTPUT`.
+#[test]
+fn custom_args_become_their_own_mode_before_the_mode_is_published() {
+    let yaml = read(".github/actions/keel/action.yml");
+    let run = embedded_scripts(&yaml)
+        .into_iter()
+        .find(|b| b.contains("read -r -a cmd"))
+        .expect("the run step must build the keel command from args/mode");
+    let code = code_only(&run);
+
+    let args_branch = code
+        .find(r#"if [ -n "$ARGS" ]"#)
+        .expect("an explicit `args:` must win over `mode`");
+    let custom = code
+        .find(r#"mode="custom""#)
+        .expect("a custom-args run must stop being a review run");
+    let published = code
+        .find(r#"echo "mode=$mode""#)
+        .expect("the run step must publish its resolved mode");
+    assert!(
+        args_branch < custom && custom < published,
+        "the args branch must set its mode before the mode is written to \
+         $GITHUB_OUTPUT, or the sticky-comment step still sees 'review'"
+    );
+
+    // Both pieces of review plumbing key off that one value.
+    assert!(
+        code.contains(r#"if [ "$mode" = "review" ]; then"#),
+        "the second `keel review` pass must be gated on the resolved mode"
+    );
+    assert!(
+        yaml.contains("steps.run.outputs.mode == 'review'"),
+        "the sticky comment must be gated on the published mode"
+    );
+}
+
 /// What `keel init` scaffolds and what the maintained action does must be the
 /// same recipe. This is the divergence T2.3 deleted: the scaffold used to
 /// `curl install.sh` and run `keel map --json --strict`, so a user following

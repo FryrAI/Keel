@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
@@ -233,6 +234,29 @@ fn trend_refuses_to_compare_across_metrics_versions() {
     assert!(
         !stdout.contains("worsening") && !stdout.contains("improving"),
         "a refused comparison reports no direction: {stdout}"
+    );
+}
+
+/// The documented budget is <100ms: a reading is a handful of graph queries
+/// over an already-built database — no parse, no subprocess, no network.
+///
+/// The bound asserted here is deliberately far looser than that (process spawn,
+/// a debug binary and a loaded CI box together eat most of a second on their
+/// own), and it is not a measurement of the target. It is a tripwire for the
+/// class of regression that turns a graph read into something else entirely —
+/// a repo re-parse, a `git log` per snapshot, a network join — which costs
+/// seconds, not milliseconds.
+#[test]
+fn a_reading_stays_far_inside_its_documented_budget() {
+    let dir = fixture();
+    let start = Instant::now();
+    let out = keel(dir.path(), &["quality", "--llm"]);
+    let elapsed = start.elapsed();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "keel quality took {elapsed:?}; the documented target is <100ms and this \
+         2s ceiling only fires on a gross regression"
     );
 }
 

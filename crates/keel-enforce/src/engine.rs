@@ -14,6 +14,17 @@ use crate::violations_economy;
 
 use keel_core::hash::MAX_DISAMBIGUATION_ORDINAL;
 
+/// Codes whose reported line IS a definition's `line_start` and whose hash is
+/// meant to be that definition's graph hash.
+///
+/// Only these get the stored-hash fixup below. The module-identity codes
+/// (W007, W009, E006) also report inside a file, but they carry the file's
+/// MODULE hash and a line that is a file position — W007 always line 1, W009 a
+/// call site — so matching them by line would silently rewrite their identity
+/// to whatever definition happens to begin there, and `keel explain` would then
+/// resolve a file-level finding to a function.
+const DEF_HASH_CODES: &[&str] = &["E002", "E003", "W001", "W002", "W005", "W006"];
+
 /// Core enforcement engine. Owns a GraphStore and orchestrates validation.
 pub struct EnforcementEngine {
     pub(crate) store: Box<dyn GraphStore + Send>,
@@ -141,9 +152,12 @@ impl EnforcementEngine {
             ));
 
             // Fixup: use graph-stored hashes so `keel explain <hash>` works.
-            // Some checks (E002, E003, W001, W002) compute hashes freshly, which
-            // may differ from the graph when map used disambiguation for collisions.
+            // The codes in `DEF_HASH_CODES` compute hashes freshly, which may
+            // differ from the graph when map used disambiguation for collisions.
             for v in &mut file_violations {
+                if !DEF_HASH_CODES.contains(&v.code.as_str()) {
+                    continue;
+                }
                 if let Some(node) = existing_nodes
                     .iter()
                     .find(|n| n.file_path == v.file && n.line_start == v.line)

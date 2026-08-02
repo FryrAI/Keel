@@ -528,7 +528,7 @@ fn github_delta_annotations(
     result: &keel_enforce::types::CompileResult,
     delta: &keel_enforce::types::CompileDelta,
 ) -> String {
-    let new_keys: std::collections::HashSet<(&str, &str, &str)> = delta
+    let new_keys: std::collections::HashSet<_> = delta
         .new_errors
         .iter()
         .chain(delta.new_warnings.iter())
@@ -539,7 +539,15 @@ fn github_delta_annotations(
             .errors
             .iter()
             .chain(result.warnings.iter())
-            .filter(|v| new_keys.contains(&(v.code.as_str(), v.hash.as_str(), v.file.as_str()))),
+            // Same key rule as the delta itself — reconstructing it inline
+            // instead let every hash-less violation of one code in one file
+            // match the first of them, so a single new W006 annotated all of
+            // them as new.
+            .filter(|v| {
+                new_keys.contains(&keel_enforce::types::stable_identity(
+                    &v.code, &v.hash, &v.file, v.line,
+                ))
+            }),
     )
 }
 
@@ -581,3 +589,7 @@ fn output_result(
         0
     }
 }
+
+#[cfg(test)]
+#[path = "compile_tests.rs"]
+mod tests;

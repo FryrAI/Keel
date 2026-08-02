@@ -5,7 +5,7 @@
 //! one fact per change — how many stored callers live in files this PR did not
 //! touch — and a total order over that fact.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use keel_core::store::GraphStore;
 use keel_core::types::{GraphNode, NodeKind};
@@ -25,18 +25,32 @@ pub const MAX_DISPLAYED_CALLERS: usize = 5;
 /// the base path. Lookup stays file-scoped on purpose: a repo-wide name search
 /// would attach some other module's `execute` to this one.
 ///
+/// The base path comes from two sources, and both are needed. `Moved { from }`
+/// only ever describes a symbol whose contract was otherwise UNCHANGED across
+/// the rename; a renamed file whose symbol also changed signature (or lost one)
+/// reports as `SignatureChanged`/`Removed`/`BodyOnly` and carries no `from` at
+/// all — exactly the case with callers to strand. `renames` (head path -> base
+/// path) answers for every renamed file regardless of kind.
+///
 /// `cache` holds one `get_nodes_in_file` result per path for the life of the
 /// pass, so a PR changing forty symbols in one file reads that file once.
 fn stored_node(
     store: &dyn GraphStore,
     cache: &mut HashMap<String, Vec<GraphNode>>,
+    renames: &BTreeMap<String, String>,
     change: &ContractChange,
 ) -> Option<GraphNode> {
-    let mut candidates = vec![change.file.as_str()];
-    if let ChangeKind::Moved { from } = &change.kind {
-        candidates.push(from.as_str());
-    }
-    candidates.into_iter().find_map(|path| {
+    [
+        Some(change.file.as_str()),
+        renames.get(&change.file).map(String::as_str),
+        match &change.kind {
+            ChangeKind::Moved { from } => Some(from.as_str()),
+            _ => None,
+        },
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|path| {
         cache
             .entry(path.to_string())
             .or_insert_with(|| store.get_nodes_in_file(path))
@@ -59,17 +73,21 @@ fn stored_node(
 ///
 /// `Added` symbols are skipped: a symbol that did not exist on the base side
 /// has no callers this PR failed to update.
+///
+/// `renames` maps each renamed file's head path to its base path, so a symbol
+/// the graph still holds under the old path is found — see `stored_node`.
 pub fn attach_callers(
     store: &dyn GraphStore,
     changes: &mut [ContractChange],
     diff_files: &HashSet<String>,
+    renames: &BTreeMap<String, String>,
 ) {
     let mut by_file: HashMap<String, Vec<GraphNode>> = HashMap::new();
     for change in changes.iter_mut() {
         if !change.kind.is_contract_change() || change.kind == ChangeKind::Added {
             continue;
         }
-        let Some(node) = stored_node(store, &mut by_file, change) else {
+        let Some(node) = stored_node(store, &mut by_file, renames, change) else {
             continue;
         };
         let outside: Vec<_> = callers_of(store, &node)

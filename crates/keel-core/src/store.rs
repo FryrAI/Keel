@@ -5,8 +5,16 @@ use crate::types::{
 
 /// FROZEN CONTRACT — GraphStore trait.
 ///
-/// Agent A owns this interface. Agents B and C consume it.
-/// Do NOT modify this trait signature without coordination.
+/// Every method signature below is frozen: it is the one seam between the graph
+/// backend and every consumer (enforce, cli, server), and changing one breaks
+/// all of them at once.
+///
+/// Extension happens ONLY by adding a new method that carries a default
+/// implementation, so a backend that has not implemented it keeps compiling and
+/// — this is the part that matters — falls on the "say nothing" side rather
+/// than the "answer wrongly" side. `test_boundary_defaults_are_silent` in this
+/// file is what that guarantee looks like as a test; a new default belongs
+/// there too.
 pub trait GraphStore {
     /// Look up a node by its content hash.
     fn get_node(&self, hash: &str) -> Option<GraphNode>;

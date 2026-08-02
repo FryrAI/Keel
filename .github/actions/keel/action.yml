@@ -20,7 +20,7 @@ inputs:
     required: false
     default: "auto"
   args:
-    description: "Full keel arguments, overriding `mode` entirely (e.g. 'compile --since HEAD~5')"
+    description: "Full keel arguments, overriding `mode` entirely (e.g. 'compile --since HEAD~5'). Runs exactly this one command: no second review pass, no sticky comment"
     required: false
     default: ""
   comment:
@@ -84,8 +84,12 @@ runs:
         fi
 
         # An explicit `args:` wins over `mode` — the escape hatch for anything
-        # this action does not model.
+        # this action does not model. It becomes its OWN mode: the caller's
+        # command IS the run, so the review plumbing below (a second `keel
+        # review`, the sticky comment keyed on this output) must not fire on top
+        # of it just because the event happened to be a pull_request.
         if [ -n "$ARGS" ]; then
+          mode="custom"
           read -r -a cmd <<<"$ARGS"
         elif [ "$mode" = "review" ]; then
           cmd=(review --base "$GRAPH_SHA")
@@ -128,7 +132,7 @@ runs:
           keel review --base "$GRAPH_SHA" >"$REVIEW" || rm -f "$REVIEW"
         else
           {
-            echo "### keel compile"
+            echo "### keel ${cmd[0]}"
             echo ""
             echo "$summary"
             if [ "$violations" -gt 0 ]; then

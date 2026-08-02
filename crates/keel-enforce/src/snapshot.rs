@@ -3,8 +3,10 @@
 //! Every compile saves a lightweight violation snapshot to `.keel/last_compile.json`.
 //! With `--delta`, we diff current result against previous snapshot.
 //!
-//! The diff is keyed on `ViolationKey::stable` — `(code, hash, file)`, never the
-//! line — so a pure line shift is not a new violation.
+//! The diff is keyed on `ViolationKey::stable` — `(code, hash, file)` for a
+//! violation that carries a hash, so a pure line shift is not a new violation;
+//! plus the line for one that does not, which has nothing else to tell two
+//! findings in a file apart.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -12,6 +14,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{CompileDelta, CompileResult, PressureLevel, ViolationKey};
+
+/// What `ViolationKey::stable` returns, named so the maps below stay readable.
+type StableKey<'a> = (&'a str, &'a str, &'a str, u32);
 
 /// A snapshot of violations from a compile run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,14 +66,14 @@ impl ViolationSnapshot {
 /// deterministic order: a delta that reshuffles between runs cannot be diffed
 /// by anything downstream, and a CI comment that reorders on every push reads
 /// as churn.
-fn by_stable(keys: &[ViolationKey]) -> BTreeMap<(&str, &str, &str), &ViolationKey> {
+fn by_stable(keys: &[ViolationKey]) -> BTreeMap<StableKey<'_>, &ViolationKey> {
     keys.iter().map(|k| (k.stable(), k)).collect()
 }
 
 /// Keys present in `left` whose stable identity is absent from `right`.
 fn difference(
-    left: &BTreeMap<(&str, &str, &str), &ViolationKey>,
-    right: &BTreeMap<(&str, &str, &str), &ViolationKey>,
+    left: &BTreeMap<StableKey<'_>, &ViolationKey>,
+    right: &BTreeMap<StableKey<'_>, &ViolationKey>,
 ) -> Vec<ViolationKey> {
     left.iter()
         .filter(|(key, _)| !right.contains_key(*key))

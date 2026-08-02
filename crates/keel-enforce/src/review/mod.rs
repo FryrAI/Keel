@@ -195,7 +195,7 @@ pub fn review(
     let baseline = baseline::diff(store, &scan, enforce);
 
     let mut changes = scan.changes;
-    risk::attach_callers(store, &mut changes, &scan.diff_files);
+    risk::attach_callers(store, &mut changes, &scan.diff_files, &scan.renames);
     risk::rank(&mut changes);
 
     let contract_change_count = changes
