@@ -305,9 +305,9 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     eprintln!("  keel map       Build the structural graph");
     eprintln!("  keel compile   Validate contracts");
     eprintln!();
-    eprintln!("Telemetry is enabled by default (privacy-safe, no code/paths collected).");
-    eprintln!("  Opt out: keel --no-telemetry <command>, KEEL_NO_TELEMETRY=1, or");
-    eprintln!("           keel config telemetry.remote false");
+    eprintln!("Telemetry is local-only by default (privacy-safe, no code/paths collected).");
+    eprintln!("  Opt in to remote reporting: keel config telemetry.remote true");
+    eprintln!("  Opt out entirely: keel --no-telemetry <command>, or KEEL_NO_TELEMETRY=1");
     eprintln!();
     eprintln!("Tip: If keel saves you time \u{2192}  gh star FryrAI/Keel");
 

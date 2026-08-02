@@ -1,7 +1,7 @@
 use keel_output::OutputFormatter;
 
 /// Run `keel stats` — display telemetry dashboard.
-pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
+pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool, llm: bool) -> i32 {
     let repo = match super::open_repo("stats") {
         Ok(x) => x,
         Err(code) => return code,
@@ -88,6 +88,17 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
             "{}",
             serde_json::to_string_pretty(&stats).unwrap_or_default()
         );
+    } else if llm {
+        println!(
+            "STATS modules={} functions={} files={} edges={}",
+            module_count,
+            function_count,
+            file_set.len(),
+            edge_count
+        );
+        if let Some(agg) = &telemetry_agg {
+            println!("{}", telemetry_llm_line(agg));
+        }
     } else {
         println!("keel stats");
         println!("  modules:   {}", module_count);
@@ -115,12 +126,41 @@ pub fn run(_formatter: &dyn OutputFormatter, verbose: bool, json: bool) -> i32 {
     0
 }
 
+/// Compact `TELEMETRY key=value ...` line for `keel stats --llm` — the
+/// standing regression guard for T1.1: `compile_p50_ms`/`compile_p95_ms`
+/// surface a re-introduced network round trip on the compile hot path.
+fn telemetry_llm_line(agg: &keel_core::telemetry::TelemetryAggregate) -> String {
+    let mut parts = vec![format!("invocations={}", agg.total_invocations)];
+    if let Some(v) = agg.avg_compile_ms {
+        parts.push(format!("avg_compile_ms={}", v as u64));
+    }
+    if let Some(v) = agg.compile_p50_ms {
+        parts.push(format!("compile_p50_ms={}", v as u64));
+    }
+    if let Some(v) = agg.compile_p95_ms {
+        parts.push(format!("compile_p95_ms={}", v as u64));
+    }
+    if let Some(v) = agg.avg_map_ms {
+        parts.push(format!("avg_map_ms={}", v as u64));
+    }
+    parts.push(format!("errors={}", agg.total_errors));
+    parts.push(format!("warnings={}", agg.total_warnings));
+    format!("TELEMETRY {}", parts.join(" "))
+}
+
 fn print_telemetry_human(agg: &keel_core::telemetry::TelemetryAggregate) {
     println!();
     println!("  telemetry (last 30 days):");
     println!("    invocations: {}", agg.total_invocations);
     if let Some(avg) = agg.avg_compile_ms {
         println!("    avg compile:  {}ms", avg as u64);
+    }
+    if agg.compile_p50_ms.is_some() || agg.compile_p95_ms.is_some() {
+        println!(
+            "    compile p50/p95: {}ms / {}ms",
+            agg.compile_p50_ms.map(|v| v as u64).unwrap_or(0),
+            agg.compile_p95_ms.map(|v| v as u64).unwrap_or(0)
+        );
     }
     if let Some(avg) = agg.avg_map_ms {
         let formatted = if avg >= 1000.0 {

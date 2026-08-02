@@ -360,3 +360,116 @@ fn test_compile_timeout_still_reports_violations() {
         "the violation must still be reported despite the exceeded budget: {stdout}"
     );
 }
+
+// --- T1.1: bare `keel compile` (no files, no --changed, no --since) scopes
+// to git-changed files instead of an unscoped full-repo walk. ---
+
+/// `git init` + an initial commit inside `dir`, so a subsequent uncommitted
+/// edit shows up in `git diff --name-only HEAD`.
+fn git_init_and_commit(dir: &TempDir) {
+    let run = |args: &[&str]| {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .status()
+            .expect("failed to run git");
+        assert!(status.success(), "git {:?} failed", args);
+    };
+    run(&["init", "-q"]);
+    run(&["config", "user.email", "test@example.com"]);
+    run(&["config", "user.name", "test"]);
+    run(&["add", "-A"]);
+    run(&["commit", "-q", "-m", "initial"]);
+}
+
+#[test]
+/// A bare compile in a git repo must scope to the working-tree diff — the
+/// untouched file's own (pre-existing) violation must NOT appear, only the
+/// edited file's.
+fn test_bare_compile_in_git_repo_scopes_to_changed_files() {
+    let dir = init_and_map_project(&[
+        (
+            "src/a.py",
+            "def a(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+        ),
+        (
+            "src/b.py",
+            "def b(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+        ),
+    ]);
+    git_init_and_commit(&dir);
+
+    // Edit only a.py — drop its docstring, a fresh (not pre-existing) E003.
+    fs::write(
+        dir.path().join("src/a.py"),
+        "def a(x: int) -> int:\n    return x\n",
+    )
+    .unwrap();
+
+    let output = Command::new(keel_bin())
+        .args(["compile", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_ne!(
+        output.status.code(),
+        Some(2),
+        "compile internal error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("src/a.py"),
+        "the edited file must be analyzed: {stdout}"
+    );
+    assert!(
+        !stdout.contains("src/b.py"),
+        "the untouched file must NOT be scanned by a git-scoped bare compile: {stdout}"
+    );
+}
+
+#[test]
+/// A bare compile with no `.git` directory keeps the old full-repo-scan
+/// default, since there is no git history to scope against — both files must
+/// be analyzed even though only one was edited.
+fn test_bare_compile_without_git_falls_back_to_full_scan() {
+    let dir = init_and_map_project(&[
+        (
+            "src/a.py",
+            "def a(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+        ),
+        // b.py has a pre-existing violation (no type hints) that only a full
+        // scan will surface, since it's never touched below.
+        ("src/b.py", "def b(x):\n    return x\n"),
+    ]);
+
+    // Edit only a.py — drop its docstring, a fresh E003.
+    fs::write(
+        dir.path().join("src/a.py"),
+        "def a(x: int) -> int:\n    return x\n",
+    )
+    .unwrap();
+
+    let output = Command::new(keel_bin())
+        .args(["compile", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_ne!(
+        output.status.code(),
+        Some(2),
+        "compile internal error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("src/a.py"),
+        "the edited file must be analyzed: {stdout}"
+    );
+    assert!(
+        stdout.contains("src/b.py"),
+        "a non-git bare compile must still scan every file (old default preserved): {stdout}"
+    );
+}

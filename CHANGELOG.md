@@ -5,6 +5,37 @@ All notable changes to keel will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **The compile hot path no longer waits on the network (T1.1).** `compile`,
+  `where`, `discover`, `focus`, `skeleton`, `explain`, `check`, `search`, and
+  `context` are hard-coded as `hot_path_commands()` and never attempt a
+  remote telemetry send — no config can put the network back on this path.
+  `map`, `audit`, `stats`, and `push` are unaffected: they still send (and
+  join) remote telemetry, opportunistically draining the same local
+  `telemetry.db` these hot-path commands wrote to. Measured previously:
+  network alone accounted for the entire gap between a reported
+  `avg_compile_ms` and keel's <200ms constitutional target.
+- `telemetry.remote` now defaults to `false`. Local writes to `telemetry.db`
+  (`telemetry.enabled`) are unaffected — only remote reporting flips to
+  opt-in. Enable it with `keel config telemetry.remote true`.
+- A bare `keel compile` (no files, no `--changed`, no `--since`) now scopes
+  to the git working-tree diff by default, matching the CLI help text's
+  existing "empty = all changed" contract instead of silently walking and
+  re-parsing every file in the repo (previously ~15s on a mid-size repo vs
+  <100ms for a single scoped file — the "adjacent pathology" found during
+  the T1.1 audit). Repos with no `.git` directory keep the old full-repo-scan
+  default.
+- `keel stats --llm` now reports `compile_p50_ms`/`compile_p95_ms` alongside
+  the existing `avg_compile_ms` — the standing regression guard for T1.1.
+  These also appear in `keel stats --json`'s `telemetry` block and in the
+  human-readable output.
+
+### Added
+- `KEEL_NO_NETWORK=1` — a single escape hatch that disables remote telemetry
+  for every command, without editing `keel.json`.
+
 ## [0.4.3] - 2026-07-21
 
 First release since v0.4.2 picking up 75 commits of main (#48): Svelte/SvelteKit

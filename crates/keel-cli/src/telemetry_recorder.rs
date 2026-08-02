@@ -9,6 +9,20 @@ use std::time::Duration;
 use keel_core::config::KeelConfig;
 use keel_core::telemetry::{self, TelemetryStore};
 
+/// keel's hot path — the tight edit/compile loop an agent runs after every
+/// file change. These commands may NEVER send telemetry over the network:
+/// there is no config override, so no config mistake (and no slow or
+/// unreachable endpoint) can turn keel's fast, deterministic gate into a
+/// network-bound tax the agent eventually disables. Local writes to
+/// `telemetry.db` are unaffected by this list — only the remote POST in
+/// `try_send_remote` is excluded. See T1.1 in the v0.5 plan.
+pub fn hot_path_commands() -> &'static [&'static str] {
+    &[
+        "compile", "where", "discover", "focus", "skeleton", "explain", "check", "search",
+        "context",
+    ]
+}
+
 /// Metrics collected during command execution.
 #[derive(Debug, Default)]
 pub struct EventMetrics {
@@ -161,6 +175,16 @@ fn try_send_remote(
     keel_dir: &Path,
     event: &telemetry::TelemetryEvent,
 ) -> Option<JoinHandle<()>> {
+    // Hot-path commands never touch the network — hard-coded, no config can
+    // override this (T1.1).
+    if hot_path_commands().contains(&event.command.as_str()) {
+        return None;
+    }
+    // KEEL_NO_NETWORK=1 is the single escape hatch for every command: it
+    // disables remote telemetry outright without editing keel.json.
+    if std::env::var_os("KEEL_NO_NETWORK").is_some() {
+        return None;
+    }
     if !config.telemetry.remote {
         return None;
     }

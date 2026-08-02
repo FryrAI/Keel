@@ -193,7 +193,7 @@ keel stores its configuration in `.keel/keel.json`:
   "telemetry": {
     "enabled": true,
     "detailed": false,
-    "remote": true
+    "remote": false
   }
 }
 ```

@@ -49,7 +49,14 @@ pub enum Tier {
 pub struct TelemetryConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_true")]
+    /// Whether local events may also be POSTed to the remote endpoint.
+    /// Defaults to `false` (T1.1): opt-in remote reporting is the honest
+    /// default for a tool that would otherwise pay a DNS lookup plus TLS
+    /// handshake on every compile out of the box. Local writes to
+    /// `telemetry.db` are controlled by `enabled`, not this field. Hot-path
+    /// commands (see `hot_path_commands` in keel-cli) never send remote
+    /// telemetry regardless of this setting — there is no override for them.
+    #[serde(default)]
     pub remote: bool,
     #[serde(default)]
     pub endpoint: Option<String>,
@@ -59,7 +66,7 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            remote: true,
+            remote: false,
             endpoint: None,
         }
     }

@@ -121,9 +121,23 @@ pub fn run(
     // git-deleted paths under --changed/--since must still skip silently.
     let explicit_targets = !changed && since.is_none() && !files.is_empty();
 
-    // Resolve target files: --changed, --since, explicit list, or all
+    // A bare `keel compile` — no explicit files, no --changed, no --since —
+    // used to fall through to an unscoped walk of the ENTIRE repo: every file
+    // re-parsed and re-checked against the stored graph with no caching
+    // (~15s on a mid-size repo vs <100ms for one scoped file; a hook that
+    // drops its file argument silently pays this on every edit). The CLI help
+    // text already promised "empty = all changed"; in a git repository, bare
+    // compile now actually defaults to the same working-tree-vs-HEAD diff as
+    // `--changed`, closing that gap. Repos with no `.git` (integration-test
+    // fixtures, non-git checkouts) keep the old full-repo-scan default, since
+    // there is no git history to scope against.
+    let bare_compile = files.is_empty() && !changed && since.is_none();
+    let default_to_changed = bare_compile && cwd.join(".git").exists();
+
+    // Resolve target files: --changed, --since, default-to-changed, explicit
+    // list, or (only for a non-git bare compile) all.
     let mut effective_files = files;
-    if changed || since.is_some() {
+    if changed || since.is_some() || default_to_changed {
         match git_changed_files(&since) {
             Ok(git_files) => {
                 if verbose {
@@ -144,12 +158,15 @@ pub fn run(
     let mut go_resolver: Option<GoResolver> = None;
     let mut rs: Option<RustLangResolver> = None;
 
-    // A full-repo compile (no explicit files) is close to a `keel map`; the
-    // incremental graph sync below is skipped for it to avoid degrading the
-    // map-built edge graph with weaker single-file resolution.
-    let full_repo_compile = effective_files.is_empty();
+    // A full-repo compile (a bare compile that could not be scoped to git
+    // changes) is close to a `keel map`; the incremental graph sync below is
+    // skipped for it to avoid degrading the map-built edge graph with weaker
+    // single-file resolution. This must NOT fire merely because a git-scoped
+    // diff (explicit or default) happened to return zero files — that means
+    // "nothing to do", not "scan everything".
+    let full_repo_compile = bare_compile && !default_to_changed;
 
-    let target_files = if effective_files.is_empty() {
+    let target_files = if full_repo_compile {
         let walker = keel_parsers::walker::FileWalker::new(&cwd);
         walker
             .walk()

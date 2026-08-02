@@ -198,7 +198,7 @@ fn main() {
             Default::default(),
         ),
         Commands::Stats => (
-            commands::stats::run(&*formatter, cli.verbose, cli.json),
+            commands::stats::run(&*formatter, cli.verbose, cli.json, cli.llm),
             Default::default(),
         ),
         Commands::Config { key, value } => (
@@ -247,10 +247,18 @@ fn main() {
         None
     };
 
-    // Wait for remote telemetry to finish before exiting.
-    // Without this, process::exit kills the send thread mid-request.
+    // Wait for remote telemetry to finish before exiting — except on keel's
+    // hot path (T1.1), which must never block on a network round trip.
+    // `try_send_remote` already refuses hot-path commands structurally (no
+    // handle to join in the first place), so this check is redundant in
+    // practice; it stays as an explicit, hard-coded second guard so nothing
+    // downstream can silently reintroduce a blocking join for one of them.
+    // Without the join at all, process::exit would kill the send thread
+    // mid-request for every other command.
     if let Some(handle) = telemetry_handle {
-        let _ = handle.join();
+        if !telemetry_recorder::hot_path_commands().contains(&cmd_name) {
+            let _ = handle.join();
+        }
     }
 
     std::process::exit(exit_code);

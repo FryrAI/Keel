@@ -47,7 +47,7 @@ fn test_roundtrip_all_non_default_values() {
         tier: Tier::Enterprise,
         telemetry: TelemetryConfig {
             enabled: false,
-            remote: false,
+            remote: true, // default (T1.1) is false
             endpoint: Some("https://custom.example.com/telemetry".to_string()),
         },
         monorepo: MonorepoConfig {
@@ -107,7 +107,7 @@ fn test_roundtrip_all_non_default_values() {
     );
     assert_eq!(roundtripped.tier, Tier::Enterprise);
     assert!(!roundtripped.telemetry.enabled);
-    assert!(!roundtripped.telemetry.remote);
+    assert!(roundtripped.telemetry.remote);
     assert_eq!(
         roundtripped.telemetry.endpoint,
         Some("https://custom.example.com/telemetry".to_string())
@@ -189,7 +189,9 @@ fn test_tier_roundtrip() {
 fn test_telemetry_defaults() {
     let cfg = TelemetryConfig::default();
     assert!(cfg.enabled);
-    assert!(cfg.remote);
+    // T1.1: opt-in remote reporting is the honest default for a tool that
+    // would otherwise block the compile hot path on a network round trip.
+    assert!(!cfg.remote);
     assert!(cfg.endpoint.is_none());
     assert_eq!(
         cfg.effective_endpoint(),
@@ -211,7 +213,9 @@ fn test_backward_compat_old_json_without_new_fields() {
     let cfg: KeelConfig = serde_json::from_str(old_json).unwrap();
     assert_eq!(cfg.tier, Tier::Free);
     assert!(cfg.telemetry.enabled);
-    assert!(cfg.telemetry.remote);
+    // T1.1: remote now defaults to false, including for old configs that
+    // predate the telemetry block entirely.
+    assert!(!cfg.telemetry.remote);
     assert!(!cfg.monorepo.enabled);
     assert!(cfg.monorepo.kind.is_none());
     assert!(cfg.monorepo.packages.is_empty());

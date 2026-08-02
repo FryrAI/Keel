@@ -20,6 +20,89 @@ fn try_send_remote_skips_when_disabled() {
     try_send_remote(&config, dir.path(), &event);
 }
 
+// --- T1.1: hot-path commands never touch the network ---
+
+#[test]
+fn hot_path_commands_lists_the_nine_edit_loop_commands() {
+    assert_eq!(
+        hot_path_commands(),
+        &[
+            "compile", "where", "discover", "focus", "skeleton", "explain", "check", "search",
+            "context",
+        ]
+    );
+}
+
+#[test]
+fn try_send_remote_skips_every_hot_path_command_even_with_remote_enabled() {
+    // Remote is deliberately ON here: the point of T1.1 is that hot-path
+    // commands ignore this setting entirely — there is no config override.
+    let config = KeelConfig {
+        telemetry: TelemetryConfig {
+            enabled: true,
+            remote: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    for command in hot_path_commands() {
+        let event = telemetry::new_event(command, 100, 0);
+        let handle = try_send_remote(&config, dir.path(), &event);
+        assert!(
+            handle.is_none(),
+            "'{command}' is on the hot path and must never get a remote-send handle"
+        );
+    }
+}
+
+#[test]
+fn try_send_remote_does_not_gate_non_hot_path_commands_on_the_hot_path_check() {
+    // "map" is not on the hot-path list, so the hot-path gate specifically
+    // must not be what returns None for it. Remote is off here so this stays
+    // network-free; the `!config.telemetry.remote` gate applies instead.
+    let config = KeelConfig {
+        telemetry: TelemetryConfig {
+            enabled: true,
+            remote: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(
+        !hot_path_commands().contains(&"map"),
+        "test assumption: map is not hot-path"
+    );
+    let event = telemetry::new_event("map", 100, 0);
+    let dir = tempfile::tempdir().unwrap();
+    let handle = try_send_remote(&config, dir.path(), &event);
+    assert!(handle.is_none(), "remote=false must still short-circuit");
+}
+
+#[test]
+fn try_send_remote_skips_when_keel_no_network_set() {
+    // KEEL_NO_NETWORK is a process-wide env var; guard with remove_var even
+    // on early-return paths so it can't leak into other tests in this binary.
+    std::env::set_var("KEEL_NO_NETWORK", "1");
+    let config = KeelConfig {
+        telemetry: TelemetryConfig {
+            enabled: true,
+            remote: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // A non-hot-path command, so only the KEEL_NO_NETWORK gate is exercised.
+    let event = telemetry::new_event("map", 100, 0);
+    let dir = tempfile::tempdir().unwrap();
+    let handle = try_send_remote(&config, dir.path(), &event);
+    std::env::remove_var("KEEL_NO_NETWORK");
+    assert!(
+        handle.is_none(),
+        "KEEL_NO_NETWORK=1 must disable remote telemetry for every command"
+    );
+}
+
 #[test]
 fn telemetry_event_serializes() {
     let mut event = telemetry::new_event("compile", 150, 0);

@@ -74,6 +74,32 @@ fn test_aggregate_with_data() {
 }
 
 #[test]
+fn test_aggregate_compile_percentiles() {
+    // T1.1: compile_p50_ms/compile_p95_ms are the standing regression guard
+    // that a network round trip hasn't crept back onto the hot path.
+    let store = TelemetryStore::in_memory().unwrap();
+    for ms in [50, 60, 70, 80, 90, 100, 110, 120, 130, 2000] {
+        store.record(&make_event("compile", ms, 0)).unwrap();
+    }
+    // A `map` event must not leak into the compile percentiles.
+    store.record(&make_event("map", 9999, 0)).unwrap();
+
+    let agg = store.aggregate(30).unwrap();
+    assert_eq!(agg.compile_p50_ms, Some(90.0));
+    assert_eq!(agg.compile_p95_ms, Some(2000.0));
+}
+
+#[test]
+fn test_aggregate_compile_percentiles_none_when_no_compile_events() {
+    let store = TelemetryStore::in_memory().unwrap();
+    store.record(&make_event("map", 100, 0)).unwrap();
+
+    let agg = store.aggregate(30).unwrap();
+    assert!(agg.compile_p50_ms.is_none());
+    assert!(agg.compile_p95_ms.is_none());
+}
+
+#[test]
 fn test_client_name_roundtrip() {
     let store = TelemetryStore::in_memory().unwrap();
     let mut event = make_event("compile", 100, 0);

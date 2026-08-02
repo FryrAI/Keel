@@ -35,3 +35,7 @@ mod test_graph_fidelity;
 // Python ty subprocess wiring (issue #33)
 #[path = "integration/test_ty_wiring.rs"]
 mod test_ty_wiring;
+
+// T1.1: compile hot path must never block on a network round trip
+#[path = "integration/test_telemetry_hot_path.rs"]
+mod test_telemetry_hot_path;
