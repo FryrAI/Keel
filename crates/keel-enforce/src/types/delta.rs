@@ -7,8 +7,8 @@ pub struct ViolationKey {
     pub code: String,
     pub hash: String,
     pub file: String,
-    /// Display only — deliberately **not** part of the diffing identity. See
-    /// `ViolationKey::stable`.
+    /// Part of the diffing identity only for a hash-less violation; display
+    /// only for one that carries a hash. See `stable_identity`.
     pub line: u32,
 }
 

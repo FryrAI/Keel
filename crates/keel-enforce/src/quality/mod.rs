@@ -44,6 +44,10 @@ pub use trend::{MetricTrend, QualityPoint, QualityTrend, TrendStep};
 /// a new field with a serde default is backward-readable). A window that spans
 /// two versions is refused by [`trend::build_trend`] rather than compared, so
 /// bumping is cheap and honest, and quietly redefining a metric is impossible.
+///
+/// Version 1 covers the definitions as they ship in 0.5.0: pre-release
+/// refinements (the `dead_private_fns` exemptions, say) are part of settling
+/// what version 1 *means*, since no released keel has written a snapshot yet.
 pub const METRICS_VERSION: u32 = 1;
 
 /// The four countable readings taken from one graph state.

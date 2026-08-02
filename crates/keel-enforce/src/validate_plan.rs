@@ -15,7 +15,7 @@ use keel_core::store::GraphStore;
 use keel_core::types::{GraphNode, NodeKind};
 
 use crate::checkpoint::{callers_of, CallerRef};
-use crate::validate_plan_findings::{detect_plan_findings, PlanContext};
+use crate::validate_plan_findings::{call_claim_names, detect_plan_findings, PlanContext};
 
 pub use crate::validate_plan_findings::PlanFinding;
 
@@ -137,8 +137,17 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
         *mentions.entry(tok).or_default() += 1;
     }
 
-    // Resolve which mentioned tokens are known symbols (exact, non-module).
-    // Each token is looked up exactly ONCE and the whole result kept, because
+    // Names to resolve: every plan token, PLUS every `name(...)` call claim the
+    // finding pass will check. `tokenize` drops identifiers shorter than three
+    // characters and anything non-ASCII, but `P001` reads an absent key as
+    // "never looked up, stay silent" — so without this union a claim like
+    // `gc(rows)` would be silently treated as resolved. Unioning keeps the
+    // budget at one store query per unique name.
+    let mut lookup_names: HashSet<String> = mentions.keys().cloned().collect();
+    lookup_names.extend(call_claim_names(plan));
+
+    // Resolve which names are known symbols (exact, non-module).
+    // Each name is looked up exactly ONCE and the whole result kept, because
     // the P001/P002 pass needs the same lists (modules included). When several
     // nodes share a name, keep the one with the most callers — computing each
     // candidate's callers exactly ONCE (the previous code re-evaluated
@@ -150,7 +159,7 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
     let mut nodes_by_name: HashMap<String, Vec<GraphNode>> = HashMap::new();
     let mut symbol_node: HashMap<String, GraphNode> = HashMap::new();
     let mut symbol_callers: HashMap<String, Vec<CallerRef>> = HashMap::new();
-    for tok in mentions.keys() {
+    for tok in &lookup_names {
         let nodes = store.find_nodes_by_name(tok, "", "");
         let mut best: Option<(&GraphNode, Vec<CallerRef>)> = None;
         for cand in nodes.iter().filter(|n| n.kind != NodeKind::Module) {

@@ -119,7 +119,7 @@ fn call_builtins() -> &'static HashSet<&'static str> {
         "print", "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple", "range",
         "enumerate", "zip", "map", "filter", "sorted", "sum", "min", "max", "abs", "open",
         "input", "isinstance", "getattr", "setattr", "hasattr", "super", "self", "this", "repr",
-        "hash", "iter", "next", "any", "all", "round",
+        "hash", "iter", "next", "any", "all", "round", "id",
         // JS / TS globals and test DSL
         "console", "require", "fetch", "Promise", "JSON", "Object", "Array", "String", "Number",
         "Boolean", "Math", "Date", "Error", "setTimeout", "setInterval", "useState", "useEffect",
@@ -224,6 +224,16 @@ fn scan_call_claims(plan: &str) -> Vec<CallClaim> {
     out
 }
 
+/// The name of every `name(...)` call claim in the plan.
+///
+/// `validate_plan` resolves this set alongside its own tokens so that every
+/// claim the finding pass will look at has an entry in `PlanContext`: the
+/// tokenizer there drops short and non-ASCII identifiers, and a missing entry
+/// reads as "resolved" rather than "unknown".
+pub(crate) fn call_claim_names(plan: &str) -> Vec<String> {
+    scan_call_claims(plan).into_iter().map(|c| c.name).collect()
+}
+
 /// Whether an explicit `-> T` follows the closing paren. Only `->` counts: a
 /// `:` after a call is far more often markdown prose ("`foo(x)`: does Y") than
 /// a TypeScript return annotation, and guessing wrong there would fire `P002`
@@ -290,8 +300,12 @@ pub fn detect_plan_findings(plan: &str, ctx: &PlanContext<'_>) -> Vec<PlanFindin
     // partial mention must not contradict a correct one.
     let mut sig_ok: HashSet<String> = HashSet::new();
 
+    // No length floor: `validate_plan` resolves every claim name, so a short
+    // real symbol (`gc`, `id`) is answered by the graph instead of guessed at,
+    // and a short unknown one is still filtered by the builtin, qualified-call,
+    // all-caps and proposed-name rules below.
     for claim in &claims {
-        if claim.name.len() < 3 || seen.contains(&claim.name) {
+        if seen.contains(&claim.name) {
             continue;
         }
         if let Some(node) = ctx.symbol_node.get(&claim.name) {
@@ -329,9 +343,10 @@ fn unknown_finding(
     {
         return None;
     }
-    // Modules count as existing, so consult the unfiltered lookup. A name the
-    // caller never looked up (its tokenizer is ASCII-only, so this means a
-    // non-ASCII identifier) stays silent — precision over recall.
+    // Modules count as existing, so consult the unfiltered lookup. `validate_plan`
+    // resolves every claim name (see `call_claim_names`), so an absent key means
+    // the context was built without that pass — treat it as unresolved rather
+    // than unknown and stay silent, precision over recall.
     if !ctx
         .nodes_by_name
         .get(&claim.name)

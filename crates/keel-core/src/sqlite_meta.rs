@@ -1,9 +1,18 @@
 //! `keel_meta` — the graph's key/value side table, and every key kept in it.
 //!
 //! Three unrelated features (the map markers, batch mode, the schema version)
-//! all persist one small string each. They share this table because a stray
-//! `.keel/*.json` next to the database is a second source of truth that can
-//! survive a `clear_all` the database does not.
+//! all persist one small string each. They share one table so those markers
+//! live in the database itself rather than in a stray `.keel/*.json` beside it,
+//! which would be a second source of truth to keep in sync.
+//!
+//! `keel_meta` is deliberately NOT cleared by
+//! [`SqliteGraphStore::clear_all`](crate::sqlite::SqliteGraphStore::clear_all):
+//! the schema version lives here and must outlive a re-map, and `keel map`
+//! re-stamps [`LAST_MAP_AT`]/[`LAST_MAP_COMMIT`] at the end of every run. A
+//! crash between `clear_all` and that final stamp therefore leaves a stale
+//! marker behind. That is tolerated rather than fixed, because the only
+//! consumer that could be misled — the W009 bootstrap guard — also requires
+//! stored module edges, and the crashed run left none.
 //!
 //! Keys live here rather than next to their readers so the set is enumerable:
 //! a key defined in the module that happens to read it is invisible to everyone
@@ -66,5 +75,37 @@ impl SqliteGraphStore {
         self.conn
             .execute("DELETE FROM keel_meta WHERE key = ?1", params![key])?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meta_keys_survive_clear_all() {
+        // Pins the module doc: `clear_all` re-baselines every derived table but
+        // must not touch `keel_meta`. A wiped `schema_version` would make an
+        // up-to-date database look unmigrated.
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let version = store.schema_version().unwrap();
+        store
+            .set_meta_value(LAST_MAP_AT, "2026-08-02T12:00:00Z")
+            .unwrap();
+        store.set_meta_value(LAST_MAP_COMMIT, "deadbeef").unwrap();
+        store.set_meta_value(BATCH_STATE, "{}").unwrap();
+
+        store.clear_all().unwrap();
+
+        assert_eq!(store.schema_version().unwrap(), version);
+        assert_eq!(
+            store.query_meta_value(LAST_MAP_AT).as_deref(),
+            Some("2026-08-02T12:00:00Z")
+        );
+        assert_eq!(
+            store.query_meta_value(LAST_MAP_COMMIT).as_deref(),
+            Some("deadbeef")
+        );
+        assert_eq!(store.query_meta_value(BATCH_STATE).as_deref(), Some("{}"));
     }
 }

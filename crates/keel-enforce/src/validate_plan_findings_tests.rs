@@ -134,6 +134,44 @@ fn nonexistent_call_target_produces_p001() {
 }
 
 #[test]
+fn short_nonexistent_call_target_produces_p001() {
+    // Regression: the plan tokenizer drops identifiers shorter than three
+    // chars, so `gc` never reached the lookup cache and P001 read the absent
+    // key as "resolved". Every call claim is resolved now, whatever its length.
+    let store = store_with_execute();
+    let result = validate_plan(
+        &store,
+        "Step 1: run_query should call gc(rows) before returning.",
+    );
+    let p001: Vec<_> = result
+        .findings
+        .iter()
+        .filter(|f| f.code == "P001")
+        .collect();
+    assert_eq!(p001.len(), 1, "findings: {:?}", result.findings);
+    assert_eq!(p001[0].symbol, "gc");
+}
+
+#[test]
+fn short_real_symbol_is_not_p001() {
+    // The other half of the same fix: a two-char name the graph DOES know must
+    // resolve, not fire.
+    let store = store_with_execute();
+    store
+        .insert_node(&node(3, "GCHASH00001", "gc", "gc(rows)", "src/db.rs"))
+        .unwrap();
+    let result = validate_plan(
+        &store,
+        "Step 1: run_query should call gc(rows) before returning.",
+    );
+    assert!(
+        result.findings.is_empty(),
+        "a known short symbol must stay silent: {:?}",
+        result.findings
+    );
+}
+
+#[test]
 fn correct_plan_produces_no_findings() {
     let store = store_with_execute();
     let result = validate_plan(&store, "Step 1: keep execute(sql) as is; run_query stays.");
