@@ -157,6 +157,32 @@ fn verify_checksum_missing_artifact() {
 }
 
 #[test]
+fn sync_keel_json_version_updates_pinned_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let keel_dir = dir.path().join(".keel");
+    std::fs::create_dir_all(&keel_dir).unwrap();
+    std::fs::write(
+        keel_dir.join("keel.json"),
+        r#"{"version": "0.3.6", "languages": []}"#,
+    )
+    .unwrap();
+
+    sync_keel_json_version(dir.path(), "0.4.3");
+
+    let content = std::fs::read_to_string(keel_dir.join("keel.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(parsed["version"], "0.4.3");
+}
+
+#[test]
+fn sync_keel_json_version_is_a_noop_outside_an_initialized_project() {
+    let dir = tempfile::tempdir().unwrap();
+    // No `.keel/` at all — must not create one or panic.
+    sync_keel_json_version(dir.path(), "0.4.3");
+    assert!(!dir.path().join(".keel").exists());
+}
+
+#[test]
 fn sha256_simple_known_hash() {
     // SHA-256 of empty string is well-known
     let hash = sha256_simple(b"").unwrap();

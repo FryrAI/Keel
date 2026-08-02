@@ -1,4 +1,14 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+/// Machine surfaces that are not one of the three output formatters.
+///
+/// `--json` and `--llm` choose how keel *describes* a result; this chooses a
+/// foreign protocol to emit it in. Only CI has one so far.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum WireFormat {
+    /// GitHub Actions workflow commands — `::error file=..,line=..,title=[CODE]::msg`
+    Github,
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -29,6 +39,13 @@ pub(crate) struct Cli {
     /// Disable telemetry for this invocation (also: KEEL_NO_TELEMETRY=1)
     #[arg(long, global = true, env = "KEEL_NO_TELEMETRY")]
     pub no_telemetry: bool,
+
+    /// Explicit calling-agent name for telemetry attribution, e.g. "claude-code"
+    /// (overrides env-based detection). Set by the generated
+    /// `.keel/hooks/post-edit.sh` — subprocess env vars like `CLAUDECODE` don't
+    /// reliably survive the hook boundary.
+    #[arg(long, global = true)]
+    pub client: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -41,6 +58,12 @@ pub(crate) enum Commands {
         /// Skip interactive prompt (use detected agents only)
         #[arg(long, short)]
         yes: bool,
+        /// Rewrite the keel-managed block in existing agent doc files,
+        /// regenerate `.keel/hooks/post-edit.sh`, and sync `.keel/keel.json`'s
+        /// pinned version — the authorized fix for the drift `map`/`compile`
+        /// warn about. Does not merge config or touch tool detection.
+        #[arg(long)]
+        update_docs: bool,
     },
 
     /// Full re-map of the codebase
@@ -114,6 +137,9 @@ pub(crate) enum Commands {
         /// Soft time budget in milliseconds (warns on stderr when exceeded; violations still report and set the exit code)
         #[arg(long)]
         timeout: Option<u64>,
+        /// Emit violations in a CI protocol instead of a keel format (`github`)
+        #[arg(long, value_enum)]
+        format: Option<WireFormat>,
     },
 
     /// Pre-edit risk assessment for a function
@@ -205,6 +231,13 @@ pub(crate) enum Commands {
         /// Only run one dimension: structure, discoverability, navigation, config
         #[arg(long)]
         dimension: Option<String>,
+        /// Report every module cycle, including Rust ones (legal, idiomatic)
+        /// and cycles longer than 8 modules
+        #[arg(long)]
+        strict_cycles: bool,
+        /// Max findings to print with --llm (0 = no cap)
+        #[arg(long, default_value_t = keel_output::llm::audit::DEFAULT_TOP)]
+        top: usize,
     },
 
     /// Minimal structural context for safely editing a file
@@ -254,10 +287,47 @@ pub(crate) enum Commands {
         output: Option<String>,
     },
 
+    /// Two-sided graph diff against a base ref: which contracts moved, and
+    /// which callers the change left behind
+    Review {
+        /// Base ref to diff the working tree against (e.g. `main`, `origin/main`)
+        #[arg(long)]
+        base: String,
+        /// Emit the new violations in a CI protocol instead of a keel format (`github`)
+        #[arg(long, value_enum)]
+        format: Option<WireFormat>,
+        /// Exit 1 when the diff introduced a violation whose code is listed in
+        /// `review.gate` in keel.json (empty by default: gates nothing)
+        #[arg(long)]
+        gate: bool,
+    },
+
+    /// Countable maintainability metrics from the stored graph, and their
+    /// trend across snapshots
+    Quality {
+        /// Capture the current reading as a snapshot against HEAD (one per
+        /// merge; CI runs this on the default branch)
+        #[arg(long, conflicts_with = "trend")]
+        snapshot: bool,
+        /// Report the stored series instead of the current reading
+        #[arg(long)]
+        trend: bool,
+        /// Start the trend at this commit (short prefixes accepted)
+        #[arg(long, requires = "trend", conflicts_with = "last")]
+        since: Option<String>,
+        /// Cap the trend to the last N snapshots
+        #[arg(long, requires = "trend")]
+        last: Option<usize>,
+    },
+
     /// Validate a plan against the dependency graph before executing it
     ValidatePlan {
         /// Plan file to read (markdown/text), or `-` for stdin
         plan: String,
+
+        /// Exit 1 when a P001/P002 plan finding is present (default: always exit 0)
+        #[arg(long)]
+        strict: bool,
     },
 
     /// Remove all keel-generated files
@@ -310,6 +380,9 @@ mod tests;
 #[cfg(test)]
 #[path = "cli_args_context_tests.rs"]
 mod context_tests;
+#[cfg(test)]
+#[path = "cli_args_misc_tests.rs"]
+mod misc_tests;
 #[cfg(test)]
 #[path = "cli_args_session_tests.rs"]
 mod session_tests;

@@ -162,50 +162,46 @@ pub fn format_audit_display(result: &AuditResult) -> String {
         w,
     ));
 
-    // Findings (skip if none)
-    let has_findings = result
-        .dimensions
-        .iter()
-        .flat_map(|d| &d.findings)
-        .any(|f| f.severity != AuditSeverity::Pass);
+    // Findings, worst-first across dimensions rather than in scan order —
+    // the score bars above already carry the per-dimension breakdown.
+    let ranked = keel_enforce::audit::ranked_findings(result);
+    let has_findings = ranked.iter().any(|f| f.severity != AuditSeverity::Pass);
 
     if has_findings {
         out.push_str(&box_sep(w));
-        for dim in &result.dimensions {
-            for f in &dim.findings {
-                if f.severity == AuditSeverity::Pass {
-                    continue;
-                }
-                let tag = match f.severity {
-                    AuditSeverity::Tip => "[TIP] ",
-                    AuditSeverity::Warn => "[WARN]",
-                    AuditSeverity::Fail => "[FAIL]",
-                    AuditSeverity::Pass => continue,
-                };
-                let file_part = match &f.file {
-                    Some(p) => format!("{}: ", p),
-                    None => String::new(),
-                };
-                let prefix = format!("  {} {} \u{2014} ", tag, f.check);
-                let body = format!("{}{}", file_part, f.message);
-                let first_w = w.saturating_sub(prefix.chars().count());
-                let body_lines = wrap_lines(&body, first_w);
-                // First line with prefix
-                out.push_str(&box_row(&format!("{}{}", prefix, body_lines[0]), w));
-                // Continuation lines indented to align with body
-                let indent = " ".repeat(prefix.chars().count());
-                for cont in &body_lines[1..] {
-                    out.push_str(&box_row(&format!("{}{}", indent, cont), w));
-                }
-                if let Some(ref tip) = f.tip {
-                    let tip_prefix = "    Tip: ";
-                    let tip_w = w.saturating_sub(tip_prefix.len());
-                    let tip_lines = wrap_lines(tip, tip_w);
-                    out.push_str(&box_row(&format!("{}{}", tip_prefix, tip_lines[0]), w));
-                    let tip_indent = " ".repeat(tip_prefix.len());
-                    for cont in &tip_lines[1..] {
-                        out.push_str(&box_row(&format!("{}{}", tip_indent, cont), w));
-                    }
+        for f in &ranked {
+            if f.severity == AuditSeverity::Pass {
+                continue;
+            }
+            let tag = match f.severity {
+                AuditSeverity::Tip => "[TIP] ",
+                AuditSeverity::Warn => "[WARN]",
+                AuditSeverity::Fail => "[FAIL]",
+                AuditSeverity::Pass => continue,
+            };
+            let file_part = match &f.file {
+                Some(p) => format!("{}: ", p),
+                None => String::new(),
+            };
+            let prefix = format!("  {} {} \u{2014} ", tag, f.check);
+            let body = format!("{}{}", file_part, f.message);
+            let first_w = w.saturating_sub(prefix.chars().count());
+            let body_lines = wrap_lines(&body, first_w);
+            // First line with prefix
+            out.push_str(&box_row(&format!("{}{}", prefix, body_lines[0]), w));
+            // Continuation lines indented to align with body
+            let indent = " ".repeat(prefix.chars().count());
+            for cont in &body_lines[1..] {
+                out.push_str(&box_row(&format!("{}{}", indent, cont), w));
+            }
+            if let Some(ref tip) = f.tip {
+                let tip_prefix = "    Tip: ";
+                let tip_w = w.saturating_sub(tip_prefix.len());
+                let tip_lines = wrap_lines(tip, tip_w);
+                out.push_str(&box_row(&format!("{}{}", tip_prefix, tip_lines[0]), w));
+                let tip_indent = " ".repeat(tip_prefix.len());
+                for cont in &tip_lines[1..] {
+                    out.push_str(&box_row(&format!("{}{}", tip_indent, cont), w));
                 }
             }
         }

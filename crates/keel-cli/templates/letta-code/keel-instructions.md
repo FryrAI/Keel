@@ -1,4 +1,3 @@
-<!-- keel:start -->
 ## keel — Code Graph Enforcement
 
 This project uses keel (keel.engineer) for code graph enforcement.

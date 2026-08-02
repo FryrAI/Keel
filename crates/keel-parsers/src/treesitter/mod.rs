@@ -1,7 +1,9 @@
 mod docstrings;
 mod imports;
 
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
@@ -12,6 +14,14 @@ use keel_core::types::NodeKind;
 
 pub struct TreeSitterParser {
     parser: Parser,
+    /// Names a string literal may resolve to — the boundary index's key set
+    /// (e.g. every `baml_src/*.baml` function name). Empty by default, which
+    /// disables literal references entirely: a repo with no boundary surface
+    /// pays nothing but the query match itself.
+    ///
+    /// Shared (`Arc`) because one key set is installed on every language
+    /// resolver of a run; it is set once, before the first parse.
+    boundary_literals: Arc<HashSet<String>>,
 }
 
 impl TreeSitterParser {
@@ -19,7 +29,18 @@ impl TreeSitterParser {
     pub fn new() -> Self {
         Self {
             parser: Parser::new(),
+            boundary_literals: Arc::new(HashSet::new()),
         }
+    }
+
+    /// Install the boundary-name key set used to filter string literals.
+    ///
+    /// A captured literal is kept only when its text exactly equals one of
+    /// these names; everything else is dropped before it reaches the reference
+    /// vector. Must be called before parsing, since results are cached per
+    /// resolver.
+    pub fn set_boundary_literals(&mut self, keys: Arc<HashSet<String>>) {
+        self.boundary_literals = keys;
     }
 
     /// Parses raw source bytes into a tree-sitter syntax tree for the given language.
@@ -54,9 +75,10 @@ impl TreeSitterParser {
         let bytes = source.as_bytes();
         let root = tree.root_node();
 
-        let definitions = extract_definitions(&query, root, bytes, &file_path, lang_name);
-        let references = extract_references(&query, root, bytes, &file_path);
-        let imports = imports::extract_imports(&query, root, bytes, &file_path);
+        let definitions = extract_definitions(query, root, bytes, &file_path, lang_name);
+        let references =
+            extract_references(query, root, bytes, &file_path, &self.boundary_literals);
+        let imports = imports::extract_imports(query, root, bytes, &file_path);
 
         // The whole-file Module node is owned by `map_passes::first_pass`
         // (path-named, one per file). Emitting a second file-stem-named Module
@@ -394,6 +416,7 @@ fn extract_definitions(
         let mut def_node = None;
         let mut body_node = None;
         let mut capture_was_method = false;
+        let mut capture_was_macro = false;
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize];
@@ -411,6 +434,7 @@ fn extract_definitions(
                 "def.macro.name" => {
                     name = Some(node_text(cap.node, source).to_string());
                     kind = Some(NodeKind::Function); // macro_rules treated as Function kind
+                    capture_was_macro = true;
                 }
                 "def.mod.name" => {
                     name = Some(node_text(cap.node, source).to_string());
@@ -504,6 +528,8 @@ fn extract_definitions(
                 is_auto_invoked: false,
                 is_decorated: contexts.is_decorated,
                 has_keep_marker: has_keep_marker(&lines, line_start),
+                // Only `macro_rules!` sets this; the node stays a Function.
+                is_macro: capture_was_macro,
             });
         }
     }
@@ -513,11 +539,23 @@ fn extract_definitions(
     defs
 }
 
+/// Strip the surrounding quotes from a captured string literal's raw text.
+///
+/// Works for every grammar keel parses: the `string`/`string_literal` node text
+/// includes its delimiters, and trimming quote characters from both ends is
+/// enough for the plain literals this is applied to. Prefixed forms (Rust
+/// `b"x"`, Python `f"{x}"`) simply do not match a boundary name afterwards, so
+/// they need no special case.
+fn unquote_literal(raw: &str) -> &str {
+    raw.trim_matches(|c| c == '"' || c == '\'')
+}
+
 fn extract_references(
     query: &Query,
     root: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &str,
+    boundary_literals: &HashSet<String>,
 ) -> Vec<Reference> {
     let mut cursor = QueryCursor::new();
     let mut refs = Vec::new();
@@ -532,6 +570,10 @@ fn extract_references(
         // Functions named as values rather than invoked. Collected separately
         // from calls so they never reach edge-building or E005 arity checks.
         let mut value_names: Vec<(String, u32)> = Vec::new();
+        // String literals naming a known boundary symbol (see
+        // `ReferenceKind::Literal`). Kept apart from `value_names` because they
+        // resolve against the boundary index alone.
+        let mut literal_names: Vec<(String, u32)> = Vec::new();
 
         for cap in m.captures {
             let cap_name = capture_names[cap.index as usize];
@@ -556,11 +598,26 @@ fn extract_references(
                 }
                 "ref.attr.name" => {
                     // `"default_true"` — the string literal keeps its quotes.
-                    let raw = node_text(cap.node, source);
-                    let name = raw.trim_matches(|c| c == '"' || c == '\'');
+                    let name = unquote_literal(node_text(cap.node, source));
                     if !name.is_empty() {
                         value_names
                             .push((name.to_string(), cap.node.start_position().row as u32 + 1));
+                    }
+                }
+                "ref.literal.name" => {
+                    // A dispatch key in call-argument / match-arm / object-key
+                    // position. Only literals naming a symbol the boundary
+                    // index already knows survive — everything else (every
+                    // other string in the file) is dropped right here, so the
+                    // reference vector never grows by free text. With no
+                    // boundary surface the set is empty and this is one
+                    // `is_empty` check.
+                    if !boundary_literals.is_empty() {
+                        let name = unquote_literal(node_text(cap.node, source));
+                        if boundary_literals.contains(name) {
+                            literal_names
+                                .push((name.to_string(), cap.node.start_position().row as u32 + 1));
+                        }
                     }
                 }
                 "ref.call.name" => {
@@ -591,6 +648,16 @@ fn extract_references(
                 file_path: file_path.to_string(),
                 line: value_line,
                 kind: ReferenceKind::Value,
+                resolved_to: None,
+            });
+        }
+
+        for (name, literal_line) in literal_names {
+            refs.push(Reference {
+                name,
+                file_path: file_path.to_string(),
+                line: literal_line,
+                kind: ReferenceKind::Literal,
                 resolved_to: None,
             });
         }
@@ -655,3 +722,9 @@ mod tests_decorators;
 
 #[cfg(test)]
 mod tests_value_captures;
+
+#[cfg(test)]
+mod tests_literal_captures;
+
+#[cfg(test)]
+mod tests_import_names;

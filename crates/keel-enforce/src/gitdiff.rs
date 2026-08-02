@@ -104,6 +104,158 @@ pub fn changed_files_checked(
         .unwrap_or_default())
 }
 
+/// Whether one commit is contained in another revision's history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ancestry {
+    /// git answered yes: the commit is an ancestor of the revision, or is it.
+    Ancestor,
+    /// git answered no: the revision's history does not contain the commit.
+    NotAncestor,
+    /// git could not answer — not installed, not a repository, or the commit
+    /// is not an object this checkout knows (a shallow clone, a dropped
+    /// branch). Callers must treat this as "no opinion", never as "not an
+    /// ancestor": guessing turns a missing tool into a hard failure.
+    Unknown,
+}
+
+/// Map `git merge-base --is-ancestor`'s exit status onto an [`Ancestry`].
+///
+/// git documents exactly two answers — 0 for yes and 1 for no — and uses any
+/// other status (128 for an unknown object, 129 for a usage error) to say it
+/// could not answer at all. A process killed by a signal has no code and lands
+/// in the same bucket.
+pub fn classify_ancestry(code: Option<i32>) -> Ancestry {
+    match code {
+        Some(0) => Ancestry::Ancestor,
+        Some(1) => Ancestry::NotAncestor,
+        _ => Ancestry::Unknown,
+    }
+}
+
+/// Ask git whether `commit` is an ancestor of `rev` (usually `"HEAD"`).
+pub fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Ancestry {
+    match Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["merge-base", "--is-ancestor", commit, rev])
+        .output()
+    {
+        Ok(out) => classify_ancestry(out.status.code()),
+        Err(_) => Ancestry::Unknown,
+    }
+}
+
+/// The commit `HEAD` currently points at, or `None` when there is none —
+/// no git, no repository, or a repository whose first commit does not exist
+/// yet (`git init` with nothing committed).
+pub fn head_commit(dir: &Path) -> Option<String> {
+    let sha = run_git_checked(dir, &["rev-parse", "HEAD"])
+        .ok()??
+        .trim()
+        .to_string();
+    (!sha.is_empty()).then_some(sha)
+}
+
+/// How a single path changed between two revisions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeStatus {
+    /// The file did not exist on the base side.
+    Added,
+    /// The file exists on both sides with different content.
+    Modified,
+    /// The file existed on the base side only.
+    Deleted,
+    /// The file moved; `from` is its base-side path. Content may also differ.
+    Renamed { from: String },
+}
+
+/// One entry of `git diff --name-status -M <base>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedPath {
+    /// Head-side (or, for a deletion, base-side) repo-relative path.
+    pub path: String,
+    /// How the path changed.
+    pub status: ChangeStatus,
+}
+
+impl ChangedPath {
+    /// The base-side path to read this file's previous content from, or `None`
+    /// for a file that did not exist on the base side.
+    pub fn base_path(&self) -> Option<&str> {
+        match &self.status {
+            ChangeStatus::Added => None,
+            ChangeStatus::Renamed { from } => Some(from.as_str()),
+            _ => Some(self.path.as_str()),
+        }
+    }
+}
+
+/// Parse one `--name-status -M` record into a [`ChangedPath`].
+///
+/// Rename/copy records carry two tab-separated paths (`R096\told\tnew`);
+/// every other status carries one. Unknown status letters are treated as
+/// modifications, which is the safe direction — the file still gets diffed.
+fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
+    let mut parts = line.split('\t');
+    let code = parts.next()?;
+    let first = parts.next()?;
+    match code.chars().next()? {
+        'A' => Some(ChangedPath {
+            path: first.to_string(),
+            status: ChangeStatus::Added,
+        }),
+        'D' => Some(ChangedPath {
+            path: first.to_string(),
+            status: ChangeStatus::Deleted,
+        }),
+        'R' | 'C' => {
+            let new_path = parts.next()?;
+            Some(ChangedPath {
+                path: new_path.to_string(),
+                status: ChangeStatus::Renamed {
+                    from: first.to_string(),
+                },
+            })
+        }
+        _ => Some(ChangedPath {
+            path: first.to_string(),
+            status: ChangeStatus::Modified,
+        }),
+    }
+}
+
+/// List every path changed between `base` and the working tree, with rename
+/// detection (`git diff --name-status -M`).
+///
+/// Unlike [`changed_files`] this keeps the *status*, which `keel review` needs
+/// to tell a move apart from an add plus a remove, and to know which side of
+/// the diff a path exists on. No language filter is applied: the caller decides
+/// what to parse and what to list as unanalyzed.
+pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
+    let raw = run_git_checked(dir, &["diff", "--name-status", "-M", base])?
+        .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
+    Ok(raw.lines().filter_map(parse_name_status_line).collect())
+}
+
+/// Read the contents of `path` as of revision `rev` (`git show <rev>:<path>`).
+///
+/// Returns `None` when the blob does not exist there or is not valid UTF-8 —
+/// both mean "there is no base-side source to parse", which callers treat as
+/// an addition rather than an error.
+pub fn blob_at(dir: &Path, rev: &str, path: &str) -> Option<String> {
+    let spec = format!("{}:{}", rev, path);
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["show", &spec])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
+}
+
 #[cfg(test)]
 #[path = "gitdiff_tests.rs"]
 mod tests;

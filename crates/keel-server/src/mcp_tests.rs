@@ -232,7 +232,7 @@ fn test_tools_list() {
         &rpc("tools/list", None),
     ));
     let tools: Vec<ToolInfo> = serde_json::from_value(resp["result"]["tools"].clone()).unwrap();
-    assert_eq!(tools.len(), 16);
+    assert_eq!(tools.len(), 17);
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
     assert!(names.contains(&"keel/compile"));
     assert!(names.contains(&"keel/skeleton"));

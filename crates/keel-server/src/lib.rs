@@ -18,6 +18,7 @@ mod mcp_discover;
 mod mcp_fix;
 mod mcp_focus;
 mod mcp_name;
+mod mcp_review;
 mod mcp_search;
 mod mcp_skeleton;
 pub mod mcp_stdio;
@@ -25,6 +26,8 @@ mod mcp_tools;
 mod mcp_validate_plan;
 mod parse_shared;
 pub mod watcher;
+
+pub use mcp_tools::registered_tool_names;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

@@ -220,3 +220,77 @@ fn test_sveltekit_virtual_modules_stay_external() {
         );
     }
 }
+
+#[test]
+/// T1.3: a helper imported from another module and used ONLY in markup must
+/// still be recorded as used — as a `Template` reference, so the edge it
+/// produces is `uses` and never `calls`.
+fn test_markup_only_imported_helper_yields_a_template_reference() {
+    use keel_parsers::resolver::ReferenceKind;
+
+    let dir = tempfile::tempdir().unwrap();
+    make_sveltekit_project(dir.path(), true);
+    std::fs::create_dir_all(dir.path().join("src/lib/portfolio")).unwrap();
+    std::fs::write(
+        dir.path().join("src/lib/portfolio/model.ts"),
+        "export function completenessPct(v: number): number { return v; }\n\
+         export function matchesQuery(q: string): boolean { return q.length > 0; }\n\
+         export function unusedHelper(x: number): number { return x; }\n",
+    )
+    .unwrap();
+
+    // The production shape: a multi-line import, one name called from the
+    // script and another only from `{@const}` inside `{#each}`.
+    let page = "<script lang=\"ts\">\n\
+         import {\n\
+           completenessPct,\n\
+           matchesQuery,\n\
+           unusedHelper\n\
+         } from '$lib/portfolio/model';\n\
+         let rows: number[] = [];\n\
+         const hits = rows.filter((r) => matchesQuery(String(r)));\n\
+         </script>\n\
+         {#each hits as v}\n\
+           {@const pct = completenessPct(v)}\n\
+           <span>{pct}</span>\n\
+         {/each}\n";
+    let path = dir.path().join("src/routes/+page.svelte");
+    let resolver = TsResolver::with_project_root(dir.path());
+    let result = resolver.parse_file(&path, page);
+
+    let model = dir.path().join("src/lib/portfolio/model.ts");
+    let names: Vec<&String> = result
+        .imports
+        .iter()
+        .filter(|i| Path::new(&i.source) == model)
+        .flat_map(|i| i.imported_names.iter())
+        .collect();
+    for want in ["completenessPct", "matchesQuery", "unusedHelper"] {
+        assert!(
+            names.iter().any(|n| n.as_str() == want),
+            "every specifier of the multi-line import must be recorded, missing {want}: {names:?}"
+        );
+    }
+
+    let markup_ref = result
+        .references
+        .iter()
+        .find(|r| r.name == "completenessPct")
+        .expect("markup-only helper must be referenced");
+    assert_eq!(
+        markup_ref.kind,
+        ReferenceKind::Template,
+        "an imported binding matched in markup is a template reference, not a call"
+    );
+
+    // The script-level call keeps its `Call` kind, and an import nobody uses
+    // stays unreferenced — the scan must not invent usage.
+    assert!(result
+        .references
+        .iter()
+        .any(|r| r.name == "matchesQuery" && r.kind == ReferenceKind::Call));
+    assert!(
+        !result.references.iter().any(|r| r.name == "unusedHelper"),
+        "an unused import must not produce a reference"
+    );
+}

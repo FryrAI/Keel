@@ -20,6 +20,17 @@ pub(crate) struct ToolInfo {
     pub(crate) input_schema: Value,
 }
 
+/// Every MCP tool name currently registered, in `tools/list` order.
+///
+/// Exposed crate-externally (unlike `tool_list` and `ToolInfo`, both private)
+/// so `keel-cli`'s generated instruction templates — and their tests — can
+/// check the "MCP Tools" section against the server's actual manifest
+/// instead of a hand-maintained count that silently goes stale as tools are
+/// added.
+pub fn registered_tool_names() -> Vec<String> {
+    tool_list().into_iter().map(|t| t.name).collect()
+}
+
 /// Build the manifest of every tool this server exposes.
 pub(crate) fn tool_list() -> Vec<ToolInfo> {
     vec![
@@ -151,7 +162,8 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
                 "type": "object",
                 "properties": {
                     "dimension": { "type": "string", "enum": ["structure", "discoverability", "navigation", "config"] },
-                    "strict": { "type": "boolean", "default": false }
+                    "strict": { "type": "boolean", "default": false },
+                    "strict_cycles": { "type": "boolean", "default": false }
                 }
             }),
         },
@@ -203,13 +215,25 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
             }),
         },
         ToolInfo {
+            name: "keel/review".into(),
+            description: "Two-sided graph diff against a base ref: which contracts moved (signature changed / added / removed / moved), the callers left outside the diff, the violations the diff introduced (base-side findings subtracted), and the changed files keel could not parse".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["base"],
+                "properties": {
+                    "base": { "type": "string", "description": "Base ref to diff the working tree against (e.g. `main`)" }
+                }
+            }),
+        },
+        ToolInfo {
             name: "keel/validate-plan".into(),
-            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, and a callers-first suggested order".into(),
+            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, a callers-first suggested order, and P001/P002 plan findings (unknown call target, signature mismatch)".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["plan"],
                 "properties": {
-                    "plan": { "type": "string", "description": "Plan text (markdown/plain)" }
+                    "plan": { "type": "string", "description": "Plan text (markdown/plain)" },
+                    "strict": { "type": "boolean", "description": "Add a `strict_failed` boolean saying whether a live P001/P002 finding is present (default false; the report itself never fails)" }
                 }
             }),
         },
@@ -246,6 +270,7 @@ pub(crate) fn dispatch_tool(
         "keel/checkpoint" => {
             crate::mcp_checkpoint::handle_checkpoint(store, engine, root, arguments)
         }
+        "keel/review" => crate::mcp_review::handle_review(store, root, arguments),
         "keel/validate-plan" => crate::mcp_validate_plan::handle_validate_plan(store, arguments),
         _ => return None,
     })

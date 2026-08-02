@@ -11,6 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use keel_core::config::EnforceConfig;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
 use keel_parsers::resolver::{Definition, FileIndex};
@@ -28,16 +29,37 @@ const _: () = assert!(MIN_DUPLICATE_BODY_LEN >= keel_core::hash::MIN_INDEXED_BOD
 
 /// Names that are entrypoints or conventionally uncalled in every language —
 /// never dead.
+///
+/// Reached through `is_exempt_dead_name`, which `crate::quality`'s
+/// `dead_private_fns` metric shares: a trend line that includes `main` is
+/// measuring keel's exemption list, not the codebase.
 const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
+
+/// True when a function's NAME alone exempts it from dead-code analysis:
+/// `_`-prefixed (deliberately unused), `bench_*` (criterion benches outside
+/// `benches/`, which no test-context marking covers), a `.`-qualified name (a
+/// method reached through a receiver), or an `ENTRYPOINT_NAMES` entry.
+///
+/// One definition, because the stored-graph twin of this check —
+/// `crate::quality`'s `dead_private_fns` metric, which has only a name and a
+/// path to go on — must not drift from the compile-time rule. Everything else
+/// W005 exempts (decorators, trait context, `keel:keep`, test context) needs a
+/// fresh parse to see and stays at the call site.
+pub(crate) fn is_exempt_dead_name(name: &str) -> bool {
+    name.starts_with('_')
+        || name.starts_with("bench_")
+        || name.contains('.')
+        || ENTRYPOINT_NAMES.contains(&name)
+}
 
 /// True when a definition is an auto-invoked entrypoint and therefore never dead.
 ///
-/// `ENTRYPOINT_NAMES` holds only names universal across languages; anything
+/// `is_exempt_dead_name` holds only names universal across languages; anything
 /// language-specific (Go's `init`/`main`/`TestMain`) is carried by the parser's
 /// per-language `is_auto_invoked` flag, so this check no longer re-derives the
 /// language from the file path or accretes a match arm per runtime convention.
 fn is_entrypoint(def: &Definition) -> bool {
-    ENTRYPOINT_NAMES.contains(&def.name.as_str()) || def.is_auto_invoked
+    is_exempt_dead_name(&def.name) || def.is_auto_invoked
 }
 
 /// Collect every symbol name referenced anywhere in the compile batch,
@@ -89,6 +111,70 @@ pub fn batch_trait_context_bodies(files: &[FileIndex]) -> HashMap<String, HashSe
     bodies
 }
 
+/// Batch-wide state the three economy checks share across one pass over a
+/// file set, plus the config gates they run under.
+///
+/// Both `keel compile` and `keel review --base`'s two-sided pass drive W005/
+/// W006/W007 from here, because the review's baseline diff is only meaningful
+/// while the two sides run the *same* checks under the *same* gates: a check
+/// one side skips manufactures a phantom "new" finding on the other.
+pub struct EconomyBatch {
+    referenced: HashSet<String>,
+    trait_bodies: HashMap<String, HashSet<String>>,
+    seen_bodies: HashMap<String, (String, String, u32)>,
+}
+
+impl EconomyBatch {
+    /// Precompute the batch-wide facts for `files` (names referenced anywhere
+    /// in the batch, and the bodies that came from a trait context).
+    pub fn new(files: &[FileIndex]) -> Self {
+        Self {
+            referenced: batch_reference_names(files),
+            trait_bodies: batch_trait_context_bodies(files),
+            seen_bodies: HashMap::new(),
+        }
+    }
+
+    /// Run W005, W006 and W007 over one file, in that order, each gated by its
+    /// `enforce.*` switch.
+    ///
+    /// `existing_nodes` are the file's stored nodes. `size_nodes` is what W007
+    /// gets for the "and it grew" half of its semantics: `keel compile` passes
+    /// the stored nodes, while the review's two-sided pass passes `&[]` to
+    /// reduce W007 to a pure over-budget test — there the growth signal comes
+    /// from the base side of the diff instead.
+    pub fn check_file(
+        &mut self,
+        file: &FileIndex,
+        store: &dyn GraphStore,
+        existing_nodes: &[GraphNode],
+        size_nodes: &[GraphNode],
+        cfg: &EnforceConfig,
+    ) -> Vec<Violation> {
+        let mut out = Vec::new();
+        if cfg.dead_code {
+            out.extend(check_dead_code(
+                file,
+                store,
+                existing_nodes,
+                &self.referenced,
+            ));
+        }
+        if cfg.duplication {
+            out.extend(check_duplicate_implementation(
+                file,
+                store,
+                &mut self.seen_bodies,
+                &self.trait_bodies,
+            ));
+        }
+        if cfg.oversized_files {
+            out.extend(check_oversized_file(file, size_nodes, cfg.max_file_lines));
+        }
+        out
+    }
+}
+
 /// W005: private functions in this file with zero incoming `calls`/`uses`
 /// edges in the graph and no reference to them anywhere in the current
 /// compile batch.
@@ -114,7 +200,6 @@ pub fn check_dead_code(
     for def in &file.definitions {
         if def.kind != NodeKind::Function
             || def.is_public
-            || def.name.starts_with('_')
             // Symbols in a #[cfg(test)] module or a #[test]/#[tokio::test]
             // function are invoked by the harness, not by production code —
             // "no callers" is vacuously true regardless of naming convention.
@@ -124,10 +209,7 @@ pub fn check_dead_code(
             // resolves to the trait declaration, not to each implementor — so
             // "no callers" is an artifact of the analysis, not dead code.
             || def.in_trait_context
-            // `bench_*` covers criterion benches outside `benches/`; no
-            // language's test-context marking covers benchmark naming.
-            || def.name.starts_with("bench_")
-            || def.name.contains('.')
+            // `_`-prefixed, `bench_*`, qualified and entrypoint names.
             || is_entrypoint(def)
             // A Python `@register("evt")` / `@app.route(...)`-decorated
             // function is handed to the decorator, not called by name — a
@@ -313,6 +395,11 @@ pub fn check_duplicate_implementation(
 /// count, a different quantity: comparing against it would mask real growth
 /// behind trailing footers/test-mod declarations.) Trailing comments aren't
 /// counted; that under-approximation only makes the check more conservative.
+///
+/// Pass an empty `existing_nodes` to get the budget test alone, with no growth
+/// gate: that is how `crate::review::baseline` runs it, so the "and it grew"
+/// half comes from the base side of a PR rather than from whatever commit the
+/// graph was last mapped at.
 pub fn check_oversized_file(
     file: &FileIndex,
     existing_nodes: &[GraphNode],

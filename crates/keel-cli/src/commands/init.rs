@@ -8,6 +8,7 @@ mod helpers;
 mod hook_script;
 mod merge;
 mod templates;
+mod update_docs;
 
 use std::fs;
 
@@ -42,7 +43,18 @@ impl Default for HookSelection {
 ///
 /// When `merge` is true and `.keel/` already exists, re-initialize while
 /// preserving existing configuration (deep-merged with new defaults).
-pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: bool) -> i32 {
+///
+/// When `update_docs` is true, every other flag is ignored: this delegates
+/// entirely to [`update_docs::run`], the narrow, non-interactive "refresh the
+/// keel-managed docs and hook" path (see that module for details) rather than
+/// a full re-initialization.
+pub fn run(
+    formatter: &dyn OutputFormatter,
+    verbose: bool,
+    merge: bool,
+    yes: bool,
+    update_docs: bool,
+) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -50,6 +62,10 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
             return 2;
         }
     };
+
+    if update_docs {
+        return update_docs::run(&cwd, verbose);
+    }
 
     let keel_dir = keel_core::paths::keel_dir(&cwd);
     if keel_dir.exists() && !merge {
@@ -233,6 +249,13 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     if hook_selection.on_edit {
         hook_script::install_post_edit_hook(&cwd, verbose);
     }
+    // The Claude Code settings template wires `ExitPlanMode` to this script.
+    // Not gated behind a hook selection: it is advisory (always exits 0), so
+    // there is nothing for a user to opt out of except noise they can silence
+    // with `KEEL_PLAN_HOOK=0`.
+    if selected_tools.contains(&&DetectedTool::ClaudeCode) {
+        hook_script::install_plan_check_hook(&cwd, verbose);
+    }
 
     for tool in &selected_tools {
         let files = match tool {
@@ -305,9 +328,9 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
     eprintln!("  keel map       Build the structural graph");
     eprintln!("  keel compile   Validate contracts");
     eprintln!();
-    eprintln!("Telemetry is enabled by default (privacy-safe, no code/paths collected).");
-    eprintln!("  Opt out: keel --no-telemetry <command>, KEEL_NO_TELEMETRY=1, or");
-    eprintln!("           keel config telemetry.remote false");
+    eprintln!("Telemetry is local-only by default (privacy-safe, no code/paths collected).");
+    eprintln!("  Opt in to remote reporting: keel config telemetry.remote true");
+    eprintln!("  Opt out entirely: keel --no-telemetry <command>, or KEEL_NO_TELEMETRY=1");
     eprintln!();
     eprintln!("Tip: If keel saves you time \u{2192}  gh star FryrAI/Keel");
 

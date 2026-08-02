@@ -161,6 +161,35 @@ jobs:
             release/keel-windows-amd64.exe
             release/checksums-sha256.txt
 
+  major-tag:
+    # `keel init` scaffolds `uses: FryrAI/Keel/.github/actions/keel@v0`, and the
+    # keel action reaches for `keel-graph@v0` the same way. That reference only
+    # resolves if a moving major tag exists, so every release moves it — this is
+    # the standard marketplace convention (actions/checkout@v4 works the same
+    # way). A pre-release tag (v0.6.0-rc.1) must NOT move it.
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move the major tag to this release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "not a plain release tag ($RELEASE_TAG) — leaving the major tag alone"
+            exit 0
+          fi
+          major="${RELEASE_TAG%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$major" "$RELEASE_TAG^{}"
+          git push -f origin "refs/tags/$major"
+          echo "moved $major to $RELEASE_TAG"
+
   publish:
     needs: release
     runs-on: ubuntu-latest

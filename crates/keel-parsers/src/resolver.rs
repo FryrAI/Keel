@@ -139,6 +139,15 @@ pub struct Definition {
     /// a handler table keyed by string) that no exemption rule can see
     /// through. W005 skips it.
     pub has_keep_marker: bool,
+    /// True when this definition is a macro rather than a function — today
+    /// only a Rust `macro_rules! name` block. The node keeps
+    /// `NodeKind::Function` so nothing downstream changes shape; this flag
+    /// exists so macro *invocations* (`name!(...)`) resolve to macro
+    /// definitions and never to a same-named function. Deliberately
+    /// in-memory only: its sole consumer is the Rust resolver, which reads
+    /// the parse cache rather than the graph, so there is no `nodes.is_macro`
+    /// column and no schema bump. Other languages always carry `false`.
+    pub is_macro: bool,
 }
 
 impl Definition {
@@ -198,6 +207,33 @@ pub enum ReferenceKind {
     /// checking. W005 dead-code analysis consumes them so a function that is
     /// only ever handed around as a value is not reported as uncalled.
     Value,
+    /// A name recovered from framework *template markup* by a lexical scan —
+    /// today, an imported binding named inside a Svelte `{ ... }` expression
+    /// (`{@const pct = completenessPct(v)}`, `<Panel onDone={refresh} />`).
+    ///
+    /// The markup is never parsed, so this is a whole-word text match with no
+    /// syntax behind it: it proves the binding is used, and nothing more. Like
+    /// `Value` it becomes a `uses` edge, but at a lower confidence
+    /// (`keel_core::confidence::TEMPLATE_LEXICAL`) and under its own
+    /// `tier1_template` resolution tier, so a lexical hit is never mistaken for
+    /// a parsed call site.
+    Template,
+    /// A *string literal* whose text is the name of a known boundary symbol —
+    /// a cross-language dispatch key, e.g. the `"PlanBerichtSection"` in
+    /// `run_baml("PlanBerichtSection", input)` naming a `baml_src/*.baml`
+    /// function.
+    ///
+    /// Only literals in three syntactic positions are considered (call
+    /// argument, `match`-arm pattern, object/map key), and only those whose
+    /// text *exactly* equals a name already in the boundary index survive: a
+    /// literal that matches nothing known is dropped inside the parser and
+    /// never reaches this vector, so the graph gains no free-text nodes.
+    ///
+    /// Like `Value` it becomes a `uses` edge — at the producing boundary
+    /// provider's own confidence, under the `tier1_boundary_literal` tier. A
+    /// string is not a call site: it carries no argument list, so it must never
+    /// reach E001/E004/E005 or the fix planner.
+    Literal,
 }
 
 /// A reference (usage) of a symbol within a file.
@@ -275,6 +311,25 @@ pub struct FileIndex {
     pub external_endpoints: Vec<ExternalEndpoint>,
     /// Wall-clock microseconds spent parsing this file.
     pub parse_duration_us: u64,
+}
+
+impl FileIndex {
+    /// Assemble an index from a parse of `content` attributed to `file_path`.
+    ///
+    /// The content hash is computed here so every caller hashes the same bytes
+    /// the same way, and `parse_duration_us` starts at 0 for callers that do
+    /// not time the parse (set the field afterwards if you do).
+    pub fn from_parse(file_path: &str, content: &str, parsed: ParseResult) -> Self {
+        Self {
+            file_path: file_path.to_string(),
+            content_hash: xxhash_rust::xxh64::xxh64(content.as_bytes(), 0),
+            definitions: parsed.definitions,
+            references: parsed.references,
+            imports: parsed.imports,
+            external_endpoints: parsed.external_endpoints,
+            parse_duration_us: 0,
+        }
+    }
 }
 
 /// Thread-safe per-file parse cache shared by every language resolver.
@@ -358,6 +413,7 @@ mod tests {
                 is_auto_invoked: false,
                 is_decorated: false,
                 has_keep_marker: false,
+                is_macro: false,
             }],
             references: vec![],
             imports: vec![],

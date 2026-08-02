@@ -10,25 +10,48 @@ use keel_core::types::{EdgeDirection, EdgeKind, GraphNode};
 use crate::engine::EnforcementEngine;
 use crate::types::DiscoverResult;
 
-/// Count the stored `Calls` edges INTO `node_id` — its fan-in (caller count).
+/// True for the edge kinds that make one node *depend on* another: a resolved
+/// call, and a name used as a value (callback, handler table, Svelte template
+/// expression).
 ///
-/// The shared home for the `get_edges + filter(Calls) + count` idiom that was
+/// The adjacency surfaces — `discover`, `focus`, `search` — answer "what
+/// depends on this?", and a `uses` edge answers it: a function reached only
+/// through `.map(render)` or `<Panel onDone={refresh} />` is being used, and is
+/// not free to delete. Counting only `Calls` reported those functions at zero
+/// callers, which is the same false-dead-code signal W005 already refuses to
+/// send.
+///
+/// The set itself lives in `keel_core::types::SYMBOL_DEP_KINDS`, which the
+/// metrics SQL renders its `IN (...)` list from — one definition, two readers.
+///
+/// Severity checks deliberately do NOT go through here. E001/E004/E005 and the
+/// fix planner filter [`EdgeKind::Calls`] themselves, because only a parsed
+/// call site carries an argument list.
+pub fn is_dependency_edge(kind: &EdgeKind) -> bool {
+    keel_core::types::SYMBOL_DEP_KINDS.contains(kind)
+}
+
+/// Count the stored dependency edges INTO `node_id` — its fan-in (caller
+/// count), including value/template uses (see [`is_dependency_edge`]).
+///
+/// The shared home for the `get_edges + filter + count` idiom that was
 /// copy-pasted across focus, checkpoint, check, and the CLI. Callers hand it a
 /// `&dyn GraphStore` so every interface counts the same way.
 pub fn call_fan_in(store: &dyn GraphStore, node_id: u64) -> u32 {
     store
         .get_edges(node_id, EdgeDirection::Incoming)
         .iter()
-        .filter(|e| e.kind == EdgeKind::Calls)
+        .filter(|e| is_dependency_edge(&e.kind))
         .count() as u32
 }
 
-/// Count the stored `Calls` edges OUT OF `node_id` — its fan-out (callee count).
+/// Count the stored dependency edges OUT OF `node_id` — its fan-out (callee
+/// count), including value/template uses (see [`is_dependency_edge`]).
 pub fn call_fan_out(store: &dyn GraphStore, node_id: u64) -> u32 {
     store
         .get_edges(node_id, EdgeDirection::Outgoing)
         .iter()
-        .filter(|e| e.kind == EdgeKind::Calls)
+        .filter(|e| is_dependency_edge(&e.kind))
         .count() as u32
 }
 

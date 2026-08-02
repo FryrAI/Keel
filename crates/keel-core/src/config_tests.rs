@@ -47,7 +47,7 @@ fn test_roundtrip_all_non_default_values() {
         tier: Tier::Enterprise,
         telemetry: TelemetryConfig {
             enabled: false,
-            remote: false,
+            remote: true, // default (T1.1) is false
             endpoint: Some("https://custom.example.com/telemetry".to_string()),
         },
         monorepo: MonorepoConfig {
@@ -71,6 +71,16 @@ fn test_roundtrip_all_non_default_values() {
                 m
             },
             prefer_scip: false,
+        },
+        architecture: ArchitectureConfig {
+            count_type_deps: true, // default is false
+            deny: vec![
+                ("core".to_string(), "frontend".to_string()),
+                ("canonical".to_string(), "harness".to_string()),
+            ],
+        },
+        review: ReviewConfig {
+            gate: vec!["E003".to_string(), "W007".to_string()], // default is empty
         },
         telemetry_id: Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string()),
     };
@@ -107,7 +117,7 @@ fn test_roundtrip_all_non_default_values() {
     );
     assert_eq!(roundtripped.tier, Tier::Enterprise);
     assert!(!roundtripped.telemetry.enabled);
-    assert!(!roundtripped.telemetry.remote);
+    assert!(roundtripped.telemetry.remote);
     assert_eq!(
         roundtripped.telemetry.endpoint,
         Some("https://custom.example.com/telemetry".to_string())
@@ -128,10 +138,58 @@ fn test_roundtrip_all_non_default_values() {
         &vec!["pyright-langserver", "--stdio"]
     );
     assert!(!roundtripped.tier3.prefer_scip);
+    assert!(roundtripped.architecture.count_type_deps);
+    assert_eq!(
+        roundtripped.architecture.deny,
+        vec![
+            ("core".to_string(), "frontend".to_string()),
+            ("canonical".to_string(), "harness".to_string()),
+        ]
+    );
+    assert_eq!(roundtripped.review.gate, vec!["E003", "W007"]);
     assert_eq!(
         roundtripped.telemetry_id,
         Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string())
     );
+}
+
+/// `keel review --gate` is opt-in twice over: no config block at all means no
+/// gated codes, and a config that names codes must survive a load.
+#[test]
+fn test_load_review_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "version": "0.1.0",
+        "languages": ["rust"],
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+    assert!(KeelConfig::load(dir.path()).review.gate.is_empty());
+
+    let config = serde_json::json!({
+        "version": "0.1.0",
+        "languages": ["rust"],
+        "review": { "gate": ["W007"] }
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+    assert_eq!(KeelConfig::load(dir.path()).review.gate, vec!["W007"]);
+}
+
+/// The documented `"architecture": {"deny": [["a","b"]]}` shape must parse —
+/// a deny pair is a JSON array of two strings, not an object.
+#[test]
+fn test_load_architecture_deny_pairs() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "version": "0.1.0",
+        "languages": ["rust"],
+        "architecture": { "deny": [["core", "frontend"], ["canonical", "harness"]] }
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+    let cfg = KeelConfig::load(dir.path());
+    assert!(!cfg.architecture.count_type_deps, "off unless asked for");
+    assert_eq!(cfg.architecture.deny.len(), 2);
+    assert_eq!(cfg.architecture.deny[0].0, "core");
+    assert_eq!(cfg.architecture.deny[0].1, "frontend");
 }
 
 #[test]
@@ -189,7 +247,9 @@ fn test_tier_roundtrip() {
 fn test_telemetry_defaults() {
     let cfg = TelemetryConfig::default();
     assert!(cfg.enabled);
-    assert!(cfg.remote);
+    // T1.1: opt-in remote reporting is the honest default for a tool that
+    // would otherwise block the compile hot path on a network round trip.
+    assert!(!cfg.remote);
     assert!(cfg.endpoint.is_none());
     assert_eq!(
         cfg.effective_endpoint(),
@@ -211,7 +271,9 @@ fn test_backward_compat_old_json_without_new_fields() {
     let cfg: KeelConfig = serde_json::from_str(old_json).unwrap();
     assert_eq!(cfg.tier, Tier::Free);
     assert!(cfg.telemetry.enabled);
-    assert!(cfg.telemetry.remote);
+    // T1.1: remote now defaults to false, including for old configs that
+    // predate the telemetry block entirely.
+    assert!(!cfg.telemetry.remote);
     assert!(!cfg.monorepo.enabled);
     assert!(cfg.monorepo.kind.is_none());
     assert!(cfg.monorepo.packages.is_empty());
@@ -220,6 +282,33 @@ fn test_backward_compat_old_json_without_new_fields() {
     assert!(cfg.tier3.lsp_commands.is_empty());
     assert!(cfg.tier3.prefer_scip);
     assert!(cfg.telemetry_id.is_none());
+}
+
+#[test]
+fn test_sync_version_updates_only_the_version_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "version": "0.3.6",
+        "languages": ["rust"],
+        "circuit_breaker": { "max_failures": 9 }
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+
+    KeelConfig::sync_version(dir.path(), "0.4.3").expect("sync_version should succeed");
+
+    let cfg = KeelConfig::load(dir.path());
+    assert_eq!(cfg.version, "0.4.3");
+    assert_eq!(cfg.languages, vec!["rust"]);
+    assert_eq!(cfg.circuit_breaker.max_failures, 9); // preserved, not reset to default
+}
+
+#[test]
+fn test_sync_version_noop_without_keel_json() {
+    let dir = tempfile::tempdir().unwrap();
+    // No keel.json written.
+    let result = KeelConfig::sync_version(dir.path(), "0.4.3");
+    assert!(result.is_ok());
+    assert!(!dir.path().join("keel.json").exists());
 }
 
 #[test]

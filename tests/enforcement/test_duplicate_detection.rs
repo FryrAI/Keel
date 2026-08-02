@@ -69,6 +69,7 @@ fn make_func_def(name: &str, file: &str, line: u32) -> Definition {
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     }
 }
 
@@ -395,6 +396,7 @@ fn test_w002_class_not_reported() {
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     };
     let file = make_file("b.py", vec![class_def]);
 

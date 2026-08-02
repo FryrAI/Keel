@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use rusqlite::{params, Result as SqlResult};
 
 use crate::sqlite::SqliteGraphStore;
+use crate::sqlite_meta::BATCH_STATE;
 use crate::store::GraphStore;
 use crate::types::{
     BodyIndexEntry, EdgeKind, ExternalEndpoint, GraphEdge, GraphError, GraphNode, NodeKind,
@@ -199,30 +200,17 @@ impl SqliteGraphStore {
     /// `keel_meta` row so batch mode persists the same way circuit-breaker
     /// state does — one atomic SQLite write, no stray `.keel/batch.json`.
     pub fn load_batch(&self) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT value FROM keel_meta WHERE key = 'batch'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
+        self.query_meta_value(BATCH_STATE)
     }
 
     /// Persist the batch-mode state blob, replacing any previous one atomically.
     pub fn save_batch(&self, json: &str) -> Result<(), GraphError> {
-        self.conn.execute(
-            "INSERT INTO keel_meta (key, value) VALUES ('batch', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![json],
-        )?;
-        Ok(())
+        self.set_meta_value(BATCH_STATE, json)
     }
 
     /// Remove any persisted batch-mode state (batch ended or expired).
     pub fn clear_batch(&self) -> Result<(), GraphError> {
-        self.conn
-            .execute("DELETE FROM keel_meta WHERE key = 'batch'", [])?;
-        Ok(())
+        self.clear_meta_value(BATCH_STATE)
     }
 
     /// Load circuit breaker state from the database.

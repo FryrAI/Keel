@@ -274,3 +274,99 @@ fn main() {
         names
     );
 }
+
+/// Build a crate on disk whose `src/` holds `files`, and return the temp dir.
+fn crate_with(files: &[(&str, &str)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir(&src).unwrap();
+    for (name, content) in files {
+        std::fs::write(src.join(name), content).unwrap();
+    }
+    dir
+}
+
+/// Parse every `src/*.rs` file of `dir` into `resolver`'s cache.
+fn parse_all(resolver: &RustLangResolver, dir: &tempfile::TempDir, names: &[&str]) {
+    for name in names {
+        let path = dir.path().join("src").join(name);
+        let content = std::fs::read_to_string(&path).unwrap();
+        resolver.parse_file(&path, &content);
+    }
+}
+
+#[test]
+/// A `use` whose source resolves to a bare file path names its target by the
+/// callee's name alone. When that name is defined in more than two other
+/// files and the named file defines nothing of the sort, keel reports no edge
+/// rather than a 0.50-confidence guess.
+fn test_ambiguous_name_only_import_emits_no_edge() {
+    let dir = crate_with(&[
+        // The import target exists but defines something else entirely.
+        ("a.rs", "pub fn unrelated() -> i32 { 0 }\n"),
+        ("b.rs", "pub fn run() -> i32 { 1 }\n"),
+        ("c.rs", "pub fn run() -> i32 { 2 }\n"),
+        ("d.rs", "pub fn run() -> i32 { 3 }\n"),
+        (
+            "caller.rs",
+            "use crate::a::run;\n\nfn go() -> i32 { run() }\n",
+        ),
+    ]);
+    let resolver = RustLangResolver::new();
+    parse_all(
+        &resolver,
+        &dir,
+        &["a.rs", "b.rs", "c.rs", "d.rs", "caller.rs"],
+    );
+
+    let caller = dir.path().join("src/caller.rs");
+    let edge = resolver.resolve_call_edge(&CallSite {
+        file_path: caller.to_string_lossy().to_string(),
+        line: 3,
+        callee_name: "run".into(),
+        receiver: None,
+    });
+    assert!(
+        edge.is_none(),
+        "`run` is defined in 3 files and the import target defines none of \
+         them, so keel must emit no edge; got {edge:?}"
+    );
+}
+
+#[test]
+/// The same shape still resolves when the imported file really does define
+/// the name — the ambiguity gate must not swallow confirmed imports.
+fn test_confirmed_name_only_import_still_resolves() {
+    let dir = crate_with(&[
+        ("a.rs", "pub fn run() -> i32 { 0 }\n"),
+        ("b.rs", "pub fn run() -> i32 { 1 }\n"),
+        ("c.rs", "pub fn run() -> i32 { 2 }\n"),
+        ("d.rs", "pub fn run() -> i32 { 3 }\n"),
+        (
+            "caller.rs",
+            "use crate::a::run;\n\nfn go() -> i32 { run() }\n",
+        ),
+    ]);
+    let resolver = RustLangResolver::new();
+    parse_all(
+        &resolver,
+        &dir,
+        &["a.rs", "b.rs", "c.rs", "d.rs", "caller.rs"],
+    );
+
+    let caller = dir.path().join("src/caller.rs");
+    let edge = resolver
+        .resolve_call_edge(&CallSite {
+            file_path: caller.to_string_lossy().to_string(),
+            line: 3,
+            callee_name: "run".into(),
+            receiver: None,
+        })
+        .expect("an import naming a file that defines the callee must resolve");
+    assert!(
+        edge.target_file.ends_with("a.rs"),
+        "unexpected target: {}",
+        edge.target_file
+    );
+}

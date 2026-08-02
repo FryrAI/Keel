@@ -1,12 +1,20 @@
 use crate::types::{
-    BodyIndexEntry, EdgeChange, EdgeDirection, GraphEdge, GraphError, GraphNode, ModuleProfile,
-    NodeChange, ResolutionCacheEntry,
+    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
+    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
 };
 
 /// FROZEN CONTRACT — GraphStore trait.
 ///
-/// Agent A owns this interface. Agents B and C consume it.
-/// Do NOT modify this trait signature without coordination.
+/// Every method signature below is frozen: it is the one seam between the graph
+/// backend and every consumer (enforce, cli, server), and changing one breaks
+/// all of them at once.
+///
+/// Extension happens ONLY by adding a new method that carries a default
+/// implementation, so a backend that has not implemented it keeps compiling and
+/// — this is the part that matters — falls on the "say nothing" side rather
+/// than the "answer wrongly" side. `test_boundary_defaults_are_silent` in this
+/// file is what that guarantee looks like as a test; a new default belongs
+/// there too.
 pub trait GraphStore {
     /// Look up a node by its content hash.
     fn get_node(&self, hash: &str) -> Option<GraphNode>;
@@ -85,6 +93,56 @@ pub trait GraphStore {
     ) -> Result<(), GraphError> {
         let _ = entries;
         Ok(())
+    }
+
+    /// Read one `keel_meta` key (e.g. `last_map_at`), or `None` when unset.
+    ///
+    /// Additive with a `None` default: a backend without a metadata table
+    /// simply reports "never mapped", which keeps the W009 bootstrap guard on
+    /// the silent side.
+    fn meta_value(&self, key: &str) -> Option<String> {
+        let _ = key;
+        None
+    }
+
+    /// Boundary facts about the stored nodes under `dir` (a repo-relative
+    /// directory path, no trailing slash) — see [`ModuleBoundaryInfo`].
+    fn module_boundary_info(&self, dir: &str) -> ModuleBoundaryInfo {
+        let _ = dir;
+        ModuleBoundaryInfo::default()
+    }
+
+    /// Look up every stored PUBLIC, non-associated function node whose name is
+    /// in `names`, excluding those declared in `exclude_file`.
+    ///
+    /// One query for the whole name set — W009 runs in the compile hot path
+    /// and cannot afford a round trip per reference.
+    fn find_boundary_targets(&self, names: &[&str], exclude_file: &str) -> Vec<BoundaryTarget> {
+        let _ = (names, exclude_file);
+        Vec::new()
+    }
+
+    /// Name of the most-called public function in `boundary` — the façade an
+    /// erosion warning points at instead of the internal symbol just reached
+    /// for. `None` when the boundary exposes no public function.
+    ///
+    /// Only ever called when a violation is about to fire, so its cost is off
+    /// the clean-compile path.
+    fn boundary_facade(&self, boundary: &Boundary) -> Option<String> {
+        let _ = boundary;
+        None
+    }
+
+    /// Everything the `keel quality` metrics are computed from — see
+    /// [`QualityInputs`].
+    ///
+    /// Additive with an empty default: a backend that cannot answer reports no
+    /// metrics rather than wrong ones. The SQLite implementation answers the
+    /// whole bundle in four aggregate queries, which is what keeps a
+    /// measurement off the "walk every node's edges" path and inside the CI
+    /// step's budget.
+    fn quality_inputs(&self) -> QualityInputs {
+        QualityInputs::default()
     }
 }
 
@@ -177,5 +235,19 @@ mod tests {
             store.load_resolution_cache().is_empty(),
             "a backend without a resolution cache starts cold"
         );
+    }
+
+    #[test]
+    fn test_boundary_defaults_are_silent() {
+        let store = MinimalStore;
+        // Every default has to fall on the "say nothing" side: a backend that
+        // cannot answer boundary questions must not make W009 fire.
+        assert!(store.meta_value("last_map_at").is_none());
+        assert!(!store.module_boundary_info("src").is_mapped());
+        assert!(store.module_boundary_info("src").package.is_none());
+        assert!(store.find_boundary_targets(&["run"], "src/a.rs").is_empty());
+        assert!(store
+            .boundary_facade(&Boundary::Package("core".into()))
+            .is_none());
     }
 }

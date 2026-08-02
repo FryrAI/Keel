@@ -232,6 +232,25 @@ impl CircuitBreaker {
         self.clear_resolved_by_provenance(file_path, &active);
     }
 
+    /// Reconcile a non-file scope against the findings that just fired in it.
+    ///
+    /// `keel validate-plan` records its `P001`/`P002` findings under a
+    /// pseudo-file scope (there is no source file a plan claim belongs to), so
+    /// it needs the provenance sweep without the node/reference scope sets
+    /// [`CircuitBreaker::reconcile_file`] builds. Entries recorded against
+    /// `scope` that are absent from `active` — `(code, identifier)` pairs — are
+    /// cleared, which is what lets a corrected plan lift a prior downgrade.
+    pub fn reconcile_scope(&mut self, scope: &str, active: &[(String, String)]) {
+        if self.state.is_empty() {
+            return;
+        }
+        let active: HashSet<(String, String)> = active
+            .iter()
+            .map(|(code, ident)| Self::make_key(code, ident, scope))
+            .collect();
+        self.clear_resolved_by_provenance(scope, &active);
+    }
+
     /// Check if a (error_code, hash/file) pair has been downgraded.
     pub fn is_downgraded(&self, error_code: &str, hash: &str, file_path: &str) -> bool {
         let key = Self::make_key(error_code, hash, file_path);

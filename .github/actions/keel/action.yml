@@ -1,5 +1,10 @@
 name: "keel - Structural Code Enforcement"
-description: "Run keel compile to enforce structural integrity in CI"
+description: "Install keel, provision its graph from cache, annotate the diff, and keep one sticky review comment on the PR"
+
+# The one CI recipe. `keel init` scaffolds a workflow that calls this action and
+# nothing else, so there is a single place to fix when the recipe changes —
+# before this, keel's own scaffold ran `curl install.sh` + `keel map --strict`
+# and a user following it never saw keel's annotations at all.
 
 branding:
   icon: "shield"
@@ -10,18 +15,26 @@ inputs:
     description: "keel version to use (default: latest)"
     required: false
     default: "latest"
-  args:
-    description: "Arguments to pass to keel (default: compile --changed)"
+  mode:
+    description: "'review' (two-sided graph diff + sticky comment), 'compile' (compile --changed), or 'auto': review on pull_request, compile otherwise"
     required: false
-    default: "compile --changed"
+    default: "auto"
+  args:
+    description: "Full keel arguments, overriding `mode` entirely (e.g. 'compile --since HEAD~5'). Runs exactly this one command: no second review pass, no sticky comment"
+    required: false
+    default: ""
+  comment:
+    description: "Post/update the sticky PR comment in review mode"
+    required: false
+    default: "true"
   github-token:
-    description: "GitHub token for downloading releases"
+    description: "GitHub token, used to download releases and to post the sticky comment"
     required: false
     default: ${{ github.token }}
 
 outputs:
   violation-count:
-    description: "Number of violations found"
+    description: "Number of annotations keel emitted"
     value: ${{ steps.run.outputs.violation-count }}
   exit-code:
     description: "keel exit code"
@@ -29,6 +42,9 @@ outputs:
   summary:
     description: "Human-readable summary of results"
     value: ${{ steps.run.outputs.summary }}
+  graph-sha:
+    description: "The commit the graph used for this run describes"
+    value: ${{ steps.graph.outputs.graph-sha }}
 
 runs:
   using: "composite"
@@ -40,48 +56,142 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: ${{ github.action_path }}/entrypoint.sh install
 
+    # Referenced by full repo path rather than `./.github/actions/keel-graph`:
+    # a relative `uses:` inside a composite action resolves against the CALLING
+    # repository's workspace, which does not contain this action.
+    - name: Provision the graph
+      id: graph
+      uses: FryrAI/Keel/.github/actions/keel-graph@v0
+
     - name: Run keel
       id: run
       shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ARGS: ${{ inputs.args }}
+        EVENT_NAME: ${{ github.event_name }}
+        GRAPH_SHA: ${{ steps.graph.outputs.graph-sha }}
+        # Scratch space outside the checkout: `keel review` diffs the working
+        # tree, and CI output files have no business appearing in it.
+        ANNOTATIONS: ${{ runner.temp }}/keel-annotations.txt
+        REVIEW: ${{ runner.temp }}/keel-review.txt
       run: |
-        set +e
-        output=$(keel ${{ inputs.args }} --json 2>&1)
+        set -uo pipefail
+
+        mode="$MODE"
+        if [ "$mode" = "auto" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then mode="review"; else mode="compile"; fi
+        fi
+
+        # An explicit `args:` wins over `mode` — the escape hatch for anything
+        # this action does not model. It becomes its OWN mode: the caller's
+        # command IS the run, so the review plumbing below (a second `keel
+        # review`, the sticky comment keyed on this output) must not fire on top
+        # of it just because the event happened to be a pull_request.
+        if [ -n "$ARGS" ]; then
+          mode="custom"
+          read -r -a cmd <<<"$ARGS"
+        elif [ "$mode" = "review" ]; then
+          cmd=(review --base "$GRAPH_SHA")
+        elif [ "$mode" = "compile" ]; then
+          cmd=(compile --changed)
+        else
+          echo "::error::unknown keel mode '$mode' (expected review, compile, or auto)"
+          exit 2
+        fi
+        echo "mode=$mode" >>"$GITHUB_OUTPUT"
+
+        # `--format github` makes the binary emit the annotations itself. It
+        # replaced an inline interpreter heredoc that reshaped keel's JSON — an
+        # undeclared runtime dependency in a tool whose Article 1 is "single
+        # binary, zero runtime dependencies". Keep this step interpreter-free.
+        keel "${cmd[@]}" --format github >"$ANNOTATIONS"
         exit_code=$?
-        set -e
-        echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
+        echo "exit-code=$exit_code" >>"$GITHUB_OUTPUT"
 
-        # Count violations from JSON output
-        violations=$(echo "$output" | grep -c '"code":' || echo "0")
-        echo "violation-count=$violations" >> "$GITHUB_OUTPUT"
+        # The annotations ARE the output: echoing them is what posts them.
+        cat "$ANNOTATIONS"
 
-        # Generate PR annotations from JSON output
-        echo "$output" | python3 -c "
-        import sys, json
-        try:
-            data = json.load(sys.stdin)
-            for v in data.get('errors', []) + data.get('warnings', []):
-                level = 'error' if v['severity'] == 'ERROR' else 'warning'
-                print(f'::{level} file={v[\"file\"]},line={v[\"line\"]}::[{v[\"code\"]}] {v[\"message\"]}')
-        except: pass
-        " 2>/dev/null || true
+        # One annotation per violation; a clean run prints nothing at all.
+        violations="$(grep -c '^::' "$ANNOTATIONS")"
+        echo "violation-count=$violations" >>"$GITHUB_OUTPUT"
 
-        # Build summary line
-        if [ "$exit_code" -eq 0 ]; then
-          summary="Clean compile — no violations"
+        if [ "$exit_code" -eq 0 ] && [ "$violations" -eq 0 ]; then
+          summary="Clean — no violations"
         else
           summary="Found $violations violation(s)"
         fi
-        echo "summary=$summary" >> "$GITHUB_OUTPUT"
+        echo "summary=$summary" >>"$GITHUB_OUTPUT"
 
-        # Step summary
-        echo "### keel Compile Results" >> "$GITHUB_STEP_SUMMARY"
-        if [ "$exit_code" -eq 0 ]; then
-          echo "Clean compile — no violations" >> "$GITHUB_STEP_SUMMARY"
+        # In review mode the sticky comment is the report; the plain rendering
+        # is produced here so the comment step is pure plumbing.
+        if [ "$mode" = "review" ]; then
+          # A review that could not run must leave no body behind: an empty
+          # file reads as "clean", and the comment would say so untruthfully.
+          rm -f "$REVIEW"
+          keel review --base "$GRAPH_SHA" >"$REVIEW" || rm -f "$REVIEW"
         else
-          echo "Found $violations violation(s)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "$output" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### keel ${cmd[0]}"
+            echo ""
+            echo "$summary"
+            if [ "$violations" -gt 0 ]; then
+              echo ""
+              echo '```'
+              cat "$ANNOTATIONS"
+              echo '```'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
         fi
 
         exit $exit_code
+
+    - name: Quality snapshot
+      # One reading per merge on the default branch — the time axis `keel
+      # quality --trend` reads. Push-only and default-branch-only: a pull
+      # request's graph describes the merge base, not the merged result, so
+      # snapshotting one would record a state that never existed.
+      #
+      # `always()`: a merge that carried violations is still a merge, and the
+      # series must not develop holes wherever the build went red.
+      #
+      # Honest limitation: the graph cache is keyed on the exact commit, so a
+      # push run always starts from a graph built for THIS commit and the
+      # series accumulates in the developer's local `.keel/graph.db` (which
+      # `keel map` deliberately does not clear), not in CI. This step is what
+      # puts the reading in front of a human on every merge.
+      if: ${{ always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      shell: bash
+      run: |
+        set -uo pipefail
+
+        if [ ! -f .keel/graph.db ]; then
+          echo "keel: no graph to measure — skipping the quality snapshot"
+          exit 0
+        fi
+
+        # ~10ms of graph work. `keel quality` never gates, and neither does
+        # this step: a failed measurement must not turn a green merge red.
+        reading="$(keel quality --snapshot --llm)" || reading=""
+        if [ -n "$reading" ]; then
+          echo "$reading"
+          {
+            echo "### keel quality"
+            echo ""
+            echo '```'
+            echo "$reading"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Sticky review comment
+      # `always()`: a red compile in review mode must still leave the report on
+      # the PR, and a fork's read-only token must never turn into a red run.
+      if: ${{ always() && inputs.comment == 'true' && steps.run.outputs.mode == 'review' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+      run: ${{ github.action_path }}/sticky_comment.sh "${{ runner.temp }}/keel-review.txt"

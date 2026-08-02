@@ -1,9 +1,11 @@
 mod test_edge_creation;
 mod test_hash_collision;
 mod test_hash_computation;
+mod test_macro_edges;
 mod test_module_profile;
 mod test_node_creation;
 mod test_previous_hashes;
+mod test_quality_snapshots;
 mod test_schema_migration;
 mod test_sqlite_advanced;
 mod test_sqlite_storage;

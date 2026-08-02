@@ -5,6 +5,7 @@ use std::path::Path;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
+use crate::file_class::FileClass;
 use crate::types::{AuditFinding, AuditSeverity};
 
 /// Language-aware comment prefix for file header detection.
@@ -121,6 +122,11 @@ pub fn check_discoverability(
     for module in &modules {
         let path = &module.file_path;
         let nodes = store.get_nodes_in_file(path);
+        // Naming and API-surface smells are graded on hand-written source
+        // only. `cryptic_name` on a test helper and "percent public" on a
+        // generated client or a `.baml` contract are category errors — the
+        // latter is a concept BAML's DSL does not have (see `file_class`).
+        let graded = FileClass::classify(path).grades_size_and_naming();
 
         // File header check
         if comment_prefix(path).is_some() && !has_file_header(root_dir, path) {
@@ -160,7 +166,7 @@ pub fn check_discoverability(
             }
 
             // Cryptic name
-            if node.kind == NodeKind::Function && is_cryptic_name(&node.name) {
+            if graded && node.kind == NodeKind::Function && is_cryptic_name(&node.name) {
                 findings.push(AuditFinding {
                     severity: AuditSeverity::Warn,
                     check: "cryptic_name".into(),
@@ -194,7 +200,7 @@ pub fn check_discoverability(
         }
 
         // Public API surface ratio
-        if total_count > 5 && public_count > 0 {
+        if graded && total_count > 5 && public_count > 0 {
             let ratio = public_count as f64 / total_count as f64;
             if ratio > 0.9 {
                 findings.push(AuditFinding {

@@ -35,11 +35,13 @@ pub fn violation_priority(code: &str) -> u32 {
         "E004" => 0, // function_removed — most critical
         "E001" => 1, // broken_caller
         "E005" => 2, // arity_mismatch
-        "E002" => 3, // missing_type_hints
-        "E003" => 4, // missing_docstring
-        "W001" => 5, // placement
-        "W002" => 6, // duplicate_name
-        _ => 7,
+        "E006" => 3, // layer_violation — a denied architectural dependency
+        "E002" => 4, // missing_type_hints
+        "E003" => 5, // missing_docstring
+        "W009" => 6, // new_cross_boundary_dep — cheapest to reverse right now
+        "W001" => 7, // placement
+        "W002" => 8, // duplicate_name
+        _ => 9,
     }
 }
 

@@ -4,6 +4,8 @@ use std::path::Path;
 
 use crate::resolver::Import;
 
+use super::resolution_gates::is_rust_prelude_macro;
+
 /// Check if a Rust definition at the given line is `pub`.
 /// Handles `pub fn`, `pub(crate) fn`, `pub(super) fn`, `pub(in path) fn`.
 pub fn rust_is_public(content: &str, line_start: u32) -> bool {
@@ -303,7 +305,12 @@ const BUILTIN_ATTRS: &[&str] = &[
 ];
 
 /// Extract attribute macros from `#[path::name]` or `#[path::name(...)]`.
-/// Skips built-in attrs (see BUILTIN_ATTRS).
+///
+/// Skips built-in attrs (see BUILTIN_ATTRS) and anything naming a prelude
+/// macro (see `RUST_PRELUDE_MACROS`) in its first or last segment: an
+/// attribute path routed through `core`/`std` has the same name-collision
+/// shape as a bang invocation and would resolve to a same-named function.
+///
 /// Returns Vec<(macro_path, line_number)> with 1-based line numbers.
 pub fn extract_attribute_macros(content: &str) -> Vec<(String, u32)> {
     let mut result = Vec::new();
@@ -327,6 +334,12 @@ pub fn extract_attribute_macros(content: &str) -> Vec<(String, u32)> {
         // Check if it's a built-in: compare the first segment
         let first_segment = attr_path.split("::").next().unwrap_or(attr_path);
         if BUILTIN_ATTRS.contains(&first_segment) {
+            continue;
+        }
+        // Same gate as a bang invocation: a prelude macro is external, so it
+        // must never become a reference that resolves to a repo function.
+        let last_segment = attr_path.rsplit("::").next().unwrap_or(attr_path);
+        if is_rust_prelude_macro(first_segment) || is_rust_prelude_macro(last_segment) {
             continue;
         }
 

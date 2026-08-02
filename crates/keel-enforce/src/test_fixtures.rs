@@ -31,6 +31,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     }
 }
 
@@ -68,6 +69,7 @@ pub(crate) fn decorated_definition(name: &str, file: &str) -> Definition {
 pub(crate) fn keep_marker_definition(name: &str, file: &str) -> Definition {
     Definition {
         has_keep_marker: true,
+        is_macro: false,
         ..definition(name, file, false)
     }
 }

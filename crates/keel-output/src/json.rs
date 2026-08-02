@@ -1,9 +1,12 @@
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
+    StatsResult,
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
@@ -48,6 +51,9 @@ impl OutputFormatter for JsonFormatter {
         format_checkpoint: CheckpointResult,
         format_validate_plan: PlanValidationResult,
         format_semantic_map: SemanticMapResult,
+        format_review: ReviewResult,
+        format_quality: QualityReport,
+        format_stats: StatsResult,
     }
 }
 

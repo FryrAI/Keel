@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use keel_enforce::batch::PersistentBatch;
 use keel_output::OutputFormatter;
+use keel_parsers::boundary::BoundaryLiterals;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{FileIndex, LanguageResolver};
@@ -16,22 +17,50 @@ use super::compile_metrics::build_compile_metrics;
 use crate::telemetry_recorder::EventMetrics;
 use keel_core::paths::make_relative;
 
+/// Everything `keel compile` was asked to do, straight off the command line.
+///
+/// A struct rather than a thirteenth positional parameter: every flag here is
+/// a `bool` or an `Option<String>`, and at that arity the compiler stops being
+/// able to tell them apart.
+pub struct CompileArgs {
+    /// Files to compile; empty means "whatever git says changed".
+    pub files: Vec<String>,
+    pub batch_start: bool,
+    pub batch_end: bool,
+    /// Treat warnings as errors.
+    pub strict: bool,
+    /// A single code to downgrade to S001/INFO for this run.
+    pub suppress: Option<String>,
+    /// Scope to the working-tree diff against HEAD.
+    pub changed: bool,
+    /// Scope to the committed range `<commit>..HEAD`.
+    pub since: Option<String>,
+    /// Report only what changed since the last compile's snapshot.
+    pub delta: bool,
+    /// Soft time budget in milliseconds.
+    pub timeout: Option<u64>,
+    /// Emit GitHub Actions workflow commands instead of a keel format.
+    pub github: bool,
+}
+
 /// Run `keel compile` — incremental validation of changed files.
-#[allow(clippy::too_many_arguments)]
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
-    files: Vec<String>,
-    batch_start: bool,
-    batch_end: bool,
-    strict: bool,
-    suppress: Option<String>,
-    _depth: u32,
-    changed: bool,
-    since: Option<String>,
-    delta: bool,
-    timeout: Option<u64>,
+    args: CompileArgs,
 ) -> (i32, EventMetrics) {
+    let CompileArgs {
+        files,
+        batch_start,
+        batch_end,
+        strict,
+        suppress,
+        changed,
+        since,
+        delta,
+        timeout,
+        github,
+    } = args;
     let start = Instant::now();
 
     let cwd = match std::env::current_dir() {
@@ -47,6 +76,13 @@ pub fn run(
         eprintln!("keel compile: not initialized. Run `keel init` first.");
         return (2, EventMetrics::default());
     }
+
+    // One config load serves both the drift check and the engine below.
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
+
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
+    // At most one line, emitted once per invocation.
+    super::version_drift::warn(&cwd, &config);
 
     // Acquire compile lock to prevent concurrent corruption
     let _lock = match acquire_compile_lock(&keel_dir, verbose) {
@@ -65,6 +101,15 @@ pub fn run(
             return (2, EventMetrics::default());
         }
     };
+
+    // Refuse to enforce against a graph built on a commit this checkout does
+    // not contain: every caller and every removal it reports would be phantom.
+    // Exit 2 (internal error), never 0 — a stale graph must fail loudly, which
+    // is the one thing "no graph" already does for free.
+    if let Some(msg) = super::graph_staleness::stale_graph_message(&cwd, &store) {
+        eprintln!("{msg}");
+        return (2, EventMetrics::default());
+    }
 
     // Handle batch mode. State is persisted in SQLite (a `keel_meta` row next
     // to the circuit-breaker state) so it survives across separate `keel
@@ -88,7 +133,7 @@ pub fn run(
             .unwrap_or_default();
         PersistentBatch::clear(&store);
         let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
-        let exit = output_result(formatter, &result, strict, verbose);
+        let exit = output_result(formatter, &result, strict, verbose, github);
         let metrics = build_compile_metrics(&result, &[]);
         return (exit, metrics);
     }
@@ -103,7 +148,13 @@ pub fn run(
     // Load persisted circuit breaker state
     let cb_state = store.load_circuit_breaker().unwrap_or_default();
 
-    let config = keel_core::config::KeelConfig::load(&keel_dir);
+    // The boundary-name key set for string-literal dispatch references, read
+    // from the graph the last `keel map` wrote (this pipeline never re-scans
+    // the boundary surface). It must be installed on the resolvers below:
+    // compile prunes and re-resolves each touched file's outgoing edges, so a
+    // literal edge it cannot reproduce would be deleted until the next map.
+    let literal_keys = super::map_boundary::persisted_literal_keys(&cwd, &store);
+
     let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
     engine.import_circuit_breaker(&cb_state);
 
@@ -121,15 +172,43 @@ pub fn run(
     // git-deleted paths under --changed/--since must still skip silently.
     let explicit_targets = !changed && since.is_none() && !files.is_empty();
 
-    // Resolve target files: --changed, --since, explicit list, or all
+    // A bare `keel compile` — no explicit files, no --changed, no --since —
+    // used to fall through to an unscoped walk of the ENTIRE repo: every file
+    // re-parsed and re-checked against the stored graph with no caching
+    // (~15s on a mid-size repo vs <100ms for one scoped file; a hook that
+    // drops its file argument silently pays this on every edit). The CLI help
+    // text already promised "empty = all changed"; in a git repository, bare
+    // compile now actually defaults to the same working-tree-vs-HEAD diff as
+    // `--changed`, closing that gap. Repos with no `.git` (integration-test
+    // fixtures, non-git checkouts) keep the old full-repo-scan default, since
+    // there is no git history to scope against.
+    let bare_compile = files.is_empty() && !changed && since.is_none();
+    let default_to_changed = bare_compile && cwd.join(".git").exists();
+
+    // Resolve target files: --changed, --since, default-to-changed, explicit
+    // list, or (only for a non-git bare compile) all.
+    //
+    // `untracked_targets` holds the paths that were *asked about* but that keel
+    // has no grammar for. Only these produce the untracked-language notice
+    // below: a repo-wide walk must never emit it, or every compile in a repo
+    // with one `.sql` file carries a permanent warning.
     let mut effective_files = files;
-    if changed || since.is_some() {
+    let mut untracked_targets: Vec<String> = effective_files.clone();
+    if changed || since.is_some() || default_to_changed {
         match git_changed_files(&since) {
             Ok(git_files) => {
+                effective_files = git_files
+                    .iter()
+                    .filter(|f| detect_language(Path::new(f)).is_some())
+                    .cloned()
+                    .collect();
+                untracked_targets = git_files;
                 if verbose {
-                    eprintln!("keel compile: {} file(s) changed in git", git_files.len());
+                    eprintln!(
+                        "keel compile: {} file(s) changed in git",
+                        effective_files.len()
+                    );
                 }
-                effective_files = git_files;
             }
             Err(e) => {
                 eprintln!("keel compile: git diff failed: {}", e);
@@ -144,12 +223,15 @@ pub fn run(
     let mut go_resolver: Option<GoResolver> = None;
     let mut rs: Option<RustLangResolver> = None;
 
-    // A full-repo compile (no explicit files) is close to a `keel map`; the
-    // incremental graph sync below is skipped for it to avoid degrading the
-    // map-built edge graph with weaker single-file resolution.
-    let full_repo_compile = effective_files.is_empty();
+    // A full-repo compile (a bare compile that could not be scoped to git
+    // changes) is close to a `keel map`; the incremental graph sync below is
+    // skipped for it to avoid degrading the map-built edge graph with weaker
+    // single-file resolution. This must NOT fire merely because a git-scoped
+    // diff (explicit or default) happened to return zero files — that means
+    // "nothing to do", not "scan everything".
+    let full_repo_compile = bare_compile && !default_to_changed;
 
-    let target_files = if effective_files.is_empty() {
+    let target_files = if full_repo_compile {
         let walker = keel_parsers::walker::FileWalker::new(&cwd);
         walker
             .walk()
@@ -182,6 +264,13 @@ pub fn run(
         }
     }
 
+    // Exit 0 on a file keel never parsed is a false all-clear for any hook that
+    // reads the exit code as verification. One line, for structurally
+    // significant extensions only (never .md/.json/.lock).
+    if let Some(notice) = keel_enforce::file_class::untracked_language_notice(&untracked_targets) {
+        eprintln!("{}", notice);
+    }
+
     let mut file_indices: Vec<FileIndex> = Vec::new();
 
     for file_str in &target_files {
@@ -208,29 +297,27 @@ pub fn run(
             }
         };
 
+        // Each resolver is built on first use for its language, with the
+        // boundary key set installed before it parses anything (empty for a
+        // repo with no boundary surface, which disables literals entirely).
         let resolver: &dyn LanguageResolver = match lang {
-            l if keel_parsers::treesitter::is_typescript_family(l) => {
-                ts.get_or_insert_with(|| TsResolver::with_project_root(&cwd))
-            }
-            "python" => py.get_or_insert_with(PyResolver::detect),
+            l if keel_parsers::treesitter::is_typescript_family(l) => ts.get_or_insert_with(|| {
+                TsResolver::with_project_root(&cwd).with_boundary_literals(literal_keys.clone())
+            }),
+            "python" => py.get_or_insert_with(|| {
+                PyResolver::detect().with_boundary_literals(literal_keys.clone())
+            }),
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
-            "rust" => rs.get_or_insert_with(RustLangResolver::new),
+            "rust" => rs.get_or_insert_with(|| {
+                RustLangResolver::new().with_boundary_literals(literal_keys.clone())
+            }),
             _ => continue,
         };
 
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
-        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
 
-        file_indices.push(FileIndex {
-            file_path: rel_path,
-            content_hash,
-            definitions: result.definitions,
-            references: result.references,
-            imports: result.imports,
-            external_endpoints: result.external_endpoints,
-            parse_duration_us: 0,
-        });
+        file_indices.push(FileIndex::from_parse(&rel_path, &content, result));
     }
 
     if verbose && !file_indices.is_empty() {
@@ -313,7 +400,7 @@ pub fn run(
             all.extend(result.errors.iter().cloned());
             all.extend(result.warnings.iter().cloned());
             let merged = keel_enforce::engine::EnforcementEngine::result_from_violations(all);
-            let exit = output_result(formatter, &merged, strict, verbose);
+            let exit = output_result(formatter, &merged, strict, verbose, github);
             return (exit, metrics);
         }
         // Still batching: stash this compile's deferred, keep the timer warm.
@@ -327,7 +414,7 @@ pub fn run(
             }
         }
         // Only immediate (structural) violations fire during a batch.
-        let exit = output_result(formatter, &result, strict, verbose);
+        let exit = output_result(formatter, &result, strict, verbose, github);
         return (exit, metrics);
     }
 
@@ -364,7 +451,11 @@ pub fn run(
 
         if let Some(prev) = previous {
             let delta_result = compute_delta(&prev, &result);
-            let output = formatter.format_compile_delta(&delta_result);
+            let output = if github {
+                github_delta_annotations(&result, &delta_result)
+            } else {
+                formatter.format_compile_delta(&delta_result)
+            };
             if !output.is_empty() {
                 println!("{}", output);
             }
@@ -406,11 +497,16 @@ pub fn run(
         }
     }
 
-    let exit = output_result(formatter, &result, strict, verbose);
+    let exit = output_result(formatter, &result, strict, verbose, github);
     (exit, metrics)
 }
 
 /// Get files changed according to git diff.
+///
+/// Unfiltered: the caller keeps the parseable ones as compile targets and reads
+/// the rest to decide whether a changed `.sql`/`.baml`/`.proto`/`.graphql` file
+/// deserves the untracked-language notice. Filtering here would hide those
+/// paths from the very check that exists to stop them passing silently.
 fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
     let cwd = std::env::current_dir().map_err(|e| format!("failed to get cwd: {}", e))?;
     let mode = match since {
@@ -419,14 +515,54 @@ fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
         // `--changed` means working tree vs HEAD.
         None => keel_enforce::gitdiff::DiffMode::Since(None),
     };
-    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, true)
+    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, false)
 }
 
+/// Annotations for the violations `--delta` calls new.
+///
+/// A delta carries `ViolationKey`s, which have no message to annotate with, so
+/// the full violations are re-selected from this compile's own result by their
+/// stable identity. Without this, asking for workflow commands *and* a delta
+/// would silently hand CI a keel-format delta report instead.
+fn github_delta_annotations(
+    result: &keel_enforce::types::CompileResult,
+    delta: &keel_enforce::types::CompileDelta,
+) -> String {
+    let new_keys: std::collections::HashSet<_> = delta
+        .new_errors
+        .iter()
+        .chain(delta.new_warnings.iter())
+        .map(|k| k.stable())
+        .collect();
+    keel_output::github::annotations(
+        result
+            .errors
+            .iter()
+            .chain(result.warnings.iter())
+            // Same key rule as the delta itself — reconstructing it inline
+            // instead let every hash-less violation of one code in one file
+            // match the first of them, so a single new W006 annotated all of
+            // them as new.
+            .filter(|v| {
+                new_keys.contains(&keel_enforce::types::stable_identity(
+                    &v.code, &v.hash, &v.file, v.line,
+                ))
+            }),
+    )
+}
+
+/// Print a compile result and decide the exit code.
+///
+/// `github` swaps the chosen formatter for GitHub Actions workflow commands —
+/// the annotations CI wants, from the binary, with no JSON post-processor in
+/// the action. The clean-output contract is unchanged: zero violations means
+/// empty stdout and exit 0 in every format.
 fn output_result(
     formatter: &dyn OutputFormatter,
     result: &keel_enforce::types::CompileResult,
     strict: bool,
     verbose: bool,
+    github: bool,
 ) -> i32 {
     let has_errors = !result.errors.is_empty();
     let has_warnings = !result.warnings.is_empty();
@@ -438,7 +574,11 @@ fn output_result(
         return 0;
     }
 
-    let output = formatter.format_compile(result);
+    let output = if github {
+        keel_output::github::annotations(result.errors.iter().chain(result.warnings.iter()))
+    } else {
+        formatter.format_compile(result)
+    };
     if !output.is_empty() {
         println!("{}", output);
     }
@@ -449,3 +589,7 @@ fn output_result(
         0
     }
 }
+
+#[cfg(test)]
+#[path = "compile_tests.rs"]
+mod tests;

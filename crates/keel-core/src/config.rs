@@ -28,6 +28,10 @@ pub struct KeelConfig {
     pub monorepo: MonorepoConfig,
     #[serde(default)]
     pub tier3: Tier3Config,
+    #[serde(default)]
+    pub architecture: ArchitectureConfig,
+    #[serde(default)]
+    pub review: ReviewConfig,
     /// Stable random identifier for telemetry project deduplication.
     /// Generated at `keel init` time; avoids path-based hash inflation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,7 +53,14 @@ pub enum Tier {
 pub struct TelemetryConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_true")]
+    /// Whether local events may also be POSTed to the remote endpoint.
+    /// Defaults to `false` (T1.1): opt-in remote reporting is the honest
+    /// default for a tool that would otherwise pay a DNS lookup plus TLS
+    /// handshake on every compile out of the box. Local writes to
+    /// `telemetry.db` are controlled by `enabled`, not this field. Hot-path
+    /// commands (see `hot_path_commands` in keel-cli) never send remote
+    /// telemetry regardless of this setting — there is no override for them.
+    #[serde(default)]
     pub remote: bool,
     #[serde(default)]
     pub endpoint: Option<String>,
@@ -59,7 +70,7 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            remote: true,
+            remote: false,
             endpoint: None,
         }
     }
@@ -107,6 +118,40 @@ impl Default for Tier3Config {
             prefer_scip: true,
         }
     }
+}
+
+/// Architectural-boundary enforcement (W009 / E006).
+///
+/// W009 `new_cross_boundary_dep` itself needs no configuration — it is
+/// self-baselining, so everything already in the graph is grandfathered and
+/// only new erosion fires. Both fields below are strictly opt-in additions.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ArchitectureConfig {
+    /// Count type-only references (`use canonical::Verfahren`) as
+    /// cross-boundary dependencies. Off by default: depending on another
+    /// package's *types* is the behaviour you want, and on a workspace sharing
+    /// a canonical types crate that pattern dominates. Only `calls` count
+    /// unless this is enabled.
+    #[serde(default)]
+    pub count_type_deps: bool,
+    /// Ordered `[from, to]` boundary pairs that must never depend on each
+    /// other. A dependency matching a denied pair is reported as `E006`
+    /// `layer_violation` (ERROR, gates exit 1) instead of `W009`. Empty by
+    /// default — keel stays non-opinionated about which layers exist.
+    #[serde(default)]
+    pub deny: Vec<(String, String)>,
+}
+
+/// `keel review` — baseline-relative CI reporting.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReviewConfig {
+    /// Violation codes that make `keel review --gate` exit 1 when the diff
+    /// *introduced* one. Empty by default: a new finding is a report, not a
+    /// broken build, until a repo says otherwise — and it says so per code,
+    /// here, once. `--gate` without a list gates nothing, deliberately: turning
+    /// the switch on in CI before agreeing the list must not fail every PR.
+    #[serde(default)]
+    pub gate: Vec<String>,
 }
 
 /// Enforcement severity toggles.
@@ -209,6 +254,8 @@ impl Default for KeelConfig {
             telemetry: TelemetryConfig::default(),
             monorepo: MonorepoConfig::default(),
             tier3: Tier3Config::default(),
+            architecture: ArchitectureConfig::default(),
+            review: ReviewConfig::default(),
             telemetry_id: None,
         }
     }
@@ -234,6 +281,25 @@ impl KeelConfig {
                 Self::default()
             }
         }
+    }
+
+    /// Update just the pinned `version` field of `.keel/keel.json` in place,
+    /// preserving every other setting.
+    ///
+    /// Used by `keel upgrade` (syncs to the newly installed binary) and
+    /// `keel init --update-docs` (syncs to the binary currently running) —
+    /// the two writers of this field outside of a fresh `keel init`. A no-op
+    /// when `.keel/keel.json` does not exist; callers that require an
+    /// initialized project check that first.
+    pub fn sync_version(keel_dir: &Path, version: &str) -> Result<(), String> {
+        let config_path = keel_dir.join("keel.json");
+        if !config_path.exists() {
+            return Ok(());
+        }
+        let mut config = Self::load(keel_dir);
+        config.version = version.to_string();
+        let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        std::fs::write(&config_path, json).map_err(|e| e.to_string())
     }
 }
 

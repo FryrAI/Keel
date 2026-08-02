@@ -89,8 +89,8 @@ curl -fsSL https://raw.githubusercontent.com/FryrAI/Keel/main/scripts/install.sh
 # From source
 cargo install --path crates/keel-cli
 
-# CI (GitHub Actions)
-# uses: FryrAI/Keel/.github/actions/keel@v0.1.0
+# CI (GitHub Actions) — `keel init` scaffolds this for you
+# uses: FryrAI/Keel/.github/actions/keel@v0
 ```
 
 ### Updating
@@ -155,7 +155,8 @@ keel where a7Bx3kM9f2Q
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
 | `keel name <desc>` | Location-aware naming suggestions | <100ms |
 | `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <1s |
-| `keel validate-plan <file\|->` | Validate a plan against the graph before execution | <100ms |
+| `keel validate-plan <file\|-> [--strict]` | Validate a plan against the graph before execution (callers at risk + P001/P002) | <100ms |
+| `keel quality [--snapshot\|--trend]` | Countable maintainability metrics, persisted per commit, with their trend | <100ms |
 | `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |
 | `keel logout` | Remove stored credentials | — |
@@ -193,7 +194,7 @@ keel stores its configuration in `.keel/keel.json`:
   "telemetry": {
     "enabled": true,
     "detailed": false,
-    "remote": true
+    "remote": false
   }
 }
 ```
@@ -309,12 +310,16 @@ scripts/
 | E003 | Missing docstring | ERROR |
 | E004 | Function removed | ERROR |
 | E005 | Arity mismatch | ERROR |
+| E006 | Layer violation (opt-in `architecture.deny`) | ERROR |
 | W001 | Placement issue | WARNING |
 | W002 | Duplicate name | WARNING |
 | W005 | Dead code | WARNING |
 | W006 | Duplicate implementation | WARNING |
 | W007 | Oversized file | WARNING |
+| W009 | New cross-boundary dependency | WARNING |
 | S001 | Suppressed | INFO |
+| P001 | Unknown symbol (plan-time, `keel validate-plan` only) | WARNING |
+| P002 | Signature mismatch (plan-time, `keel validate-plan` only) | WARNING |
 
 ### Exit Codes
 

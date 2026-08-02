@@ -1,6 +1,11 @@
 // CLI test entry point for keel command tests.
+#[path = "common/mod.rs"]
+mod common;
+
 #[path = "cli/test_analyze.rs"]
 mod test_analyze;
+#[path = "cli/test_audit.rs"]
+mod test_audit;
 #[path = "cli/test_check.rs"]
 mod test_check;
 #[path = "cli/test_checkpoint.rs"]
@@ -23,6 +28,10 @@ mod test_explain;
 mod test_fix;
 #[path = "cli/test_focus.rs"]
 mod test_focus;
+#[path = "cli/test_format_github.rs"]
+mod test_format_github;
+#[path = "cli/test_graph_staleness.rs"]
+mod test_graph_staleness;
 #[path = "cli/test_init.rs"]
 mod test_init;
 #[path = "cli/test_init_merge.rs"]
@@ -31,12 +40,22 @@ mod test_init_merge;
 mod test_map;
 #[path = "cli/test_name.rs"]
 mod test_name;
+#[path = "cli/test_plan_hook.rs"]
+mod test_plan_hook;
+#[path = "cli/test_quality.rs"]
+mod test_quality;
+#[path = "cli/test_review.rs"]
+mod test_review;
 #[path = "cli/test_search.rs"]
 mod test_search;
 #[path = "cli/test_skeleton.rs"]
 mod test_skeleton;
 #[path = "cli/test_stats.rs"]
 mod test_stats;
+#[path = "cli/test_svelte_graph.rs"]
+mod test_svelte_graph;
+#[path = "cli/test_update_docs.rs"]
+mod test_update_docs;
 #[path = "cli/test_validate_plan.rs"]
 mod test_validate_plan;
 #[path = "cli/test_where.rs"]

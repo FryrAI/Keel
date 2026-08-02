@@ -204,6 +204,7 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | E003 | missing_docstring | ERROR | Public function has no docstring |
 | E004 | function_removed | ERROR | Function deleted but still has callers |
 | E005 | arity_mismatch | ERROR | Parameter count changed, callers pass wrong argument count |
+| E006 | layer_violation | ERROR | Cross-boundary dependency matching an ordered pair in `architecture.deny` (opt-in) |
 | W001 | placement | WARNING | Function may be better placed in different module |
 | W002 | duplicate_name | WARNING | Function with same name exists elsewhere |
 | W003 | naming_convention | WARNING | Name doesn't match module naming pattern (Phase 2) |
@@ -211,9 +212,15 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | W005 | dead_code | WARNING | Function has no callers in the graph |
 | W006 | duplicate_implementation | WARNING | Function body identical (whitespace-normalized) to an existing function |
 | W007 | oversized_file | WARNING | File exceeds the configured line budget and grew in this change |
+| W009 | new_cross_boundary_dep | WARNING | File depends on a package it did not depend on at the last `keel map` |
 | S001 | suppressed | INFO | Violation suppressed via inline or config |
 
 W005-W007 are the v0.5 "economy" additions — additive only; existing codes, severities, and exit codes are unchanged.
+
+W009 (v0.5) is self-baselining: the graph's stored `calls` edges define the allowed boundary set, so only new
+erosion fires and no baseline file exists. It is silent in repos that declare no packages, because a
+directory-guessed boundary produces confident wrong warnings. E006 exists only as its opt-in escalation via
+`architecture.deny`; keel never decides on its own which layers a repo has.
 
 Progressive adoption (v0.5): E002/E003 on functions unmodified since the last full `keel map` report as WARNING; modified or new functions report as ERROR. A full map re-baselines — escalation state does not survive it, but demoted debt stays visible as WARNING.
 
@@ -222,8 +229,17 @@ Progressive adoption (v0.5): E002/E003 on functions unmodified since the last fu
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `confidence` | float 0.0-1.0 | Always | Resolution confidence. 1.0 = certain. <0.7 = heuristic/ambiguous |
-| `resolution_tier` | string enum | Always | `tier1_treesitter`, `tier2_oxc`, `tier2_ty`, `tier2_treesitter_heuristic`, `tier2_rust_analyzer`, `tier3_lsp`, `tier3_scip` |
+| `resolution_tier` | string enum | Always | `tier1_treesitter`, `tier1_template`, `tier1_boundary_literal`, `tier2_oxc`, `tier2_ty`, `tier2_treesitter_heuristic`, `tier2_rust_analyzer`, `tier3_lsp`, `tier3_scip` |
 | `fix_hint` | string | ERROR: always. WARNING: where applicable | Text instruction telling the LLM what to do |
+
+The two v0.5 tier-1 additions are lexical recoveries, not parses — both produce `uses` edges only and can
+never raise E001/E004/E005 or a fix plan, because neither carries an argument list:
+
+- `tier1_template` — a name read out of template markup a parser does not enter (a `{ ... }` expression in a
+  `.svelte` component). Confidence 0.70.
+- `tier1_boundary_literal` — a string literal whose text exactly equals a declared boundary symbol (a
+  `function` in `baml_src/*.baml`), captured only as a call argument, `match`/`case` pattern, or map key.
+  Confidence 0.75.
 
 **Clean compile behavior:** Zero errors AND zero warnings = exit 0, empty stdout. `info` block only with `--verbose` or alongside errors/warnings.
 

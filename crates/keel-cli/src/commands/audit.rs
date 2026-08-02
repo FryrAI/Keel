@@ -8,6 +8,7 @@ pub fn run(
     strict: bool,
     min_score: Option<u32>,
     dimension: Option<String>,
+    strict_cycles: bool,
 ) -> i32 {
     const VALID_DIMENSIONS: &[&str] = &[
         "structure",
@@ -50,6 +51,7 @@ pub fn run(
         strict,
         min_score,
         dimension,
+        strict_cycles,
     };
 
     let result = keel_enforce::audit::audit_repo(&store, &cwd, &options, changed_files.as_deref());

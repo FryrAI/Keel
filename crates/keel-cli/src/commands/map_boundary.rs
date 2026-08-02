@@ -7,8 +7,11 @@
 //! of reading as silent unresolved edges.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::Arc;
 
 use keel_core::hash::{compute_hash, compute_hash_disambiguated};
+use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::boundary::BoundarySymbol;
 
@@ -75,7 +78,8 @@ pub fn inject_boundary_symbols(
             0,
         );
 
-        for sym in funcs {
+        // Functions first, then classes — the order fixes the node-id sequence.
+        for sym in funcs.iter().chain(classes) {
             let node_id = alloc_node(
                 next_id,
                 valid_node_ids,
@@ -89,25 +93,12 @@ pub fn inject_boundary_symbols(
                 module_id,
             );
             push_contains(edge_changes, next_id, module_id, node_id, file, sym.line);
-            fn_index
-                .entry(sym.name.clone())
-                .or_insert((node_id, confidence));
-        }
-
-        for sym in classes {
-            let node_id = alloc_node(
-                next_id,
-                valid_node_ids,
-                assigned_hashes,
-                node_changes,
-                sym.kind.clone(),
-                &sym.name,
-                file,
-                sym.signature.clone(),
-                sym.line,
-                module_id,
-            );
-            push_contains(edge_changes, next_id, module_id, node_id, file, sym.line);
+            // Only functions are call targets, so only they enter the index.
+            if sym.kind == NodeKind::Function {
+                fn_index
+                    .entry(sym.name.clone())
+                    .or_insert((node_id, confidence));
+            }
         }
     }
 
@@ -137,6 +128,41 @@ pub fn resolve_boundary_call(
         .map(|(_, s)| s)
         .unwrap_or(callee_name);
     index.get(segment).copied()
+}
+
+/// The string-literal key set for a repo whose boundary surface has just been
+/// scanned: every *function* symbol's name.
+///
+/// Installed on the language resolvers before parsing so a string literal
+/// naming one of these becomes a [`keel_parsers::resolver::ReferenceKind::Literal`]
+/// reference and every other string in the repo is dropped inside the parser.
+/// Only function symbols are call targets, matching
+/// [`inject_boundary_symbols`]'s index.
+pub fn literal_keys<'a>(
+    symbols: impl IntoIterator<Item = &'a BoundarySymbol>,
+) -> Arc<HashSet<String>> {
+    Arc::new(
+        symbols
+            .into_iter()
+            .filter(|s| s.kind == NodeKind::Function)
+            .map(|s| s.name.clone())
+            .collect(),
+    )
+}
+
+/// The same key set for a pipeline that reads the boundary surface from the
+/// *persisted graph* instead of re-scanning it — `keel compile`, which must
+/// reproduce the map's literal edges or its prune-and-re-resolve would delete
+/// them (see the contract trap on
+/// [`keel_parsers::boundary::BoundaryProvider`]).
+///
+/// Gated on `baml_src/` exactly as the compile-side boundary index is, so a
+/// repo with no BAML surface pays no query.
+pub fn persisted_literal_keys(cwd: &Path, store: &SqliteGraphStore) -> Arc<HashSet<String>> {
+    if !cwd.join("baml_src").exists() {
+        return Arc::new(HashSet::new());
+    }
+    Arc::new(store.baml_function_nodes().into_keys().collect())
 }
 
 /// Allocate a graph node, register its id/hash, and push the `Add` change.
@@ -283,6 +309,29 @@ mod tests {
             resolve_boundary_call("ExtractResume", &HashMap::new()),
             None
         );
+    }
+
+    /// The literal key set carries exactly the call targets — the same
+    /// function-only rule `inject_boundary_symbols` applies to its index, so a
+    /// `"Resume"` string cannot conjure an edge to a BAML *class*.
+    #[test]
+    fn test_literal_keys_are_function_names_only() {
+        let symbols = vec![
+            func("ExtractResume", "baml_src/main.baml", 3),
+            BoundarySymbol {
+                name: "Resume".into(),
+                file_path: "baml_src/main.baml".into(),
+                line: 1,
+                signature: "class Resume".into(),
+                kind: NodeKind::Class,
+            },
+        ];
+        let keys = literal_keys(&symbols);
+        assert!(keys.contains("ExtractResume"));
+        assert!(!keys.contains("Resume"));
+        assert_eq!(keys.len(), 1);
+        // No boundary surface -> empty set -> literals disabled entirely.
+        assert!(literal_keys(&[]).is_empty());
     }
 
     #[test]

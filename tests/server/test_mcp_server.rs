@@ -197,7 +197,7 @@ fn test_mcp_server_registers_all_tools() {
 
     // MCP requires the manifest wrapped as {"tools": [...]} (issue #27).
     let tools = resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 16);
+    assert_eq!(tools.len(), 17);
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"keel/compile"));

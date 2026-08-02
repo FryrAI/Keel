@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, NodeChange, NodeKind};
 use keel_output::OutputFormatter;
+use keel_parsers::boundary::BoundaryLiterals;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
 use keel_parsers::rust_lang::RustLangResolver;
@@ -34,13 +35,19 @@ pub fn run(
     };
     let keel_dir = keel_core::paths::keel_dir(&cwd);
 
+    // One config load serves both the drift check and the walk below.
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
+
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
+    // At most one line, emitted once per invocation.
+    super::version_drift::warn(&cwd, &config);
+
     // --cached: read from existing graph.db instead of re-parsing
     if cached {
         return super::map_cached::run_cached(&store, formatter, verbose, _depth);
     }
 
     // Walk all source files (with optional monorepo package annotation)
-    let config = keel_core::config::KeelConfig::load(&keel_dir);
     let walker = FileWalker::new(&cwd);
     let entries = if config.monorepo.enabled {
         let layout = keel_parsers::monorepo::detect_monorepo(&cwd);
@@ -82,6 +89,16 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
+    // The graph is now empty, so the previous run's map markers describe
+    // nothing. Drop them before doing any work: if this run dies partway, the
+    // graph must read as never-mapped rather than as freshly mapped at HEAD —
+    // the latter satisfies `keel compile`'s staleness guard and would let a
+    // compile enforce against an empty graph. They are re-stamped at the end.
+    if let Err(e) = store.clear_map_markers() {
+        eprintln!("keel map: failed to clear stale map markers: {}", e);
+        return (2, EventMetrics::default());
+    }
+
     let mut node_changes = Vec::new();
     let mut edge_changes = Vec::new();
     let mut next_id = 1u64;
@@ -90,6 +107,26 @@ pub fn run(
     let mut file_module_ids: HashMap<String, u64> = HashMap::new();
     let mut assigned_hashes: HashSet<String> = HashSet::new();
     let mut valid_node_ids: HashSet<u64> = HashSet::new();
+
+    // === Boundary providers: scan BEFORE the first pass ===
+    // The symbols are materialised as nodes further down (after the first pass,
+    // so node ids keep their established order), but their *names* are needed
+    // now: they are the key set that decides which string literals survive
+    // parsing as dispatch references (`ReferenceKind::Literal`). Scanned once
+    // and reused for the injection below.
+    let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
+        vec![Box::new(keel_parsers::boundary::BamlProvider)];
+    let scanned: Vec<(Vec<keel_parsers::boundary::BoundarySymbol>, f64)> = providers
+        .iter()
+        .map(|p| (p.scan(&cwd), p.confidence()))
+        .collect();
+    let literal_keys =
+        super::map_boundary::literal_keys(scanned.iter().flat_map(|(symbols, _)| symbols));
+    if !literal_keys.is_empty() {
+        ts.set_boundary_literals(literal_keys.clone());
+        py.set_boundary_literals(literal_keys.clone());
+        rs.set_boundary_literals(literal_keys);
+    }
 
     // === First pass: create nodes and same-file edges ===
     let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
@@ -112,25 +149,23 @@ pub fn run(
         &mut body_index,
     );
 
-    // === Boundary providers: materialise declarations from surfaces keel has
-    // no grammar for (today BAML `.baml` functions/classes) as boundary nodes so
-    // calls into them (e.g. `b.ExtractResume(...)`) resolve instead of reading
-    // as silent unresolved edges. ===
-    let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
-        vec![Box::new(keel_parsers::boundary::BamlProvider)];
+    // === Boundary providers: materialise the declarations scanned above (from
+    // surfaces keel has no grammar for — today BAML `.baml` functions/classes)
+    // as boundary nodes so calls into them (e.g. `b.ExtractResume(...)`, or a
+    // `"ExtractResume"` dispatch literal) resolve instead of reading as silent
+    // unresolved edges. ===
     // `function name -> (node id, confidence)`: each provider's scanned symbols
     // enter the index at that provider's own confidence, so a boundary edge
     // records the tier of the provider that produced its target — no shared
     // scalar that the last provider in the loop would overwrite for every edge.
     let mut boundary_index: HashMap<String, (u64, f64)> = HashMap::new();
-    for provider in &providers {
-        let symbols = provider.scan(&cwd);
+    for (symbols, confidence) in &scanned {
         if symbols.is_empty() {
             continue;
         }
         boundary_index.extend(super::map_boundary::inject_boundary_symbols(
-            &symbols,
-            provider.confidence(),
+            symbols,
+            *confidence,
             &mut node_changes,
             &mut edge_changes,
             &mut next_id,
@@ -309,6 +344,33 @@ pub fn run(
     }
 
     let _ = store.set_foreign_keys(true);
+
+    // Stamp "this graph has been mapped". W009's bootstrap guard reads it to
+    // tell an empty edge set apart from a graph that was never built — without
+    // the marker, the first compile after `keel init` would report every
+    // dependency in the repo as new.
+    let mapped_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
+    if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_AT, &mapped_at) {
+        if verbose {
+            eprintln!("keel map: failed to record map timestamp: {}", e);
+        }
+    }
+
+    // Stamp WHICH commit the graph describes. `keel compile`'s staleness guard
+    // reads it and refuses to enforce once HEAD has moved somewhere this
+    // commit is not an ancestor of. Outside a git repo (or before the first
+    // commit) there is nothing to stamp and no staleness to detect.
+    if let Some(head) = keel_enforce::gitdiff::head_commit(&cwd) {
+        if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_COMMIT, &head) {
+            if verbose {
+                eprintln!("keel map: failed to record map commit: {}", e);
+            }
+        }
+    }
 
     match store.cleanup_orphaned_edges() {
         Ok(n) if n > 0 && verbose => {

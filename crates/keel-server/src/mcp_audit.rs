@@ -20,6 +20,7 @@ pub(crate) fn handle_audit(
         strict: param_bool(&params, "strict", false),
         min_score: None,
         dimension: param_str_opt(&params, "dimension").map(str::to_string),
+        strict_cycles: param_bool(&params, "strict_cycles", false),
     };
 
     let store = lock_store(store)?;

@@ -576,6 +576,60 @@ fn test_validate_plan_nonsense_unrecognized() {
     assert!(resp["result"]["actions"].as_array().unwrap().is_empty());
 }
 
+/// T2.5: existing callers see no behavior change without `strict: true`.
+/// A clean plan keeps exactly the old envelope — `findings` is skipped when
+/// empty and `strict_failed` never appears unqualified.
+#[test]
+fn test_validate_plan_without_strict_keeps_the_old_envelope() {
+    let store = Arc::new(Mutex::new(populated_edge_store()));
+    let params = serde_json::json!({"plan": "Step 1: Remove handleRequest entirely."});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/validate-plan", Some(params)),
+    ));
+    let result = resp["result"].as_object().unwrap();
+    assert!(!result.contains_key("strict_failed"));
+    assert!(
+        !result.contains_key("findings"),
+        "a clean plan must serialize exactly as before: {result:?}"
+    );
+}
+
+/// A wrong-arity claim produces a P002 finding, and `strict: true` adds the
+/// single `strict_failed` boolean without otherwise changing the envelope.
+#[test]
+fn test_validate_plan_strict_reports_findings() {
+    let store = Arc::new(Mutex::new(populated_edge_store()));
+    let plan = "Step 1: in main, call handleRequest(req, ctx) and return the result.";
+
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc(
+            "keel/validate-plan",
+            Some(serde_json::json!({"plan": plan})),
+        ),
+    ));
+    let findings = resp["result"]["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!(findings[0]["code"], "P002");
+    assert_eq!(findings[0]["hash"], "targetHash01");
+    assert_eq!(findings[0]["file"], "src/handler.rs");
+    assert!(resp["result"].get("strict_failed").is_none());
+
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc(
+            "keel/validate-plan",
+            Some(serde_json::json!({"plan": plan, "strict": true})),
+        ),
+    ));
+    assert_eq!(resp["result"]["strict_failed"], true);
+    assert_eq!(resp["result"]["command"], "validate-plan");
+}
+
 #[test]
 fn test_validate_plan_missing_param() {
     let store = test_store();
@@ -606,4 +660,54 @@ fn test_checkpoint_returns_shaped_result() {
     assert!(result["violations"].is_array());
     assert!(result["commits"].is_array());
     assert!(result["affected_callers"].is_array());
+}
+
+// --- keel/review tests ---
+
+#[test]
+fn test_review_returns_shaped_result() {
+    // Runs git in the crate cwd against the current HEAD, so the diff is
+    // whatever the working tree holds. With an empty in-memory store the
+    // caller counts are all zero; we assert only shape and the fixed fields.
+    let store = test_store();
+    let params = serde_json::json!({"base": "HEAD"});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/review", Some(params)),
+    ));
+    let result = &resp["result"];
+    assert_eq!(result["command"], "review");
+    assert_eq!(result["base"], "HEAD");
+    assert_eq!(result["resolution"], "tier1");
+    assert!(result["changes"].is_array());
+    assert!(result["unanalyzed"].is_array());
+}
+
+#[test]
+fn test_review_missing_base() {
+    let store = test_store();
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/review", None),
+    ));
+    assert_eq!(resp["error"]["code"], -32602);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("base"));
+}
+
+#[test]
+fn test_review_unresolvable_base_is_an_execution_error() {
+    let store = test_store();
+    let params = serde_json::json!({"base": "keel-no-such-ref"});
+    let resp = parse_response(&process_line(
+        &store,
+        &test_engine(),
+        &rpc("keel/review", Some(params)),
+    ));
+    assert_eq!(resp["error"]["code"], -32603);
+    assert!(resp["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("keel-no-such-ref"));
 }

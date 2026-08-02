@@ -51,6 +51,12 @@ pub struct AgentStats {
 pub struct TelemetryAggregate {
     pub total_invocations: u64,
     pub avg_compile_ms: Option<f64>,
+    /// Median `compile` wall time — the standing regression guard for T1.1
+    /// (nothing may enter the compile hot path without a measured cost).
+    pub compile_p50_ms: Option<f64>,
+    /// 95th-percentile `compile` wall time. A re-introduced network round
+    /// trip on the hot path shows up here first.
+    pub compile_p95_ms: Option<f64>,
     pub avg_map_ms: Option<f64>,
     pub total_errors: u64,
     pub total_warnings: u64,

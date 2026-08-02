@@ -40,6 +40,50 @@ To investigate: run `keel explain <error_code> <hash>` to see the full resolutio
 
 To suppress a specific check for one run: `keel compile --suppress E002 src/legacy.py`.
 
+### "What does keel see inside a `.svelte` component?"
+
+The `<script>` block is parsed normally. The template markup is not parsed —
+keel scans it lexically for names inside `{ ... }` expressions
+(`on:click={handler}`, `{#if}` / `{#each}` / `{#await}` / `{#snippet}` bodies,
+`{@const pct = completenessPct(v)}`, component props like
+`<Panel onDone={refresh} />`).
+
+- A name defined in the component's own `<script>` becomes a `calls` edge.
+- A name the component **imports** becomes a `uses` edge at confidence 0.70,
+  resolution tier `tier1_template`. It counts as a caller for `keel search`,
+  `keel discover`, `keel focus` and W005, and — because a text match carries no
+  argument list — it never produces E001/E004/E005 or a fix plan.
+- **Component tags themselves (`<FristenPanel />`) are not edges yet.** Only the
+  expressions inside the braces are scanned.
+- **Imported constants and stores stay invisible.** keel's graph holds functions
+  and classes, so a `const`/store used from markup has no node to link to. This
+  is scope, not a bug.
+
+### "Why does my `.baml` function show zero callers?"
+
+It should not any more. A boundary function called by *name string* rather than
+by symbol — `run_baml("PlanBerichtSection", input)` through a CLI subprocess, a
+`match`/`switch` arm on the same key, a handler-table entry — is now linked to
+its caller:
+
+- keel captures string literals in three positions only: **call argument**,
+  **`match`/`case` pattern**, and **object/map key** (Rust, TypeScript, Python;
+  Go is not covered).
+- A literal survives only if its text **exactly** equals a name already in the
+  boundary index — today the `function` declarations in `baml_src/*.baml`.
+  Everything else is discarded during parsing, so no free-text node or
+  low-confidence guess ever enters the graph.
+- A surviving literal becomes a `uses` edge at confidence 0.75, resolution tier
+  `tier1_boundary_literal`. It counts as a caller for `keel search`,
+  `keel discover`, `keel focus` and W005, and never produces E001/E004/E005 or
+  a fix plan — a string carries no argument list.
+
+There is nothing to configure, and no error code fires when a key matches
+nothing: "no such handler" and "handler not written yet" are indistinguishable
+from the outside. If a `.baml` function still reports zero callers, the caller
+either builds its name dynamically (`format!("Plan{kind}")`) or passes it from
+a variable — neither is a literal, so neither is visible.
+
 ### "Low-confidence warning on trait/interface dispatch"
 
 This is expected. Dynamic dispatch (trait methods in Rust, interface methods in TypeScript/Go) produces low-confidence call edges. keel reports these as **warnings, not errors** to avoid false positives. Use `keel explain` to inspect the resolution tier.

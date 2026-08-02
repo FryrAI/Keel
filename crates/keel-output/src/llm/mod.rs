@@ -9,6 +9,7 @@ pub mod fix;
 pub mod focus;
 pub mod map;
 pub mod name;
+pub mod review;
 pub mod semantic;
 pub mod skeleton;
 pub mod validate_plan;
@@ -16,10 +17,13 @@ pub mod violation;
 
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
+    StatsResult,
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
@@ -44,6 +48,11 @@ pub struct LlmFormatter {
     /// Both `--max-tokens` (global) and `--budget` (skeleton/focus) feed this
     /// field; the human and JSON formatters ignore it entirely by contract.
     pub budget: Option<usize>,
+    /// Maximum audit findings to print (`keel audit --top`, 0 = no cap).
+    ///
+    /// Audit-only, the way `budget` is skeleton/focus-only: a ranked list is
+    /// worth reading precisely because it stops.
+    pub audit_top: usize,
 }
 
 impl LlmFormatter {
@@ -54,6 +63,7 @@ impl LlmFormatter {
             map_depth: 1,
             compile_depth: 1,
             budget: None,
+            audit_top: audit::DEFAULT_TOP,
         }
     }
 
@@ -62,8 +72,17 @@ impl LlmFormatter {
         Self {
             map_depth,
             compile_depth,
-            budget: None,
+            ..Self::new()
         }
+    }
+
+    /// Sets the audit finding cap from `keel audit --top`, if provided.
+    /// A `None` leaves the default cap in place.
+    pub fn with_audit_top(mut self, top: Option<usize>) -> Self {
+        if let Some(t) = top {
+            self.audit_top = t;
+        }
+        self
     }
 
     /// Sets the token budget from the global `--max-tokens`, if provided.
@@ -140,7 +159,7 @@ impl OutputFormatter for LlmFormatter {
     }
 
     fn format_audit(&self, result: &AuditResult) -> String {
-        audit::format_audit(result, self.budget_or_default())
+        audit::format_audit(result, self.budget_or_default(), self.audit_top)
     }
 
     fn format_skeleton(&self, result: &SkeletonResult) -> String {
@@ -161,6 +180,18 @@ impl OutputFormatter for LlmFormatter {
 
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String {
         semantic::format_semantic_map(result)
+    }
+
+    fn format_review(&self, result: &ReviewResult) -> String {
+        review::format_review(result)
+    }
+
+    fn format_quality(&self, result: &QualityReport) -> String {
+        crate::quality_fmt::llm(result)
+    }
+
+    fn format_stats(&self, result: &StatsResult) -> String {
+        crate::stats_fmt::llm(result)
     }
 }
 

@@ -1,10 +1,13 @@
 use crate::human_helpers::format_violation_human;
 use crate::OutputFormatter;
 use keel_enforce::checkpoint::CheckpointResult;
+use keel_enforce::quality::QualityReport;
+use keel_enforce::review::ReviewResult;
 use keel_enforce::semantic::SemanticMapResult;
 use keel_enforce::types::{
     AnalyzeResult, AuditResult, CheckResult, CompileDelta, CompileResult, DiscoverResult,
     ExplainResult, FileSymbols, FixResult, FocusResult, MapResult, NameResult, SkeletonResult,
+    StatsResult,
 };
 use keel_enforce::validate_plan::PlanValidationResult;
 
@@ -451,14 +454,22 @@ impl OutputFormatter for HumanFormatter {
     }
 
     fn format_validate_plan(&self, result: &PlanValidationResult) -> String {
-        if result.unrecognized {
+        if result.unrecognized && result.findings.is_empty() {
             return "No graph-relevant actions detected in the plan.\n".to_string();
         }
         let mut out = format!(
-            "Plan validation: {} action(s), {} symbol(s) detected\n",
+            "Plan validation: {} action(s), {} symbol(s), {} finding(s) detected\n",
             result.actions.len(),
             result.symbols_detected,
+            result.findings.len(),
         );
+        for f in &result.findings {
+            out.push_str(&format!("\n[{}] {} {}\n", f.code, f.severity, f.message));
+            if !f.hash.is_empty() {
+                out.push_str(&format!("  --> {}:{} (hash={})\n", f.file, f.line, f.hash));
+            }
+            out.push_str(&format!("  fix: {}\n", f.fix_hint));
+        }
         for a in &result.actions {
             out.push_str(&format!(
                 "\n[{}] {} `{}` (hash={})\n  --> {}:{}\n  risk: {} ({} caller(s))\n",
@@ -479,6 +490,18 @@ impl OutputFormatter for HumanFormatter {
             ));
         }
         out
+    }
+
+    fn format_review(&self, result: &ReviewResult) -> String {
+        crate::human_review::format_review_human(result)
+    }
+
+    fn format_quality(&self, result: &QualityReport) -> String {
+        crate::quality_fmt::human(result)
+    }
+
+    fn format_stats(&self, result: &StatsResult) -> String {
+        crate::stats_fmt::human(result)
     }
 
     fn format_semantic_map(&self, result: &SemanticMapResult) -> String {

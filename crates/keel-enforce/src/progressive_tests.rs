@@ -20,6 +20,7 @@ fn undocumented_def(name: &str, file: &str) -> Definition {
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     }
 }
 

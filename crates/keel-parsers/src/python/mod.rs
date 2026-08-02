@@ -118,6 +118,12 @@ impl PyResolver {
     }
 }
 
+impl crate::boundary::BoundaryLiterals for PyResolver {
+    fn tier1_parser(&self) -> &Mutex<TreeSitterParser> {
+        &self.parser
+    }
+}
+
 impl Default for PyResolver {
     fn default() -> Self {
         Self::new()

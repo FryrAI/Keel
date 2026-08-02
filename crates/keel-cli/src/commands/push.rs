@@ -62,7 +62,7 @@ pub fn run(formatter: &dyn keel_output::OutputFormatter, verbose: bool, yes: boo
 
     // Read project_id from .keel/keel.json if it exists
     let project_id = read_project_id(&keel_dir);
-    let commit_sha = detect_commit_sha();
+    let commit_sha = keel_enforce::gitdiff::head_commit(&cwd);
 
     // Confirmation prompt
     if !yes {
@@ -186,18 +186,6 @@ fn upload_full(
         .map_err(|e| format!("failed to read upload response: {e}"))?;
 
     Ok(extract_json_string(&resp_body, "project_id"))
-}
-
-fn detect_commit_sha() -> Option<String> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        None
-    }
 }
 
 fn read_project_id(keel_dir: &Path) -> Option<String> {

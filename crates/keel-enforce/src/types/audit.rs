@@ -63,6 +63,10 @@ pub struct AuditOptions {
     pub min_score: Option<u32>,
     /// Run only a specific dimension.
     pub dimension: Option<String>,
+    /// Report every module cycle, including intra-crate Rust ones and cycles
+    /// longer than the actionable cap. Off by default — see
+    /// `audit::navigation` for why Rust cycles are not defects.
+    pub strict_cycles: bool,
 }
 
 /// Compute dimension score from findings.
@@ -78,6 +82,15 @@ pub fn compute_dimension_score(findings: &[AuditFinding]) -> u32 {
         .filter(|f| f.severity == AuditSeverity::Warn)
         .count();
 
+    score_from_counts(fails, warns)
+}
+
+/// The scoring curve itself, in terms of FAIL/WARN counts.
+///
+/// Split out from [`compute_dimension_score`] so ranking can ask "what would
+/// this dimension score with one fewer FAIL?" without materializing a filtered
+/// finding list per finding.
+pub fn score_from_counts(fails: usize, warns: usize) -> u32 {
     match (fails, warns) {
         (0, 0) => 5,
         (0, 1) => 4,

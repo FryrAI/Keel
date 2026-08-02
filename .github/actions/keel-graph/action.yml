@@ -1,0 +1,113 @@
+name: "keel graph"
+description: "Provision .keel/graph.db for a CI run: restore it from a merge-base-keyed cache, or build it with keel map."
+
+# Graph provisioning that cannot lie.
+#
+# Everything keel says about a diff — who calls this, what used to exist — comes
+# from the stored graph. A graph built from source other than the commit CI
+# thinks it holds manufactures phantom findings: renamed functions read as
+# removed, live callers read as broken. So the cache key is the SHA of the exact
+# commit the graph describes, and there is deliberately NO restore-keys prefix
+# fallback: a near-miss restore is the failure mode this action exists to
+# prevent. A miss costs one `keel map`; a wrong graph costs the team's trust in
+# every annotation keel ever posts.
+#
+# keel must already be on PATH (the `keel` action installs it first).
+
+inputs:
+  base-sha:
+    description: "Commit to take the merge base against. Defaults to the pull request's base SHA; ignored on push."
+    required: false
+    default: ""
+  cache-key-prefix:
+    description: "Prefix for the cache key. Bump it to invalidate every stored graph at once."
+    required: false
+    default: "keel-graph-v1"
+
+outputs:
+  graph-sha:
+    description: "The commit the provisioned graph describes — the PR's merge base, or HEAD."
+    value: ${{ steps.resolve.outputs.graph-sha }}
+  cache-hit:
+    description: "'true' when the graph came from the cache rather than a fresh keel map."
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve the commit the graph belongs to
+      id: resolve
+      shell: bash
+      env:
+        INPUT_BASE_SHA: ${{ inputs.base-sha }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        set -euo pipefail
+
+        base_sha="${INPUT_BASE_SHA:-${PR_BASE_SHA:-}}"
+        graph_sha="$(git rev-parse HEAD)"
+
+        # On a pull request the graph belongs to the MERGE BASE, not to HEAD:
+        # that is the state the PR's callers were resolved against, and it is a
+        # commit on the default branch, so a push run can have cached it.
+        if [ -n "$base_sha" ]; then
+          if merge_base="$(git merge-base "$base_sha" HEAD 2>/dev/null)"; then
+            graph_sha="$merge_base"
+          else
+            echo "keel: no merge base with ${base_sha} in this checkout — is fetch-depth: 0 set? Keying the graph on HEAD instead."
+          fi
+        fi
+
+        echo "graph-sha=${graph_sha}" >> "$GITHUB_OUTPUT"
+        echo "keel: graph commit ${graph_sha}"
+
+    - name: Restore the cached graph
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        # Only the database. Caching all of .keel/ would restore an older
+        # keel.json over the one this commit actually ships.
+        path: |
+          .keel/graph.db
+          .keel/graph.db-wal
+          .keel/graph.db-shm
+        key: ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ steps.resolve.outputs.graph-sha }}
+        # No restore-keys. See the note at the top of this file.
+
+    - name: Build the graph
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+        GRAPH_SHA: ${{ steps.resolve.outputs.graph-sha }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -d .keel ]; then
+          echo "::error::no .keel directory in this checkout. Run 'keel init' locally and commit .keel/keel.json — only graph.db is gitignored."
+          exit 2
+        fi
+
+        if [ "${CACHE_HIT}" = "true" ]; then
+          echo "keel: restored the graph for ${GRAPH_SHA} from cache"
+          exit 0
+        fi
+
+        # Say so plainly. A silent 14s is a mystery; an announced one is a cost.
+        echo "keel: no cached graph for ${GRAPH_SHA} — building it from scratch (keel map)"
+        started="$SECONDS"
+        keel map
+        echo "keel: keel map finished in $((SECONDS - started))s"
+
+    - name: Save the graph to the cache
+      # Only a push run maps at exactly the commit it keys the cache on. A pull
+      # request maps at its own head, so saving that under the merge-base key
+      # would poison every later PR sharing the base — the precise lie this
+      # action is built to make impossible.
+      if: ${{ github.event_name == 'push' && steps.restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          .keel/graph.db
+          .keel/graph.db-wal
+          .keel/graph.db-shm
+        key: ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ steps.resolve.outputs.graph-sha }}

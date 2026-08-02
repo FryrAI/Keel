@@ -172,6 +172,26 @@ pub fn check_broken_callers_with_cache(
     violations
 }
 
+/// Run E002 then E003 over one file, each gated by its `enforce.*` switch.
+///
+/// The pair is driven from here by both `keel compile` and `keel review
+/// --base`'s two-sided pass: the review's baseline diff is only meaningful
+/// while both sides run the same checks under the same gates, since a check
+/// one side skips manufactures a phantom "new" finding on the other.
+pub fn check_annotations(
+    file: &FileIndex,
+    cfg: &keel_core::config::EnforceConfig,
+) -> Vec<Violation> {
+    let mut out = Vec::new();
+    if cfg.type_hints {
+        out.extend(check_missing_type_hints(file));
+    }
+    if cfg.docstrings {
+        out.extend(check_missing_docstring(file));
+    }
+    out
+}
+
 /// Check E002: missing_type_hints — function parameters/return lack type annotations.
 /// Only for Python (and JS with JSDoc). TS/Go/Rust are typed by nature.
 /// Skips test files — test helpers rarely need full type annotations.

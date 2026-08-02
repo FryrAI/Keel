@@ -92,3 +92,13 @@
 
 ; Alias binding: `handler = my_fn`.
 (assignment right: (identifier) @ref.value.name) @ref.value
+
+; --- Boundary dispatch keys (string literals) ---
+; Three positions only: call argument, dict key, and `match`-case pattern. Only
+; literals whose text exactly equals a known boundary name survive extraction —
+; see the same block in rust.scm.
+(argument_list (string) @ref.literal.name)
+
+(pair key: (string) @ref.literal.name)
+
+(case_pattern (string) @ref.literal.name)

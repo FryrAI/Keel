@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
@@ -9,9 +9,21 @@ use crate::progressive::apply_progressive_adoption;
 use crate::suppress::SuppressionManager;
 use crate::types::{CompileInfo, CompileResult, Violation};
 use crate::violations;
+use crate::violations_boundary::{self, BoundaryContext};
 use crate::violations_economy;
 
 use keel_core::hash::MAX_DISAMBIGUATION_ORDINAL;
+
+/// Codes whose reported line IS a definition's `line_start` and whose hash is
+/// meant to be that definition's graph hash.
+///
+/// Only these get the stored-hash fixup below. The module-identity codes
+/// (W007, W009, E006) also report inside a file, but they carry the file's
+/// MODULE hash and a line that is a file position — W007 always line 1, W009 a
+/// call site — so matching them by line would silently rewrite their identity
+/// to whatever definition happens to begin there, and `keel explain` would then
+/// resolve a file-level finding to a function.
+const DEF_HASH_CODES: &[&str] = &["E002", "E003", "W001", "W002", "W005", "W006"];
 
 /// Core enforcement engine. Owns a GraphStore and orchestrates validation.
 pub struct EnforcementEngine {
@@ -24,6 +36,11 @@ pub struct EnforcementEngine {
     pub(crate) batch_state: Option<Vec<Violation>>,
     pub(crate) suppressions: SuppressionManager,
     pub(crate) enforce_config: keel_core::config::EnforceConfig,
+    /// W009/E006 tuning, plus the repo's own statement that it has boundaries.
+    /// Both come from `keel.json`; an engine built without a config leaves the
+    /// boundary checks off.
+    pub(crate) architecture: keel_core::config::ArchitectureConfig,
+    pub(crate) packages_declared: bool,
 }
 
 impl EnforcementEngine {
@@ -35,6 +52,8 @@ impl EnforcementEngine {
             batch_state: None,
             suppressions: SuppressionManager::new(),
             enforce_config: keel_core::config::EnforceConfig::default(),
+            architecture: keel_core::config::ArchitectureConfig::default(),
+            packages_declared: false,
         }
     }
 
@@ -49,6 +68,8 @@ impl EnforcementEngine {
             batch_state: None,
             suppressions: SuppressionManager::new(),
             enforce_config: config.enforce.clone(),
+            architecture: config.architecture.clone(),
+            packages_declared: config.monorepo.enabled && !config.monorepo.packages.is_empty(),
         }
     }
 
@@ -70,10 +91,15 @@ impl EnforcementEngine {
         // by E001/E004 since the user likely updated them in the same commit.
         let batch_file_set: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
         // Economy-check state shared across the batch: names referenced
-        // anywhere in it (W005) and body hashes seen so far (W006).
-        let referenced_names = violations_economy::batch_reference_names(files);
-        let trait_bodies = violations_economy::batch_trait_context_bodies(files);
-        let mut seen_bodies: HashMap<String, (String, String, u32)> = HashMap::new();
+        // anywhere in it (W005) and body hashes seen so far (W006). Shared
+        // with `keel review --base`, which must run W005/W006/W007 exactly as
+        // this loop does for its baseline diff to mean anything.
+        let mut economy = violations_economy::EconomyBatch::new(files);
+        // W009/E006 preconditions (declared packages + a graph that has been
+        // mapped) are repo-wide, so they are answered once per compile rather
+        // than once per file.
+        let boundary_ctx =
+            BoundaryContext::new(&*self.store, &self.architecture, self.packages_declared);
 
         for file in files {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
@@ -88,14 +114,8 @@ impl EnforcementEngine {
                 &existing_nodes,
                 &batch_file_set,
             ));
-            // E002: missing type hints (gated by config)
-            if self.enforce_config.type_hints {
-                file_violations.extend(violations::check_missing_type_hints(file));
-            }
-            // E003: missing docstring (gated by config)
-            if self.enforce_config.docstrings {
-                file_violations.extend(violations::check_missing_docstring(file));
-            }
+            // E002 + E003: missing type hints / docstring (gated by config)
+            file_violations.extend(violations::check_annotations(file, &self.enforce_config));
             // E004: function removed (uses cached nodes, batch-aware)
             file_violations.extend(violations::check_removed_functions_with_cache(
                 file,
@@ -111,37 +131,33 @@ impl EnforcementEngine {
             }
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
-            // W005: dead code (gated by config)
-            if self.enforce_config.dead_code {
-                file_violations.extend(violations_economy::check_dead_code(
-                    file,
-                    &*self.store,
-                    &existing_nodes,
-                    &referenced_names,
-                ));
-            }
-            // W006: duplicate implementations (gated by config)
-            if self.enforce_config.duplication {
-                file_violations.extend(violations_economy::check_duplicate_implementation(
-                    file,
-                    &*self.store,
-                    &mut seen_bodies,
-                    &trait_bodies,
-                ));
-            }
-            // W007: oversized files (gated by config)
-            if self.enforce_config.oversized_files {
-                file_violations.extend(violations_economy::check_oversized_file(
-                    file,
-                    &existing_nodes,
-                    self.enforce_config.max_file_lines,
-                ));
-            }
+            // W005 + W006 + W007: the economy checks (each gated by config).
+            // W007 gets the stored nodes here — at edit time "over budget"
+            // only fires once the file also grew.
+            file_violations.extend(economy.check_file(
+                file,
+                &*self.store,
+                &existing_nodes,
+                &existing_nodes,
+                &self.enforce_config,
+            ));
+            // W009 (+ opt-in E006): architectural-boundary erosion. Needs no
+            // config gate — it is self-baselining and silent in repos that
+            // declare no boundaries.
+            file_violations.extend(violations_boundary::check_cross_boundary_deps(
+                file,
+                &*self.store,
+                &existing_nodes,
+                &boundary_ctx,
+            ));
 
             // Fixup: use graph-stored hashes so `keel explain <hash>` works.
-            // Some checks (E002, E003, W001, W002) compute hashes freshly, which
-            // may differ from the graph when map used disambiguation for collisions.
+            // The codes in `DEF_HASH_CODES` compute hashes freshly, which may
+            // differ from the graph when map used disambiguation for collisions.
             for v in &mut file_violations {
+                if !DEF_HASH_CODES.contains(&v.code.as_str()) {
+                    continue;
+                }
                 if let Some(node) = existing_nodes
                     .iter()
                     .find(|n| n.file_path == v.file && n.line_start == v.line)

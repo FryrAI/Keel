@@ -67,16 +67,6 @@ impl FileParser {
         };
 
         let parsed = resolver.parse_file(Path::new(path), &content);
-        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
-
-        Some(FileIndex {
-            file_path: path.to_string(),
-            content_hash,
-            definitions: parsed.definitions,
-            references: parsed.references,
-            imports: parsed.imports,
-            external_endpoints: parsed.external_endpoints,
-            parse_duration_us: 0,
-        })
+        Some(FileIndex::from_parse(path, &content, parsed))
     }
 }

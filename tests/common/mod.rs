@@ -96,6 +96,38 @@ pub fn keel_bin() -> PathBuf {
     fallback
 }
 
+/// Run a git command in `dir` and assert it succeeded.
+///
+/// Identity and signing are forced on the command line so the suite works on a
+/// machine with no git identity configured and never blocks on a GPG prompt.
+/// Hooks are disabled (`core.hooksPath` pointed at a non-directory) because
+/// fixtures that run `keel init` get a pre-commit hook that shells out to
+/// `keel` from PATH — present on dev machines, absent on CI runners.
+#[allow(dead_code)]
+pub fn git(dir: &Path, args: &[&str]) {
+    let out = Command::new("git")
+        .args([
+            "-c",
+            "user.email=test@keel.dev",
+            "-c",
+            "user.name=keel test",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git command failed to run");
+    assert!(
+        out.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// Run a keel subcommand in `dir` and assert it did not hit an internal error.
 #[allow(dead_code)]
 pub fn keel(dir: &Path, args: &[&str]) -> std::process::Output {

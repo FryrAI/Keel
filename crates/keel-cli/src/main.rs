@@ -32,13 +32,20 @@ fn main() {
         _ => None,
     };
 
+    // `--top` on audit caps how many ranked findings the LLM output prints.
+    let audit_top = match &cli.command {
+        Commands::Audit { top, .. } => Some(*top),
+        _ => None,
+    };
+
     let formatter: Box<dyn keel_output::OutputFormatter> = if cli.json {
         Box::new(keel_output::json::JsonFormatter)
     } else if cli.llm {
         Box::new(
             keel_output::llm::LlmFormatter::with_depths(map_depth, compile_depth)
                 .with_max_tokens(cli.max_tokens)
-                .with_budget(budget),
+                .with_budget(budget)
+                .with_audit_top(audit_top),
         )
     } else {
         Box::new(keel_output::human::HumanFormatter)
@@ -51,11 +58,18 @@ fn main() {
 
     let cmd_name = telemetry_recorder::command_name(&cli.command);
     let start = Instant::now();
-    let client_name = telemetry_recorder::detect_client();
+    let client_name = cli
+        .client
+        .clone()
+        .or_else(telemetry_recorder::detect_client);
 
     let (exit_code, metrics) = match cli.command {
-        Commands::Init { merge, yes } => (
-            commands::init::run(&*formatter, cli.verbose, merge, yes),
+        Commands::Init {
+            merge,
+            yes,
+            update_docs,
+        } => (
+            commands::init::run(&*formatter, cli.verbose, merge, yes, update_docs),
             Default::default(),
         ),
         Commands::Map {
@@ -83,24 +97,28 @@ fn main() {
             batch_end,
             strict,
             suppress,
-            depth,
+            // `depth` is read above, before the formatter is built.
+            depth: _,
             changed,
             since,
             delta,
             timeout,
+            format,
         } => commands::compile::run(
             &*formatter,
             cli.verbose,
-            files,
-            batch_start,
-            batch_end,
-            strict,
-            suppress,
-            depth,
-            changed,
-            since,
-            delta,
-            timeout,
+            commands::compile::CompileArgs {
+                files,
+                batch_start,
+                batch_end,
+                strict,
+                suppress,
+                changed,
+                since,
+                delta,
+                timeout,
+                github: format == Some(cli_args::WireFormat::Github),
+            },
         ),
         Commands::Check { query, name } => (
             commands::check::run(&*formatter, cli.verbose, query, name),
@@ -144,6 +162,8 @@ fn main() {
             strict,
             min_score,
             dimension,
+            strict_cycles,
+            top: _,
         } => (
             commands::audit::run(
                 &*formatter,
@@ -152,6 +172,7 @@ fn main() {
                 strict,
                 min_score,
                 dimension,
+                strict_cycles,
             ),
             Default::default(),
         ),
@@ -184,8 +205,36 @@ fn main() {
             commands::checkpoint::run(&*formatter, cli.verbose, since, staged, output),
             Default::default(),
         ),
-        Commands::ValidatePlan { plan } => (
-            commands::validate_plan::run(&*formatter, cli.verbose, plan),
+        Commands::Review { base, format, gate } => (
+            commands::review::run(
+                &*formatter,
+                cli.verbose,
+                base,
+                format == Some(cli_args::WireFormat::Github),
+                gate,
+            ),
+            Default::default(),
+        ),
+        Commands::Quality {
+            snapshot,
+            trend,
+            since,
+            last,
+        } => (
+            commands::quality::run(
+                &*formatter,
+                cli.verbose,
+                commands::quality::QualityArgs {
+                    snapshot,
+                    trend,
+                    since,
+                    last,
+                },
+            ),
+            Default::default(),
+        ),
+        Commands::ValidatePlan { plan, strict } => (
+            commands::validate_plan::run(&*formatter, cli.verbose, plan, strict),
             Default::default(),
         ),
         Commands::Serve { mcp, http, watch } => (
@@ -198,7 +247,7 @@ fn main() {
             Default::default(),
         ),
         Commands::Stats => (
-            commands::stats::run(&*formatter, cli.verbose, cli.json),
+            commands::stats::run(&*formatter, cli.verbose),
             Default::default(),
         ),
         Commands::Config { key, value } => (
@@ -247,8 +296,10 @@ fn main() {
         None
     };
 
-    // Wait for remote telemetry to finish before exiting.
-    // Without this, process::exit kills the send thread mid-request.
+    // Wait for remote telemetry to finish before exiting; without the join,
+    // process::exit would kill the send thread mid-request. Hot-path commands
+    // (T1.1) never get here with a handle — `try_send_remote` returns None for
+    // them, so there is nothing to block on.
     if let Some(handle) = telemetry_handle {
         let _ = handle.join();
     }

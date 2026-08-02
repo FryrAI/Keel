@@ -48,6 +48,24 @@ impl TelemetryStore {
             |r| r.get(0),
         )?;
 
+        // p50/p95 compile wall time — the standing regression guard for T1.1.
+        // SQLite has no built-in percentile aggregate, so pull the sorted
+        // durations and index into them directly (compile event volume is
+        // small enough per 30-day window that this is cheap).
+        let compile_durations: Vec<u64> = {
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT duration_ms FROM events WHERE command = 'compile' AND timestamp >= {cutoff} ORDER BY duration_ms ASC"
+            ))?;
+            let rows = stmt.query_map([], |r| r.get::<_, u64>(0))?;
+            let mut v = Vec::new();
+            for row in rows {
+                v.push(row?);
+            }
+            v
+        };
+        let compile_p50_ms = percentile(&compile_durations, 50.0);
+        let compile_p95_ms = percentile(&compile_durations, 95.0);
+
         // Command counts
         let mut cmd_stmt = self.conn.prepare(
             &format!(
@@ -146,6 +164,8 @@ impl TelemetryStore {
         Ok(TelemetryAggregate {
             total_invocations: total,
             avg_compile_ms: avg_compile,
+            compile_p50_ms,
+            compile_p95_ms,
             avg_map_ms: avg_map,
             total_errors,
             total_warnings,
@@ -154,5 +174,47 @@ impl TelemetryStore {
             top_error_codes,
             agent_stats,
         })
+    }
+}
+
+/// Nearest-rank percentile over an ascending-sorted slice. Returns `None` for
+/// an empty slice.
+fn percentile(sorted: &[u64], pct: f64) -> Option<f64> {
+    if sorted.is_empty() {
+        return None;
+    }
+    let rank = ((pct / 100.0) * sorted.len() as f64).ceil() as usize;
+    let idx = rank.saturating_sub(1).min(sorted.len() - 1);
+    Some(sorted[idx] as f64)
+}
+
+#[cfg(test)]
+mod percentile_tests {
+    use super::percentile;
+
+    #[test]
+    fn empty_slice_is_none() {
+        assert_eq!(percentile(&[], 50.0), None);
+    }
+
+    #[test]
+    fn single_value_returns_itself_at_any_percentile() {
+        assert_eq!(percentile(&[42], 50.0), Some(42.0));
+        assert_eq!(percentile(&[42], 95.0), Some(42.0));
+        assert_eq!(percentile(&[42], 1.0), Some(42.0));
+    }
+
+    #[test]
+    fn p50_and_p95_over_ten_values() {
+        let sorted: Vec<u64> = (1..=10).collect(); // 1..=10
+        assert_eq!(percentile(&sorted, 50.0), Some(5.0));
+        assert_eq!(percentile(&sorted, 95.0), Some(10.0));
+        assert_eq!(percentile(&sorted, 100.0), Some(10.0));
+    }
+
+    #[test]
+    fn p95_never_exceeds_the_max() {
+        let sorted: Vec<u64> = vec![10, 20, 30];
+        assert_eq!(percentile(&sorted, 95.0), Some(30.0));
     }
 }

@@ -92,6 +92,16 @@ pub fn check_removed_functions_with_cache(
 
 /// Check E005: arity_mismatch — caller passes wrong number of arguments.
 /// Compares reference argument counts against definition parameter counts.
+///
+/// **Open question — call-side receivers.** `count_params` strips a leading
+/// `self`/`cls`/`&self` from the definition; `count_call_args` strips nothing.
+/// The asymmetry is deliberate for now: a call site writing the receiver
+/// explicitly (`Base.__init__(self, x)`) is far rarer than one passing `self`
+/// as a real argument (`registry.register(self)`), so stripping both sides
+/// would swap a rare false positive for a common false negative. Nothing is
+/// currently affected — every reference reaching here needs `resolved_to`, and
+/// no production site sets it — so this is a decision to make when E005's
+/// resolution is wired up, with call-site context available to disambiguate.
 pub fn check_arity_mismatch(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
 

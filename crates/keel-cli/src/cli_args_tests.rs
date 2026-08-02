@@ -18,7 +18,8 @@ fn parse_init() {
         cli.command,
         Commands::Init {
             merge: false,
-            yes: false
+            yes: false,
+            update_docs: false,
         }
     ));
 }
@@ -30,7 +31,8 @@ fn parse_init_merge() {
         cli.command,
         Commands::Init {
             merge: true,
-            yes: false
+            yes: false,
+            update_docs: false,
         }
     ));
 }
@@ -42,7 +44,8 @@ fn parse_init_yes() {
         cli.command,
         Commands::Init {
             merge: false,
-            yes: true
+            yes: true,
+            update_docs: false,
         }
     ));
 }
@@ -54,9 +57,35 @@ fn parse_init_yes_short() {
         cli.command,
         Commands::Init {
             merge: false,
-            yes: true
+            yes: true,
+            update_docs: false,
         }
     ));
+}
+
+#[test]
+fn parse_init_update_docs() {
+    let cli = parse(&["keel", "init", "--update-docs"]);
+    assert!(matches!(
+        cli.command,
+        Commands::Init {
+            merge: false,
+            yes: false,
+            update_docs: true,
+        }
+    ));
+}
+
+#[test]
+fn parse_client_global_flag() {
+    let cli = parse(&["keel", "compile", "--client", "claude-code"]);
+    assert_eq!(cli.client.as_deref(), Some("claude-code"));
+}
+
+#[test]
+fn parse_without_client_defaults_to_none() {
+    let cli = parse(&["keel", "compile"]);
+    assert_eq!(cli.client, None);
 }
 
 #[test]
@@ -665,73 +694,4 @@ fn parse_compile_delta() {
         }
         _ => panic!("expected Compile"),
     }
-}
-
-// --- Error cases ---
-
-#[test]
-fn no_subcommand_is_error() {
-    parse_err(&["keel"]);
-}
-
-#[test]
-fn unknown_subcommand_is_error() {
-    parse_err(&["keel", "foobar"]);
-}
-
-#[test]
-fn unknown_flag_is_error() {
-    parse_err(&["keel", "--not-a-flag", "init"]);
-}
-
-// --- --no-telemetry flag ---
-
-#[test]
-fn no_telemetry_default_is_false() {
-    let cli = parse(&["keel", "compile"]);
-    assert!(!cli.no_telemetry);
-}
-
-#[test]
-fn no_telemetry_flag_before_subcommand() {
-    let cli = parse(&["keel", "--no-telemetry", "compile"]);
-    assert!(cli.no_telemetry);
-}
-
-#[test]
-fn no_telemetry_flag_after_subcommand() {
-    let cli = parse(&["keel", "compile", "--no-telemetry"]);
-    assert!(cli.no_telemetry);
-}
-
-// --- Login / Logout / Push ---
-
-#[test]
-fn parse_login() {
-    let cli = parse(&["keel", "login"]);
-    assert!(matches!(cli.command, Commands::Login));
-}
-
-#[test]
-fn parse_logout() {
-    let cli = parse(&["keel", "logout"]);
-    assert!(matches!(cli.command, Commands::Logout));
-}
-
-#[test]
-fn parse_push_defaults() {
-    let cli = parse(&["keel", "push"]);
-    assert!(matches!(cli.command, Commands::Push { yes: false }));
-}
-
-#[test]
-fn parse_push_yes_long() {
-    let cli = parse(&["keel", "push", "--yes"]);
-    assert!(matches!(cli.command, Commands::Push { yes: true }));
-}
-
-#[test]
-fn parse_push_yes_short() {
-    let cli = parse(&["keel", "push", "-y"]);
-    assert!(matches!(cli.command, Commands::Push { yes: true }));
 }

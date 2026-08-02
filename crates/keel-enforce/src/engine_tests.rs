@@ -59,6 +59,7 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str) -> Definition 
         is_auto_invoked: false,
         is_decorated: false,
         has_keep_marker: false,
+        is_macro: false,
     }
 }
 
@@ -74,6 +75,8 @@ mod e002_e003;
 mod e004_misc;
 #[path = "engine_tests_economy.rs"]
 mod economy;
+#[path = "engine_tests_module_identity.rs"]
+mod module_identity;
 
 #[test]
 fn test_prune_file_removes_nodes_and_edges() {

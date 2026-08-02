@@ -303,7 +303,7 @@ fn test_sqlite_auto_create_schema() {
     assert!(db_path.exists(), "db file should have been created");
 
     let version = store.schema_version().unwrap();
-    assert_eq!(version, 6, "schema version should be 6");
+    assert_eq!(version, 7, "schema version should be 7");
 
     // Verify we can perform basic operations on the fresh schema
     let modules = store.get_all_modules();
