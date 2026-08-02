@@ -16,20 +16,7 @@
 use rusqlite::params;
 
 use crate::sqlite::SqliteGraphStore;
-use crate::types::{GraphError, QualityInputs};
-
-/// Edge kinds that make one MODULE depend on another, as a SQL `IN` list.
-///
-/// Mirrors `keel_enforce::audit::navigation::is_module_dep_edge`; a test in
-/// that crate asserts the two agree, because a literal in a SQL string cannot
-/// be type-checked against a Rust `match`.
-pub const MODULE_DEP_KINDS_SQL: &str = "'calls','imports'";
-
-/// Edge kinds that make one SYMBOL depend on another, as a SQL `IN` list.
-///
-/// Mirrors `keel_enforce::queries::is_dependency_edge`, guarded by the same
-/// test.
-pub const SYMBOL_DEP_KINDS_SQL: &str = "'calls','uses'";
+use crate::types::{sql_in_list, GraphError, QualityInputs, MODULE_DEP_KINDS, SYMBOL_DEP_KINDS};
 
 /// DDL for the schema-v7 `quality_snapshots` table and its lookup index.
 ///
@@ -184,6 +171,11 @@ impl SqliteGraphStore {
     /// with two stored `module` rows, and iterating those in Rust silently
     /// double-counts every metric derived from them.
     pub(crate) fn query_quality_inputs(&self) -> QualityInputs {
+        // Rendered from the shared Rust sets, so the SQL cannot disagree with
+        // the predicates the rest of keel counts edges with.
+        let symbol_dep_kinds = sql_in_list(SYMBOL_DEP_KINDS);
+        let module_dep_kinds = sql_in_list(MODULE_DEP_KINDS);
+
         let file_lines = self
             .collect(
                 "SELECT file_path, MAX(line_end - line_start + 1)
@@ -204,7 +196,7 @@ impl SqliteGraphStore {
                      WHERE n.kind = 'function' AND n.is_public = 0 AND n.is_associated = 0
                        AND NOT EXISTS (
                          SELECT 1 FROM edges e
-                         WHERE e.target_id = n.id AND e.kind IN ({SYMBOL_DEP_KINDS_SQL})
+                         WHERE e.target_id = n.id AND e.kind IN ({symbol_dep_kinds})
                        )"
                 ),
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
@@ -217,7 +209,7 @@ impl SqliteGraphStore {
                     "SELECT DISTINCT sn.file_path, tn.file_path FROM edges e
                      JOIN nodes sn ON sn.id = e.source_id
                      JOIN nodes tn ON tn.id = e.target_id
-                     WHERE e.kind IN ({MODULE_DEP_KINDS_SQL}) AND sn.file_path <> tn.file_path"
+                     WHERE e.kind IN ({module_dep_kinds}) AND sn.file_path <> tn.file_path"
                 ),
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
@@ -232,7 +224,7 @@ impl SqliteGraphStore {
                      FROM edges e
                      JOIN nodes sn ON sn.id = e.source_id
                      JOIN nodes tn ON tn.id = e.target_id
-                     WHERE e.kind IN ({SYMBOL_DEP_KINDS_SQL})"
+                     WHERE e.kind IN ({symbol_dep_kinds})"
                 ),
                 [],
                 |row| {

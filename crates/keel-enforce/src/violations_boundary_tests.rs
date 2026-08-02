@@ -4,7 +4,7 @@
 
 use super::*;
 use keel_core::sqlite::SqliteGraphStore;
-use keel_core::sqlite_boundary::LAST_MAP_AT;
+use keel_core::sqlite_meta::LAST_MAP_AT;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, NodeChange};
 use keel_parsers::resolver::{Import, Reference};
 

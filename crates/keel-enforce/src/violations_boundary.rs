@@ -29,6 +29,7 @@
 //! confident wrong warnings with no signal that it was guessed — so a flat repo
 //! sees nothing at all.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use keel_core::config::ArchitectureConfig;
@@ -50,6 +51,23 @@ pub struct BoundaryContext {
     enabled: bool,
     count_type_deps: bool,
     deny: HashSet<(String, String)>,
+    /// Per-DIRECTORY baseline, memoized for the life of the compile batch.
+    /// The underlying store query is a three-table join, and every file in a
+    /// directory shares its answer — a `keel compile` over a whole module
+    /// otherwise pays for it once per file.
+    baselines: RefCell<HashMap<String, ModuleBaseline>>,
+}
+
+/// What one directory's stored graph state contributes to the check.
+#[derive(Clone)]
+struct ModuleBaseline {
+    /// Whether the directory has been mapped at all (the bootstrap guard).
+    mapped: bool,
+    /// The package its stored nodes declare, if any.
+    package: Option<String>,
+    /// Every boundary its stored `calls` edges already reach — the
+    /// grandfathered set.
+    stored: HashSet<Boundary>,
 }
 
 impl BoundaryContext {
@@ -62,22 +80,36 @@ impl BoundaryContext {
     /// read as new.
     pub fn new(store: &dyn GraphStore, arch: &ArchitectureConfig, packages_declared: bool) -> Self {
         let mapped = store
-            .meta_value(keel_core::sqlite_boundary::LAST_MAP_AT)
+            .meta_value(keel_core::sqlite_meta::LAST_MAP_AT)
             .is_some();
         Self {
             enabled: packages_declared && mapped,
             count_type_deps: arch.count_type_deps,
             deny: arch.deny.iter().cloned().collect(),
+            baselines: RefCell::new(HashMap::new()),
         }
     }
 
-    /// A context that never fires — used by engines built without a config.
-    pub fn disabled() -> Self {
-        Self {
-            enabled: false,
-            count_type_deps: false,
-            deny: HashSet::new(),
+    /// The baseline for `dir`, querying the store only on the first file of
+    /// that directory in this compile batch.
+    fn baseline(&self, store: &dyn GraphStore, dir: &str) -> ModuleBaseline {
+        if let Some(cached) = self.baselines.borrow().get(dir) {
+            return cached.clone();
         }
+        let module = store.module_boundary_info(dir);
+        let baseline = ModuleBaseline {
+            mapped: module.is_mapped(),
+            stored: module
+                .call_targets
+                .iter()
+                .filter_map(|t| t.boundary())
+                .collect(),
+            package: module.package,
+        };
+        self.baselines
+            .borrow_mut()
+            .insert(dir.to_string(), baseline.clone());
+        baseline
     }
 }
 
@@ -110,8 +142,8 @@ pub fn check_cross_boundary_deps(
     // and baselining on the file would report keel's own resolution gaps as
     // architecture changes: a cross-package call the map cannot resolve leaves
     // no stored edge, so an unchanged tree would warn about it forever.
-    let module = store.module_boundary_info(dir);
-    if !module.is_mapped() {
+    let module = ctx.baseline(store, dir);
+    if !module.mapped {
         return Vec::new();
     }
 
@@ -119,13 +151,28 @@ pub fn check_cross_boundary_deps(
         return Vec::new();
     };
 
-    let stored: HashSet<Boundary> = module
-        .call_targets
+    // The names one file imported *by name* — the only references W009 will
+    // count.
+    //
+    // A bare name on its own manufactures dependencies: Rust's `format!`/
+    // `write!` macro sites, `.collect()` and every other method whose name also
+    // belongs to some free function in another package, and any common verb
+    // (`run`, `parse`, `load`). Matching on the qualifier instead is no better —
+    // `Formatter::fmt` passes on the *type*, not on a dependency the file
+    // declared.
+    //
+    // A file that imported the symbol by name has declared that dependency in
+    // its own text, which is exactly the decision W009 exists to surface. The
+    // cost is coverage: a fully-qualified path call (`other_crate::helper()`), a
+    // namespace import (`import * as core`), and Go's `pkg.Func()` — which
+    // imports the package, not the function — are all invisible. That trade is
+    // deliberate; a false architecture warning teaches the team to distrust the
+    // tool wholesale.
+    let imported: HashSet<&str> = file
+        .imports
         .iter()
-        .filter_map(|t| t.boundary())
+        .flat_map(|i| i.imported_names.iter().map(String::as_str))
         .collect();
-
-    let evidence = ImportEvidence::of(file);
     let counted: Vec<(&str, u32)> = file
         .references
         .iter()
@@ -135,7 +182,7 @@ pub fn check_cross_boundary_deps(
             _ => false,
         })
         .map(|r| (bare_name(&r.name), r.line))
-        .filter(|(name, _)| !name.is_empty() && evidence.covers(name))
+        .filter(|(name, _)| !name.is_empty() && imported.contains(name))
         .collect();
     let mut lookup: Vec<&str> = Vec::new();
     let mut seen_names: HashSet<&str> = HashSet::new();
@@ -203,7 +250,7 @@ pub fn check_cross_boundary_deps(
             let denied = ctx
                 .deny
                 .contains(&(own.label().to_string(), dep.boundary.label().to_string()));
-            if !denied && stored.contains(&dep.boundary) {
+            if !denied && module.stored.contains(&dep.boundary) {
                 return None;
             }
             let facade = store.boundary_facade(&dep.boundary);
@@ -325,43 +372,6 @@ fn own_boundary(
 fn bare_name(name: &str) -> &str {
     let after_colons = name.rsplit("::").next().unwrap_or(name);
     after_colons.rsplit('.').next().unwrap_or(after_colons)
-}
-
-/// The names one file imported *by name* — the only references W009 will
-/// count.
-///
-/// A bare name on its own manufactures dependencies: Rust's `format!`/`write!`
-/// macro sites, `.collect()` and every other method whose name also belongs to
-/// some free function in another package, and any common verb (`run`, `parse`,
-/// `load`). Matching on the qualifier instead is no better — `Formatter::fmt`
-/// passes on the *type*, not on a dependency the file declared.
-///
-/// A file that imported the symbol by name has declared that dependency in its
-/// own text, which is exactly the decision W009 exists to surface. The cost is
-/// coverage: a fully-qualified path call (`other_crate::helper()`), a
-/// namespace import (`import * as core`), and Go's `pkg.Func()` — which
-/// imports the package, not the function — are all invisible. That trade is
-/// deliberate; a false architecture warning teaches the team to distrust the
-/// tool wholesale.
-struct ImportEvidence<'a> {
-    names: HashSet<&'a str>,
-}
-
-impl<'a> ImportEvidence<'a> {
-    fn of(file: &'a FileIndex) -> Self {
-        Self {
-            names: file
-                .imports
-                .iter()
-                .flat_map(|i| i.imported_names.iter().map(String::as_str))
-                .collect(),
-        }
-    }
-
-    /// True when this exact name was imported into the file.
-    fn covers(&self, bare_name: &str) -> bool {
-        self.names.contains(bare_name)
-    }
 }
 
 #[cfg(test)]

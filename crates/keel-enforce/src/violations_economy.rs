@@ -29,19 +29,36 @@ const _: () = assert!(MIN_DUPLICATE_BODY_LEN >= keel_core::hash::MIN_INDEXED_BOD
 /// Names that are entrypoints or conventionally uncalled in every language —
 /// never dead.
 ///
-/// Shared with `crate::quality`'s `dead_private_fns` metric, which counts the
-/// same population from the stored graph: a trend line that includes `main` is
+/// Reached through `is_exempt_dead_name`, which `crate::quality`'s
+/// `dead_private_fns` metric shares: a trend line that includes `main` is
 /// measuring keel's exemption list, not the codebase.
-pub(crate) const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
+const ENTRYPOINT_NAMES: &[&str] = &["main", "new", "default", "drop", "fmt"];
+
+/// True when a function's NAME alone exempts it from dead-code analysis:
+/// `_`-prefixed (deliberately unused), `bench_*` (criterion benches outside
+/// `benches/`, which no test-context marking covers), a `.`-qualified name (a
+/// method reached through a receiver), or an `ENTRYPOINT_NAMES` entry.
+///
+/// One definition, because the stored-graph twin of this check —
+/// `crate::quality`'s `dead_private_fns` metric, which has only a name and a
+/// path to go on — must not drift from the compile-time rule. Everything else
+/// W005 exempts (decorators, trait context, `keel:keep`, test context) needs a
+/// fresh parse to see and stays at the call site.
+pub(crate) fn is_exempt_dead_name(name: &str) -> bool {
+    name.starts_with('_')
+        || name.starts_with("bench_")
+        || name.contains('.')
+        || ENTRYPOINT_NAMES.contains(&name)
+}
 
 /// True when a definition is an auto-invoked entrypoint and therefore never dead.
 ///
-/// `ENTRYPOINT_NAMES` holds only names universal across languages; anything
+/// `is_exempt_dead_name` holds only names universal across languages; anything
 /// language-specific (Go's `init`/`main`/`TestMain`) is carried by the parser's
 /// per-language `is_auto_invoked` flag, so this check no longer re-derives the
 /// language from the file path or accretes a match arm per runtime convention.
 fn is_entrypoint(def: &Definition) -> bool {
-    ENTRYPOINT_NAMES.contains(&def.name.as_str()) || def.is_auto_invoked
+    is_exempt_dead_name(&def.name) || def.is_auto_invoked
 }
 
 /// Collect every symbol name referenced anywhere in the compile batch,
@@ -118,7 +135,6 @@ pub fn check_dead_code(
     for def in &file.definitions {
         if def.kind != NodeKind::Function
             || def.is_public
-            || def.name.starts_with('_')
             // Symbols in a #[cfg(test)] module or a #[test]/#[tokio::test]
             // function are invoked by the harness, not by production code —
             // "no callers" is vacuously true regardless of naming convention.
@@ -128,10 +144,7 @@ pub fn check_dead_code(
             // resolves to the trait declaration, not to each implementor — so
             // "no callers" is an artifact of the analysis, not dead code.
             || def.in_trait_context
-            // `bench_*` covers criterion benches outside `benches/`; no
-            // language's test-context marking covers benchmark naming.
-            || def.name.starts_with("bench_")
-            || def.name.contains('.')
+            // `_`-prefixed, `bench_*`, qualified and entrypoint names.
             || is_entrypoint(def)
             // A Python `@register("evt")` / `@app.route(...)`-decorated
             // function is handed to the decorator, not called by name — a

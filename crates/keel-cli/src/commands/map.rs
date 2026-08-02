@@ -344,7 +344,7 @@ pub fn run(
         .map(|d| d.as_secs())
         .unwrap_or(0)
         .to_string();
-    if let Err(e) = store.set_meta_value(keel_core::sqlite_boundary::LAST_MAP_AT, &mapped_at) {
+    if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_AT, &mapped_at) {
         if verbose {
             eprintln!("keel map: failed to record map timestamp: {}", e);
         }
@@ -355,7 +355,7 @@ pub fn run(
     // commit is not an ancestor of. Outside a git repo (or before the first
     // commit) there is nothing to stamp and no staleness to detect.
     if let Some(head) = keel_enforce::gitdiff::head_commit(&cwd) {
-        if let Err(e) = store.set_meta_value(keel_core::sqlite_boundary::LAST_MAP_COMMIT, &head) {
+        if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_COMMIT, &head) {
             if verbose {
                 eprintln!("keel map: failed to record map commit: {}", e);
             }

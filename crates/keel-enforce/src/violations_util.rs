@@ -126,11 +126,207 @@ pub fn is_test_file(path: &str) -> bool {
     false
 }
 
+/// Maximum characters a parenthesized span may cover before it is treated as
+/// unbalanced prose rather than an argument list. Bounds the plan scanner,
+/// which runs over free text where an opening paren may never close.
+pub(crate) const MAX_CLAIM_SPAN: usize = 600;
+
+/// A signature (or a plan's call claim) reduced to the two things keel
+/// compares: how many arguments it takes, and whether it declares a return.
+pub(crate) struct ParsedSig {
+    /// Parameter count with any receiver removed.
+    pub(crate) arity: usize,
+    /// Whether an explicit `-> T` follows the parameter list.
+    pub(crate) has_return: bool,
+}
+
+/// True for characters that may appear inside an identifier.
+pub(crate) fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Index of the `)` closing the `(` at `open`, or `None` when the span is
+/// unbalanced, longer than `MAX_CLAIM_SPAN`, or crosses a blank line.
+pub(crate) fn match_paren(chars: &[char], open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut in_str: Option<char> = None;
+    let mut prev = '\0';
+    let mut newlines = 0usize;
+    for (offset, &ch) in chars[open..].iter().enumerate() {
+        if offset > MAX_CLAIM_SPAN {
+            return None;
+        }
+        if let Some(q) = in_str {
+            if ch == q && prev != '\\' {
+                in_str = None;
+            }
+            prev = ch;
+            continue;
+        }
+        match ch {
+            '"' | '\'' | '`' => in_str = Some(ch),
+            '\n' => {
+                newlines += 1;
+                if newlines > 6 {
+                    return None;
+                }
+            }
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + offset);
+                }
+            }
+            _ => {}
+        }
+        prev = ch;
+    }
+    None
+}
+
+/// Split an argument list on top-level commas, tracking `()`, `[]`, `{}`,
+/// generic `<>` (only when the `<` follows an identifier, so `a < b` is not a
+/// bracket) and string literals.
+pub(crate) fn split_top_level(args: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let (mut round, mut square, mut curly, mut angle) = (0i32, 0i32, 0i32, 0i32);
+    let mut in_str: Option<char> = None;
+    let mut cur = String::new();
+    let mut prev = '\0';
+    for ch in args.chars() {
+        if let Some(q) = in_str {
+            cur.push(ch);
+            if ch == q && prev != '\\' {
+                in_str = None;
+            }
+            prev = ch;
+            continue;
+        }
+        match ch {
+            '"' | '\'' | '`' => {
+                in_str = Some(ch);
+                cur.push(ch);
+            }
+            '(' => {
+                round += 1;
+                cur.push(ch);
+            }
+            ')' => {
+                round -= 1;
+                cur.push(ch);
+            }
+            '[' => {
+                square += 1;
+                cur.push(ch);
+            }
+            ']' => {
+                square -= 1;
+                cur.push(ch);
+            }
+            '{' => {
+                curly += 1;
+                cur.push(ch);
+            }
+            '}' => {
+                curly -= 1;
+                cur.push(ch);
+            }
+            '<' if is_ident_char(prev) => {
+                angle += 1;
+                cur.push(ch);
+            }
+            '>' if angle > 0 && prev != '-' && prev != '=' => {
+                angle -= 1;
+                cur.push(ch);
+            }
+            ',' if round == 0 && square == 0 && curly == 0 && angle == 0 => {
+                parts.push(std::mem::take(&mut cur));
+            }
+            _ => cur.push(ch),
+        }
+        prev = ch;
+    }
+    parts.push(cur);
+    parts
+}
+
+/// Drop a leading receiver parameter (`self`, `&self`, `&mut self`, `cls`,
+/// `this`): it is never written at the call site, so counting it would make
+/// every method call look like it is one argument short.
+pub(crate) fn strip_receiver(parts: &mut Vec<String>) {
+    let is_receiver = parts.first().is_some_and(|first| {
+        let t = first
+            .trim()
+            .trim_start_matches('&')
+            .trim()
+            .trim_start_matches("mut ")
+            .trim();
+        let head = t
+            .split(|c: char| c == ':' || c.is_whitespace())
+            .next()
+            .unwrap_or("");
+        matches!(head, "self" | "cls" | "this")
+    });
+    if is_receiver {
+        parts.remove(0);
+    }
+}
+
+/// Countable argument count, or `None` when the list is variadic (`*args`,
+/// `...rest`), defaulted (`=`), optional (`?`) or elided (`...`) — all cases
+/// where "the plan says N" and "the code takes N" are not comparable.
+pub(crate) fn countable_arity(parts: &[String]) -> Option<usize> {
+    let trimmed: Vec<&str> = parts.iter().map(|p| p.trim()).collect();
+    if trimmed.len() == 1 && trimmed[0].is_empty() {
+        return Some(0);
+    }
+    for p in &trimmed {
+        if p.is_empty()
+            || p.starts_with('*')
+            || p.starts_with("...")
+            || p.starts_with('…')
+            || p.contains('=')
+            || p.contains('?')
+        {
+            return None;
+        }
+    }
+    Some(trimmed.len())
+}
+
+/// Reduce a signature (`name(params) -> ret`) to arity and return presence.
+/// `None` when there is no parameter list or the parameters are not countable.
+pub(crate) fn parse_signature(sig: &str) -> Option<ParsedSig> {
+    let chars: Vec<char> = sig.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let close = match_paren(&chars, open)?;
+    let args: String = chars[open + 1..close].iter().collect();
+    let mut parts = split_top_level(&args);
+    strip_receiver(&mut parts);
+    let arity = countable_arity(&parts)?;
+    let tail: String = chars[close + 1..].iter().collect();
+    Some(ParsedSig {
+        arity,
+        has_return: tail.contains("->"),
+    })
+}
+
 /// Count parameters from a signature string. Returns 0 if unable to parse.
+///
+/// Delegates to `parse_signature`, so a nested generic (`HashMap<K, V>` is one
+/// parameter, not two) and a receiver (`&self`/`cls`/`this`, never written at
+/// the call site) are counted the way E005's caller-side count sees them.
+/// A parameter list the precise parser declines to count at all — variadic,
+/// defaulted or optional — falls back to the naive comma split, keeping those
+/// signatures exactly as E005 compared them before.
 pub fn count_params(sig: &str) -> usize {
+    if let Some(parsed) = parse_signature(sig) {
+        return parsed.arity;
+    }
     let Some(start) = sig.find('(') else { return 0 };
     let Some(end) = sig.find(')') else { return 0 };
-    let params = &sig[start + 1..end].trim();
+    let params = sig[start + 1..end].trim();
     if params.is_empty() {
         return 0;
     }
@@ -275,8 +471,28 @@ mod tests {
 
     #[test]
     fn test_count_params_self_receiver() {
-        // Rust method with self
-        assert_eq!(count_params("fn method(&self, x: i32)"), 2);
+        // The receiver is never written at the call site, so it is not counted:
+        // `obj.method(x)` passes one argument and the definition takes one.
+        assert_eq!(count_params("fn method(&self, x: i32)"), 1);
+        assert_eq!(count_params("def method(self, x)"), 1);
+        assert_eq!(count_params("fn method(&mut self)"), 0);
+    }
+
+    #[test]
+    fn test_count_params_nested_generics_are_one_param() {
+        // A comma inside `<>` / `()` / `[]` does not start a new parameter.
+        assert_eq!(count_params("fn f(m: HashMap<String, i32>)"), 1);
+        assert_eq!(count_params("fn f(m: HashMap<String, i32>, n: u8)"), 2);
+        assert_eq!(count_params("fn f(cb: fn(a: i32, b: i32) -> i32)"), 1);
+    }
+
+    #[test]
+    fn test_count_params_uncountable_lists_keep_the_naive_count() {
+        // Variadic/defaulted/optional lists are not comparable to a call site;
+        // the fallback keeps E005's pre-existing behavior for them.
+        assert_eq!(count_params("def f(a, b=1)"), 2);
+        assert_eq!(count_params("def f(*args)"), 1);
+        assert_eq!(count_params("function f(a: number, b?: number)"), 2);
     }
 
     #[test]

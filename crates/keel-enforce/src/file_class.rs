@@ -93,14 +93,6 @@ impl FileClass {
     }
 }
 
-/// Whether size- and naming-shaped audit checks apply to `path`.
-///
-/// Convenience wrapper over [`FileClass::classify`] +
-/// `FileClass::grades_size_and_naming` for the audit's per-module loops.
-pub fn grades_size_and_naming(path: &str) -> bool {
-    FileClass::classify(path).grades_size_and_naming()
-}
-
 /// The [`UNTRACKED_SIGNIFICANT`] extension of `path`, if it has one.
 ///
 /// Returns `None` for anything `detect_language` recognizes, so a future
@@ -217,11 +209,12 @@ mod tests {
 
     #[test]
     fn only_source_is_graded() {
-        assert!(grades_size_and_naming("src/main.rs"));
-        assert!(!grades_size_and_naming("tests/cli/test_audit.rs"));
-        assert!(!grades_size_and_naming("baml_src/main.baml"));
-        assert!(!grades_size_and_naming("baml_client/client.py"));
-        assert!(!grades_size_and_naming("migrations/001.sql"));
+        let graded = |p: &str| FileClass::classify(p).grades_size_and_naming();
+        assert!(graded("src/main.rs"));
+        assert!(!graded("tests/cli/test_audit.rs"));
+        assert!(!graded("baml_src/main.baml"));
+        assert!(!graded("baml_client/client.py"));
+        assert!(!graded("migrations/001.sql"));
     }
 
     /// The anti-drift guarantee: the untracked table may never claim an

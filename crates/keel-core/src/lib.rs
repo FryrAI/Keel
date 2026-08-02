@@ -18,6 +18,7 @@ pub mod sqlite;
 pub mod sqlite_batch;
 pub mod sqlite_boundary;
 pub mod sqlite_helpers;
+pub mod sqlite_meta;
 pub mod sqlite_quality;
 pub mod sqlite_queries;
 pub mod store;

@@ -75,10 +75,10 @@ impl TreeSitterParser {
         let bytes = source.as_bytes();
         let root = tree.root_node();
 
-        let definitions = extract_definitions(&query, root, bytes, &file_path, lang_name);
+        let definitions = extract_definitions(query, root, bytes, &file_path, lang_name);
         let references =
-            extract_references(&query, root, bytes, &file_path, &self.boundary_literals);
-        let imports = imports::extract_imports(&query, root, bytes, &file_path);
+            extract_references(query, root, bytes, &file_path, &self.boundary_literals);
+        let imports = imports::extract_imports(query, root, bytes, &file_path);
 
         // The whole-file Module node is owned by `map_passes::first_pass`
         // (path-named, one per file). Emitting a second file-stem-named Module

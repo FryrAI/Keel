@@ -5,7 +5,7 @@ use super::trend::build_trend;
 use super::*;
 
 use keel_core::sqlite::SqliteGraphStore;
-use keel_core::sqlite_quality::{QualitySnapshotRow, MODULE_DEP_KINDS_SQL, SYMBOL_DEP_KINDS_SQL};
+use keel_core::sqlite_quality::QualitySnapshotRow;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 
 const BUDGET: u32 = 400;
@@ -179,36 +179,6 @@ fn empty_graph_measures_zero_rather_than_dividing_by_zero() {
     assert_eq!(m.cycle_count, 0);
     assert_eq!(m.dead_private_fns, 0);
     assert_eq!(m.cross_module_edge_ratio, 0.0);
-}
-
-/// The metrics SQL names its edge kinds in a string literal, which no compiler
-/// checks against the Rust predicates the rest of keel uses. This is that
-/// check: adding an edge kind to one side and not the other silently changes
-/// what the series measures.
-#[test]
-fn sql_edge_kind_lists_match_the_rust_predicates() {
-    use crate::audit::navigation::is_module_dep_edge;
-    use crate::queries::is_dependency_edge;
-
-    for kind in [
-        EdgeKind::Calls,
-        EdgeKind::Imports,
-        EdgeKind::Inherits,
-        EdgeKind::Contains,
-        EdgeKind::Uses,
-    ] {
-        let quoted = format!("'{}'", kind.as_str());
-        assert_eq!(
-            is_module_dep_edge(&kind),
-            MODULE_DEP_KINDS_SQL.contains(&quoted),
-            "{kind} disagrees between is_module_dep_edge and MODULE_DEP_KINDS_SQL"
-        );
-        assert_eq!(
-            is_dependency_edge(&kind),
-            SYMBOL_DEP_KINDS_SQL.contains(&quoted),
-            "{kind} disagrees between is_dependency_edge and SYMBOL_DEP_KINDS_SQL"
-        );
-    }
 }
 
 /// A file with two stored `module` rows (hash-salt collisions do happen) is one

@@ -19,16 +19,16 @@ const MAX_ACTIONABLE_CYCLE: usize = 8;
 ///
 /// A resolved call or an import is a load-order relationship between files; a
 /// `uses` edge (a name handed around as a value) is not, and `contains` is
-/// intra-file by construction. This is the single definition of "module A
-/// depends on module B" — the audit's `circular_dep`/`high_coupling` checks and
-/// `crate::quality`'s `cycle_count` metric both read it, so a change here moves
-/// both together instead of silently splitting them.
+/// intra-file by construction. The set lives in
+/// `keel_core::types::MODULE_DEP_KINDS`, read through here by the audit's
+/// `circular_dep`/`high_coupling` checks and rendered into the metrics SQL's
+/// `IN (...)` list — one definition, so a change moves both together.
 ///
 /// Deliberately NOT `queries::is_dependency_edge`: that answers "does this
 /// SYMBOL depend on that one" for fan-in counting, where a callback reference
 /// absolutely counts.
 pub(crate) fn is_module_dep_edge(kind: &EdgeKind) -> bool {
-    matches!(kind, EdgeKind::Calls | EdgeKind::Imports)
+    keel_core::types::MODULE_DEP_KINDS.contains(kind)
 }
 
 /// Whether a module cycle is a real defect worth reporting.

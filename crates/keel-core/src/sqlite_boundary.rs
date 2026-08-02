@@ -11,23 +11,6 @@ use rusqlite::params;
 use crate::sqlite::SqliteGraphStore;
 use crate::types::{Boundary, BoundaryTarget, ModuleBoundaryInfo};
 
-/// `keel_meta` key stamped by `keel map` on completion.
-///
-/// Its presence is the "this graph has been mapped at least once" signal the
-/// W009 bootstrap guard needs: before a first map, the graph holds no edges at
-/// all and every dependency would read as new.
-pub const LAST_MAP_AT: &str = "last_map_at";
-
-/// `keel_meta` key holding the git commit `keel map` last built the graph from.
-///
-/// `keel compile` refuses to run (exit 2) when this commit is not an ancestor
-/// of `HEAD`: the graph then describes code the checkout does not contain, and
-/// `compile --changed` against it manufactures phantom `E001`/`E004` —
-/// renamed functions read as removed, live callers read as broken. A graph
-/// with no marker (mapped by an older keel, or mapped outside a git repo) is
-/// never treated as stale, so pre-existing graphs keep working.
-pub const LAST_MAP_COMMIT: &str = "last_map_commit";
-
 /// Cap on how many distinct reference names one file contributes to the
 /// boundary lookup. Bounds the generated `IN (...)` list on pathological
 /// machine-generated files; ordinary files sit far below it.
@@ -42,31 +25,6 @@ fn prefix_range(dir: &str) -> (String, String) {
 }
 
 impl SqliteGraphStore {
-    /// Read a single `keel_meta` value.
-    pub(crate) fn query_meta_value(&self, key: &str) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT value FROM keel_meta WHERE key = ?1",
-                params![key],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
-    }
-
-    /// Write (or replace) a single `keel_meta` value.
-    ///
-    /// Used by `keel map` to stamp `last_map_at`, the marker W009's bootstrap
-    /// guard reads to tell "no cross-boundary edges because none exist" apart
-    /// from "no cross-boundary edges because nothing was ever mapped".
-    pub fn set_meta_value(&self, key: &str, value: &str) -> Result<(), crate::types::GraphError> {
-        self.conn.execute(
-            "INSERT INTO keel_meta (key, value) VALUES (?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![key, value],
-        )?;
-        Ok(())
-    }
-
     /// Everything boundary analysis needs to know about the module (directory)
     /// holding a compiled file: its declared package and every boundary its
     /// stored `calls` edges already reach.

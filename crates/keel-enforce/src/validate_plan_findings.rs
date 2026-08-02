@@ -24,12 +24,13 @@ use serde::{Deserialize, Serialize};
 use keel_core::store::GraphStore;
 use keel_core::types::{GraphNode, NodeKind};
 
+use crate::violations_util::{
+    countable_arity, is_ident_char, match_paren, parse_signature, split_top_level, strip_receiver,
+    ParsedSig,
+};
+
 /// Maximum number of plan findings reported for one plan.
 const MAX_FINDINGS: usize = 20;
-
-/// Maximum characters a single `name(...)` claim may span before it is dropped
-/// as prose that merely happens to contain an unbalanced parenthesis.
-const MAX_CLAIM_SPAN: usize = 600;
 
 /// A plan-time finding in the `P` namespace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,18 +92,8 @@ struct CallClaim {
     text: String,
 }
 
-/// A stored signature reduced to the two things v1 compares.
-struct ParsedSig {
-    arity: usize,
-    has_return: bool,
-}
-
 fn is_ident_start(c: char) -> bool {
     c.is_alphabetic() || c == '_'
-}
-
-fn is_ident_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
 }
 
 /// Identifiers that are language keywords, builtins or ubiquitous third-party
@@ -228,156 +219,6 @@ fn scan_call_claims(plan: &str) -> Vec<CallClaim> {
     out
 }
 
-/// Index of the `)` closing the `(` at `open`, or `None` when the span is
-/// unbalanced, longer than `MAX_CLAIM_SPAN`, or crosses a blank line.
-fn match_paren(chars: &[char], open: usize) -> Option<usize> {
-    let mut depth = 0i32;
-    let mut in_str: Option<char> = None;
-    let mut prev = '\0';
-    let mut newlines = 0usize;
-    for (offset, &ch) in chars[open..].iter().enumerate() {
-        if offset > MAX_CLAIM_SPAN {
-            return None;
-        }
-        if let Some(q) = in_str {
-            if ch == q && prev != '\\' {
-                in_str = None;
-            }
-            prev = ch;
-            continue;
-        }
-        match ch {
-            '"' | '\'' | '`' => in_str = Some(ch),
-            '\n' => {
-                newlines += 1;
-                if newlines > 6 {
-                    return None;
-                }
-            }
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(open + offset);
-                }
-            }
-            _ => {}
-        }
-        prev = ch;
-    }
-    None
-}
-
-/// Split an argument list on top-level commas, tracking `()`, `[]`, `{}`,
-/// generic `<>` (only when the `<` follows an identifier, so `a < b` is not a
-/// bracket) and string literals.
-fn split_top_level(args: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let (mut round, mut square, mut curly, mut angle) = (0i32, 0i32, 0i32, 0i32);
-    let mut in_str: Option<char> = None;
-    let mut cur = String::new();
-    let mut prev = '\0';
-    for ch in args.chars() {
-        if let Some(q) = in_str {
-            cur.push(ch);
-            if ch == q && prev != '\\' {
-                in_str = None;
-            }
-            prev = ch;
-            continue;
-        }
-        match ch {
-            '"' | '\'' | '`' => {
-                in_str = Some(ch);
-                cur.push(ch);
-            }
-            '(' => {
-                round += 1;
-                cur.push(ch);
-            }
-            ')' => {
-                round -= 1;
-                cur.push(ch);
-            }
-            '[' => {
-                square += 1;
-                cur.push(ch);
-            }
-            ']' => {
-                square -= 1;
-                cur.push(ch);
-            }
-            '{' => {
-                curly += 1;
-                cur.push(ch);
-            }
-            '}' => {
-                curly -= 1;
-                cur.push(ch);
-            }
-            '<' if is_ident_char(prev) => {
-                angle += 1;
-                cur.push(ch);
-            }
-            '>' if angle > 0 && prev != '-' && prev != '=' => {
-                angle -= 1;
-                cur.push(ch);
-            }
-            ',' if round == 0 && square == 0 && curly == 0 && angle == 0 => {
-                parts.push(std::mem::take(&mut cur));
-            }
-            _ => cur.push(ch),
-        }
-        prev = ch;
-    }
-    parts.push(cur);
-    parts
-}
-
-/// Drop a leading receiver parameter (`self`, `&self`, `&mut self`, `cls`,
-/// `this`) so a Rust method never mismatches the TypeScript function the plan
-/// wrote by hand.
-fn strip_receiver(parts: &mut Vec<String>) {
-    let is_receiver = parts.first().is_some_and(|first| {
-        let t = first
-            .trim()
-            .trim_start_matches('&')
-            .trim()
-            .trim_start_matches("mut ")
-            .trim();
-        let head = t
-            .split(|c: char| c == ':' || c.is_whitespace())
-            .next()
-            .unwrap_or("");
-        matches!(head, "self" | "cls" | "this")
-    });
-    if is_receiver {
-        parts.remove(0);
-    }
-}
-
-/// Countable argument count, or `None` when the list is variadic (`*args`,
-/// `...rest`), defaulted (`=`), optional (`?`) or elided (`...`) — all cases
-/// where "the plan says N" and "the code takes N" are not comparable.
-fn countable_arity(parts: &[String]) -> Option<usize> {
-    let trimmed: Vec<&str> = parts.iter().map(|p| p.trim()).collect();
-    if trimmed.len() == 1 && trimmed[0].is_empty() {
-        return Some(0);
-    }
-    for p in &trimmed {
-        if p.is_empty()
-            || p.starts_with('*')
-            || p.starts_with("...")
-            || p.starts_with('…')
-            || p.contains('=')
-            || p.contains('?')
-        {
-            return None;
-        }
-    }
-    Some(trimmed.len())
-}
-
 /// Whether an explicit `-> T` follows the closing paren. Only `->` counts: a
 /// `:` after a call is far more often markdown prose ("`foo(x)`: does Y") than
 /// a TypeScript return annotation, and guessing wrong there would fire `P002`
@@ -394,24 +235,6 @@ fn trailing_return(chars: &[char], close: usize) -> Option<bool> {
         }
     }
     None
-}
-
-/// Reduce a stored `GraphNode.signature` (`name(params) -> ret`) to arity and
-/// return presence. `None` when there is no parameter list or the parameters
-/// are not countable.
-fn parse_signature(sig: &str) -> Option<ParsedSig> {
-    let chars: Vec<char> = sig.chars().collect();
-    let open = chars.iter().position(|&c| c == '(')?;
-    let close = match_paren(&chars, open)?;
-    let args: String = chars[open + 1..close].iter().collect();
-    let mut parts = split_top_level(&args);
-    strip_receiver(&mut parts);
-    let arity = countable_arity(&parts)?;
-    let tail: String = chars[close + 1..].iter().collect();
-    Some(ParsedSig {
-        arity,
-        has_return: tail.contains("->"),
-    })
 }
 
 /// Names the plan proposes to create, gathered from creation-verb lines and

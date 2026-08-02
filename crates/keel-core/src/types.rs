@@ -60,6 +60,35 @@ impl std::fmt::Display for EdgeKind {
     }
 }
 
+/// Edge kinds that make one SYMBOL depend on another: a resolved call, and a
+/// name used as a value (callback, handler table, template expression).
+///
+/// The adjacency surfaces — `discover`, `focus`, `search`, the fan-in counts —
+/// answer "what depends on this?", and a `uses` edge answers it. Severity
+/// checks deliberately do NOT use this set: E001/E004/E005 and the fix planner
+/// filter [`EdgeKind::Calls`] themselves, because only a parsed call site
+/// carries an argument list.
+pub const SYMBOL_DEP_KINDS: &[EdgeKind] = &[EdgeKind::Calls, EdgeKind::Uses];
+
+/// Edge kinds that make one MODULE depend on another.
+///
+/// A resolved call or an import is a load-order relationship between files; a
+/// `uses` edge (a name handed around as a value) is not, and `contains` is
+/// intra-file by construction.
+pub const MODULE_DEP_KINDS: &[EdgeKind] = &[EdgeKind::Calls, EdgeKind::Imports];
+
+/// Render edge kinds as the body of a SQL `IN (...)` list — `'calls','uses'`.
+///
+/// The SQL half of the two sets above, so a literal in a query string cannot
+/// drift from the Rust predicate it is supposed to mirror.
+pub fn sql_in_list(kinds: &[EdgeKind]) -> String {
+    kinds
+        .iter()
+        .map(|k| format!("'{}'", k.as_str()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// A node in the structural graph (function, class, or module).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {

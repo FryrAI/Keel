@@ -20,7 +20,7 @@
 use std::path::Path;
 
 use keel_core::sqlite::SqliteGraphStore;
-use keel_core::sqlite_boundary::LAST_MAP_COMMIT;
+use keel_core::sqlite_meta::LAST_MAP_COMMIT;
 use keel_core::store::GraphStore;
 use keel_enforce::gitdiff::{self, Ancestry};
 

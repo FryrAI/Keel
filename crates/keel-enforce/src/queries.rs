@@ -21,11 +21,14 @@ use crate::types::DiscoverResult;
 /// callers, which is the same false-dead-code signal W005 already refuses to
 /// send.
 ///
+/// The set itself lives in `keel_core::types::SYMBOL_DEP_KINDS`, which the
+/// metrics SQL renders its `IN (...)` list from — one definition, two readers.
+///
 /// Severity checks deliberately do NOT go through here. E001/E004/E005 and the
 /// fix planner filter [`EdgeKind::Calls`] themselves, because only a parsed
 /// call site carries an argument list.
 pub fn is_dependency_edge(kind: &EdgeKind) -> bool {
-    matches!(kind, EdgeKind::Calls | EdgeKind::Uses)
+    keel_core::types::SYMBOL_DEP_KINDS.contains(kind)
 }
 
 /// Count the stored dependency edges INTO `node_id` — its fan-in (caller

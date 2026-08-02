@@ -5,7 +5,7 @@ use std::path::Path;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
-use crate::file_class::grades_size_and_naming;
+use crate::file_class::FileClass;
 use crate::types::{AuditFinding, AuditSeverity};
 
 /// Language-aware comment prefix for file header detection.
@@ -126,7 +126,7 @@ pub fn check_discoverability(
         // only. `cryptic_name` on a test helper and "percent public" on a
         // generated client or a `.baml` contract are category errors — the
         // latter is a concept BAML's DSL does not have (see `file_class`).
-        let graded = grades_size_and_naming(path);
+        let graded = FileClass::classify(path).grades_size_and_naming();
 
         // File header check
         if comment_prefix(path).is_some() && !has_file_header(root_dir, path) {

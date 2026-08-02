@@ -34,7 +34,7 @@ use keel_core::types::QualityInputs;
 
 use crate::audit::navigation::{find_cycles, is_reportable_cycle};
 use crate::file_class::FileClass;
-use crate::violations_economy::ENTRYPOINT_NAMES;
+use crate::violations_economy::is_exempt_dead_name;
 
 pub use trend::{MetricTrend, QualityPoint, QualityTrend, TrendStep};
 
@@ -58,6 +58,13 @@ pub struct QualityMetrics {
     /// (`enforce.max_file_lines`). Tests, generated clients and `.sql`/`.baml`
     /// surfaces are excluded, or the series tracks fixture growth rather than
     /// production decay.
+    ///
+    /// Shares W007's budget but deliberately not W007's population: the metric
+    /// exempts by [`FileClass`], which also drops generated and declarative
+    /// files, while W007 exempts only test and stub files. It also has no
+    /// "and it grew" gate — a file that is over budget counts on every reading,
+    /// which is what makes the series a level rather than a change log. So the
+    /// two counts can legitimately differ on one tree.
     pub files_over_budget: u32,
     /// Module import/call cycles the audit would report — the same
     /// `circular_dep` population, Rust-only and over-long cycles excluded.
@@ -139,8 +146,9 @@ impl QualityReport {
 /// measurement in the low milliseconds instead of one query per node.
 ///
 /// `max_file_lines` is `enforce.max_file_lines` from `keel.json`, so the metric
-/// tracks the budget the repo actually enforces via W007 rather than holding a
-/// second, separate opinion about file size.
+/// reads the budget the repo actually enforces via W007 rather than holding a
+/// second, separate opinion about how long a file may be. The *population* it
+/// applies that budget to is its own — see [`QualityMetrics::files_over_budget`].
 pub fn compute_metrics(store: &dyn GraphStore, max_file_lines: u32) -> QualityMetrics {
     metrics_from(&store.quality_inputs(), max_file_lines)
 }
@@ -155,11 +163,16 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         })
         .count() as u32;
 
+    // `is_exempt_dead_name` is exactly W005's name-only exemption set. The
+    // exemptions only a fresh parse can see (decorators, trait context,
+    // `keel:keep`, test context) are missing here by construction, so this
+    // metric over-counts relative to `keel compile` — acceptable for a *trend*,
+    // where the level is arbitrary and only the direction is read.
     let dead_private_fns = inputs
         .uncalled_private_fns
         .iter()
         .filter(|(path, name)| {
-            FileClass::classify(path).grades_size_and_naming() && !is_never_dead(name)
+            FileClass::classify(path).grades_size_and_naming() && !is_exempt_dead_name(name)
         })
         .count() as u32;
 
@@ -184,17 +197,6 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         dead_private_fns,
         cross_module_edge_ratio,
     }
-}
-
-/// Names that carry no evidence of being dead however the graph reads.
-///
-/// Mirrors the naming exemptions W005 applies, minus the ones only a fresh
-/// parse can see (decorators, trait context, `keel:keep`) — so this metric
-/// over-counts relative to `keel compile` by construction. That is acceptable
-/// for a *trend*, where the level is arbitrary and only the direction is read,
-/// and it is stated here rather than discovered later.
-fn is_never_dead(name: &str) -> bool {
-    name.starts_with('_') || name.starts_with("bench_") || ENTRYPOINT_NAMES.contains(&name)
 }
 
 /// The module dependency graph, in the shape Tarjan's SCC wants.

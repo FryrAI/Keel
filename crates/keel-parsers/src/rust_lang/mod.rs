@@ -283,9 +283,17 @@ impl LanguageResolver for RustLangResolver {
             // carried by the name alone. Honour it when that file really does
             // define the name; otherwise refuse to guess once the name is
             // spread across more than MAX_NAME_ONLY_DEFINITION_FILES files.
-            let defining = files_defining(&cache, callee, |_| true);
-            let confirmed = defining.iter().any(|p| *p == Path::new(&imp.source));
-            if !confirmed && defining.len() > MAX_NAME_ONLY_DEFINITION_FILES {
+            // Ask the one file the import names first: on a hit the answer is
+            // already "confirmed" and the wide scan over every cached parse
+            // result — the dominant cost of this resolver on a large repo —
+            // never runs. It is only needed to count how far an *unconfirmed*
+            // name is spread.
+            let confirmed = cache
+                .get(Path::new(&imp.source))
+                .is_some_and(|pr| pr.definitions.iter().any(|d| d.name == *callee));
+            if !confirmed
+                && files_defining(&cache, callee, |_| true).len() > MAX_NAME_ONLY_DEFINITION_FILES
+            {
                 return None;
             }
             return Some(ResolvedEdge {
