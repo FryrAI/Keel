@@ -15,6 +15,7 @@ pub mod discover;
 pub mod explain;
 pub mod fix;
 pub mod focus;
+pub(crate) mod graph_staleness;
 pub mod init;
 pub mod input_detect;
 pub(crate) mod json_helpers;

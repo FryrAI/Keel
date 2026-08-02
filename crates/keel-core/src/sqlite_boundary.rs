@@ -18,6 +18,16 @@ use crate::types::{Boundary, BoundaryTarget, ModuleBoundaryInfo};
 /// all and every dependency would read as new.
 pub const LAST_MAP_AT: &str = "last_map_at";
 
+/// `keel_meta` key holding the git commit `keel map` last built the graph from.
+///
+/// `keel compile` refuses to run (exit 2) when this commit is not an ancestor
+/// of `HEAD`: the graph then describes code the checkout does not contain, and
+/// `compile --changed` against it manufactures phantom `E001`/`E004` —
+/// renamed functions read as removed, live callers read as broken. A graph
+/// with no marker (mapped by an older keel, or mapped outside a git repo) is
+/// never treated as stale, so pre-existing graphs keep working.
+pub const LAST_MAP_COMMIT: &str = "last_map_commit";
+
 /// Cap on how many distinct reference names one file contributes to the
 /// boundary lookup. Bounds the generated `IN (...)` list on pathological
 /// machine-generated files; ordinary files sit far below it.

@@ -104,6 +104,64 @@ pub fn changed_files_checked(
         .unwrap_or_default())
 }
 
+/// Whether one commit is contained in another revision's history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ancestry {
+    /// git answered yes: the commit is an ancestor of the revision, or is it.
+    Ancestor,
+    /// git answered no: the revision's history does not contain the commit.
+    NotAncestor,
+    /// git could not answer — not installed, not a repository, or the commit
+    /// is not an object this checkout knows (a shallow clone, a dropped
+    /// branch). Callers must treat this as "no opinion", never as "not an
+    /// ancestor": guessing turns a missing tool into a hard failure.
+    Unknown,
+}
+
+/// Map `git merge-base --is-ancestor`'s exit status onto an [`Ancestry`].
+///
+/// git documents exactly two answers — 0 for yes and 1 for no — and uses any
+/// other status (128 for an unknown object, 129 for a usage error) to say it
+/// could not answer at all. A process killed by a signal has no code and lands
+/// in the same bucket.
+pub fn classify_ancestry(code: Option<i32>) -> Ancestry {
+    match code {
+        Some(0) => Ancestry::Ancestor,
+        Some(1) => Ancestry::NotAncestor,
+        _ => Ancestry::Unknown,
+    }
+}
+
+/// Ask git whether `commit` is an ancestor of `rev` (usually `"HEAD"`).
+pub fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Ancestry {
+    match Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["merge-base", "--is-ancestor", commit, rev])
+        .output()
+    {
+        Ok(out) => classify_ancestry(out.status.code()),
+        Err(_) => Ancestry::Unknown,
+    }
+}
+
+/// The commit `HEAD` currently points at, or `None` when there is none —
+/// no git, no repository, or a repository whose first commit does not exist
+/// yet (`git init` with nothing committed).
+pub fn head_commit(dir: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
+}
+
 /// How a single path changed between two revisions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeStatus {

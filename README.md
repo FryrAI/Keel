@@ -89,8 +89,8 @@ curl -fsSL https://raw.githubusercontent.com/FryrAI/Keel/main/scripts/install.sh
 # From source
 cargo install --path crates/keel-cli
 
-# CI (GitHub Actions)
-# uses: FryrAI/Keel/.github/actions/keel@v0.1.0
+# CI (GitHub Actions) — `keel init` scaffolds this for you
+# uses: FryrAI/Keel/.github/actions/keel@v0
 ```
 
 ### Updating

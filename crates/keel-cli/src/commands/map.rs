@@ -350,6 +350,18 @@ pub fn run(
         }
     }
 
+    // Stamp WHICH commit the graph describes. `keel compile`'s staleness guard
+    // reads it and refuses to enforce once HEAD has moved somewhere this
+    // commit is not an ancestor of. Outside a git repo (or before the first
+    // commit) there is nothing to stamp and no staleness to detect.
+    if let Some(head) = keel_enforce::gitdiff::head_commit(&cwd) {
+        if let Err(e) = store.set_meta_value(keel_core::sqlite_boundary::LAST_MAP_COMMIT, &head) {
+            if verbose {
+                eprintln!("keel map: failed to record map commit: {}", e);
+            }
+        }
+    }
+
     match store.cleanup_orphaned_edges() {
         Ok(n) if n > 0 && verbose => {
             eprintln!("keel map: cleaned up {} orphaned edges", n);

@@ -28,7 +28,17 @@ pub fn run(
         Ok(x) => x,
         Err(code) => return code,
     };
-    let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(&cwd));
+    let keel_dir = keel_core::paths::keel_dir(&cwd);
+
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch, as
+    // `map` and `compile` do. Review is the only keel command a CI run makes
+    // when the graph came from cache, so without this line the drift notice
+    // never reaches the one reader who can act on it.
+    if let Some(msg) = super::version_drift::version_drift_message(&cwd, &keel_dir) {
+        eprintln!("{msg}");
+    }
+
+    let config = keel_core::config::KeelConfig::load(&keel_dir);
 
     let result = match review::review(&store, &cwd, &base, &config.enforce) {
         Ok(r) => r,

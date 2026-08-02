@@ -101,6 +101,15 @@ pub fn run(
         }
     };
 
+    // Refuse to enforce against a graph built on a commit this checkout does
+    // not contain: every caller and every removal it reports would be phantom.
+    // Exit 2 (internal error), never 0 — a stale graph must fail loudly, which
+    // is the one thing "no graph" already does for free.
+    if let Some(msg) = super::graph_staleness::stale_graph_message(&cwd, &store) {
+        eprintln!("{msg}");
+        return (2, EventMetrics::default());
+    }
+
     // Handle batch mode. State is persisted in SQLite (a `keel_meta` row next
     // to the circuit-breaker state) so it survives across separate `keel
     // compile` processes — otherwise `--batch-start` sets state in a per-process

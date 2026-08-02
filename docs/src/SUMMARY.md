@@ -12,6 +12,7 @@
 # Integration
 
 - [Agent Integration](agent-integration.md)
+- [CI (GitHub Actions)](ci.md)
 
 # Reference
 

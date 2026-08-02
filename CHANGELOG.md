@@ -129,6 +129,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-readable output.
 
 ### Added
+- **One CI recipe, a graph that cannot lie, and one sticky comment (T2.3).**
+  `keel init` scaffolded a workflow that ran `curl install.sh` + `keel map
+  --json --strict` while the maintained composite action ran `compile
+  --changed` with annotations — so a user following keel's own setup never saw
+  keel's own output. The scaffold now calls
+  `FryrAI/Keel/.github/actions/keel@v0` with `fetch-depth: 0` and nothing else:
+  `keel review` against the merge base on `pull_request`, `compile --changed`
+  on `push`. One recipe, one place to fix it.
+  - New reusable `.github/actions/keel-graph`: `actions/cache` on
+    `.keel/graph.db` keyed on the **merge-base SHA**, deliberately with no
+    prefix `restore-keys` fallback. A prefix restore hands CI a graph built
+    from different source, and enforcement against a stale graph manufactures
+    phantom `E001`/`E004`. A miss costs one announced `keel map`; only `push`
+    runs write the cache, because a pull request maps at its own head and
+    saving that under the merge-base key would poison every later PR on that
+    base. Only the database is cached — caching all of `.keel/` would restore
+    an older `keel.json` over the committed one.
+  - One sticky PR comment via `gh api
+    repos/{owner}/{repo}/issues/{n}/comments` (REST — `gh pr view`/`gh pr edit`
+    are GraphQL and 400 on Projects-classic repositories). Found by a hidden
+    HTML marker and rewritten only when a hash of the deterministically
+    rendered body changes, so a re-push that changes nothing produces no new
+    notification. A fork's read-only token degrades to `$GITHUB_STEP_SUMMARY`
+    and the job stays green; `pull_request_target` is not used and a test
+    forbids it.
+  - `keel review` now prints the same version-drift line `map` and `compile`
+    do. On a warm cache it is the only keel command a CI run makes, so without
+    it the notice never reached anyone.
+- **`keel compile` refuses to enforce against a stale graph (T2.3).** `keel
+  map` records the commit it mapped (`last_map_commit` in `keel_meta`), and
+  `compile` exits **2** when that commit is not an ancestor of `HEAD` —
+  a poisoned CI cache, a rebase, an amend, a branch switch. The graph then
+  describes code the checkout does not contain, so its callers and removals
+  would be phantom, and a stale graph is strictly worse than no graph because
+  no graph fails obviously. The guard is silent whenever it cannot be certain:
+  no marker (every graph mapped by an earlier keel), no git, or a commit this
+  clone does not have — existing graphs never start failing. No schema change:
+  `keel_meta` is a key/value table.
 - **Baseline-relative CI reporting: only the violations a diff introduced
   (T2.2).** `keel review --base <ref>` now compiles both sides of the diff and
   reports a `NEW VIOLATIONS` section (`new_violations` in JSON, with

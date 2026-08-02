@@ -160,3 +160,33 @@ fn no_template_reintroduces_the_mandatory_star_line() {
         );
     }
 }
+
+/// The scaffolded GitHub Actions workflow and the maintained composite action
+/// must be the same recipe (T2.3). The scaffold used to `curl install.sh` and
+/// run `keel map --json --strict`, so a user who followed keel's own setup
+/// never got keel's own annotations or its PR comment.
+#[test]
+fn the_github_actions_scaffold_calls_the_maintained_action() {
+    assert!(
+        GITHUB_ACTIONS.contains("uses: FryrAI/Keel/.github/actions/keel@v0"),
+        "the scaffold must call the maintained composite action"
+    );
+    assert!(
+        GITHUB_ACTIONS.contains("fetch-depth: 0"),
+        "keel review parses the base side straight out of git — a shallow clone has none"
+    );
+    assert!(
+        GITHUB_ACTIONS.contains("pull_request") && GITHUB_ACTIONS.contains("push"),
+        "the scaffold must cover both the review (pull_request) and compile (push) paths"
+    );
+    assert!(
+        GITHUB_ACTIONS.contains("pull-requests: write"),
+        "the sticky review comment needs write permission on pull requests"
+    );
+    for forbidden in ["install.sh", "map --json --strict"] {
+        assert!(
+            !GITHUB_ACTIONS.contains(forbidden),
+            "the scaffold must not keep its own divergent recipe (`{forbidden}`)"
+        );
+    }
+}

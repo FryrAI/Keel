@@ -99,6 +99,13 @@ If no files are specified, compiles all source files in the project.
 
 **Clean compile:** Exit 0, empty stdout. This is intentional -- the LLM agent sees nothing and continues.
 
+**Stale graph:** exit 2. `keel map` records the commit it mapped; if that commit is not
+an ancestor of `HEAD` (a rebase, an amend, a branch switch, a poisoned CI cache) the
+graph describes code this checkout does not contain, and compiling against it would
+report phantom callers and removals. Run `keel map`. Graphs with no recorded commit
+(mapped by an older keel, or outside a git repo) are never treated as stale. See
+[CI](ci.md#the-staleness-guard).
+
 **Performance:** <200ms for a single file.
 
 **Examples:**

@@ -122,3 +122,63 @@ fn range_with_resolvable_base_lists_committed_changes() {
     let files = changed_files_checked(dir.path(), &DiffMode::Range(base), true).unwrap();
     assert_eq!(files, vec!["b.rs".to_string()]);
 }
+
+/// Every exit status git can produce for `merge-base --is-ancestor`, and the
+/// one rule that matters: anything that is not a clear "no" must read as
+/// `Unknown`, so a missing git or an unknown object never fails a build.
+#[test]
+fn ancestry_classification_only_trusts_zero_and_one() {
+    assert_eq!(classify_ancestry(Some(0)), Ancestry::Ancestor);
+    assert_eq!(classify_ancestry(Some(1)), Ancestry::NotAncestor);
+    assert_eq!(classify_ancestry(Some(128)), Ancestry::Unknown);
+    assert_eq!(classify_ancestry(Some(129)), Ancestry::Unknown);
+    assert_eq!(classify_ancestry(None), Ancestry::Unknown);
+}
+
+/// Real git: a commit on the current history is an ancestor, a commit on a
+/// history HEAD was rewritten away from is not, and an object this repo never
+/// heard of is unknowable rather than "not an ancestor".
+#[test]
+fn ancestry_against_a_real_repository() {
+    let dir = init_repo();
+    std::fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
+    git(&["add", "a.rs"], dir.path());
+    git(&["commit", "-m", "first"], dir.path());
+    let first = head_commit(dir.path()).expect("HEAD after the first commit");
+
+    std::fs::write(dir.path().join("b.rs"), "fn b() {}\n").unwrap();
+    git(&["add", "b.rs"], dir.path());
+    git(&["commit", "-m", "second"], dir.path());
+
+    assert_eq!(is_ancestor(dir.path(), &first, "HEAD"), Ancestry::Ancestor);
+    let second = head_commit(dir.path()).unwrap();
+    assert_eq!(is_ancestor(dir.path(), &second, "HEAD"), Ancestry::Ancestor);
+
+    // Rewrite history: `second` is now unreachable from HEAD.
+    git(&["reset", "--hard", &first], dir.path());
+    std::fs::write(dir.path().join("c.rs"), "fn c() {}\n").unwrap();
+    git(&["add", "c.rs"], dir.path());
+    git(&["commit", "-m", "divergent"], dir.path());
+    assert_eq!(
+        is_ancestor(dir.path(), &second, "HEAD"),
+        Ancestry::NotAncestor
+    );
+
+    assert_eq!(
+        is_ancestor(
+            dir.path(),
+            "0000000000000000000000000000000000000000",
+            "HEAD"
+        ),
+        Ancestry::Unknown,
+        "an object this repo does not have is unknowable, not a stale graph"
+    );
+}
+
+/// A repository with no commits has no HEAD — and `keel map` must not stamp a
+/// commit marker it would then have to defend.
+#[test]
+fn head_commit_is_none_before_the_first_commit() {
+    let dir = init_repo();
+    assert!(head_commit(dir.path()).is_none());
+}
