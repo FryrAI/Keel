@@ -70,10 +70,15 @@ pub struct PlanFinding {
 /// they stand and never touches the store.
 pub struct PlanContext<'a> {
     /// Resolved plan tokens -> the winning (most-called) non-module node.
+    ///
+    /// A *token* is an ASCII identifier of three characters or more. That is
+    /// the entire vocabulary this pass can check anything against, and the
+    /// reason shorter and non-ASCII claims are silent by construction.
     pub symbol_node: &'a HashMap<String, GraphNode>,
     /// Every plan token the caller looked up -> every node of that name,
     /// modules included. An empty vec means the graph does not know the name;
-    /// an absent key means the token was never looked up at all.
+    /// an absent key means the token was never looked up at all (it was not a
+    /// token), which `P001` reads as "cannot tell" and stays silent about.
     pub nodes_by_name: &'a HashMap<String, Vec<GraphNode>>,
     /// Resolved plan tokens -> that winner's callers.
     pub symbol_callers: &'a HashMap<String, Vec<CallerRef>>,
@@ -224,16 +229,6 @@ fn scan_call_claims(plan: &str) -> Vec<CallClaim> {
     out
 }
 
-/// The name of every `name(...)` call claim in the plan.
-///
-/// `validate_plan` resolves this set alongside its own tokens so that every
-/// claim the finding pass will look at has an entry in `PlanContext`: the
-/// tokenizer there drops short and non-ASCII identifiers, and a missing entry
-/// reads as "resolved" rather than "unknown".
-pub(crate) fn call_claim_names(plan: &str) -> Vec<String> {
-    scan_call_claims(plan).into_iter().map(|c| c.name).collect()
-}
-
 /// Whether an explicit `-> T` follows the closing paren. Only `->` counts: a
 /// `:` after a call is far more often markdown prose ("`foo(x)`: does Y") than
 /// a TypeScript return annotation, and guessing wrong there would fire `P002`
@@ -300,12 +295,15 @@ pub fn detect_plan_findings(plan: &str, ctx: &PlanContext<'_>) -> Vec<PlanFindin
     // partial mention must not contradict a correct one.
     let mut sig_ok: HashSet<String> = HashSet::new();
 
-    // No length floor: `validate_plan` resolves every claim name, so a short
-    // real symbol (`gc`, `id`) is answered by the graph instead of guessed at,
-    // and a short unknown one is still filtered by the builtin, qualified-call,
-    // all-caps and proposed-name rules below.
+    // Length floor, applied to BOTH codes. Two-character call shapes are the
+    // densest source of prose noise there is — `t("nav.home")`, `cb(err, res)`,
+    // `f(x)`, `ok(value)`, and "…out of(pkg)" read as a call to `of`, which in
+    // a large graph is a real symbol and fired `P002` at 0.9 confidence. The
+    // graph cannot disambiguate a two-letter name from prose, so the checker
+    // does not try: short names are silent, which is this module's whole
+    // doctrine stated as one line of code.
     for claim in &claims {
-        if seen.contains(&claim.name) {
+        if claim.name.len() < 3 || seen.contains(&claim.name) {
             continue;
         }
         if let Some(node) = ctx.symbol_node.get(&claim.name) {
@@ -327,6 +325,12 @@ pub fn detect_plan_findings(plan: &str, ctx: &PlanContext<'_>) -> Vec<PlanFindin
 }
 
 /// `P001` — a bare call target the graph cannot resolve at all.
+///
+/// The dominant filter is not in this function. A claim whose name is shorter
+/// than three characters, or holds a non-ASCII character, is never resolved by
+/// `validate_plan` at all and is dropped before reaching here — deliberately,
+/// because prose is full of both and neither can be checked. The qualified,
+/// builtin, all-caps and proposed-name rules below carry what is left.
 fn unknown_finding(
     ctx: &PlanContext<'_>,
     claim: &CallClaim,
@@ -343,10 +347,10 @@ fn unknown_finding(
     {
         return None;
     }
-    // Modules count as existing, so consult the unfiltered lookup. `validate_plan`
-    // resolves every claim name (see `call_claim_names`), so an absent key means
-    // the context was built without that pass — treat it as unresolved rather
-    // than unknown and stay silent, precision over recall.
+    // Modules count as existing, so consult the unfiltered lookup. An absent
+    // key means the name was never looked up — with the length floor already
+    // applied above, that leaves the non-ASCII identifiers the caller's
+    // tokenizer skips. Read as unresolved, not unknown, and stay silent.
     if !ctx
         .nodes_by_name
         .get(&claim.name)

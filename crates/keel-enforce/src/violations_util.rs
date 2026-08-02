@@ -335,16 +335,14 @@ pub fn count_params(sig: &str) -> usize {
 
 /// Count args in a call expression. Rough heuristic — returns 0 if cannot parse.
 ///
-/// A literal leading `self` / `cls` argument is dropped, because
-/// `count_params` drops the receiver on the definition side: Python's
-/// explicit-receiver call syntax (`Base.__init__(self, x)`) would otherwise
-/// read as one argument too many and fire a phantom E005.
-///
-/// Rust UFCS (`Foo::method(&obj, arg)`) stays uncounted-for: the receiver there
-/// is an arbitrary expression, textually indistinguishable from a real
-/// argument. That is a pre-existing limitation, not something this strip
-/// introduces — a UFCS call site is rare enough that guessing would cost more
-/// false positives than it saves.
+/// Every comma-separated argument is counted, including a leading `self`/`cls`.
+/// That is *not* symmetric with `count_params`, which strips the receiver from
+/// the definition side — see the note on `check_arity_mismatch`. Stripping here
+/// too was tried and reverted: `registry.register(self)` passes `self` as a
+/// genuine argument far more often than a call site spells the receiver
+/// explicitly (`Base.__init__(self, x)`), so the strip trades a rare phantom
+/// `E005` for a common missed one. Settling it needs call-site context this
+/// function does not have.
 pub fn count_call_args(name: &str) -> usize {
     // In practice, the parser provides arg count. This is a fallback.
     let Some(start) = name.find('(') else {
@@ -355,10 +353,7 @@ pub fn count_call_args(name: &str) -> usize {
     if args.is_empty() {
         return 0;
     }
-    let parts: Vec<&str> = args.split(',').collect();
-    // Exact token match only: `f(self_x, y)` passes two real arguments.
-    let receiver = matches!(parts[0].trim(), "self" | "cls");
-    parts.len() - usize::from(receiver)
+    args.split(',').count()
 }
 
 /// Strip all whitespace so signatures can be compared ignoring pure
@@ -522,25 +517,6 @@ mod tests {
     #[test]
     fn test_count_call_args_multiple() {
         assert_eq!(count_call_args("foo(a, b, c)"), 3);
-    }
-
-    #[test]
-    fn test_count_call_args_explicit_receiver_is_stripped() {
-        // Python's explicit-receiver call syntax: the definition side already
-        // drops `self`/`cls`, so the call side must too or E005 fires by one.
-        assert_eq!(count_call_args("Base.__init__(self, x)"), 1);
-        assert_eq!(count_call_args("Base.setup(cls, a, b)"), 2);
-        assert_eq!(count_call_args("Base.__init__(self)"), 0);
-        assert_eq!(count_params("def __init__(self, x)"), 1);
-    }
-
-    #[test]
-    fn test_count_call_args_receiver_match_is_exact() {
-        // Only a literal `self`/`cls` argument is a receiver — a variable whose
-        // name merely starts with it is a real argument.
-        assert_eq!(count_call_args("f(self_x, y)"), 2);
-        assert_eq!(count_call_args("f(selfish)"), 1);
-        assert_eq!(count_call_args("f(classes, y)"), 2);
     }
 
     #[test]

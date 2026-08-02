@@ -309,8 +309,10 @@ The plan calls a symbol no graph node answers to — the hallucinated-callee cas
 How the check stays quiet (precision over recall — a plan is prose, and almost every English word is a valid identifier):
 
 - **Bare call syntax only.** The name has to be a maximal identifier immediately followed by `(`. A dotted or path-qualified call (`rows.map(f)`, `serde_json::from_str(x)`) and a macro (`println!(...)`) are ignored: those are overwhelmingly stdlib or third-party, and attributing one to this repo is exactly the false signal keel exists to remove.
+- **Short and non-ASCII names are excluded** — the single widest filter, and it applies to `P002` as well. A call claim shorter than three characters is never checked, whether or not the graph knows it: `t("nav.home")`, `cb(err, res)`, `f(x)`, `ok(value)` and even "moved out `of(pkg)`" all parse as calls, and nothing in the text distinguishes them from a real one. Identifiers containing non-ASCII characters are skipped for the same reason.
 - **Proposed names are excluded.** Any call target named on a line carrying a creation verb (`add`, `create`, `new`, `implement`, `define`, ...), or preceded anywhere in the plan by definition syntax (`fn foo`, `def foo`, `function foo`, `class foo`, ...), is excluded from the whole plan. A function created in step 1 is legitimately called in step 3.
 - **Keywords and builtins are excluded**, across all four languages plus the common JS/TS test DSL. The list is only consulted for names the graph cannot resolve, so it can never hide a real repo symbol.
+- **All-caps names are excluded.** A name with no lowercase letter (`TODO(x)`, `MAX(a, b)`) is a placeholder, a constant or SQL, not a call into this repo.
 - **A plan that resolved nothing is skipped entirely.** If no token in the plan matches any graph symbol, the plan is about another repo or the graph is stale; firing on every word would be noise.
 - At most 20 findings per plan, one per symbol.
 

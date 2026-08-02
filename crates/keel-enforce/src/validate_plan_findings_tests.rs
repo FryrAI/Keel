@@ -134,40 +134,107 @@ fn nonexistent_call_target_produces_p001() {
 }
 
 #[test]
-fn short_nonexistent_call_target_produces_p001() {
-    // Regression: the plan tokenizer drops identifiers shorter than three
-    // chars, so `gc` never reached the lookup cache and P001 read the absent
-    // key as "resolved". Every call claim is resolved now, whatever its length.
+fn short_call_target_is_never_p001() {
+    // The length floor: a two-char callee the graph does not know stays silent.
+    // Recall is given up here on purpose — see `prose_call_shapes_are_silent`
+    // for what accepting short names actually costs.
     let store = store_with_execute();
-    let result = validate_plan(
-        &store,
-        "Step 1: run_query should call gc(rows) before returning.",
-    );
-    let p001: Vec<_> = result
-        .findings
-        .iter()
-        .filter(|f| f.code == "P001")
-        .collect();
-    assert_eq!(p001.len(), 1, "findings: {:?}", result.findings);
-    assert_eq!(p001[0].symbol, "gc");
-}
-
-#[test]
-fn short_real_symbol_is_not_p001() {
-    // The other half of the same fix: a two-char name the graph DOES know must
-    // resolve, not fire.
-    let store = store_with_execute();
-    store
-        .insert_node(&node(3, "GCHASH00001", "gc", "gc(rows)", "src/db.rs"))
-        .unwrap();
     let result = validate_plan(
         &store,
         "Step 1: run_query should call gc(rows) before returning.",
     );
     assert!(
         result.findings.is_empty(),
-        "a known short symbol must stay silent: {:?}",
+        "a short name must stay silent whether or not it exists: {:?}",
         result.findings
+    );
+}
+
+#[test]
+fn short_real_symbol_is_never_p002() {
+    // The floor covers P002 too. `of` is a real symbol in plenty of graphs, and
+    // "…moved out of(pkg)" in prose is not a call to it — a 0.9-confidence
+    // arity finding there is exactly the false signal keel exists to remove.
+    let store = store_with_execute();
+    store
+        .insert_node(&node(
+            3,
+            "OFHASH00001",
+            "of",
+            "of(a, b) -> Item",
+            "src/db.rs",
+        ))
+        .unwrap();
+    let result = validate_plan(
+        &store,
+        "Step 1: run_query pulls the row out of(pkg) before returning.",
+    );
+    assert!(
+        result.findings.is_empty(),
+        "a short name must stay silent whether or not it exists: {:?}",
+        result.findings
+    );
+}
+
+#[test]
+fn prose_call_shapes_are_silent() {
+    // Pin against re-lifting the floor: every one of these fired live. `t(...)`
+    // and `cb(...)` and `f(...)` are prose or callback shorthand, `ok(value)`
+    // is Rust prose (`Ok` is a builtin, `ok` is not) — none is a claim about a
+    // repo symbol, and all three are indistinguishable from one.
+    let store = store_with_execute();
+    let result = validate_plan(
+        &store,
+        "Step 1: run_query renders t(\"nav.home\"), then calls cb(err, res).\n\
+         Step 2: apply f(x) to each row and return ok(value).",
+    );
+    assert!(
+        result.findings.is_empty(),
+        "short prose call shapes must produce no P-findings: {:?}",
+        result.findings
+    );
+}
+
+#[test]
+fn the_floor_holds_even_when_the_context_resolved_the_short_name() {
+    // The two tests above go through `validate_plan`, whose tokenizer never
+    // hands a short name to the lookup — so they would also pass with the floor
+    // removed. This one closes that: it builds a context that HAS resolved `of`
+    // and knows `gc` is absent, exactly what a widened lookup would produce,
+    // and the floor must still gate both codes.
+    use crate::checkpoint::CallerRef;
+    use crate::validate_plan_findings::{detect_plan_findings, PlanContext};
+    use std::collections::HashMap;
+
+    let of = node(3, "OFHASH00001", "of", "of(a, b) -> Item", "src/db.rs");
+    let anchor = node(
+        2,
+        "CALLERHASH1",
+        "run_query",
+        "run_query(sql)",
+        "src/api.rs",
+    );
+    let symbol_node: HashMap<String, GraphNode> = HashMap::from([
+        ("of".to_string(), of.clone()),
+        ("run_query".to_string(), anchor),
+    ]);
+    let nodes_by_name: HashMap<String, Vec<GraphNode>> =
+        HashMap::from([("of".to_string(), vec![of]), ("gc".to_string(), vec![])]);
+    let symbol_callers: HashMap<String, Vec<CallerRef>> = HashMap::new();
+    let actions: HashMap<String, (&'static str, u8)> = HashMap::new();
+
+    let findings = detect_plan_findings(
+        "Step 1: run_query pulls the row out of(pkg), then calls gc(rows).",
+        &PlanContext {
+            symbol_node: &symbol_node,
+            nodes_by_name: &nodes_by_name,
+            symbol_callers: &symbol_callers,
+            actions: &actions,
+        },
+    );
+    assert!(
+        findings.is_empty(),
+        "the length floor must gate P001 and P002 on its own: {findings:?}"
     );
 }
 

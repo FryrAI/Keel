@@ -7,12 +7,18 @@
 //!
 //! `keel_meta` is deliberately NOT cleared by
 //! [`SqliteGraphStore::clear_all`](crate::sqlite::SqliteGraphStore::clear_all):
-//! the schema version lives here and must outlive a re-map, and `keel map`
-//! re-stamps [`LAST_MAP_AT`]/[`LAST_MAP_COMMIT`] at the end of every run. A
-//! crash between `clear_all` and that final stamp therefore leaves a stale
-//! marker behind. That is tolerated rather than fixed, because the only
-//! consumer that could be misled — the W009 bootstrap guard — also requires
-//! stored module edges, and the crashed run left none.
+//! the schema version lives here and must outlive a re-map.
+//!
+//! The map markers are a different matter. `keel map` wipes the graph and
+//! re-stamps [`LAST_MAP_AT`]/[`LAST_MAP_COMMIT`] only when it finishes, so a
+//! crash in between would leave markers describing HEAD over an empty graph —
+//! and `keel compile`'s staleness guard, seeing a `last_map_commit` that IS an
+//! ancestor of HEAD, would wave the compile through to enforce against
+//! nothing. So `keel map` calls [`SqliteGraphStore::clear_map_markers`] as part
+//! of its clearing step: a crashed map then reads as never-mapped, which is
+//! both true and a state every consumer already handles (the staleness guard
+//! and the W009 bootstrap guard are each documented to stay silent without a
+//! marker).
 //!
 //! Keys live here rather than next to their readers so the set is enumerable:
 //! a key defined in the module that happens to read it is invisible to everyone
@@ -76,6 +82,17 @@ impl SqliteGraphStore {
             .execute("DELETE FROM keel_meta WHERE key = ?1", params![key])?;
         Ok(())
     }
+
+    /// Drop both map markers, declaring the graph never-mapped.
+    ///
+    /// `keel map` calls this immediately after `clear_all`, so the window in
+    /// which the graph is empty is also a window in which no marker claims
+    /// otherwise. See the module documentation for why a crash inside that
+    /// window has to read as "never mapped" rather than "mapped at HEAD".
+    pub fn clear_map_markers(&self) -> Result<(), GraphError> {
+        self.clear_meta_value(LAST_MAP_AT)?;
+        self.clear_meta_value(LAST_MAP_COMMIT)
+    }
 }
 
 #[cfg(test)]
@@ -107,5 +124,34 @@ mod tests {
             Some("deadbeef")
         );
         assert_eq!(store.query_meta_value(BATCH_STATE).as_deref(), Some("{}"));
+    }
+
+    #[test]
+    fn map_clear_phase_erases_only_the_map_markers() {
+        // `keel map`'s clearing step, in miniature: wipe the graph, then drop
+        // the markers. A crash from here on must read as never-mapped, or the
+        // staleness guard passes an empty graph off as current.
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let version = store.schema_version().unwrap();
+        store.set_meta_value(LAST_MAP_AT, "1700000000").unwrap();
+        store.set_meta_value(LAST_MAP_COMMIT, "deadbeef").unwrap();
+        store.set_meta_value(BATCH_STATE, "{}").unwrap();
+
+        store.clear_all().unwrap();
+        store.clear_map_markers().unwrap();
+
+        assert!(store.query_meta_value(LAST_MAP_AT).is_none());
+        assert!(store.query_meta_value(LAST_MAP_COMMIT).is_none());
+        // Everything else in the table is untouched.
+        assert_eq!(store.schema_version().unwrap(), version);
+        assert_eq!(store.query_meta_value(BATCH_STATE).as_deref(), Some("{}"));
+
+        // And a completed map puts them back.
+        store.set_meta_value(LAST_MAP_AT, "1700000001").unwrap();
+        store.set_meta_value(LAST_MAP_COMMIT, "cafebabe").unwrap();
+        assert_eq!(
+            store.query_meta_value(LAST_MAP_COMMIT).as_deref(),
+            Some("cafebabe")
+        );
     }
 }

@@ -24,6 +24,21 @@ fn write(dir: &Path, rel: &str, content: &str) {
     fs::write(path, content).unwrap();
 }
 
+/// Read one `keel_meta` value straight out of the repo's graph database.
+fn meta(dir: &Path, key: &str) -> Option<String> {
+    let conn = rusqlite::Connection::open_with_flags(
+        dir.join(".keel").join("graph.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .expect("failed to open graph.db");
+    conn.query_row(
+        "SELECT value FROM keel_meta WHERE key = ?1",
+        rusqlite::params![key],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+}
+
 fn head(dir: &Path) -> String {
     let out = Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -49,6 +64,26 @@ fn fixture() -> TempDir {
     git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
     assert!(keel(root, &["map"]).status.success(), "keel map failed");
     dir
+}
+
+/// `keel map` drops both markers before it rebuilds, so a run that dies partway
+/// reads as never-mapped instead of "mapped at HEAD over an empty graph" — a
+/// state this guard would happily wave through. The other half of that
+/// contract is pinned here: a map that *completes* leaves both stamped.
+#[test]
+fn a_completed_map_stamps_both_markers() {
+    let dir = fixture();
+    let root = dir.path();
+
+    assert_eq!(
+        meta(root, "last_map_commit").as_deref(),
+        Some(head(root).as_str()),
+        "a finished map must record the commit it described"
+    );
+    assert!(
+        meta(root, "last_map_at").is_some(),
+        "a finished map must record that it happened"
+    );
 }
 
 /// The ordinary case: the graph's commit is behind HEAD, which is exactly what

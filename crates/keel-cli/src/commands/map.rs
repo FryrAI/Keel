@@ -89,6 +89,16 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
+    // The graph is now empty, so the previous run's map markers describe
+    // nothing. Drop them before doing any work: if this run dies partway, the
+    // graph must read as never-mapped rather than as freshly mapped at HEAD —
+    // the latter satisfies `keel compile`'s staleness guard and would let a
+    // compile enforce against an empty graph. They are re-stamped at the end.
+    if let Err(e) = store.clear_map_markers() {
+        eprintln!("keel map: failed to clear stale map markers: {}", e);
+        return (2, EventMetrics::default());
+    }
+
     let mut node_changes = Vec::new();
     let mut edge_changes = Vec::new();
     let mut next_id = 1u64;
