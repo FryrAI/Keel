@@ -40,6 +40,25 @@ To investigate: run `keel explain <error_code> <hash>` to see the full resolutio
 
 To suppress a specific check for one run: `keel compile --suppress E002 src/legacy.py`.
 
+### "What does keel see inside a `.svelte` component?"
+
+The `<script>` block is parsed normally. The template markup is not parsed —
+keel scans it lexically for names inside `{ ... }` expressions
+(`on:click={handler}`, `{#if}` / `{#each}` / `{#await}` / `{#snippet}` bodies,
+`{@const pct = completenessPct(v)}`, component props like
+`<Panel onDone={refresh} />`).
+
+- A name defined in the component's own `<script>` becomes a `calls` edge.
+- A name the component **imports** becomes a `uses` edge at confidence 0.70,
+  resolution tier `tier1_template`. It counts as a caller for `keel search`,
+  `keel discover`, `keel focus` and W005, and — because a text match carries no
+  argument list — it never produces E001/E004/E005 or a fix plan.
+- **Component tags themselves (`<FristenPanel />`) are not edges yet.** Only the
+  expressions inside the braces are scanned.
+- **Imported constants and stores stay invisible.** keel's graph holds functions
+  and classes, so a `const`/store used from markup has no node to link to. This
+  is scope, not a bug.
+
 ### "Low-confidence warning on trait/interface dispatch"
 
 This is expected. Dynamic dispatch (trait methods in Rust, interface methods in TypeScript/Go) produces low-confidence call edges. keel reports these as **warnings, not errors** to avoid false positives. Use `keel explain` to inspect the resolution tier.

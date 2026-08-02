@@ -36,7 +36,9 @@ use keel_parsers::boundary::BoundaryProvider;
 use keel_parsers::resolver::{Definition, FileIndex};
 use keel_parsers::treesitter::detect_language;
 
-use super::call_resolve::{edge_for_reference, resolve_call_reference, CallSiteCtx};
+use super::call_resolve::{
+    edge_for_reference, resolve_call_reference, tier_for_reference, CallSiteCtx,
+};
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::CallIndex;
 
@@ -406,7 +408,7 @@ fn resolve_outgoing_edges(
                 tgt,
                 kind,
                 same_file_confidence,
-                "tier1",
+                tier_for_reference(&reference.kind),
                 next_id,
                 edge_changes,
                 node_tiers,

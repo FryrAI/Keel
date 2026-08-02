@@ -37,6 +37,8 @@ mod test_search;
 mod test_skeleton;
 #[path = "cli/test_stats.rs"]
 mod test_stats;
+#[path = "cli/test_svelte_graph.rs"]
+mod test_svelte_graph;
 #[path = "cli/test_validate_plan.rs"]
 mod test_validate_plan;
 #[path = "cli/test_where.rs"]

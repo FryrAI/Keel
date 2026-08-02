@@ -129,23 +129,54 @@ pub(super) fn extract_imports(
             });
         }
     }
-    // Deduplicate: blank/dot import queries may match the same import_spec as the
-    // basic pattern. Keep the more specific entry (the one with "_" or "." markers)
-    // over the plain one for the same (source, line).
-    let mut deduped: Vec<Import> = Vec::with_capacity(imports.len());
+    merge_by_statement(imports)
+}
+
+/// Go's blank (`_`) and dot (`.`) import markers, which stand in for the whole
+/// binding rather than naming one of several.
+fn is_marker(names: &[String]) -> bool {
+    names.iter().any(|n| n == "_" || n == ".")
+}
+
+/// Collapses the several query matches produced by one import *statement* into
+/// one [`Import`] carrying the union of their names.
+///
+/// One statement yields one match per binding: the named-import pattern fires
+/// once per `import_specifier`, and the default-import / side-effect patterns
+/// match the same statement again. Every one of them reports the same
+/// `(source, line)`, so they all describe a single import.
+///
+/// This used to keep the FIRST match and drop the rest, which silently reduced
+/// `import { a, b, c } from './m'` to `["a"]` — for every language, not just
+/// TypeScript (`from mod import a, b, c` collapsed the same way). Nothing then
+/// recorded that `b` and `c` were in scope, so `resolve_cross_file_call` could
+/// not resolve a single reference to them and their definitions read as dead
+/// code. It is the root cause behind a SvelteKit `model.ts` reporting nine of
+/// its thirteen exports at zero callers while `applyView` — the first name in
+/// the route's import list — resolved fine.
+///
+/// The one case that must NOT be unioned is a Go blank/dot marker: there the
+/// specific and the generic pattern describe the same single binding, so the
+/// marker replaces the package name instead of joining it.
+fn merge_by_statement(imports: Vec<Import>) -> Vec<Import> {
+    let mut merged: Vec<Import> = Vec::with_capacity(imports.len());
     for imp in imports {
-        let special = imp.imported_names.iter().any(|n| n == "_" || n == ".");
-        if let Some(existing) = deduped
+        let Some(existing) = merged
             .iter_mut()
             .find(|e| e.source == imp.source && e.line == imp.line)
-        {
-            // Replace plain entry with the more specific blank/dot entry
-            if special {
-                *existing = imp;
+        else {
+            merged.push(imp);
+            continue;
+        };
+        if is_marker(&imp.imported_names) {
+            *existing = imp;
+        } else if !is_marker(&existing.imported_names) {
+            for name in imp.imported_names {
+                if !existing.imported_names.contains(&name) {
+                    existing.imported_names.push(name);
+                }
             }
-        } else {
-            deduped.push(imp);
         }
     }
-    deduped
+    merged
 }

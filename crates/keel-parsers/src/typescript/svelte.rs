@@ -11,7 +11,36 @@
 //!
 //! The template/markup section is never parsed. To keep template-driven usage
 //! from reading as dead code, [`extract_template_references`] still does a
-//! lexical scan of the markup for identifiers that name script definitions.
+//! lexical scan of the markup for identifiers that name script definitions or
+//! imported bindings.
+//!
+//! ## The 400-line file that "desynced" (it did not)
+//!
+//! A 599-line SvelteKit route defined `refreshOverview` in its `<script>` and
+//! used it at line 122 as `<FristenPanel onRejected={refreshOverview} />`, yet
+//! reported zero callers — while the identical shape resolved in a small
+//! fixture. The obvious suspect was this scanner: a brace/quote tokenizer that
+//! desyncs somewhere in a long file would silently stop recognising every
+//! expression after the desync point, and nobody had bounded that.
+//!
+//! Instrumenting the `(skip-region, depth, quote)` state of the scan over that
+//! exact file disproved it. The scan stayed in sync end to end — it jumped both
+//! skip regions exactly on their boundaries, ended at `depth == 0, quote == 0`,
+//! and *did* report `refreshOverview` at line 122 and `completenessPct` at line
+//! 222. Long files, nested `{#if}`/`{#each}`, template literals with `${}`, and
+//! German typographic quotes all pass through it intact (`large_template_*`
+//! tests below pin this).
+//!
+//! The two real causes were elsewhere:
+//! 1. `treesitter::imports` collapsed every named import down to the first
+//!    specifier, so nothing recorded that the statement's other bindings
+//!    existed — the caller-side symptom looked identical to a scanner miss.
+//! 2. This scan was seeded with local definitions only, so an *imported*
+//!    function used exclusively from markup (`{completenessPct(v)}`) was
+//!    invisible by construction.
+//!
+//! Both are fixed; the lesson kept here is that a scanner miss and a missing
+//! seed present the same way from `keel search`, so instrument before rewriting.
 
 use std::collections::HashSet;
 
@@ -170,24 +199,40 @@ fn find_tag_end(bytes: &[u8], from: usize) -> Option<usize> {
     None
 }
 
-/// Emits a [`Reference`] for every script-defined identifier that appears in a
-/// Svelte template expression — `{ident}`, `on:click={ident}`, `{#if ident}`,
-/// `bind:value={ident}`, `{ident(...)}`, and the like.
+/// Emits a [`Reference`] for every script-defined or imported identifier that
+/// appears in a Svelte template expression — `{ident}`, `on:click={ident}`,
+/// `{#if ident}`, `bind:value={ident}`, `{@const x = ident(v)}`, and the like.
 ///
 /// A handler wired up only from markup would otherwise look like dead code to
 /// tree-sitter. This is a deliberately lexical scan (no Svelte parser):
 /// `<script>`/`<style>` bodies are skipped in place, and only text inside
 /// `{ ... }` expression braces is tokenised — static attribute strings and prose
 /// are ignored, string literals within the braces are skipped, and each
-/// identifier is matched whole-word against `defined`. Matches become `Call`
-/// references attributed to the component file, which is enough for W005 caller
-/// counts and for `keel map` to draw call edges.
+/// identifier is matched whole-word against `defined` and `imported`.
+///
+/// The two sets differ in what the match proves, so they produce different
+/// references:
+/// - `defined` — this component's own `<script>` functions and classes. A hit
+///   is a `Call` reference: the definition is right there in the same file.
+/// - `imported` — local binding names introduced by the component's imports
+///   (named, default, and namespace-alias). A hit is a
+///   [`ReferenceKind::Template`] reference, which becomes a `uses` edge at
+///   `TEMPLATE_LEXICAL` confidence under the `tier1_template` tier. It carries
+///   no argument list, so it must never reach E001/E004/E005 or a fix plan; it
+///   exists so W005, `discover` and `focus` see the usage.
+///
+/// Scope, deliberately: `defined` is filtered to functions and classes by the
+/// caller, so an imported *constant* or Svelte *store* used from markup stays
+/// invisible — those have no graph node to point at. Markup component tags
+/// (`<FristenPanel/>`) are not matched either; they are not brace expressions
+/// and adding them is a separate change with its own coupling-metric fallout.
 pub(crate) fn extract_template_references(
     content: &str,
     defined: &HashSet<String>,
+    imported: &HashSet<String>,
     file_path: &str,
 ) -> Vec<Reference> {
-    if defined.is_empty() {
+    if defined.is_empty() && imported.is_empty() {
         return Vec::new();
     }
     let bytes = content.as_bytes();
@@ -266,14 +311,25 @@ pub(crate) fn extract_template_references(
                     i += 1;
                 }
                 let word = std::str::from_utf8(&bytes[start..i]).unwrap_or("");
-                if defined.contains(word) && seen.insert((word.to_string(), line)) {
-                    refs.push(Reference {
-                        name: word.to_string(),
-                        file_path: file_path.to_string(),
-                        line,
-                        kind: ReferenceKind::Call,
-                        resolved_to: None,
-                    });
+                // A local definition wins over an import of the same name: it
+                // is the binding the markup actually sees.
+                let kind = if defined.contains(word) {
+                    Some(ReferenceKind::Call)
+                } else if imported.contains(word) {
+                    Some(ReferenceKind::Template)
+                } else {
+                    None
+                };
+                if let Some(kind) = kind {
+                    if seen.insert((word.to_string(), line)) {
+                        refs.push(Reference {
+                            name: word.to_string(),
+                            file_path: file_path.to_string(),
+                            line,
+                            kind,
+                            resolved_to: None,
+                        });
+                    }
                 }
             }
             _ => i += 1,

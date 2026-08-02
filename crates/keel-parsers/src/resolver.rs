@@ -207,6 +207,17 @@ pub enum ReferenceKind {
     /// checking. W005 dead-code analysis consumes them so a function that is
     /// only ever handed around as a value is not reported as uncalled.
     Value,
+    /// A name recovered from framework *template markup* by a lexical scan —
+    /// today, an imported binding named inside a Svelte `{ ... }` expression
+    /// (`{@const pct = completenessPct(v)}`, `<Panel onDone={refresh} />`).
+    ///
+    /// The markup is never parsed, so this is a whole-word text match with no
+    /// syntax behind it: it proves the binding is used, and nothing more. Like
+    /// `Value` it becomes a `uses` edge, but at a lower confidence
+    /// (`keel_core::confidence::TEMPLATE_LEXICAL`) and under its own
+    /// `tier1_template` resolution tier, so a lexical hit is never mistaken for
+    /// a parsed call site.
+    Template,
 }
 
 /// A reference (usage) of a symbol within a file.

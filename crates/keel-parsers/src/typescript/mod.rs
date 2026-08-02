@@ -10,6 +10,10 @@ mod tests;
 #[path = "frontend_tests.rs"]
 mod frontend_tests;
 
+#[cfg(test)]
+#[path = "svelte_template_tests.rs"]
+mod svelte_template_tests;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -200,9 +204,22 @@ impl TsResolver {
             }
         }
 
-        // Svelte: the template markup was blanked before parsing, so functions
-        // used only from markup (`on:click={handler}`, `{#if x}{helper()}`)
-        // would read as dead. Recover them with a lexical scan of the template.
+        // Svelte: the template markup was blanked before parsing, so anything
+        // used only from markup (`on:click={handler}`, `{#if x}{helper()}`,
+        // `{@const pct = completenessPct(v)}`) would read as dead. Recover it
+        // with a lexical scan of the template.
+        //
+        // Two seeds, because the evidence differs (see
+        // `svelte::extract_template_references`):
+        //   - this file's own function/class definitions -> `Call` references;
+        //   - the local binding names its imports introduce -> `Template`
+        //     references, i.e. `uses` edges at template confidence.
+        //
+        // The definition seed is filtered to Function|Class ON PURPOSE, and the
+        // consequence is worth stating: an imported (or local) *constant* or
+        // Svelte *store* used from markup stays invisible to the graph. Those
+        // are not nodes keel tracks, so there is nothing for an edge to point
+        // at — this is scope, not an oversight.
         if is_svelte {
             let defined: HashSet<String> = result
                 .definitions
@@ -215,9 +232,19 @@ impl TsResolver {
                 })
                 .map(|d| d.name.clone())
                 .collect();
+            // Import names are collected before path resolution below, but that
+            // rewrites `imp.source` only — the local binding names are the same
+            // either way.
+            let imported: HashSet<String> = result
+                .imports
+                .iter()
+                .flat_map(|imp| imp.imported_names.iter().cloned())
+                .filter(|name| !defined.contains(name))
+                .collect();
             let template_refs = svelte::extract_template_references(
                 original_content,
                 &defined,
+                &imported,
                 &path.to_string_lossy(),
             );
             result.references.extend(template_refs);

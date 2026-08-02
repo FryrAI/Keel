@@ -50,14 +50,31 @@ pub struct CallSiteCtx<'a> {
 ///
 /// A [`ReferenceKind::Value`] becomes [`EdgeKind::Uses`], never `Calls`: it
 /// proves the target is used (so W005 stays quiet) but carries no argument
-/// list, so it must never reach broken-caller or arity checking.
+/// list, so it must never reach broken-caller or arity checking. A
+/// [`ReferenceKind::Template`] is the same contract one rung lower — a lexical
+/// hit in unparsed markup.
 pub fn edge_for_reference(kind: &ReferenceKind) -> Option<(EdgeKind, f64)> {
     match kind {
         ReferenceKind::Call => Some((EdgeKind::Calls, keel_core::confidence::SAME_FILE_CALL)),
         ReferenceKind::Value => Some((EdgeKind::Uses, keel_core::confidence::SAME_FILE_VALUE_REF)),
+        ReferenceKind::Template => Some((EdgeKind::Uses, keel_core::confidence::TEMPLATE_LEXICAL)),
         _ => None,
     }
 }
+
+/// The resolution tier a *same-file* reference of this kind is recorded under.
+///
+/// Template references get their own tier so a lexical markup match is
+/// distinguishable from a parsed one at every consumer.
+pub fn tier_for_reference(kind: &ReferenceKind) -> &'static str {
+    match kind {
+        ReferenceKind::Template => TEMPLATE_TIER,
+        _ => "tier1",
+    }
+}
+
+/// Resolution tier recorded for every edge recovered from template markup.
+pub const TEMPLATE_TIER: &str = "tier1_template";
 
 /// A resolved call edge target plus the tier and confidence that resolved it.
 pub struct ResolvedCall {
@@ -153,9 +170,55 @@ pub fn resolve_call_reference(
         }
     }
 
+    // A template reference is a whole-word match in unparsed markup. Whichever
+    // rung happened to find the name, the *evidence* is still lexical, so the
+    // edge is capped at the template confidence and reported under the template
+    // tier — an oxc-verified import does not make a markup mention a call site.
+    if reference.kind == ReferenceKind::Template {
+        confidence = keel_core::confidence::TEMPLATE_LEXICAL;
+        tier = TEMPLATE_TIER.to_string();
+    }
+
     target_id.map(|id| ResolvedCall {
         target_id: id,
         confidence,
         tier,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The T1.3 contract: a markup reference is a `uses` edge at template
+    /// confidence under the template tier — never a `calls` edge, which would
+    /// let a lexical match reach E001/E004/E005 and the fix planner.
+    #[test]
+    fn template_reference_maps_to_a_uses_edge_at_template_confidence() {
+        let (kind, confidence) =
+            edge_for_reference(&ReferenceKind::Template).expect("template refs produce an edge");
+        assert_eq!(kind, EdgeKind::Uses);
+        assert_eq!(confidence, keel_core::confidence::TEMPLATE_LEXICAL);
+        assert!(confidence < keel_core::confidence::ERROR_TIER_THRESHOLD);
+        assert_eq!(
+            tier_for_reference(&ReferenceKind::Template),
+            "tier1_template"
+        );
+    }
+
+    #[test]
+    fn call_and_value_references_keep_their_kinds_and_tier() {
+        assert_eq!(
+            edge_for_reference(&ReferenceKind::Call).map(|(k, _)| k),
+            Some(EdgeKind::Calls)
+        );
+        assert_eq!(
+            edge_for_reference(&ReferenceKind::Value).map(|(k, _)| k),
+            Some(EdgeKind::Uses)
+        );
+        assert_eq!(tier_for_reference(&ReferenceKind::Call), "tier1");
+        assert_eq!(tier_for_reference(&ReferenceKind::Value), "tier1");
+        assert!(edge_for_reference(&ReferenceKind::Import).is_none());
+        assert!(edge_for_reference(&ReferenceKind::TypeRef).is_none());
+    }
 }

@@ -89,6 +89,12 @@ impl EnforcementEngine {
 
     /// BFS traversal to collect callers/callees up to `depth` levels.
     /// depth=1 returns direct callers/callees, depth=2 adds their callers/callees, etc.
+    ///
+    /// Traverses every dependency edge, not just `calls` — see
+    /// `queries::is_dependency_edge`. A handler reached only from a callback
+    /// table or a Svelte template expression is a caller an agent must see
+    /// before it changes a signature; omitting it is what made `discover`
+    /// under-report on frontend routes.
     pub(crate) fn collect_adjacency(
         &self,
         node_id: u64,
@@ -113,7 +119,7 @@ impl EnforcementEngine {
             }
             let edges = self.store.get_edges(current_id, EdgeDirection::Incoming);
             for edge in &edges {
-                if edge.kind != EdgeKind::Calls {
+                if !crate::queries::is_dependency_edge(&edge.kind) {
                     continue;
                 }
                 if caller_visited.contains(&edge.source_id) {
@@ -148,7 +154,7 @@ impl EnforcementEngine {
             }
             let edges = self.store.get_edges(current_id, EdgeDirection::Outgoing);
             for edge in &edges {
-                if edge.kind != EdgeKind::Calls {
+                if !crate::queries::is_dependency_edge(&edge.kind) {
                     continue;
                 }
                 if callee_visited.contains(&edge.target_id) {

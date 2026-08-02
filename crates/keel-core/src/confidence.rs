@@ -36,6 +36,13 @@ pub const BAML_BOUNDARY: f64 = 0.75;
 /// package's export surface, with no import-graph proof the call reaches it.
 pub const CROSS_PACKAGE: f64 = 0.70;
 
+/// A name matched inside framework template markup by a lexical (whole-word)
+/// scan — a Svelte `{ ... }` expression naming an imported binding. The markup
+/// is never parsed, so the match carries no argument list and no scope
+/// analysis: it is evidence of use, never of a call. Deliberately the lowest
+/// rung the ladder assigns, and always on a `uses` edge.
+pub const TEMPLATE_LEXICAL: f64 = 0.70;
+
 /// A same-file method call on `self`/`this` — the receiver provably denotes the
 /// enclosing file's own type, so the method binds with near-certainty.
 pub const SELF_RECEIVER_METHOD: f64 = 0.9;
@@ -57,6 +64,7 @@ pub const ERROR_TIER_THRESHOLD: f64 = 0.80;
 const _: () = assert!(BAML_BOUNDARY < ERROR_TIER_THRESHOLD);
 const _: () = assert!(CROSS_PACKAGE < ERROR_TIER_THRESHOLD);
 const _: () = assert!(UNFAMILIAR_RECEIVER_METHOD < ERROR_TIER_THRESHOLD);
+const _: () = assert!(TEMPLATE_LEXICAL < ERROR_TIER_THRESHOLD);
 // Error-tier constants must sit at or above it, or the ladder's most certain
 // resolutions would silently downgrade.
 const _: () = assert!(SAME_FILE_CALL >= ERROR_TIER_THRESHOLD);

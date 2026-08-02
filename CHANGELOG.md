@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A multi-name import no longer collapses to its first name (T1.3).** One
+  `import` statement produces one tree-sitter match per binding, and the
+  dedup that merged them kept only the first: `import { a, b, c } from './m'`
+  was recorded as `["a"]`, and `from mod import a, b, c` the same way. Nothing
+  then knew `b` and `c` were in scope, so every cross-file reference to them
+  went unresolved and their definitions read as uncalled. All bindings of a
+  statement are now unioned (Go's `_`/`.` markers still replace rather than
+  join), and `import * as ns` records its alias. This affects every language:
+  expect more `calls` edges and *fewer* zero-caller functions after a re-map.
+- **Svelte markup now resolves imported bindings (T1.3).** The template scan
+  was seeded only with the component's own `<script>` definitions, so a helper
+  imported from another module and used exclusively in markup —
+  `{@const pct = completenessPct(v)}`, `<Panel onDone={refresh} />`, `{#each}`
+  / `{#await}` / `{#snippet}` bodies — was invisible. It now emits a `uses`
+  edge at confidence 0.70 under resolution tier `tier1_template`. Never a
+  `calls` edge: a lexical match in unparsed markup carries no argument list, so
+  it must not reach E001/E004/E005 or a fix plan. Measured on a 118-module
+  SvelteKit app: the nine zero-caller exports of one `model.ts` all report
+  callers ≥ 1, `uses` edges go 56 → 277, `calls` 771 → 830, `imports` edges are
+  unchanged at 314, and `keel audit --dimension navigation` reports the same
+  seven `high_coupling` and zero `bottleneck_module` findings as before.
+  Component tags (`<FristenPanel />`) are still not edges, and imported
+  constants and Svelte stores stay invisible by design — keel's graph holds
+  functions and classes, so there is no node for a constant to point at.
 - **Rust macro invocations no longer resolve to same-named functions (T1.2).**
   `format!`, `vec!`, `write!`, `println!` and the rest of the Rust prelude are
   now recognised as external before any lookup happens, so a repo function
@@ -33,6 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   graph re-populates on the next map.
 
 ### Changed
+- **`callers` / `callees` now count `uses` edges, not only `calls` (T1.3).**
+  `keel search`, `keel discover` and `keel focus` answer "what depends on
+  this?", and a function reached only through a callback, a handler table or a
+  Svelte template expression is depended upon — reporting it at zero callers is
+  the same false-dead-code signal W005 already refuses to send. Severity is
+  untouched: E001/E004/E005 and the fix planner still filter `calls` edges
+  themselves, because only a parsed call site carries an argument list.
 - **The compile hot path no longer waits on the network (T1.1).** `compile`,
   `where`, `discover`, `focus`, `skeleton`, `explain`, `check`, `search`, and
   `context` are hard-coded as `hot_path_commands()` and never attempt a

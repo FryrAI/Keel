@@ -184,6 +184,7 @@ fn template_references_capture_markup_only_handlers() {
     let refs = extract_template_references(
         src,
         &defined(&["addZuschlag", "startEdit", "unusedFn"]),
+        &defined(&[]),
         "Comp.svelte",
     );
     let names: HashSet<&str> = refs.iter().map(|r| r.name.as_str()).collect();
@@ -214,7 +215,12 @@ fn template_scan_ignores_script_and_style_bodies() {
          .render { width: 10px; }\n\
          </style>\n\
          <p>no expressions here</p>\n";
-    let refs = extract_template_references(src, &defined(&["render", "other"]), "C.svelte");
+    let refs = extract_template_references(
+        src,
+        &defined(&["render", "other"]),
+        &defined(&[]),
+        "C.svelte",
+    );
     assert!(refs.is_empty(), "no template braces => no refs: {refs:?}");
 }
 
@@ -224,7 +230,12 @@ fn template_scan_skips_identifiers_inside_string_literals() {
          function danger() {}\n\
          </script>\n\
          <p>{title || 'danger'}</p>\n";
-    let refs = extract_template_references(src, &defined(&["danger", "title"]), "C.svelte");
+    let refs = extract_template_references(
+        src,
+        &defined(&["danger", "title"]),
+        &defined(&[]),
+        "C.svelte",
+    );
     let names: HashSet<&str> = refs.iter().map(|r| r.name.as_str()).collect();
     assert!(
         !names.contains("danger"),

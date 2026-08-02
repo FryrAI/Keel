@@ -54,6 +54,14 @@
     (identifier) @ref.import.name)
   source: (string) @ref.import.source) @ref.import
 
+; Namespace import: import * as ns from 'source'
+; The alias is the file's local binding, so record it like any other name.
+(import_statement
+  (import_clause
+    (namespace_import
+      (identifier) @ref.import.name))
+  source: (string) @ref.import.source) @ref.import
+
 ; Side-effect import: import 'source' (no names)
 (import_statement
   source: (string) @ref.import.source) @ref.import

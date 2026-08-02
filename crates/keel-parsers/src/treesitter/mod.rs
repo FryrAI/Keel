@@ -659,3 +659,6 @@ mod tests_decorators;
 
 #[cfg(test)]
 mod tests_value_captures;
+
+#[cfg(test)]
+mod tests_import_names;
