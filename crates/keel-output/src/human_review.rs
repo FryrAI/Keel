@@ -58,6 +58,19 @@ pub fn format_review_human(result: &ReviewResult) -> String {
         }
     }
 
+    if let Some(line) = render::new_violations_line(result) {
+        out.push_str(&format!("\nNEW VIOLATIONS — {}:\n", line));
+        for v in &result.new_violations {
+            out.push_str(&format!(
+                "  [{}] {}:{} {}\n",
+                v.code, v.file, v.line, v.message
+            ));
+            if let Some(hint) = &v.fix_hint {
+                out.push_str(&format!("    fix: {}\n", hint));
+            }
+        }
+    }
+
     if !result.unanalyzed.is_empty() {
         out.push_str("\nUNANALYZED (keel has no grammar for these):\n");
         for file in &result.unanalyzed {

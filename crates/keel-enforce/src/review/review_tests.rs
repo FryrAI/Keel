@@ -105,6 +105,11 @@ fn empty_store() -> SqliteGraphStore {
     SqliteGraphStore::in_memory().unwrap()
 }
 
+/// The same check toggles `keel compile` runs with.
+fn enforce() -> keel_core::config::EnforceConfig {
+    keel_core::config::EnforceConfig::default()
+}
+
 #[test]
 fn signature_change_leads_with_its_callers_outside_the_diff() {
     let dir = repo(&[
@@ -125,7 +130,7 @@ fn signature_change_leads_with_its_callers_outside_the_diff() {
     );
 
     let store = store_with_caller("execute", "src/commands.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD").unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
 
     assert_eq!(result.contract_change_count, 1);
     let top = &result.changes[0];
@@ -169,7 +174,7 @@ fn callers_inside_the_diff_do_not_count() {
     );
 
     let store = store_with_caller("execute", "src/commands.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD").unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
 
     let exec = result.changes.iter().find(|c| c.name == "execute").unwrap();
     assert_eq!(exec.callers_outside_diff_count, 0);
@@ -188,7 +193,7 @@ fn a_body_only_pr_is_silent() {
         "pub fn add(a: u8, b: u8) -> u8 {\n    let sum = a + b;\n    sum\n}\n",
     );
 
-    let result = review(&empty_store(), dir.path(), "HEAD").unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
     assert_eq!(result.contract_change_count, 0);
     assert_eq!(result.body_only_count, 1);
     assert_eq!(result.functions_touched, 1);
@@ -207,7 +212,7 @@ fn a_docstring_only_change_is_doc_only_not_body_only() {
         "/// New wording entirely.\npub fn add(a: u8, b: u8) -> u8 {\n    a + b\n}\n",
     );
 
-    let result = review(&empty_store(), dir.path(), "HEAD").unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
     assert_eq!(result.doc_only_count, 1);
     assert_eq!(result.body_only_count, 0);
     assert!(render::is_silent(&result));
@@ -227,7 +232,7 @@ fn a_pure_rename_reports_moved_not_add_plus_remove() {
     // -M rename detection needs the deletion staged alongside the addition.
     git(dir.path(), &["add", "-A"]);
 
-    let result = review(&empty_store(), dir.path(), "HEAD").unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
     assert_eq!(result.changes.len(), 1, "{:?}", result.changes);
     let moved = &result.changes[0];
     assert_eq!(moved.name, "render");
@@ -257,7 +262,7 @@ fn unparsed_structural_files_are_named_not_omitted() {
     write(dir.path(), "README.md", "# docs\n");
     git(dir.path(), &["add", "-A"]);
 
-    let result = review(&empty_store(), dir.path(), "HEAD").unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
     let paths: Vec<&str> = result.unanalyzed.iter().map(|u| u.path.as_str()).collect();
     assert_eq!(paths, vec!["baml_src/main.baml", "migrations/001_init.sql"]);
     assert_eq!(result.unanalyzed[0].class, "boundary");
@@ -275,7 +280,7 @@ fn a_deleted_file_reports_its_symbols_as_removed() {
     std::fs::remove_file(dir.path().join("src/lib.rs")).unwrap();
 
     let store = store_with_caller("gone", "src/lib.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD").unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
 
     let removed = result.changes.iter().find(|c| c.name == "gone").unwrap();
     assert_eq!(removed.kind, ChangeKind::Removed);
@@ -284,9 +289,63 @@ fn a_deleted_file_reports_its_symbols_as_removed() {
 }
 
 #[test]
+fn a_whitespace_only_reformat_introduces_no_new_violations() {
+    // Two public, undocumented functions — E003 on both sides. The reformat
+    // reindents them and pushes them 4 lines down; nothing was introduced.
+    let dir = repo(&[(
+        "src/lib.rs",
+        "pub fn one(x: u8) -> u8 {\n    x\n}\n\npub fn two(y: u8) -> u8 {\n    y\n}\n",
+    )]);
+    write(
+        dir.path(),
+        "src/lib.rs",
+        "\n\n\n\npub fn one(x: u8) -> u8 {\n\n    x\n\n}\n\npub fn two(y: u8) -> u8 {\n\n    y\n\n}\n",
+    );
+
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    assert!(
+        result.new_violations.is_empty(),
+        "reformat produced: {:?}",
+        result
+            .new_violations
+            .iter()
+            .map(|v| format!("{} {}", v.code, v.message))
+            .collect::<Vec<_>>()
+    );
+    assert!(result.pre_existing_violations >= 2);
+}
+
+#[test]
+fn a_newly_added_undocumented_function_is_a_new_violation() {
+    let dir = repo(&[(
+        "src/lib.rs",
+        "/// Documented.\npub fn one(x: u8) -> u8 {\n    x\n}\n",
+    )]);
+    write(
+        dir.path(),
+        "src/lib.rs",
+        "/// Documented.\npub fn one(x: u8) -> u8 {\n    x\n}\n\npub fn two(y: u8) -> u8 {\n    y\n}\n",
+    );
+
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    assert_eq!(
+        result.new_violations.len(),
+        1,
+        "{:?}",
+        result.new_violations
+    );
+    assert_eq!(result.new_violations[0].code, "E003");
+    assert!(result.new_violations[0].message.contains("two"));
+    assert!(
+        !render::is_silent(&result),
+        "a new violation breaks silence"
+    );
+}
+
+#[test]
 fn an_unresolvable_base_is_an_error_not_an_empty_review() {
     let dir = repo(&[("src/lib.rs", "pub fn a() -> u8 {\n    1\n}\n")]);
-    let err = review(&empty_store(), dir.path(), "no-such-ref").unwrap_err();
+    let err = review(&empty_store(), dir.path(), "no-such-ref", &enforce()).unwrap_err();
     assert!(err.contains("no-such-ref"), "got: {err}");
 }
 
@@ -296,7 +355,7 @@ fn json_round_trips_including_the_moved_payload() {
     std::fs::rename(dir.path().join("src/old.rs"), dir.path().join("src/new.rs")).unwrap();
     git(dir.path(), &["add", "-A"]);
 
-    let result = review(&empty_store(), dir.path(), "HEAD").unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("\"kind\":\"moved\""), "{json}");
     assert!(json.contains("\"from\":\"src/old.rs\""), "{json}");

@@ -206,6 +206,108 @@ fn baml_and_sql_land_under_unanalyzed() {
     );
 }
 
+/// The baseline-relative surface: only what the diff introduced, and a
+/// reformat introduces nothing.
+#[test]
+fn only_new_violations_reach_the_pr_and_a_reformat_adds_none() {
+    let dir = fixture();
+    let root = dir.path();
+    // `execute` is public and undocumented on both sides — inherited, not new.
+    // Reindent it and push it down the file; add one undocumented function.
+    write(
+        root,
+        "src/lib.ts",
+        "\n\nexport function execute(cmd: number): number {\n\n  return cmd;\n\n}\n",
+    );
+
+    let out = keel(root, &["review", "--base", "HEAD", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "review never gates by default");
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("review --json must emit JSON");
+    assert_eq!(
+        parsed["new_violations"].as_array().unwrap().len(),
+        0,
+        "a reformat introduces nothing: {parsed}"
+    );
+    assert!(
+        parsed["pre_existing_violations"].as_u64().unwrap() >= 1,
+        "the inherited E003 must be counted, not reported: {parsed}"
+    );
+
+    write(
+        root,
+        "src/lib.ts",
+        "export function execute(cmd: number): number {\n  return cmd;\n}\n\
+         export function fresh(x: number): number {\n  return x;\n}\n",
+    );
+    let out = keel(root, &["review", "--base", "HEAD", "--llm"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("NEW 1 new violation(s)"),
+        "the added function's missing docstring is the one new finding: {stdout}"
+    );
+    assert!(stdout.contains("E003 src/lib.ts"), "{stdout}");
+}
+
+/// `--gate` is inert until `review.gate` in keel.json names a code.
+#[test]
+fn gate_exits_one_only_for_configured_codes() {
+    let dir = fixture();
+    let root = dir.path();
+    write(
+        root,
+        "src/lib.ts",
+        "export function execute(cmd: number): number {\n  return cmd;\n}\n\
+         export function fresh(x: number): number {\n  return x;\n}\n",
+    );
+
+    // No review.gate configured: a new violation still exits 0.
+    let out = keel(root, &["review", "--base", "HEAD", "--llm", "--gate"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "an empty gate list gates nothing"
+    );
+
+    let config_path = root.join(".keel/keel.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["review"] = serde_json::json!({ "gate": ["E003"] });
+    fs::write(&config_path, config.to_string()).unwrap();
+
+    let out = keel(root, &["review", "--base", "HEAD", "--llm", "--gate"]);
+    assert_eq!(out.status.code(), Some(1), "a gated code fails the build");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("gated codes"));
+
+    // Without --gate the same repo state is still a report.
+    let out = keel(root, &["review", "--base", "HEAD", "--llm"]);
+    assert_eq!(out.status.code(), Some(0));
+}
+
+/// `keel review --format github` annotates the new violations natively.
+#[test]
+fn review_format_github_annotates_new_violations() {
+    let dir = fixture();
+    let root = dir.path();
+    write(
+        root,
+        "src/lib.ts",
+        "export function execute(cmd: number): number {\n  return cmd;\n}\n\
+         export function fresh(x: number): number {\n  return x;\n}\n",
+    );
+
+    let out = keel(root, &["review", "--base", "HEAD", "--format", "github"]);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(!lines.is_empty(), "expected an annotation");
+    for line in &lines {
+        assert!(line.starts_with("::"), "not an annotation: {line}");
+        assert!(line.contains("file=src/lib.ts,line="), "{line}");
+        assert!(line.contains("title=[E003]"), "{line}");
+    }
+}
+
 #[test]
 fn unresolvable_base_exits_two() {
     let dir = fixture();

@@ -93,6 +93,7 @@ keel compile [file...] [flags]
 | `--batch-end` | off | End batch mode: fires all deferred checks. Auto-expires after 60s of inactivity. |
 | `--strict` | off | Treat warnings as errors (exit 1 on warnings) |
 | `--suppress <code>` | (none) | Suppress a specific error/warning code for this run |
+| `--format github` | (none) | Emit GitHub Actions annotations (`::error file=..,line=..,title=[CODE]::msg`) instead of a keel format. Replaces the JSON post-processing CI used to do in the workflow; keel ships no runtime dependency, so neither should its action. Combines with `--delta` (annotates only the new violations); overrides `--json`/`--llm`. |
 
 If no files are specified, compiles all source files in the project.
 
@@ -282,7 +283,14 @@ Two-sided graph diff against a base ref — the PR cover letter GitHub cannot wr
 ```bash
 keel review --base main
 keel review --base origin/main --json
+keel review --base origin/main --format github --gate
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--base <ref>` | (required) | Ref to diff the working tree against |
+| `--format github` | (none) | Emit the new violations as GitHub Actions annotations instead of the cover letter |
+| `--gate` | off | Exit 1 when the diff introduced a violation whose code is listed in `review.gate` in `keel.json` (empty by default, so `--gate` alone gates nothing) |
 
 Parses the base side straight out of git (`git show <base>:<path>`) in memory — no
 checkout, no worktree — and diffs it against the working tree. For every symbol it
@@ -298,9 +306,30 @@ than silently omitted.
 Both sides are parsed with tree-sitter only (`resolution: tier1`) so the two sides are
 symmetric. Review-time only: nothing here runs in the compile hot path.
 
-Honors the clean-output contract — a diff that moved no contract and touched no
-unparsed file prints nothing and exits 0 (use `--verbose` for the counts anyway).
-Requires full git history in CI (`fetch-depth: 0`).
+### Baseline-relative violations
+
+`keel review` also compiles both sides and reports **only the violations the diff
+introduced**, under `NEW VIOLATIONS` (`new_violations` in JSON, with a
+`pre_existing_violations` count beside it). In a repo carrying tens of thousands of
+findings, a PR comment listing current violations is unreadable; listing the ones this
+diff added is not.
+
+- Findings match across the two revisions on `(code, file, symbol)` — never a line —
+  so reformatting a file with existing violations introduces **zero** new findings, and
+  renaming a file does not resurrect the findings inside it.
+- Diffed codes: **E002, E003, W005, W006, W007**. These are the ones both sides can
+  compute at the same tier. E001/E004/E005 need cross-file reference resolution the
+  base blobs never got, so they stay on the `keel compile` surface, head-only —
+  diffing them across asymmetric tiers would manufacture phantom findings. The
+  contract-change section already answers the same question structurally.
+- W007 is evaluated per-PR here: base under `enforce.max_file_lines`, head over it,
+  reported once. A file that was already over budget is inherited, not reported.
+- Exit code is 0 whatever it finds, unless `--gate` is set and `review.gate` in
+  `keel.json` names one of the codes it found.
+
+Honors the clean-output contract — a diff that moved no contract, introduced no
+violation, and touched no unparsed file prints nothing and exits 0 (use `--verbose`
+for the counts anyway). Requires full git history in CI (`fetch-depth: 0`).
 
 ---
 

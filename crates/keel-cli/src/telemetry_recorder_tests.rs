@@ -176,6 +176,7 @@ fn command_name_compile() {
         since: None,
         delta: false,
         timeout: None,
+        format: None,
     };
     assert_eq!(command_name(&cmd), "compile");
 }

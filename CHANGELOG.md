@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A line shift is no longer a new violation (T2.2).** `ViolationKey` included
+  `line` in its identity, so inserting a single line at the top of a file made
+  every violation below it read as brand new — breaking every delta-based
+  feature keel ships, including the `--delta` flag the post-edit hook runs on
+  every edit. Identity is now `ViolationKey::stable()` = `(code, hash, file)`,
+  with `line` kept for display; the hash is AST-derived, so it is stable under
+  reformatting and travels with the code it describes. `compile --delta` also
+  emits its new/resolved sets in a deterministic order now (it used
+  `HashSet::difference`, which reshuffled between runs).
 - **A multi-name import no longer collapses to its first name (T1.3).** One
   `import` statement produces one tree-sitter match per binding, and the
   dedup that merged them kept only the first: `import { a, b, c } from './m'`
@@ -120,6 +129,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-readable output.
 
 ### Added
+- **Baseline-relative CI reporting: only the violations a diff introduced
+  (T2.2).** `keel review --base <ref>` now compiles both sides of the diff and
+  reports a `NEW VIOLATIONS` section (`new_violations` in JSON, with
+  `pre_existing_violations` beside it) holding only what the diff added. On a
+  repo carrying tens of thousands of findings, a PR comment listing current
+  violations is dead on arrival; listing the handful this diff introduced is
+  not. Findings match across the two revisions on `(code, file, symbol)` —
+  never a line — so a whitespace-only reformat of a file full of violations
+  introduces **zero** new findings and a file rename does not resurrect the
+  findings inside it. Diffing is restricted to the codes both sides can compute
+  at the same tier (E002, E003, W005, W006, W007); E001/E004/E005 need
+  cross-file reference resolution the base blobs never got and stay head-only
+  on the `keel compile` surface, since diffing across asymmetric tiers would
+  manufacture phantom "new" violations. W007 is evaluated per-PR here (base
+  under `enforce.max_file_lines`, head over it, reported once), which is what
+  finally makes a declared file-size budget enforceable on the change that
+  breaks it. Exit code stays 0 whatever it finds unless `--gate` is passed
+  **and** `review.gate` in `keel.json` names one of the codes found — a new
+  `review` config block, empty by default.
+- **`--format github` on `keel compile` and `keel review`.** Emits
+  `::error file=..,line=..,title=[CODE]::message` workflow commands natively,
+  with GitHub's escaping rules applied to messages and property values, so a
+  multi-line message or a comma in a path cannot corrupt an annotation. This
+  deleted the inline interpreter heredoc from
+  `.github/actions/keel/action.yml`, which post-processed keel's JSON into
+  annotations — an undeclared runtime dependency in a product whose Article 1
+  and Principle 10 are both "single binary, zero runtime dependencies". The
+  clean-output contract is unchanged: zero violations means empty stdout and
+  exit 0 in every format.
 - **`keel review --base <ref>` — the two-sided graph diff as a PR cover letter
   (T2.1).** GitHub can show which lines moved; it cannot say which *contracts*
   moved and which callers the change left behind. `keel review` parses the base

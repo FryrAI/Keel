@@ -15,13 +15,16 @@
 //!    different `Definition::hash()` = body-only (or doc-only);
 //! 5. for each contract change, the callers the stored graph knows about that
 //!    live **outside** the diff — literally the call sites this PR did not
-//!    update.
+//!    update;
+//! 6. the violations the diff *introduced*, base-side findings subtracted (see
+//!    `crate::review::baseline`).
 //!
 //! Review-time only. Nothing here runs in the compile hot path.
 //!
 //! Related: `crate::gitdiff` (`changed_paths`, `blob_at`), `crate::checkpoint`
 //! (`callers_of`, `CallerRef`), `crate::file_class` (the unanalyzed classes).
 
+pub mod baseline;
 pub mod diff;
 pub mod render;
 pub mod risk;
@@ -30,6 +33,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use keel_core::config::EnforceConfig;
 use keel_core::store::GraphStore;
 /// Re-exported so consumers outside `keel-core`'s dependency graph (the output
 /// formatters) can name `ContractChange::symbol_kind`.
@@ -38,6 +42,7 @@ pub use keel_core::types::NodeKind;
 use crate::checkpoint::CallerRef;
 use crate::gitdiff;
 use crate::parse_util::BLOB_RESOLUTION_TIER;
+use crate::types::Violation;
 
 /// What happened to one symbol between the base ref and the working tree.
 ///
@@ -157,20 +162,37 @@ pub struct ReviewResult {
     pub changes: Vec<ContractChange>,
     /// Changed files keel does not parse.
     pub unanalyzed: Vec<UnanalyzedFile>,
+    /// Violations this diff introduced — head-side findings with every
+    /// base-side finding subtracted. Restricted to
+    /// [`baseline::DIFFABLE_CODES`]; E001/E004/E005 stay on the `keel compile`
+    /// surface, where both sides are resolved at the same tier.
+    pub new_violations: Vec<Violation>,
+    /// Head-side findings that also existed on the base side, and are
+    /// therefore this PR's inheritance rather than its doing.
+    pub pre_existing_violations: usize,
 }
 
 /// Build the review of the working tree against `base`, evaluated in `dir`.
 ///
-/// `store` is the live graph, used only to look up the callers of a changed
-/// symbol; the two-sided definition diff never touches it, so a stale or
-/// freshly-mapped store changes the caller counts but never the contract facts.
+/// `store` is the live graph. The two-sided definition diff never consults it,
+/// so a stale or freshly-mapped store changes the caller counts and the
+/// baseline checks' shared inputs but never the contract facts. `enforce`
+/// supplies the same check toggles and line budget `keel compile` uses, so the
+/// baseline diff cannot report a code the repo turned off.
 ///
 /// Errors only when git cannot resolve `base` — every other failure (an
 /// unreadable blob, a file that vanished from the working tree) degrades to
 /// "that side has no definitions", which is the correct reading.
-pub fn review(store: &dyn GraphStore, dir: &Path, base: &str) -> Result<ReviewResult, String> {
+pub fn review(
+    store: &dyn GraphStore,
+    dir: &Path,
+    base: &str,
+    enforce: &EnforceConfig,
+) -> Result<ReviewResult, String> {
     let paths = gitdiff::changed_paths(dir, base)?;
     let scan = diff::scan_paths(dir, base, &paths);
+
+    let baseline = baseline::diff(store, &scan, enforce);
 
     let mut changes = scan.changes;
     risk::attach_callers(store, &mut changes, &scan.diff_files);
@@ -202,6 +224,8 @@ pub fn review(store: &dyn GraphStore, dir: &Path, base: &str) -> Result<ReviewRe
         doc_only_count,
         changes,
         unanalyzed: scan.unanalyzed,
+        new_violations: baseline.new_violations,
+        pre_existing_violations: baseline.pre_existing,
     })
 }
 

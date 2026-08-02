@@ -11,6 +11,10 @@ use keel_enforce::review::{render, ChangeKind, ContractChange, ReviewResult};
 const MAX_CHANGES: usize = 25;
 /// Maximum unanalyzed paths listed before collapsing into a `+N more` line.
 const MAX_UNANALYZED: usize = 15;
+/// Maximum baseline-new violations listed before collapsing into a `+N more`
+/// line. A PR comment that lists more than this has stopped being readable —
+/// the count still tells the truth.
+const MAX_NEW_VIOLATIONS: usize = 15;
 
 /// One `CONTRACT` block: the delta line, both signatures, and the callers.
 fn change_block(change: &ContractChange) -> String {
@@ -84,6 +88,23 @@ pub fn format_review(result: &ReviewResult) -> String {
         out.push_str(&format!("+{hidden} more contract change(s)\n"));
     }
 
+    if let Some(line) = render::new_violations_line(result) {
+        out.push_str(&format!("NEW {}\n", line));
+        for v in result.new_violations.iter().take(MAX_NEW_VIOLATIONS) {
+            out.push_str(&format!(
+                "  {} {}:{} {}\n",
+                v.code, v.file, v.line, v.message
+            ));
+        }
+        let hidden = result
+            .new_violations
+            .len()
+            .saturating_sub(MAX_NEW_VIOLATIONS);
+        if hidden > 0 {
+            out.push_str(&format!("  +{hidden} more new violation(s)\n"));
+        }
+    }
+
     for file in result.unanalyzed.iter().take(MAX_UNANALYZED) {
         out.push_str(&format!("UNANALYZED {} [{}]\n", file.path, file.class));
     }
@@ -141,6 +162,28 @@ mod tests {
             doc_only_count: 0,
             changes,
             unanalyzed: Vec::new(),
+            new_violations: Vec::new(),
+            pre_existing_violations: 0,
+        }
+    }
+
+    fn new_violation(code: &str, file: &str, line: u32) -> keel_enforce::types::Violation {
+        keel_enforce::types::Violation {
+            code: code.into(),
+            severity: "WARNING".into(),
+            category: "test".into(),
+            message: format!("{code} in {file}"),
+            file: file.into(),
+            line,
+            hash: String::new(),
+            confidence: 0.8,
+            resolution_tier: "heuristic".into(),
+            fix_hint: Some("split it".into()),
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![],
+            suggested_module: None,
+            existing: None,
         }
     }
 
@@ -180,6 +223,36 @@ mod tests {
         assert_eq!(parsed["command"], "review");
         assert_eq!(parsed["changes"][0]["kind"], "moved");
         assert_eq!(parsed["changes"][0]["from"], "src/old.rs");
+    }
+
+    #[test]
+    fn new_violations_reach_both_interfaces_and_the_pre_existing_count_rides_along() {
+        let mut r = result(Vec::new());
+        r.new_violations = vec![new_violation("W007", "src/page.svelte", 1)];
+        r.pre_existing_violations = 412;
+
+        let llm = format_review(&r);
+        assert!(
+            llm.contains("NEW 1 new violation(s) (412 pre-existing)"),
+            "{llm}"
+        );
+        assert!(llm.contains("W007 src/page.svelte:1"), "{llm}");
+
+        let human = HumanFormatter.format_review(&r);
+        assert!(
+            human.contains("NEW VIOLATIONS — 1 new violation(s) (412 pre-existing)"),
+            "{human}"
+        );
+        assert!(human.contains("fix: split it"), "{human}");
+    }
+
+    #[test]
+    fn a_new_violation_alone_breaks_the_clean_output_silence() {
+        let mut r = result(Vec::new());
+        assert_eq!(format_review(&r), "", "no changes, no findings: silent");
+        r.new_violations = vec![new_violation("E003", "src/lib.rs", 9)];
+        assert!(!format_review(&r).is_empty());
+        assert!(!HumanFormatter.format_review(&r).is_empty());
     }
 
     #[test]

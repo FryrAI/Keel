@@ -44,26 +44,22 @@ runs:
       id: run
       shell: bash
       run: |
+        # `--format github` makes the binary emit the annotations itself. It
+        # replaced an inline interpreter heredoc that reshaped keel's JSON — an
+        # undeclared runtime dependency in a tool whose Article 1 is "single
+        # binary, zero runtime dependencies". Keep this step interpreter-free.
         set +e
-        output=$(keel ${{ inputs.args }} --json 2>&1)
+        output=$(keel ${{ inputs.args }} --format github 2>&1)
         exit_code=$?
         set -e
         echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
 
-        # Count violations from JSON output
-        violations=$(echo "$output" | grep -c '"code":' || echo "0")
-        echo "violation-count=$violations" >> "$GITHUB_OUTPUT"
+        # The annotations ARE the output: echoing them is what posts them.
+        printf '%s\n' "$output"
 
-        # Generate PR annotations from JSON output
-        echo "$output" | python3 -c "
-        import sys, json
-        try:
-            data = json.load(sys.stdin)
-            for v in data.get('errors', []) + data.get('warnings', []):
-                level = 'error' if v['severity'] == 'ERROR' else 'warning'
-                print(f'::{level} file={v[\"file\"]},line={v[\"line\"]}::[{v[\"code\"]}] {v[\"message\"]}')
-        except: pass
-        " 2>/dev/null || true
+        # One annotation per violation; a clean run prints nothing at all.
+        violations=$(printf '%s\n' "$output" | grep -c '^::' || true)
+        echo "violation-count=$violations" >> "$GITHUB_OUTPUT"
 
         # Build summary line
         if [ "$exit_code" -eq 0 ]; then

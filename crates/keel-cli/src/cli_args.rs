@@ -1,4 +1,14 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+/// Machine surfaces that are not one of the three output formatters.
+///
+/// `--json` and `--llm` choose how keel *describes* a result; this chooses a
+/// foreign protocol to emit it in. Only CI has one so far.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum WireFormat {
+    /// GitHub Actions workflow commands — `::error file=..,line=..,title=[CODE]::msg`
+    Github,
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -127,6 +137,9 @@ pub(crate) enum Commands {
         /// Soft time budget in milliseconds (warns on stderr when exceeded; violations still report and set the exit code)
         #[arg(long)]
         timeout: Option<u64>,
+        /// Emit violations in a CI protocol instead of a keel format (`github`)
+        #[arg(long, value_enum)]
+        format: Option<WireFormat>,
     },
 
     /// Pre-edit risk assessment for a function
@@ -280,6 +293,13 @@ pub(crate) enum Commands {
         /// Base ref to diff the working tree against (e.g. `main`, `origin/main`)
         #[arg(long)]
         base: String,
+        /// Emit the new violations in a CI protocol instead of a keel format (`github`)
+        #[arg(long, value_enum)]
+        format: Option<WireFormat>,
+        /// Exit 1 when the diff introduced a violation whose code is listed in
+        /// `review.gate` in keel.json (empty by default: gates nothing)
+        #[arg(long)]
+        gate: bool,
     },
 
     /// Validate a plan against the dependency graph before executing it

@@ -79,6 +79,9 @@ fn test_roundtrip_all_non_default_values() {
                 ("canonical".to_string(), "harness".to_string()),
             ],
         },
+        review: ReviewConfig {
+            gate: vec!["E003".to_string(), "W007".to_string()], // default is empty
+        },
         telemetry_id: Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string()),
     };
 
@@ -143,10 +146,32 @@ fn test_roundtrip_all_non_default_values() {
             ("canonical".to_string(), "harness".to_string()),
         ]
     );
+    assert_eq!(roundtripped.review.gate, vec!["E003", "W007"]);
     assert_eq!(
         roundtripped.telemetry_id,
         Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string())
     );
+}
+
+/// `keel review --gate` is opt-in twice over: no config block at all means no
+/// gated codes, and a config that names codes must survive a load.
+#[test]
+fn test_load_review_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "version": "0.1.0",
+        "languages": ["rust"],
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+    assert!(KeelConfig::load(dir.path()).review.gate.is_empty());
+
+    let config = serde_json::json!({
+        "version": "0.1.0",
+        "languages": ["rust"],
+        "review": { "gate": ["W007"] }
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+    assert_eq!(KeelConfig::load(dir.path()).review.gate, vec!["W007"]);
 }
 
 /// The documented `"architecture": {"deny": [["a","b"]]}` shape must parse —

@@ -11,13 +11,29 @@ use super::{ChangeKind, ContractChange, ReviewResult};
 
 /// Whether the review has nothing worth printing.
 ///
-/// Honors keel's clean-output contract: a PR that moved no contract and touched
-/// no file keel cannot read prints **nothing** and exits 0. Body-only and
-/// doc-only changes are, by construction, not worth a reviewer's attention
-/// budget — that is the whole claim of "12 functions changed, only 3 changed
-/// their contract".
+/// Honors keel's clean-output contract: a PR that moved no contract, touched
+/// no file keel cannot read, and introduced no violation prints **nothing** and
+/// exits 0. Body-only and doc-only changes are, by construction, not worth a
+/// reviewer's attention budget — that is the whole claim of "12 functions
+/// changed, only 3 changed their contract". Violations the PR *inherited* are
+/// equally not worth it: only the ones it introduced break the silence.
 pub fn is_silent(result: &ReviewResult) -> bool {
-    result.contract_change_count == 0 && result.unanalyzed.is_empty()
+    result.contract_change_count == 0
+        && result.unanalyzed.is_empty()
+        && result.new_violations.is_empty()
+}
+
+/// `"3 new violation(s) (41 pre-existing)"`, or `None` when the diff
+/// introduced none.
+pub fn new_violations_line(result: &ReviewResult) -> Option<String> {
+    if result.new_violations.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} new violation(s) ({} pre-existing)",
+        result.new_violations.len(),
+        result.pre_existing_violations,
+    ))
 }
 
 /// The changes worth listing, already ranked.
@@ -93,6 +109,8 @@ mod tests {
             doc_only_count: 0,
             changes,
             unanalyzed: Vec::new(),
+            new_violations: Vec::new(),
+            pre_existing_violations: 0,
         }
     }
 

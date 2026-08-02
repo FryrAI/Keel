@@ -4,7 +4,12 @@
 //! - **JSON** (`--json`): Machine-readable structured output
 //! - **LLM** (default): Compact format optimized for AI coding agents
 //! - **Human** (`--human`): Colored, formatted output for terminal users
+//!
+//! Plus one CI-only surface that is not a formatter: `github` renders
+//! violations as GitHub Actions workflow commands (`--format github`, see the
+//! `github` module).
 
+pub mod github;
 pub mod human;
 pub(crate) mod human_helpers;
 pub(crate) mod human_review;

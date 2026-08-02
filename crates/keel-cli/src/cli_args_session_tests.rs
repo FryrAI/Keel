@@ -79,9 +79,34 @@ fn parse_validate_plan_missing_arg() {
 #[test]
 fn parse_review_base() {
     match parse(&["keel", "review", "--base", "origin/main"]).command {
-        Commands::Review { base } => assert_eq!(base, "origin/main"),
+        Commands::Review { base, format, gate } => {
+            assert_eq!(base, "origin/main");
+            assert!(format.is_none(), "no CI protocol unless asked for");
+            assert!(!gate, "review never gates by default");
+        }
         _ => panic!("expected Review"),
     }
+}
+
+#[test]
+fn parse_review_github_format_and_gate() {
+    match parse(&[
+        "keel", "review", "--base", "main", "--format", "github", "--gate",
+    ])
+    .command
+    {
+        Commands::Review { format, gate, .. } => {
+            assert_eq!(format, Some(crate::cli_args::WireFormat::Github));
+            assert!(gate);
+        }
+        _ => panic!("expected Review"),
+    }
+}
+
+#[test]
+fn parse_review_rejects_an_unknown_format() {
+    Cli::try_parse_from(["keel", "review", "--base", "main", "--format", "gitlab"])
+        .expect_err("only formats keel implements may parse");
 }
 
 #[test]

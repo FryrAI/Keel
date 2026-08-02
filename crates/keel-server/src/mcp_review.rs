@@ -20,10 +20,13 @@ pub(crate) fn handle_review(
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
     let base = param_str(&params, "base")?.to_string();
+    // The repo's own check toggles, so the baseline diff cannot report a code
+    // the repo turned off in `keel.json`.
+    let enforce = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(root)).enforce;
 
     let result = {
         let store = lock_store(store)?;
-        keel_enforce::review::review(&*store, root, &base).map_err(|e| JsonRpcError {
+        keel_enforce::review::review(&*store, root, &base, &enforce).map_err(|e| JsonRpcError {
             code: -32603,
             message: e,
         })?

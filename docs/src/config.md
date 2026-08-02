@@ -45,6 +45,7 @@ The main configuration file. All fields have sensible defaults -- you only need 
 | `tier3.enabled` | `bool` | `false` | Enable Tier 3 (LSP/SCIP) resolution for references tree-sitter and per-language enhancers can't resolve. Higher precision, slower — on-demand only. |
 | `architecture.count_type_deps` | `bool` | `false` | Count type-only references as cross-boundary dependencies for W009. Off by default: depending on another package's *types* is the behaviour you want, and in a workspace sharing a canonical types crate that pattern dominates. Only `calls` count unless this is enabled. |
 | `architecture.deny` | `[string, string][]` | `[]` | Ordered boundary pairs that must never depend on each other, e.g. `[["harness", "core"]]`. A dependency matching a pair is reported as E006 `layer_violation` (ERROR, exit 1) instead of W009. Empty by default — keel stays non-opinionated about which layers a repo has. |
+| `review.gate` | `string[]` | `[]` | Violation codes that make `keel review --gate` exit 1 when the diff *introduced* one, e.g. `["E003", "W007"]`. Empty by default: a new finding is a report, not a broken build, until a repo opts in per code. `--gate` without a list gates nothing, deliberately — turning the switch on in CI before agreeing the list must not fail every PR. |
 
 W009 itself has no toggle: it is self-baselining (everything already in the graph is grandfathered) and silent
 in repos that declare no packages, so there is nothing to turn off. Use `keel compile --suppress W009` for a

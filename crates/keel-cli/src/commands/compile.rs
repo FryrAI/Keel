@@ -17,22 +17,50 @@ use super::compile_metrics::build_compile_metrics;
 use crate::telemetry_recorder::EventMetrics;
 use keel_core::paths::make_relative;
 
+/// Everything `keel compile` was asked to do, straight off the command line.
+///
+/// A struct rather than a thirteenth positional parameter: every flag here is
+/// a `bool` or an `Option<String>`, and at that arity the compiler stops being
+/// able to tell them apart.
+pub struct CompileArgs {
+    /// Files to compile; empty means "whatever git says changed".
+    pub files: Vec<String>,
+    pub batch_start: bool,
+    pub batch_end: bool,
+    /// Treat warnings as errors.
+    pub strict: bool,
+    /// A single code to downgrade to S001/INFO for this run.
+    pub suppress: Option<String>,
+    /// Scope to the working-tree diff against HEAD.
+    pub changed: bool,
+    /// Scope to the committed range `<commit>..HEAD`.
+    pub since: Option<String>,
+    /// Report only what changed since the last compile's snapshot.
+    pub delta: bool,
+    /// Soft time budget in milliseconds.
+    pub timeout: Option<u64>,
+    /// Emit GitHub Actions workflow commands instead of a keel format.
+    pub github: bool,
+}
+
 /// Run `keel compile` — incremental validation of changed files.
-#[allow(clippy::too_many_arguments)]
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
-    files: Vec<String>,
-    batch_start: bool,
-    batch_end: bool,
-    strict: bool,
-    suppress: Option<String>,
-    _depth: u32,
-    changed: bool,
-    since: Option<String>,
-    delta: bool,
-    timeout: Option<u64>,
+    args: CompileArgs,
 ) -> (i32, EventMetrics) {
+    let CompileArgs {
+        files,
+        batch_start,
+        batch_end,
+        strict,
+        suppress,
+        changed,
+        since,
+        delta,
+        timeout,
+        github,
+    } = args;
     let start = Instant::now();
 
     let cwd = match std::env::current_dir() {
@@ -95,7 +123,7 @@ pub fn run(
             .unwrap_or_default();
         PersistentBatch::clear(&store);
         let result = keel_enforce::engine::EnforcementEngine::result_from_violations(deferred);
-        let exit = output_result(formatter, &result, strict, verbose);
+        let exit = output_result(formatter, &result, strict, verbose, github);
         let metrics = build_compile_metrics(&result, &[]);
         return (exit, metrics);
     }
@@ -378,7 +406,7 @@ pub fn run(
             all.extend(result.errors.iter().cloned());
             all.extend(result.warnings.iter().cloned());
             let merged = keel_enforce::engine::EnforcementEngine::result_from_violations(all);
-            let exit = output_result(formatter, &merged, strict, verbose);
+            let exit = output_result(formatter, &merged, strict, verbose, github);
             return (exit, metrics);
         }
         // Still batching: stash this compile's deferred, keep the timer warm.
@@ -392,7 +420,7 @@ pub fn run(
             }
         }
         // Only immediate (structural) violations fire during a batch.
-        let exit = output_result(formatter, &result, strict, verbose);
+        let exit = output_result(formatter, &result, strict, verbose, github);
         return (exit, metrics);
     }
 
@@ -429,7 +457,11 @@ pub fn run(
 
         if let Some(prev) = previous {
             let delta_result = compute_delta(&prev, &result);
-            let output = formatter.format_compile_delta(&delta_result);
+            let output = if github {
+                github_delta_annotations(&result, &delta_result)
+            } else {
+                formatter.format_compile_delta(&delta_result)
+            };
             if !output.is_empty() {
                 println!("{}", output);
             }
@@ -471,7 +503,7 @@ pub fn run(
         }
     }
 
-    let exit = output_result(formatter, &result, strict, verbose);
+    let exit = output_result(formatter, &result, strict, verbose, github);
     (exit, metrics)
 }
 
@@ -492,11 +524,43 @@ fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
     keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, false)
 }
 
+/// Annotations for the violations `--delta` calls new.
+///
+/// A delta carries `ViolationKey`s, which have no message to annotate with, so
+/// the full violations are re-selected from this compile's own result by their
+/// stable identity. Without this, asking for workflow commands *and* a delta
+/// would silently hand CI a keel-format delta report instead.
+fn github_delta_annotations(
+    result: &keel_enforce::types::CompileResult,
+    delta: &keel_enforce::types::CompileDelta,
+) -> String {
+    let new_keys: std::collections::HashSet<(&str, &str, &str)> = delta
+        .new_errors
+        .iter()
+        .chain(delta.new_warnings.iter())
+        .map(|k| k.stable())
+        .collect();
+    keel_output::github::annotations(
+        result
+            .errors
+            .iter()
+            .chain(result.warnings.iter())
+            .filter(|v| new_keys.contains(&(v.code.as_str(), v.hash.as_str(), v.file.as_str()))),
+    )
+}
+
+/// Print a compile result and decide the exit code.
+///
+/// `github` swaps the chosen formatter for GitHub Actions workflow commands —
+/// the annotations CI wants, from the binary, with no JSON post-processor in
+/// the action. The clean-output contract is unchanged: zero violations means
+/// empty stdout and exit 0 in every format.
 fn output_result(
     formatter: &dyn OutputFormatter,
     result: &keel_enforce::types::CompileResult,
     strict: bool,
     verbose: bool,
+    github: bool,
 ) -> i32 {
     let has_errors = !result.errors.is_empty();
     let has_warnings = !result.warnings.is_empty();
@@ -508,7 +572,11 @@ fn output_result(
         return 0;
     }
 
-    let output = formatter.format_compile(result);
+    let output = if github {
+        keel_output::github::annotations(result.errors.iter().chain(result.warnings.iter()))
+    } else {
+        formatter.format_compile(result)
+    };
     if !output.is_empty() {
         println!("{}", output);
     }

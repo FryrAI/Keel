@@ -223,7 +223,7 @@ This project uses keel (keel.engineer) for code graph enforcement.
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary for re-injection after context loss
 - `keel validate-plan <file|->` — validate a plan against the graph before execution (callers at risk, suggested order)
-- `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved and which callers were left outside the diff
+- `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
 - `keel watch` — auto-compile on file changes
 - `keel check <hash>` — pre-edit risk assessment (callers, risk level)
 - `keel fix [--apply]` — generate and optionally apply fix plans
@@ -252,12 +252,12 @@ The keel MCP server exposes these tools directly to your IDE:
 - `keel/focus` — minimal context set to safely modify a target
 - `keel/checkpoint` — compact session-state summary for re-injection after context loss
 - `keel/validate-plan` — validate a plan against the graph before execution
-- `keel/review` — two-sided graph diff vs a base ref (contracts moved, callers left behind)
+- `keel/review` — two-sided graph diff vs a base ref (contracts moved, callers left behind, violations the diff introduced)
 
 ### Common Mistakes:
 - **Don't guess hashes.** Use `keel discover path/to/file.py` to see all symbols and their hashes first.
 - **Don't pass file paths as hashes.** If discover says "hash not found", check if you passed a file path — use path mode instead.
 - **Recommended workflow:** `keel discover path/to/file.py` → see all symbols → `keel discover <hash> --depth 2` for deep exploration.
 - **Use `keel search`** to find functions by name across the entire graph.
-- **Use `--changed` in CI** to only check modified files: `keel compile --changed`.
+- **Use `--changed` in CI** to only check modified files: `keel compile --changed`. Add `--format github` there to get inline PR annotations straight from the binary.
 <!-- keel:end -->

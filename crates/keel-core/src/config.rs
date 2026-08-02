@@ -30,6 +30,8 @@ pub struct KeelConfig {
     pub tier3: Tier3Config,
     #[serde(default)]
     pub architecture: ArchitectureConfig,
+    #[serde(default)]
+    pub review: ReviewConfig,
     /// Stable random identifier for telemetry project deduplication.
     /// Generated at `keel init` time; avoids path-based hash inflation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,6 +142,18 @@ pub struct ArchitectureConfig {
     pub deny: Vec<(String, String)>,
 }
 
+/// `keel review` — baseline-relative CI reporting.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReviewConfig {
+    /// Violation codes that make `keel review --gate` exit 1 when the diff
+    /// *introduced* one. Empty by default: a new finding is a report, not a
+    /// broken build, until a repo says otherwise — and it says so per code,
+    /// here, once. `--gate` without a list gates nothing, deliberately: turning
+    /// the switch on in CI before agreeing the list must not fail every PR.
+    #[serde(default)]
+    pub gate: Vec<String>,
+}
+
 /// Enforcement severity toggles.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnforceConfig {
@@ -241,6 +255,7 @@ impl Default for KeelConfig {
             monorepo: MonorepoConfig::default(),
             tier3: Tier3Config::default(),
             architecture: ArchitectureConfig::default(),
+            review: ReviewConfig::default(),
             telemetry_id: None,
         }
     }

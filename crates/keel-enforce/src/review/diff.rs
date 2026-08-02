@@ -34,6 +34,14 @@ pub struct DiffScan {
     pub diff_files: HashSet<String>,
     /// How many paths keel parsed on at least one side.
     pub files_analyzed: usize,
+    /// The parsed base side, kept so the baseline violation diff
+    /// (`super::baseline`) does not re-parse every blob a second time.
+    pub base_indices: Vec<FileIndex>,
+    /// The parsed head side, same reason.
+    pub head_indices: Vec<FileIndex>,
+    /// Head path → base path for every renamed file. Without it a rename would
+    /// make every finding in the moved file read as newly introduced.
+    pub renames: BTreeMap<String, String>,
 }
 
 /// The facts about one definition that a review compares.
@@ -187,6 +195,9 @@ pub fn scan_paths(dir: &Path, base_ref: &str, paths: &[ChangedPath]) -> DiffScan
     let mut unanalyzed = Vec::new();
     let mut diff_files: HashSet<String> = HashSet::new();
     let mut files_analyzed = 0usize;
+    let mut base_indices: Vec<FileIndex> = Vec::new();
+    let mut head_indices: Vec<FileIndex> = Vec::new();
+    let mut renames: BTreeMap<String, String> = BTreeMap::new();
 
     for changed in paths {
         diff_files.insert(changed.path.clone());
@@ -202,17 +213,18 @@ pub fn scan_paths(dir: &Path, base_ref: &str, paths: &[ChangedPath]) -> DiffScan
             continue;
         }
 
-        let base_facts = changed
+        let base_index = changed
             .base_path()
             .and_then(|p| gitdiff::blob_at(dir, base_ref, p).map(|c| (p.to_string(), c)))
-            .and_then(|(p, content)| parser.parse(&p, &content))
-            .map(|idx| facts_by_name(&idx))
-            .unwrap_or_default();
+            .and_then(|(p, content)| parser.parse(&p, &content));
+        let base_facts = base_index.as_ref().map(facts_by_name).unwrap_or_default();
 
-        let head_facts = head_content(dir, &changed.path, &changed.status)
-            .and_then(|content| parser.parse(&changed.path, &content))
-            .map(|idx| facts_by_name(&idx))
-            .unwrap_or_default();
+        let head_index = head_content(dir, &changed.path, &changed.status)
+            .and_then(|content| parser.parse(&changed.path, &content));
+        let head_facts = head_index.as_ref().map(facts_by_name).unwrap_or_default();
+
+        base_indices.extend(base_index);
+        head_indices.extend(head_index);
 
         if base_facts.is_empty() && head_facts.is_empty() {
             continue;
@@ -223,6 +235,9 @@ pub fn scan_paths(dir: &Path, base_ref: &str, paths: &[ChangedPath]) -> DiffScan
             ChangeStatus::Renamed { from } => Some(from.as_str()),
             _ => None,
         };
+        if let Some(from) = moved_from {
+            renames.insert(changed.path.clone(), from.to_string());
+        }
         changes.extend(diff_one_file(
             &changed.path,
             &base_facts,
@@ -237,6 +252,9 @@ pub fn scan_paths(dir: &Path, base_ref: &str, paths: &[ChangedPath]) -> DiffScan
         unanalyzed,
         diff_files,
         files_analyzed,
+        base_indices,
+        head_indices,
+        renames,
     }
 }
 

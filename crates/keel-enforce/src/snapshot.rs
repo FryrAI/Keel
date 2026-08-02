@@ -2,13 +2,16 @@
 //!
 //! Every compile saves a lightweight violation snapshot to `.keel/last_compile.json`.
 //! With `--delta`, we diff current result against previous snapshot.
+//!
+//! The diff is keyed on `ViolationKey::stable` — `(code, hash, file)`, never the
+//! line — so a pure line shift is not a new violation.
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CompileDelta, CompileResult, PressureLevel, Violation, ViolationKey};
+use crate::types::{CompileDelta, CompileResult, PressureLevel, ViolationKey};
 
 /// A snapshot of violations from a compile run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,8 +24,16 @@ impl ViolationSnapshot {
     /// Build a snapshot from a CompileResult.
     pub fn from_compile_result(result: &CompileResult) -> Self {
         Self {
-            errors: result.errors.iter().map(violation_to_key).collect(),
-            warnings: result.warnings.iter().map(violation_to_key).collect(),
+            errors: result
+                .errors
+                .iter()
+                .map(ViolationKey::from_violation)
+                .collect(),
+            warnings: result
+                .warnings
+                .iter()
+                .map(ViolationKey::from_violation)
+                .collect(),
         }
     }
 
@@ -44,27 +55,49 @@ impl ViolationSnapshot {
     }
 }
 
+/// Index keys by their stable identity, last one winning.
+///
+/// A `BTreeMap` rather than a `HashSet` so the difference below comes out in a
+/// deterministic order: a delta that reshuffles between runs cannot be diffed
+/// by anything downstream, and a CI comment that reorders on every push reads
+/// as churn.
+fn by_stable(keys: &[ViolationKey]) -> BTreeMap<(&str, &str, &str), &ViolationKey> {
+    keys.iter().map(|k| (k.stable(), k)).collect()
+}
+
+/// Keys present in `left` whose stable identity is absent from `right`.
+fn difference(
+    left: &BTreeMap<(&str, &str, &str), &ViolationKey>,
+    right: &BTreeMap<(&str, &str, &str), &ViolationKey>,
+) -> Vec<ViolationKey> {
+    left.iter()
+        .filter(|(key, _)| !right.contains_key(*key))
+        .map(|(_, v)| (*v).clone())
+        .collect()
+}
+
 /// Compute the delta between a previous snapshot and the current compile result.
 pub fn compute_delta(previous: &ViolationSnapshot, current: &CompileResult) -> CompileDelta {
-    let current_errors: HashSet<ViolationKey> =
-        current.errors.iter().map(violation_to_key).collect();
-    let current_warnings: HashSet<ViolationKey> =
-        current.warnings.iter().map(violation_to_key).collect();
-
-    let prev_errors: HashSet<ViolationKey> = previous.errors.iter().cloned().collect();
-    let prev_warnings: HashSet<ViolationKey> = previous.warnings.iter().cloned().collect();
-
-    let new_errors: Vec<ViolationKey> = current_errors.difference(&prev_errors).cloned().collect();
-    let resolved_errors: Vec<ViolationKey> =
-        prev_errors.difference(&current_errors).cloned().collect();
-    let new_warnings: Vec<ViolationKey> = current_warnings
-        .difference(&prev_warnings)
-        .cloned()
+    let current_errors: Vec<ViolationKey> = current
+        .errors
+        .iter()
+        .map(ViolationKey::from_violation)
         .collect();
-    let resolved_warnings: Vec<ViolationKey> = prev_warnings
-        .difference(&current_warnings)
-        .cloned()
+    let current_warnings: Vec<ViolationKey> = current
+        .warnings
+        .iter()
+        .map(ViolationKey::from_violation)
         .collect();
+
+    let cur_err = by_stable(&current_errors);
+    let cur_warn = by_stable(&current_warnings);
+    let prev_err = by_stable(&previous.errors);
+    let prev_warn = by_stable(&previous.warnings);
+
+    let new_errors = difference(&cur_err, &prev_err);
+    let resolved_errors = difference(&prev_err, &cur_err);
+    let new_warnings = difference(&cur_warn, &prev_warn);
+    let resolved_warnings = difference(&prev_warn, &cur_warn);
 
     let net_errors = new_errors.len() as i32 - resolved_errors.len() as i32;
     let net_warnings = new_warnings.len() as i32 - resolved_warnings.len() as i32;
@@ -85,11 +118,6 @@ pub fn compute_delta(previous: &ViolationSnapshot, current: &CompileResult) -> C
     }
 }
 
-fn violation_to_key(v: &Violation) -> ViolationKey {
-    ViolationKey {
-        code: v.code.clone(),
-        hash: v.hash.clone(),
-        file: v.file.clone(),
-        line: v.line,
-    }
-}
+#[cfg(test)]
+#[path = "snapshot_tests.rs"]
+mod tests;

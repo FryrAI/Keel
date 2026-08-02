@@ -216,7 +216,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/review".into(),
-            description: "Two-sided graph diff against a base ref: which contracts moved (signature changed / added / removed / moved), the callers left outside the diff, and the changed files keel could not parse".into(),
+            description: "Two-sided graph diff against a base ref: which contracts moved (signature changed / added / removed / moved), the callers left outside the diff, the violations the diff introduced (base-side findings subtracted), and the changed files keel could not parse".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["base"],

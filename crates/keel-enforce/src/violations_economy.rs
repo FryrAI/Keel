@@ -313,6 +313,11 @@ pub fn check_duplicate_implementation(
 /// count, a different quantity: comparing against it would mask real growth
 /// behind trailing footers/test-mod declarations.) Trailing comments aren't
 /// counted; that under-approximation only makes the check more conservative.
+///
+/// Pass an empty `existing_nodes` to get the budget test alone, with no growth
+/// gate: that is how `crate::review::baseline` runs it, so the "and it grew"
+/// half comes from the base side of a PR rather than from whatever commit the
+/// graph was last mapped at.
 pub fn check_oversized_file(
     file: &FileIndex,
     existing_nodes: &[GraphNode],
