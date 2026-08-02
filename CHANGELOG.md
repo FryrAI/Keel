@@ -89,6 +89,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   human-readable output.
 
 ### Added
+- **A `.baml` function dispatched by string literal now has real callers
+  (T1.4).** Code that drives a boundary function through a name string —
+  `run_baml("PlanBerichtSection", input)`, a `match` arm on the same key, a
+  handler-table entry — produced no edge at all, so every `baml_src/*.baml`
+  function read as dead code with zero callers and zero callees. keel now
+  captures string literals in exactly three positions (call argument,
+  `match`/`switch`-case pattern, object/map key) for Rust, TypeScript and
+  Python, keeps **only** those whose text exactly equals a name already in the
+  boundary index, and emits a `uses` edge at the boundary provider's own
+  confidence (0.75) under resolution tier `tier1_boundary_literal`. Never a
+  `calls` edge: a string carries no argument list, so it must not reach
+  E001/E004/E005 or a fix plan. `keel discover` on the dispatching function
+  now lists the `.baml` node as a callee.
+  Zero configuration, zero new error codes: a literal that matches nothing
+  known is dropped inside the parser and never becomes a reference, so no
+  free-text nodes or low-confidence guesses enter the graph, and a repo with
+  no boundary surface produces no literal references at all. Go is not
+  covered (no unambiguous cheap capture position).
+  Cost, measured in-process against keel's own sources (identical trees, only
+  the query source differing): +0.02–0.6 ms per file of query compilation and
+  under 0.4 ms of matching for a 20-file batch, against a 10 ms budget — and
+  ~0.04 ms/file even on a synthetic worst case of 240 captured literals per
+  file. `keel compile` re-resolves these edges with the same ladder, so its
+  prune-and-re-resolve does not delete them between maps.
 - `KEEL_NO_NETWORK=1` — a single escape hatch that disables remote telemetry
   for every command, without editing `keel.json`.
 

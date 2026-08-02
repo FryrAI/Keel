@@ -218,6 +218,22 @@ pub enum ReferenceKind {
     /// `tier1_template` resolution tier, so a lexical hit is never mistaken for
     /// a parsed call site.
     Template,
+    /// A *string literal* whose text is the name of a known boundary symbol —
+    /// a cross-language dispatch key, e.g. the `"PlanBerichtSection"` in
+    /// `run_baml("PlanBerichtSection", input)` naming a `baml_src/*.baml`
+    /// function.
+    ///
+    /// Only literals in three syntactic positions are considered (call
+    /// argument, `match`-arm pattern, object/map key), and only those whose
+    /// text *exactly* equals a name already in the boundary index survive: a
+    /// literal that matches nothing known is dropped inside the parser and
+    /// never reaches this vector, so the graph gains no free-text nodes.
+    ///
+    /// Like `Value` it becomes a `uses` edge — at the producing boundary
+    /// provider's own confidence, under the `tier1_boundary_literal` tier. A
+    /// string is not a call site: it carries no argument list, so it must never
+    /// reach E001/E004/E005 or the fix planner.
+    Literal,
 }
 
 /// A reference (usage) of a symbol within a file.

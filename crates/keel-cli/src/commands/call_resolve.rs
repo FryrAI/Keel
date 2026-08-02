@@ -52,29 +52,41 @@ pub struct CallSiteCtx<'a> {
 /// proves the target is used (so W005 stays quiet) but carries no argument
 /// list, so it must never reach broken-caller or arity checking. A
 /// [`ReferenceKind::Template`] is the same contract one rung lower — a lexical
-/// hit in unparsed markup.
+/// hit in unparsed markup — and so is a [`ReferenceKind::Literal`], a string
+/// naming a boundary symbol.
 pub fn edge_for_reference(kind: &ReferenceKind) -> Option<(EdgeKind, f64)> {
     match kind {
         ReferenceKind::Call => Some((EdgeKind::Calls, keel_core::confidence::SAME_FILE_CALL)),
         ReferenceKind::Value => Some((EdgeKind::Uses, keel_core::confidence::SAME_FILE_VALUE_REF)),
         ReferenceKind::Template => Some((EdgeKind::Uses, keel_core::confidence::TEMPLATE_LEXICAL)),
+        // A dispatch literal only ever resolves through the boundary index,
+        // which reports the producing provider's own confidence; this fallback
+        // value applies solely to the (pathological) case of a same-file
+        // definition sharing a boundary function's name.
+        ReferenceKind::Literal => Some((EdgeKind::Uses, keel_core::confidence::BAML_BOUNDARY)),
         _ => None,
     }
 }
 
 /// The resolution tier a *same-file* reference of this kind is recorded under.
 ///
-/// Template references get their own tier so a lexical markup match is
-/// distinguishable from a parsed one at every consumer.
+/// Template and boundary-literal references get their own tiers so a lexical
+/// markup match or a cross-language string match is distinguishable from a
+/// parsed call at every consumer.
 pub fn tier_for_reference(kind: &ReferenceKind) -> &'static str {
     match kind {
         ReferenceKind::Template => TEMPLATE_TIER,
+        ReferenceKind::Literal => BOUNDARY_LITERAL_TIER,
         _ => "tier1",
     }
 }
 
 /// Resolution tier recorded for every edge recovered from template markup.
 pub const TEMPLATE_TIER: &str = "tier1_template";
+
+/// Resolution tier recorded for every edge recovered from a string literal
+/// naming a boundary symbol (a cross-language dispatch key).
+pub const BOUNDARY_LITERAL_TIER: &str = "tier1_boundary_literal";
 
 /// A resolved call edge target plus the tier and confidence that resolved it.
 pub struct ResolvedCall {
@@ -98,6 +110,20 @@ pub fn resolve_call_reference(
     ctx: &CallSiteCtx,
     reference: &Reference,
 ) -> Option<ResolvedCall> {
+    // A dispatch literal is not a name in the caller's scope — it is a key into
+    // a boundary surface, and the only evidence it carries is that exact text.
+    // So it takes the boundary rung ALONE: none of the import / same-directory /
+    // package rungs may claim it, or a same-named local function would silently
+    // steal an edge that means "this string names a `.baml` function".
+    if reference.kind == ReferenceKind::Literal {
+        return super::map_boundary::resolve_boundary_call(&reference.name, idx.boundary_index())
+            .map(|(id, conf)| ResolvedCall {
+                target_id: id,
+                confidence: conf,
+                tier: BOUNDARY_LITERAL_TIER.to_string(),
+            });
+    }
+
     let mut confidence = keel_core::confidence::CROSS_FILE_HEURISTIC;
     let mut tier = "tier1".to_string();
     let mut target_id: Option<u64> = None;
@@ -206,6 +232,22 @@ mod tests {
         );
     }
 
+    /// The T1.4 contract: a boundary dispatch literal is a `uses` edge under
+    /// its own tier at warning-tier confidence — never a `calls` edge, which
+    /// would let a string reach E001/E004/E005 and the fix planner.
+    #[test]
+    fn literal_reference_maps_to_a_uses_edge_at_boundary_confidence() {
+        let (kind, confidence) =
+            edge_for_reference(&ReferenceKind::Literal).expect("literal refs produce an edge");
+        assert_eq!(kind, EdgeKind::Uses);
+        assert_eq!(confidence, keel_core::confidence::BAML_BOUNDARY);
+        assert!(confidence < keel_core::confidence::ERROR_TIER_THRESHOLD);
+        assert_eq!(
+            tier_for_reference(&ReferenceKind::Literal),
+            "tier1_boundary_literal"
+        );
+    }
+
     #[test]
     fn call_and_value_references_keep_their_kinds_and_tier() {
         assert_eq!(
@@ -220,5 +262,108 @@ mod tests {
         assert_eq!(tier_for_reference(&ReferenceKind::Value), "tier1");
         assert!(edge_for_reference(&ReferenceKind::Import).is_none());
         assert!(edge_for_reference(&ReferenceKind::TypeRef).is_none());
+    }
+
+    /// A [`CallIndex`] whose ordinary rungs would happily resolve the name, so
+    /// a literal taking any rung but the boundary one is detectable.
+    struct TrapIndex {
+        candidates: Vec<(String, u64)>,
+        boundary: std::collections::HashMap<String, (u64, f64)>,
+        module_files: std::collections::HashMap<String, u64>,
+        name_to_id: std::collections::HashMap<(String, String), u64>,
+        packages: std::collections::HashMap<String, std::collections::HashMap<String, u64>>,
+    }
+
+    impl CallIndex for TrapIndex {
+        fn candidates(&self, _name: &str) -> std::borrow::Cow<'_, [(String, u64)]> {
+            std::borrow::Cow::Borrowed(&self.candidates)
+        }
+        fn module_files(&self) -> &std::collections::HashMap<String, u64> {
+            &self.module_files
+        }
+        fn name_to_id(&self) -> &std::collections::HashMap<(String, String), u64> {
+            &self.name_to_id
+        }
+        fn package_index(
+            &self,
+        ) -> &std::collections::HashMap<String, std::collections::HashMap<String, u64>> {
+            &self.packages
+        }
+        fn boundary_index(&self) -> &std::collections::HashMap<String, (u64, f64)> {
+            &self.boundary
+        }
+    }
+
+    fn literal_ref(name: &str) -> Reference {
+        Reference {
+            name: name.to_string(),
+            file_path: "src/llm.rs".into(),
+            line: 7,
+            kind: ReferenceKind::Literal,
+            resolved_to: None,
+        }
+    }
+
+    fn trap_index(boundary_id: Option<u64>) -> TrapIndex {
+        let mut boundary = std::collections::HashMap::new();
+        if let Some(id) = boundary_id {
+            boundary.insert(
+                "PlanBerichtSection".to_string(),
+                (id, keel_core::confidence::BAML_BOUNDARY),
+            );
+        }
+        TrapIndex {
+            // A same-directory Rust function with the boundary's exact name:
+            // the rung that would steal the edge if literals rode the ladder.
+            candidates: vec![("src/other.rs".to_string(), 99)],
+            boundary,
+            module_files: std::collections::HashMap::new(),
+            name_to_id: std::collections::HashMap::new(),
+            packages: std::collections::HashMap::new(),
+        }
+    }
+
+    fn ctx_for<'a>(resolvers: &'a ResolverSet<'a>, abs: &'a Path) -> CallSiteCtx<'a> {
+        CallSiteCtx {
+            resolvers,
+            language: "rust",
+            file_path: "src/llm.rs",
+            abs_file: abs,
+            imports: &[],
+            definitions: &[],
+        }
+    }
+
+    /// A dispatch literal resolves through the boundary index and nothing else:
+    /// with a boundary entry it lands on the `.baml` node at the provider's
+    /// confidence, and the same-named ordinary function never wins.
+    #[test]
+    fn literal_resolves_only_through_the_boundary_index() {
+        let resolvers = ResolverSet {
+            ts: None,
+            py: None,
+            go: None,
+            rs: None,
+        };
+        let abs = Path::new("/repo/src/llm.rs");
+        let ctx = ctx_for(&resolvers, abs);
+
+        let hit = resolve_call_reference(
+            &trap_index(Some(42)),
+            &ctx,
+            &literal_ref("PlanBerichtSection"),
+        )
+        .expect("a literal naming a boundary function resolves");
+        assert_eq!(hit.target_id, 42);
+        assert_eq!(hit.confidence, keel_core::confidence::BAML_BOUNDARY);
+        assert_eq!(hit.tier, BOUNDARY_LITERAL_TIER);
+
+        // No boundary entry: the literal resolves to NOTHING, even though the
+        // same-directory rung would have matched the name for a real call.
+        assert!(
+            resolve_call_reference(&trap_index(None), &ctx, &literal_ref("PlanBerichtSection"))
+                .is_none(),
+            "a literal must never resolve through a non-boundary rung"
+        );
     }
 }

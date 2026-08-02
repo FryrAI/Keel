@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, NodeChange, NodeKind};
 use keel_output::OutputFormatter;
+use keel_parsers::boundary::BoundaryLiterals;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
 use keel_parsers::rust_lang::RustLangResolver;
@@ -91,6 +92,26 @@ pub fn run(
     let mut assigned_hashes: HashSet<String> = HashSet::new();
     let mut valid_node_ids: HashSet<u64> = HashSet::new();
 
+    // === Boundary providers: scan BEFORE the first pass ===
+    // The symbols are materialised as nodes further down (after the first pass,
+    // so node ids keep their established order), but their *names* are needed
+    // now: they are the key set that decides which string literals survive
+    // parsing as dispatch references (`ReferenceKind::Literal`). Scanned once
+    // and reused for the injection below.
+    let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
+        vec![Box::new(keel_parsers::boundary::BamlProvider)];
+    let scanned: Vec<(Vec<keel_parsers::boundary::BoundarySymbol>, f64)> = providers
+        .iter()
+        .map(|p| (p.scan(&cwd), p.confidence()))
+        .collect();
+    let literal_keys =
+        super::map_boundary::literal_keys(scanned.iter().flat_map(|(symbols, _)| symbols));
+    if !literal_keys.is_empty() {
+        ts.set_boundary_literals(literal_keys.clone());
+        py.set_boundary_literals(literal_keys.clone());
+        rs.set_boundary_literals(literal_keys);
+    }
+
     // === First pass: create nodes and same-file edges ===
     let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
     let all_file_data = map_passes::first_pass(
@@ -112,25 +133,23 @@ pub fn run(
         &mut body_index,
     );
 
-    // === Boundary providers: materialise declarations from surfaces keel has
-    // no grammar for (today BAML `.baml` functions/classes) as boundary nodes so
-    // calls into them (e.g. `b.ExtractResume(...)`) resolve instead of reading
-    // as silent unresolved edges. ===
-    let providers: Vec<Box<dyn keel_parsers::boundary::BoundaryProvider>> =
-        vec![Box::new(keel_parsers::boundary::BamlProvider)];
+    // === Boundary providers: materialise the declarations scanned above (from
+    // surfaces keel has no grammar for — today BAML `.baml` functions/classes)
+    // as boundary nodes so calls into them (e.g. `b.ExtractResume(...)`, or a
+    // `"ExtractResume"` dispatch literal) resolve instead of reading as silent
+    // unresolved edges. ===
     // `function name -> (node id, confidence)`: each provider's scanned symbols
     // enter the index at that provider's own confidence, so a boundary edge
     // records the tier of the provider that produced its target — no shared
     // scalar that the last provider in the loop would overwrite for every edge.
     let mut boundary_index: HashMap<String, (u64, f64)> = HashMap::new();
-    for provider in &providers {
-        let symbols = provider.scan(&cwd);
+    for (symbols, confidence) in &scanned {
         if symbols.is_empty() {
             continue;
         }
         boundary_index.extend(super::map_boundary::inject_boundary_symbols(
-            &symbols,
-            provider.confidence(),
+            symbols,
+            *confidence,
             &mut node_changes,
             &mut edge_changes,
             &mut next_id,

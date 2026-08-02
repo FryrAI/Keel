@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use keel_enforce::batch::PersistentBatch;
 use keel_output::OutputFormatter;
+use keel_parsers::boundary::BoundaryLiterals;
 use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{FileIndex, LanguageResolver};
@@ -102,6 +103,13 @@ pub fn run(
 
     // Load persisted circuit breaker state
     let cb_state = store.load_circuit_breaker().unwrap_or_default();
+
+    // The boundary-name key set for string-literal dispatch references, read
+    // from the graph the last `keel map` wrote (this pipeline never re-scans
+    // the boundary surface). It must be installed on the resolvers below:
+    // compile prunes and re-resolves each touched file's outgoing edges, so a
+    // literal edge it cannot reproduce would be deleted until the next map.
+    let literal_keys = super::map_boundary::persisted_literal_keys(&cwd, &store);
 
     let config = keel_core::config::KeelConfig::load(&keel_dir);
     let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
@@ -225,13 +233,26 @@ pub fn run(
             }
         };
 
+        // Each resolver is built on first use for its language, with the
+        // boundary key set installed before it parses anything (empty for a
+        // repo with no boundary surface, which disables literals entirely).
         let resolver: &dyn LanguageResolver = match lang {
-            l if keel_parsers::treesitter::is_typescript_family(l) => {
-                ts.get_or_insert_with(|| TsResolver::with_project_root(&cwd))
-            }
-            "python" => py.get_or_insert_with(PyResolver::detect),
+            l if keel_parsers::treesitter::is_typescript_family(l) => ts.get_or_insert_with(|| {
+                let r = TsResolver::with_project_root(&cwd);
+                r.set_boundary_literals(literal_keys.clone());
+                r
+            }),
+            "python" => py.get_or_insert_with(|| {
+                let r = PyResolver::detect();
+                r.set_boundary_literals(literal_keys.clone());
+                r
+            }),
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
-            "rust" => rs.get_or_insert_with(RustLangResolver::new),
+            "rust" => rs.get_or_insert_with(|| {
+                let r = RustLangResolver::new();
+                r.set_boundary_literals(literal_keys.clone());
+                r
+            }),
             _ => continue,
         };
 

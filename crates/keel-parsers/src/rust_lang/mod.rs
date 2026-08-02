@@ -189,6 +189,12 @@ impl Default for RustLangResolver {
     }
 }
 
+impl crate::boundary::BoundaryLiterals for RustLangResolver {
+    fn tier1_parser(&self) -> &Mutex<TreeSitterParser> {
+        &self.parser
+    }
+}
+
 impl LanguageResolver for RustLangResolver {
     fn language(&self) -> &str {
         "rust"

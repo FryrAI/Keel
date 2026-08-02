@@ -76,6 +76,58 @@ def process(text: str) -> str:
     dir
 }
 
+/// Create a repo whose `.baml` surface is driven from Rust by *string
+/// literal* — the CLI-subprocess shape keel used to see as 31 dead schemas.
+fn setup_literal_dispatch_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+
+    fs::create_dir_all(root.join("baml_src")).unwrap();
+    fs::write(
+        root.join("baml_src/plan.baml"),
+        r##"function PlanBerichtSection(input: string) -> string {
+  client GPT4
+  prompt #"
+    Plan the section for {{ input }}.
+  "#
+}
+"##,
+    )
+    .unwrap();
+
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("llm_impl.rs"),
+        r#"/// Dispatch a BAML function through the baml CLI subprocess.
+pub fn run_baml(function_name: &str, input: &str) -> String {
+    format!("{function_name}:{input}")
+}
+
+/// Plan one report section via the BAML boundary.
+pub fn plan_section(input: &str) -> String {
+    run_baml("PlanBerichtSection", input)
+}
+
+/// Route a dispatch key to the handler family that serves it.
+pub fn route(kind: &str) -> &'static str {
+    match kind {
+        "PlanBerichtSection" => "planner",
+        _ => "unknown",
+    }
+}
+
+/// A literal that names nothing in the boundary index.
+pub fn plan_unknown(input: &str) -> String {
+    run_baml("NotABamlFunction", input)
+}
+"#,
+    )
+    .unwrap();
+
+    dir
+}
+
 /// Run `keel init` then `keel map` in `dir`, asserting both succeed.
 fn init_and_map(dir: &TempDir) -> std::process::Output {
     let keel = keel_bin();
@@ -176,5 +228,150 @@ fn test_python_call_resolves_to_baml_boundary() {
     assert!(
         call_edges.iter().all(|e| e.confidence < 0.80),
         "BAML boundary call edges must be low-confidence (warning-tier)"
+    );
+}
+
+/// Open the graph a `keel map`/`keel compile` left in `dir`.
+fn open_graph(dir: &TempDir) -> keel_core::sqlite::SqliteGraphStore {
+    let db_path = dir.path().join(".keel/graph.db");
+    keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap()).unwrap()
+}
+
+/// `(node, incoming uses-edge source names)` for the boundary function.
+fn boundary_callers(store: &keel_core::sqlite::SqliteGraphStore) -> (u64, Vec<String>) {
+    let node = store
+        .get_nodes_in_file("baml_src/plan.baml")
+        .into_iter()
+        .find(|n| n.name == "PlanBerichtSection" && n.kind == NodeKind::Function)
+        .expect("PlanBerichtSection boundary node must exist");
+    let callers = store
+        .get_edges(node.id, EdgeDirection::Incoming)
+        .into_iter()
+        .filter(|e| e.kind == EdgeKind::Uses)
+        .filter_map(|e| store.get_node_by_id(e.source_id).map(|n| n.name))
+        .collect();
+    (node.id, callers)
+}
+
+/// T1.4: a `.baml` function named only by a string literal in Rust gains real
+/// callers — the call-argument form and the match-arm form — and they are
+/// `uses` edges, never `calls`.
+#[test]
+fn test_rust_string_literal_resolves_to_baml_boundary() {
+    let dir = setup_literal_dispatch_project();
+    init_and_map(&dir);
+    let store = open_graph(&dir);
+
+    let (node_id, mut callers) = boundary_callers(&store);
+    callers.sort();
+    assert_eq!(
+        callers,
+        vec!["plan_section".to_string(), "route".to_string()],
+        "both literal positions must produce a caller on the .baml node"
+    );
+
+    let incoming = store.get_edges(node_id, EdgeDirection::Incoming);
+    assert!(
+        incoming.iter().all(|e| e.kind != EdgeKind::Calls),
+        "a dispatch literal is never a call site — no `calls` edge may exist"
+    );
+    assert!(
+        incoming
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Uses)
+            .all(|e| e.confidence < 0.80),
+        "literal boundary edges stay warning-tier"
+    );
+}
+
+/// `keel discover <hash of the Rust caller>` lists the `.baml` node as a
+/// callee — the working path from a Rust handler to the contract it drives.
+#[test]
+fn test_discover_from_rust_caller_lists_baml_callee() {
+    let dir = setup_literal_dispatch_project();
+    init_and_map(&dir);
+    let store = open_graph(&dir);
+
+    let caller = store
+        .get_nodes_in_file("src/llm_impl.rs")
+        .into_iter()
+        .find(|n| n.name == "plan_section")
+        .expect("plan_section node must exist");
+
+    let out = Command::new(keel_bin())
+        .args(["discover", &caller.hash, "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("keel discover failed");
+    assert!(out.status.success(), "discover exited non-zero");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("PlanBerichtSection") && stdout.contains("baml_src/plan.baml"),
+        "discover on the Rust caller must list the .baml node as a callee:\n{stdout}"
+    );
+}
+
+/// A literal that matches no boundary name produces no reference and therefore
+/// no edge: `plan_unknown` has no boundary callee, and no node is invented for
+/// the string.
+#[test]
+fn test_unmatched_literal_produces_no_edge() {
+    let dir = setup_literal_dispatch_project();
+    init_and_map(&dir);
+    let store = open_graph(&dir);
+
+    let unknown = store
+        .get_nodes_in_file("src/llm_impl.rs")
+        .into_iter()
+        .find(|n| n.name == "plan_unknown")
+        .expect("plan_unknown node must exist");
+
+    let baml_ids: Vec<u64> = store
+        .get_nodes_in_file("baml_src/plan.baml")
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    assert!(
+        store
+            .get_edges(unknown.id, EdgeDirection::Outgoing)
+            .iter()
+            .all(|e| !baml_ids.contains(&e.target_id)),
+        "an unknown literal must not reach the boundary surface"
+    );
+    assert!(
+        store
+            .find_nodes_by_name("NotABamlFunction", "", "")
+            .is_empty(),
+        "an unknown literal must not create a node"
+    );
+}
+
+/// `keel compile` prunes and re-resolves a file's outgoing edges, so it must
+/// reproduce the literal edges the map built — otherwise the first compile
+/// after a map silently deletes the boundary surface's only callers.
+#[test]
+fn test_compile_preserves_literal_boundary_edges() {
+    let dir = setup_literal_dispatch_project();
+    init_and_map(&dir);
+
+    let compile = Command::new(keel_bin())
+        .args(["compile", "src/llm_impl.rs"])
+        .current_dir(dir.path())
+        .output()
+        .expect("keel compile failed");
+    assert_ne!(
+        compile.status.code(),
+        Some(2),
+        "compile hit an internal error: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let store = open_graph(&dir);
+    let (_, mut callers) = boundary_callers(&store);
+    callers.sort();
+    assert_eq!(
+        callers,
+        vec!["plan_section".to_string(), "route".to_string()],
+        "compile must re-resolve the literal edges it pruned"
     );
 }

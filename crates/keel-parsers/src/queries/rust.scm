@@ -115,3 +115,15 @@
 ; Function names referenced from attribute strings, e.g. serde's
 ; `#[serde(default = "default_true")]` / `deserialize_with = "..."`.
 (attribute (token_tree (string_literal) @ref.attr.name)) @ref.attr
+
+; --- Boundary dispatch keys (string literals) ---
+; A string literal naming a boundary symbol is a cross-language dispatch:
+; `run_baml("PlanBerichtSection", input)` drives a `baml_src/*.baml` function
+; that no grammar links to its caller. Captured in TWO positions only — call
+; argument and match-arm pattern (Rust has no object-literal keys; map keys are
+; call arguments) — and the extractor keeps ONLY literals whose text exactly
+; equals a known boundary name, dropping every other string before it reaches
+; the reference vector.
+(arguments (string_literal) @ref.literal.name)
+
+(match_arm pattern: (match_pattern (string_literal) @ref.literal.name))

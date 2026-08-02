@@ -306,6 +306,12 @@ impl TsResolver {
     }
 }
 
+impl crate::boundary::BoundaryLiterals for TsResolver {
+    fn tier1_parser(&self) -> &Mutex<TreeSitterParser> {
+        &self.parser
+    }
+}
+
 impl Default for TsResolver {
     fn default() -> Self {
         Self::new()

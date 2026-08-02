@@ -11,9 +11,40 @@
 //! BAML is the single implementation ([`BamlProvider`]); it wraps the raw
 //! [`crate::baml`] line scanner, which stays the internal primitive.
 
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use keel_core::types::NodeKind;
+
+use crate::treesitter::TreeSitterParser;
+
+/// A Tier-1 resolver that can be told which string literals name boundary
+/// symbols, so `run_baml("PlanBerichtSection", ..)` links to the `.baml`
+/// function it drives (see [`crate::resolver::ReferenceKind::Literal`]).
+///
+/// The install logic lives here once; a resolver supplies only its parser
+/// handle. Implemented for the TypeScript, Python and Rust resolvers — the
+/// grammars whose queries capture literals. Go deliberately has no
+/// implementation: its grammar carries no unambiguous cheap capture position,
+/// so accepting a key set there would promise a link it never makes.
+pub trait BoundaryLiterals {
+    /// The resolver's Tier-1 tree-sitter parser.
+    fn tier1_parser(&self) -> &Mutex<TreeSitterParser>;
+
+    /// Install the boundary-name key set. A captured literal survives only when
+    /// its text exactly equals one of these names; everything else is dropped
+    /// before it reaches the reference vector, and an empty set (the default)
+    /// disables literal references entirely.
+    ///
+    /// Call before the first parse — parse results are cached per resolver.
+    fn set_boundary_literals(&self, keys: Arc<HashSet<String>>) {
+        self.tier1_parser()
+            .lock()
+            .unwrap()
+            .set_boundary_literals(keys);
+    }
+}
 
 /// A declaration discovered at a language boundary — a call target keel has no
 /// native grammar for.
@@ -50,6 +81,13 @@ pub struct BoundarySymbol {
 /// compile-side rebuild (persist its boundary nodes and teach the sync to load
 /// them) as well as implementing `scan`, or its boundary edges will not survive
 /// a `keel compile`.
+///
+/// The same trap applies to the *string-literal* key set behind
+/// [`crate::resolver::ReferenceKind::Literal`]: `keel map` derives it from
+/// `scan`, while `keel compile` reads it from the persisted nodes *before*
+/// parsing. A provider whose names never reach the compile-side key set emits
+/// no literal references there, so its literal edges are pruned on the first
+/// compile after a map.
 pub trait BoundaryProvider {
     /// Scan `root` for this boundary's declarations, returning every function
     /// and class symbol found (empty when the repo does not use this boundary).
