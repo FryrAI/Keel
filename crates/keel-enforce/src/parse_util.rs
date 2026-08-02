@@ -66,29 +66,8 @@ impl BlobParser {
         };
 
         let parsed = resolver.parse_file(Path::new(path), content);
-        Some(FileIndex {
-            file_path: path.to_string(),
-            content_hash: xxhash_rust::xxh64::xxh64(content.as_bytes(), 0),
-            definitions: parsed.definitions,
-            references: parsed.references,
-            imports: parsed.imports,
-            external_endpoints: parsed.external_endpoints,
-            parse_duration_us: 0,
-        })
+        Some(FileIndex::from_parse(path, content, parsed))
     }
-}
-
-/// Parse `(path, content)` pairs into `FileIndex` entries, skipping paths in
-/// languages keel has no grammar for.
-///
-/// Sharing one [`BlobParser`] across the batch is the point: each language's
-/// resolver is constructed at most once for the whole diff.
-pub fn parse_blobs_to_indices(blobs: &[(String, String)]) -> Vec<FileIndex> {
-    let mut parser = BlobParser::new();
-    blobs
-        .iter()
-        .filter_map(|(path, content)| parser.parse(path, content))
-        .collect()
 }
 
 #[cfg(test)]
@@ -97,27 +76,24 @@ mod tests {
 
     #[test]
     fn parses_each_language_family_from_memory() {
-        let blobs = vec![
+        let blobs = [
+            ("src/lib.rs", "pub fn a(x: u8) -> u8 { x }\n"),
             (
-                "src/lib.rs".to_string(),
-                "pub fn a(x: u8) -> u8 { x }\n".to_string(),
+                "src/app.ts",
+                "export function b(x: number): number { return x; }\n",
             ),
+            ("app/m.py", "def c(x: int) -> int:\n    return x\n"),
             (
-                "src/app.ts".to_string(),
-                "export function b(x: number): number { return x; }\n".to_string(),
-            ),
-            (
-                "app/m.py".to_string(),
-                "def c(x: int) -> int:\n    return x\n".to_string(),
-            ),
-            (
-                "cmd/m.go".to_string(),
-                "package main\n\nfunc d(x int) int {\n\treturn x\n}\n".to_string(),
+                "cmd/m.go",
+                "package main\n\nfunc d(x int) int {\n\treturn x\n}\n",
             ),
         ];
-        let indices = parse_blobs_to_indices(&blobs);
-        assert_eq!(indices.len(), 4);
-        for idx in &indices {
+        // One parser for the batch: each resolver is built at most once.
+        let mut parser = BlobParser::new();
+        for (path, content) in blobs {
+            let idx = parser
+                .parse(path, content)
+                .unwrap_or_else(|| panic!("{path} should parse"));
             assert!(
                 !idx.definitions.is_empty(),
                 "{} produced no definitions",
@@ -128,11 +104,9 @@ mod tests {
 
     #[test]
     fn skips_paths_with_no_grammar() {
-        let blobs = vec![
-            ("migrations/001.sql".to_string(), "SELECT 1;".to_string()),
-            ("README.md".to_string(), "# hi".to_string()),
-        ];
-        assert!(parse_blobs_to_indices(&blobs).is_empty());
+        let mut parser = BlobParser::new();
+        assert!(parser.parse("migrations/001.sql", "SELECT 1;").is_none());
+        assert!(parser.parse("README.md", "# hi").is_none());
     }
 
     #[test]

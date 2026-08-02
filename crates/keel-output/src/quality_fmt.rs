@@ -110,7 +110,7 @@ fn human_trend(trend: &QualityTrend) -> String {
             .collect();
         out.push_str(&format!(
             "    {}  {}  {}\n",
-            p.short_commit(),
+            short(p.commit.as_ref()),
             p.captured_at,
             cells.join(" "),
         ));

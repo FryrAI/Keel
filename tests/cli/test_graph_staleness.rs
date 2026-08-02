@@ -8,40 +8,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fallback = workspace.join("target/debug/keel");
-    assert!(fallback.exists(), "build the workspace before this test");
-    fallback
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args([
-            "-c",
-            "user.email=test@keel.dev",
-            "-c",
-            "user.name=keel test",
-            "-c",
-            "commit.gpgsign=false",
-        ])
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("git failed to run");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+use crate::common::{git, keel_bin};
 
 fn keel(dir: &Path, args: &[&str]) -> std::process::Output {
     Command::new(keel_bin())

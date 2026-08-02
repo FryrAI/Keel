@@ -316,17 +316,8 @@ pub fn run(
 
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
-        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
 
-        file_indices.push(FileIndex {
-            file_path: rel_path,
-            content_hash,
-            definitions: result.definitions,
-            references: result.references,
-            imports: result.imports,
-            external_endpoints: result.external_endpoints,
-            parse_duration_us: 0,
-        });
+        file_indices.push(FileIndex::from_parse(&rel_path, &content, result));
     }
 
     if verbose && !file_indices.is_empty() {

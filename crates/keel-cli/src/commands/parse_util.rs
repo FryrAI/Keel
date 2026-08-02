@@ -48,17 +48,7 @@ pub fn parse_files_to_indices(
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(root_dir, file_path);
 
-        let content_hash = xxhash_rust::xxh64::xxh64(content.as_bytes(), 0);
-
-        indices.push(FileIndex {
-            file_path: rel_path,
-            content_hash,
-            definitions: result.definitions,
-            references: result.references,
-            imports: result.imports,
-            external_endpoints: result.external_endpoints,
-            parse_duration_us: 0,
-        });
+        indices.push(FileIndex::from_parse(&rel_path, &content, result));
     }
 
     indices

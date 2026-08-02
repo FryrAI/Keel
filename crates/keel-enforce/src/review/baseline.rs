@@ -75,43 +75,22 @@ fn side_violations(
     store: &dyn GraphStore,
     cfg: &EnforceConfig,
 ) -> Vec<Violation> {
-    let referenced = violations_economy::batch_reference_names(indices);
-    let trait_bodies = violations_economy::batch_trait_context_bodies(indices);
-    let mut seen_bodies: HashMap<String, (String, String, u32)> = HashMap::new();
+    // Both check groups are the ones `Engine::compile` runs, driven from their
+    // shared entry points so a gate or an ordering can never differ between
+    // the two surfaces.
+    let mut economy = violations_economy::EconomyBatch::new(indices);
     let mut out = Vec::new();
 
     for file in indices {
-        if cfg.type_hints {
-            out.extend(violations::check_missing_type_hints(file));
-        }
-        if cfg.docstrings {
-            out.extend(violations::check_missing_docstring(file));
-        }
-        if cfg.dead_code {
-            let existing = store.get_nodes_in_file(&file.file_path);
-            out.extend(violations_economy::check_dead_code(
-                file,
-                store,
-                &existing,
-                &referenced,
-            ));
-        }
-        if cfg.duplication {
-            out.extend(violations_economy::check_duplicate_implementation(
-                file,
-                store,
-                &mut seen_bodies,
-                &trait_bodies,
-            ));
-        }
-        if cfg.oversized_files {
-            // No stored nodes on purpose — see the module docs.
-            out.extend(violations_economy::check_oversized_file(
-                file,
-                &[],
-                cfg.max_file_lines,
-            ));
-        }
+        out.extend(violations::check_annotations(file, cfg));
+        // Only W005 reads the stored nodes here, so skip the query when it is
+        // off. W007 gets none on purpose — see the module docs.
+        let existing = if cfg.dead_code {
+            store.get_nodes_in_file(&file.file_path)
+        } else {
+            Vec::new()
+        };
+        out.extend(economy.check_file(file, store, &existing, &[], cfg));
     }
 
     debug_assert!(

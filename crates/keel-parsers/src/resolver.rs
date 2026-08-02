@@ -313,6 +313,25 @@ pub struct FileIndex {
     pub parse_duration_us: u64,
 }
 
+impl FileIndex {
+    /// Assemble an index from a parse of `content` attributed to `file_path`.
+    ///
+    /// The content hash is computed here so every caller hashes the same bytes
+    /// the same way, and `parse_duration_us` starts at 0 for callers that do
+    /// not time the parse (set the field afterwards if you do).
+    pub fn from_parse(file_path: &str, content: &str, parsed: ParseResult) -> Self {
+        Self {
+            file_path: file_path.to_string(),
+            content_hash: xxhash_rust::xxh64::xxh64(content.as_bytes(), 0),
+            definitions: parsed.definitions,
+            references: parsed.references,
+            imports: parsed.imports,
+            external_endpoints: parsed.external_endpoints,
+            parse_duration_us: 0,
+        }
+    }
+}
+
 /// Thread-safe per-file parse cache shared by every language resolver.
 ///
 /// Each `LanguageResolver` used to hand-roll an identical

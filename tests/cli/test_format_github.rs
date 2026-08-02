@@ -6,27 +6,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fallback = workspace.join("target/debug/keel");
-    if fallback.exists() {
-        return fallback;
-    }
-    let status = Command::new("cargo")
-        .args(["build", "-p", "keel-cli"])
-        .current_dir(&workspace)
-        .status()
-        .expect("Failed to build keel");
-    assert!(status.success(), "Failed to build keel binary");
-    fallback
-}
+use crate::common::keel_bin;
 
 fn init_and_map(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();

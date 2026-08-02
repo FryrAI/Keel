@@ -1,4 +1,7 @@
 // Integration test entry point for E2E workflow tests.
+#[path = "common/mod.rs"]
+mod common;
+
 #[path = "integration/test_config_roundtrip.rs"]
 mod test_config_roundtrip;
 #[path = "integration/test_error_recovery.rs"]

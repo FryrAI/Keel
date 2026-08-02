@@ -5,17 +5,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    workspace.join("target/debug/keel")
-}
+use crate::common::keel_bin;
 
 /// A mapped project with an oversized CLAUDE.md and 30 all-public Rust files —
 /// enough per-file smells to bury the one finding that matters.

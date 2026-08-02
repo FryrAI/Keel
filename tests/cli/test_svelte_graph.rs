@@ -7,17 +7,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    workspace.join("target/debug/keel")
-}
+use crate::common::keel_bin;
 
 /// A minimal SvelteKit app: a model module, and a route that imports five of
 /// its helpers on separate lines — one called from the script, three named only

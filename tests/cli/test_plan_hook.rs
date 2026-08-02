@@ -7,22 +7,7 @@ use std::time::Instant;
 
 use tempfile::TempDir;
 
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fallback = workspace.join("target/debug/keel");
-    assert!(
-        fallback.exists(),
-        "build the workspace before running tests"
-    );
-    fallback
-}
+use crate::common::keel_bin;
 
 /// `PATH` with the freshly built `keel` in front, so the hook's `keel` is ours.
 fn path_with_keel() -> String {

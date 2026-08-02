@@ -5,7 +5,7 @@
 //! one fact per change — how many stored callers live in files this PR did not
 //! touch — and a total order over that fact.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use keel_core::store::GraphStore;
 use keel_core::types::{GraphNode, NodeKind};
@@ -24,16 +24,25 @@ pub const MAX_DISPLAYED_CALLERS: usize = 5;
 /// `keel map` has run since the rename, and a deletion only ever exists under
 /// the base path. Lookup stays file-scoped on purpose: a repo-wide name search
 /// would attach some other module's `execute` to this one.
-fn stored_node(store: &dyn GraphStore, change: &ContractChange) -> Option<GraphNode> {
+///
+/// `cache` holds one `get_nodes_in_file` result per path for the life of the
+/// pass, so a PR changing forty symbols in one file reads that file once.
+fn stored_node(
+    store: &dyn GraphStore,
+    cache: &mut HashMap<String, Vec<GraphNode>>,
+    change: &ContractChange,
+) -> Option<GraphNode> {
     let mut candidates = vec![change.file.as_str()];
     if let ChangeKind::Moved { from } = &change.kind {
         candidates.push(from.as_str());
     }
     candidates.into_iter().find_map(|path| {
-        store
-            .get_nodes_in_file(path)
-            .into_iter()
+        cache
+            .entry(path.to_string())
+            .or_insert_with(|| store.get_nodes_in_file(path))
+            .iter()
             .find(|n| n.kind != NodeKind::Module && n.name == change.name)
+            .cloned()
     })
 }
 
@@ -55,11 +64,12 @@ pub fn attach_callers(
     changes: &mut [ContractChange],
     diff_files: &HashSet<String>,
 ) {
+    let mut by_file: HashMap<String, Vec<GraphNode>> = HashMap::new();
     for change in changes.iter_mut() {
         if !change.kind.is_contract_change() || change.kind == ChangeKind::Added {
             continue;
         }
-        let Some(node) = stored_node(store, change) else {
+        let Some(node) = stored_node(store, &mut by_file, change) else {
             continue;
         };
         let outside: Vec<_> = callers_of(store, &node)

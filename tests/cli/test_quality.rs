@@ -7,57 +7,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-fn keel_bin() -> std::path::PathBuf {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    path.pop();
-    path.push("keel");
-    if path.exists() {
-        return path;
-    }
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fallback = workspace.join("target/debug/keel");
-    if fallback.exists() {
-        return fallback;
-    }
-    let status = Command::new("cargo")
-        .args(["build", "-p", "keel-cli"])
-        .current_dir(&workspace)
-        .status()
-        .expect("Failed to build keel");
-    assert!(status.success(), "Failed to build keel binary");
-    fallback
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args([
-            "-c",
-            "user.email=test@keel.dev",
-            "-c",
-            "user.name=keel test",
-            "-c",
-            "commit.gpgsign=false",
-        ])
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("git command failed to run");
-    assert!(
-        out.status.success(),
-        "git {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-fn keel(dir: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(keel_bin())
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("failed to run keel")
-}
+use crate::common::{git, keel};
 
 fn write(dir: &Path, rel: &str, content: &str) {
     let path = dir.join(rel);

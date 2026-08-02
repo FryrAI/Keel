@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
@@ -80,10 +80,10 @@ impl EnforcementEngine {
         // by E001/E004 since the user likely updated them in the same commit.
         let batch_file_set: HashSet<&str> = files.iter().map(|f| f.file_path.as_str()).collect();
         // Economy-check state shared across the batch: names referenced
-        // anywhere in it (W005) and body hashes seen so far (W006).
-        let referenced_names = violations_economy::batch_reference_names(files);
-        let trait_bodies = violations_economy::batch_trait_context_bodies(files);
-        let mut seen_bodies: HashMap<String, (String, String, u32)> = HashMap::new();
+        // anywhere in it (W005) and body hashes seen so far (W006). Shared
+        // with `keel review --base`, which must run W005/W006/W007 exactly as
+        // this loop does for its baseline diff to mean anything.
+        let mut economy = violations_economy::EconomyBatch::new(files);
         // W009/E006 preconditions (declared packages + a graph that has been
         // mapped) are repo-wide, so they are answered once per compile rather
         // than once per file.
@@ -103,14 +103,8 @@ impl EnforcementEngine {
                 &existing_nodes,
                 &batch_file_set,
             ));
-            // E002: missing type hints (gated by config)
-            if self.enforce_config.type_hints {
-                file_violations.extend(violations::check_missing_type_hints(file));
-            }
-            // E003: missing docstring (gated by config)
-            if self.enforce_config.docstrings {
-                file_violations.extend(violations::check_missing_docstring(file));
-            }
+            // E002 + E003: missing type hints / docstring (gated by config)
+            file_violations.extend(violations::check_annotations(file, &self.enforce_config));
             // E004: function removed (uses cached nodes, batch-aware)
             file_violations.extend(violations::check_removed_functions_with_cache(
                 file,
@@ -126,32 +120,16 @@ impl EnforcementEngine {
             }
             // W002: duplicate names
             file_violations.extend(violations::check_duplicate_names(file, &*self.store));
-            // W005: dead code (gated by config)
-            if self.enforce_config.dead_code {
-                file_violations.extend(violations_economy::check_dead_code(
-                    file,
-                    &*self.store,
-                    &existing_nodes,
-                    &referenced_names,
-                ));
-            }
-            // W006: duplicate implementations (gated by config)
-            if self.enforce_config.duplication {
-                file_violations.extend(violations_economy::check_duplicate_implementation(
-                    file,
-                    &*self.store,
-                    &mut seen_bodies,
-                    &trait_bodies,
-                ));
-            }
-            // W007: oversized files (gated by config)
-            if self.enforce_config.oversized_files {
-                file_violations.extend(violations_economy::check_oversized_file(
-                    file,
-                    &existing_nodes,
-                    self.enforce_config.max_file_lines,
-                ));
-            }
+            // W005 + W006 + W007: the economy checks (each gated by config).
+            // W007 gets the stored nodes here — at edit time "over budget"
+            // only fires once the file also grew.
+            file_violations.extend(economy.check_file(
+                file,
+                &*self.store,
+                &existing_nodes,
+                &existing_nodes,
+                &self.enforce_config,
+            ));
             // W009 (+ opt-in E006): architectural-boundary erosion. Needs no
             // config gate — it is self-baselining and silent in repos that
             // declare no boundaries.

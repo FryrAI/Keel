@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use keel_core::store::GraphStore;
-use keel_core::types::NodeKind;
+use keel_core::types::{GraphNode, NodeKind};
 
 use crate::checkpoint::{callers_of, CallerRef};
 use crate::validate_plan_findings::{detect_plan_findings, PlanContext};
@@ -138,31 +138,32 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
     }
 
     // Resolve which mentioned tokens are known symbols (exact, non-module).
-    // When several nodes share a name, keep the one with the most callers —
-    // computing each candidate's callers exactly ONCE (the previous code
-    // re-evaluated `callers_of` inside a `sort_by_key` comparator) and caching
-    // the winner's list for reuse when building actions below (avoiding the
-    // previous third `callers_of` call). The strict `>` keeps the first
-    // candidate achieving the max, matching the earlier stable-sort tie-break,
-    // so output is unchanged.
-    let mut symbol_node: HashMap<String, keel_core::types::GraphNode> = HashMap::new();
+    // Each token is looked up exactly ONCE and the whole result kept, because
+    // the P001/P002 pass needs the same lists (modules included). When several
+    // nodes share a name, keep the one with the most callers — computing each
+    // candidate's callers exactly ONCE (the previous code re-evaluated
+    // `callers_of` inside a `sort_by_key` comparator) and caching the winner's
+    // list for reuse when building actions below (avoiding the previous third
+    // `callers_of` call). The strict `>` keeps the first candidate achieving
+    // the max, matching the earlier stable-sort tie-break, so output is
+    // unchanged.
+    let mut nodes_by_name: HashMap<String, Vec<GraphNode>> = HashMap::new();
+    let mut symbol_node: HashMap<String, GraphNode> = HashMap::new();
     let mut symbol_callers: HashMap<String, Vec<CallerRef>> = HashMap::new();
     for tok in mentions.keys() {
-        let candidates = store
-            .find_nodes_by_name(tok, "", "")
-            .into_iter()
-            .filter(|n| n.kind != NodeKind::Module);
-        let mut best: Option<(keel_core::types::GraphNode, Vec<CallerRef>)> = None;
-        for cand in candidates {
-            let callers = callers_of(store, &cand);
+        let nodes = store.find_nodes_by_name(tok, "", "");
+        let mut best: Option<(&GraphNode, Vec<CallerRef>)> = None;
+        for cand in nodes.iter().filter(|n| n.kind != NodeKind::Module) {
+            let callers = callers_of(store, cand);
             if best.as_ref().is_none_or(|(_, b)| callers.len() > b.len()) {
                 best = Some((cand, callers));
             }
         }
         if let Some((winner, callers)) = best {
-            symbol_node.insert(tok.clone(), winner);
+            symbol_node.insert(tok.clone(), winner.clone());
             symbol_callers.insert(tok.clone(), callers);
         }
+        nodes_by_name.insert(tok.clone(), nodes);
     }
 
     // Pair action keywords with symbols on the same line; keep the strongest.
@@ -217,22 +218,14 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
         .filter(|p| !p.is_empty() && plan.contains(p.as_str()))
         .collect();
 
-    // P001/P002 reuse the resolution work above rather than re-querying.
-    let caller_counts: HashMap<String, usize> = symbol_callers
-        .iter()
-        .map(|(k, v)| (k.clone(), v.len()))
-        .collect();
-    let plan_actions: HashMap<String, &'static str> = sym_action
-        .iter()
-        .map(|(name, (action, _))| (name.clone(), *action))
-        .collect();
+    // P001/P002 read the resolution work above rather than re-querying.
     let findings = detect_plan_findings(
-        store,
         plan,
         &PlanContext {
             symbol_node: &symbol_node,
-            caller_counts: &caller_counts,
-            actions: &plan_actions,
+            nodes_by_name: &nodes_by_name,
+            symbol_callers: &symbol_callers,
+            actions: &sym_action,
         },
     );
 

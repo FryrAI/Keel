@@ -11,6 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use keel_core::config::EnforceConfig;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
 use keel_parsers::resolver::{Definition, FileIndex};
@@ -108,6 +109,70 @@ pub fn batch_trait_context_bodies(files: &[FileIndex]) -> HashMap<String, HashSe
         }
     }
     bodies
+}
+
+/// Batch-wide state the three economy checks share across one pass over a
+/// file set, plus the config gates they run under.
+///
+/// Both `keel compile` and `keel review --base`'s two-sided pass drive W005/
+/// W006/W007 from here, because the review's baseline diff is only meaningful
+/// while the two sides run the *same* checks under the *same* gates: a check
+/// one side skips manufactures a phantom "new" finding on the other.
+pub struct EconomyBatch {
+    referenced: HashSet<String>,
+    trait_bodies: HashMap<String, HashSet<String>>,
+    seen_bodies: HashMap<String, (String, String, u32)>,
+}
+
+impl EconomyBatch {
+    /// Precompute the batch-wide facts for `files` (names referenced anywhere
+    /// in the batch, and the bodies that came from a trait context).
+    pub fn new(files: &[FileIndex]) -> Self {
+        Self {
+            referenced: batch_reference_names(files),
+            trait_bodies: batch_trait_context_bodies(files),
+            seen_bodies: HashMap::new(),
+        }
+    }
+
+    /// Run W005, W006 and W007 over one file, in that order, each gated by its
+    /// `enforce.*` switch.
+    ///
+    /// `existing_nodes` are the file's stored nodes. `size_nodes` is what W007
+    /// gets for the "and it grew" half of its semantics: `keel compile` passes
+    /// the stored nodes, while the review's two-sided pass passes `&[]` to
+    /// reduce W007 to a pure over-budget test — there the growth signal comes
+    /// from the base side of the diff instead.
+    pub fn check_file(
+        &mut self,
+        file: &FileIndex,
+        store: &dyn GraphStore,
+        existing_nodes: &[GraphNode],
+        size_nodes: &[GraphNode],
+        cfg: &EnforceConfig,
+    ) -> Vec<Violation> {
+        let mut out = Vec::new();
+        if cfg.dead_code {
+            out.extend(check_dead_code(
+                file,
+                store,
+                existing_nodes,
+                &self.referenced,
+            ));
+        }
+        if cfg.duplication {
+            out.extend(check_duplicate_implementation(
+                file,
+                store,
+                &mut self.seen_bodies,
+                &self.trait_bodies,
+            ));
+        }
+        if cfg.oversized_files {
+            out.extend(check_oversized_file(file, size_nodes, cfg.max_file_lines));
+        }
+        out
+    }
 }
 
 /// W005: private functions in this file with zero incoming `calls`/`uses`

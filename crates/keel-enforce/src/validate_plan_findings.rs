@@ -21,9 +21,9 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use keel_core::store::GraphStore;
 use keel_core::types::{GraphNode, NodeKind};
 
+use crate::checkpoint::CallerRef;
 use crate::violations_util::{
     countable_arity, is_ident_char, match_paren, parse_signature, split_top_level, strip_receiver,
     ParsedSig,
@@ -66,15 +66,20 @@ pub struct PlanFinding {
 }
 
 /// Graph facts the caller (`validate_plan`) already computed, so the finding
-/// pass does not redo the resolution work.
+/// pass does not redo the resolution work — it borrows the caller's maps as
+/// they stand and never touches the store.
 pub struct PlanContext<'a> {
     /// Resolved plan tokens -> the winning (most-called) non-module node.
     pub symbol_node: &'a HashMap<String, GraphNode>,
-    /// Resolved plan tokens -> that winner's caller count.
-    pub caller_counts: &'a HashMap<String, usize>,
+    /// Every plan token the caller looked up -> every node of that name,
+    /// modules included. An empty vec means the graph does not know the name;
+    /// an absent key means the token was never looked up at all.
+    pub nodes_by_name: &'a HashMap<String, Vec<GraphNode>>,
+    /// Resolved plan tokens -> that winner's callers.
+    pub symbol_callers: &'a HashMap<String, Vec<CallerRef>>,
     /// Symbols the plan already declares an intent to change, keyed to the
-    /// detected action (`rename`, `change_signature`, ...).
-    pub actions: &'a HashMap<String, &'static str>,
+    /// detected action (`rename`, `change_signature`, ...) and its risk rank.
+    pub actions: &'a HashMap<String, (&'static str, u8)>,
 }
 
 /// One `name(args)` occurrence found in the plan text.
@@ -268,11 +273,7 @@ fn proposed_names(plan: &str) -> HashSet<String> {
 ///
 /// Never fails and never panics: the worst case is an empty finding list, which
 /// preserves `keel validate-plan`'s documented never-fails contract.
-pub fn detect_plan_findings(
-    store: &dyn GraphStore,
-    plan: &str,
-    ctx: &PlanContext<'_>,
-) -> Vec<PlanFinding> {
+pub fn detect_plan_findings(plan: &str, ctx: &PlanContext<'_>) -> Vec<PlanFinding> {
     // A plan that resolved nothing at all is either about another repo or hit a
     // stale graph; firing P001 on every word of it would be pure noise.
     if ctx.symbol_node.is_empty() {
@@ -294,11 +295,11 @@ pub fn detect_plan_findings(
             continue;
         }
         if let Some(node) = ctx.symbol_node.get(&claim.name) {
-            if let Some(f) = signature_finding(store, ctx, claim, node, &mut sig_ok) {
+            if let Some(f) = signature_finding(ctx, claim, node, &mut sig_ok) {
                 seen.insert(claim.name.clone());
                 findings.push(f);
             }
-        } else if let Some(f) = unknown_finding(store, claim, &proposed, builtins) {
+        } else if let Some(f) = unknown_finding(ctx, claim, &proposed, builtins) {
             seen.insert(claim.name.clone());
             findings.push(f);
         }
@@ -313,7 +314,7 @@ pub fn detect_plan_findings(
 
 /// `P001` — a bare call target the graph cannot resolve at all.
 fn unknown_finding(
-    store: &dyn GraphStore,
+    ctx: &PlanContext<'_>,
     claim: &CallClaim,
     proposed: &HashSet<String>,
     builtins: &HashSet<&'static str>,
@@ -328,8 +329,14 @@ fn unknown_finding(
     {
         return None;
     }
-    // Modules count as existing, so query unfiltered.
-    if !store.find_nodes_by_name(&claim.name, "", "").is_empty() {
+    // Modules count as existing, so consult the unfiltered lookup. A name the
+    // caller never looked up (its tokenizer is ASCII-only, so this means a
+    // non-ASCII identifier) stays silent — precision over recall.
+    if !ctx
+        .nodes_by_name
+        .get(&claim.name)
+        .is_some_and(Vec::is_empty)
+    {
         return None;
     }
     Some(PlanFinding {
@@ -358,7 +365,6 @@ fn unknown_finding(
 /// `P002` — the claimed arity or return presence disagrees with the stored
 /// signature.
 fn signature_finding(
-    store: &dyn GraphStore,
     ctx: &PlanContext<'_>,
     claim: &CallClaim,
     node: &GraphNode,
@@ -367,7 +373,7 @@ fn signature_finding(
     // The plan already says it is changing this symbol's shape — reporting the
     // shape it is changing *to* as a mismatch would be backwards.
     if matches!(
-        ctx.actions.get(claim.name.as_str()).copied(),
+        ctx.actions.get(claim.name.as_str()).map(|(a, _)| *a),
         Some("rename") | Some("remove") | Some("change_signature") | Some("add_param")
     ) {
         return None;
@@ -385,11 +391,16 @@ fn signature_finding(
 
     // Every same-named candidate has to agree, or the plan's claim cannot be
     // attributed to one of them.
-    let candidates: Vec<GraphNode> = store
-        .find_nodes_by_name(&claim.name, "", "")
-        .into_iter()
-        .filter(|n| n.kind != NodeKind::Module)
-        .collect();
+    let candidates: Vec<&GraphNode> = ctx
+        .nodes_by_name
+        .get(&claim.name)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter(|n| n.kind != NodeKind::Module)
+                .collect()
+        })
+        .unwrap_or_default();
     if candidates.is_empty() {
         return None;
     }
@@ -415,7 +426,7 @@ fn signature_finding(
         return None;
     }
 
-    let callers = ctx.caller_counts.get(&claim.name).copied().unwrap_or(0);
+    let callers = ctx.symbol_callers.get(&claim.name).map_or(0, Vec::len);
     let detail = if arity_ok {
         format!(
             "claimed a return type, stored signature has {}",

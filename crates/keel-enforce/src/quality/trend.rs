@@ -23,17 +23,6 @@ pub struct QualityPoint {
     pub metrics: QualityMetrics,
 }
 
-impl QualityPoint {
-    /// The commit abbreviated for display, or `"—"` when the snapshot carries
-    /// no commit (captured outside a git checkout).
-    pub fn short_commit(&self) -> String {
-        match &self.commit {
-            Some(sha) => sha.chars().take(7).collect(),
-            None => "—".to_string(),
-        }
-    }
-}
-
 /// The single largest per-commit move in a metric — the "attribution" half of
 /// the trend: which merge did this.
 #[derive(Debug, Clone, Serialize)]
