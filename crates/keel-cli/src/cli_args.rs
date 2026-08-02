@@ -29,6 +29,13 @@ pub(crate) struct Cli {
     /// Disable telemetry for this invocation (also: KEEL_NO_TELEMETRY=1)
     #[arg(long, global = true, env = "KEEL_NO_TELEMETRY")]
     pub no_telemetry: bool,
+
+    /// Explicit calling-agent name for telemetry attribution, e.g. "claude-code"
+    /// (overrides env-based detection). Set by the generated
+    /// `.keel/hooks/post-edit.sh` — subprocess env vars like `CLAUDECODE` don't
+    /// reliably survive the hook boundary.
+    #[arg(long, global = true)]
+    pub client: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -41,6 +48,12 @@ pub(crate) enum Commands {
         /// Skip interactive prompt (use detected agents only)
         #[arg(long, short)]
         yes: bool,
+        /// Rewrite the keel-managed block in existing agent doc files,
+        /// regenerate `.keel/hooks/post-edit.sh`, and sync `.keel/keel.json`'s
+        /// pinned version — the authorized fix for the drift `map`/`compile`
+        /// warn about. Does not merge config or touch tool detection.
+        #[arg(long)]
+        update_docs: bool,
     },
 
     /// Full re-map of the codebase

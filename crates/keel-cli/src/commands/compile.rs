@@ -49,6 +49,12 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
+    // At most one line, emitted once per invocation.
+    if let Some(msg) = super::version_drift::version_drift_message(&cwd, &keel_dir) {
+        eprintln!("{msg}");
+    }
+
     // Acquire compile lock to prevent concurrent corruption
     let _lock = match acquire_compile_lock(&keel_dir, verbose) {
         Some(lock) => lock,

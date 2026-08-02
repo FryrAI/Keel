@@ -227,6 +227,33 @@ fn test_backward_compat_old_json_without_new_fields() {
 }
 
 #[test]
+fn test_sync_version_updates_only_the_version_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = serde_json::json!({
+        "version": "0.3.6",
+        "languages": ["rust"],
+        "circuit_breaker": { "max_failures": 9 }
+    });
+    fs::write(dir.path().join("keel.json"), config.to_string()).unwrap();
+
+    KeelConfig::sync_version(dir.path(), "0.4.3").expect("sync_version should succeed");
+
+    let cfg = KeelConfig::load(dir.path());
+    assert_eq!(cfg.version, "0.4.3");
+    assert_eq!(cfg.languages, vec!["rust"]);
+    assert_eq!(cfg.circuit_breaker.max_failures, 9); // preserved, not reset to default
+}
+
+#[test]
+fn test_sync_version_noop_without_keel_json() {
+    let dir = tempfile::tempdir().unwrap();
+    // No keel.json written.
+    let result = KeelConfig::sync_version(dir.path(), "0.4.3");
+    assert!(result.is_ok());
+    assert!(!dir.path().join("keel.json").exists());
+}
+
+#[test]
 fn test_removed_naming_conventions_key_is_tolerated() {
     // The `naming_conventions` config block was removed. Existing config files
     // that still carry the key must continue to load — serde ignores unknown

@@ -36,6 +36,7 @@ pub mod skeleton;
 pub mod stats;
 pub mod upgrade;
 pub mod validate_plan;
+pub(crate) mod version_drift;
 pub mod watch;
 pub mod where_cmd;
 

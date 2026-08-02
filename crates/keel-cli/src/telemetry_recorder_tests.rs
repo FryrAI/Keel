@@ -158,6 +158,7 @@ fn command_name_init() {
     let cmd = crate::cli_args::Commands::Init {
         merge: false,
         yes: false,
+        update_docs: false,
     };
     assert_eq!(command_name(&cmd), "init");
 }

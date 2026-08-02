@@ -26,6 +26,8 @@ mod mcp_validate_plan;
 mod parse_shared;
 pub mod watcher;
 
+pub use mcp_tools::registered_tool_names;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 

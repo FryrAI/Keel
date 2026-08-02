@@ -1,3 +1,18 @@
+### Error codes:
+| Code | Meaning |
+|------|---------|
+| E001 | broken_caller — a caller references a changed/removed function |
+| E002 | missing_type_hints — function parameters or return type lack annotations |
+| E003 | missing_docstring — public function lacks documentation |
+| E004 | function_removed — a function was deleted but callers remain |
+| E005 | arity_mismatch — caller passes wrong number of arguments |
+| W001 | placement — function is in a non-ideal module |
+| W002 | duplicate_name — another function with the same name exists |
+| W005 | dead_code — private function has no callers in the graph |
+| W006 | duplicate_implementation — function body is identical to one elsewhere |
+| W007 | oversized_file — file exceeds the configured line budget and grew |
+| S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
+
 ### If compile keeps failing (circuit breaker):
 1. **First failure:** Fix using the `fix_hint` provided
 2. **Second failure (same error):** Run `keel discover <hash> --depth 2` — the issue may be upstream
@@ -25,6 +40,7 @@
 - `keel explain <error-code> <hash>` — inspect resolution reasoning
 - `keel where <hash>` — resolve hash to file:line
 - `keel map --llm` — regenerate the LLM-optimized map (includes function names)
+- `keel map --semantic` — per-file summaries, public API, and when-to-use guidance
 - `keel watch` — auto-compile on file changes
 - `keel check <hash>` — pre-edit risk assessment (callers, risk level)
 - `keel fix [--apply]` — generate and optionally apply fix plans

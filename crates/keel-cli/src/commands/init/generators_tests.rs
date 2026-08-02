@@ -60,3 +60,33 @@ fn test_generated_instructions_match_hook_selection() {
         );
     }
 }
+
+/// The single shared `.keel/hooks/post-edit.sh` cannot infer which tool
+/// invoked it, so each tool's own on-edit hook JSON must pass its client
+/// name as an explicit argument (T1.6: env-var detection does not reliably
+/// survive into the hook's subprocess).
+#[test]
+fn test_on_edit_hook_command_passes_client_argument() {
+    let root = tempfile::tempdir().unwrap();
+    let cases: &[(&str, GeneratorFn, &str, &str)] = &[
+        (
+            "claude-code",
+            generate_claude_code,
+            "settings.json",
+            "claude-code",
+        ),
+        ("gemini", generate_gemini_cli, "settings.json", "gemini-cli"),
+        ("letta", generate_letta_code, "settings.json", "letta-code"),
+        ("cursor", generate_cursor, "hooks.json", "cursor"),
+        ("windsurf", generate_windsurf, "hooks.json", "windsurf"),
+    ];
+    for (tool, generate, file, client) in cases {
+        let files = generate(root.path(), &hooks_with_on_edit(true));
+        let content = content_for(&files, file);
+        let expected = format!(".keel/hooks/post-edit.sh {client}");
+        assert!(
+            content.contains(&expected),
+            "{tool}: on-edit hook command must pass `{expected}`, got: {content}"
+        );
+    }
+}

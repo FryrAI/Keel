@@ -8,6 +8,7 @@ mod helpers;
 mod hook_script;
 mod merge;
 mod templates;
+mod update_docs;
 
 use std::fs;
 
@@ -42,7 +43,18 @@ impl Default for HookSelection {
 ///
 /// When `merge` is true and `.keel/` already exists, re-initialize while
 /// preserving existing configuration (deep-merged with new defaults).
-pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: bool) -> i32 {
+///
+/// When `update_docs` is true, every other flag is ignored: this delegates
+/// entirely to [`update_docs::run`], the narrow, non-interactive "refresh the
+/// keel-managed docs and hook" path (see that module for details) rather than
+/// a full re-initialization.
+pub fn run(
+    formatter: &dyn OutputFormatter,
+    verbose: bool,
+    merge: bool,
+    yes: bool,
+    update_docs: bool,
+) -> i32 {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(e) => {
@@ -50,6 +62,10 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, merge: bool, yes: boo
             return 2;
         }
     };
+
+    if update_docs {
+        return update_docs::run(&cwd, verbose);
+    }
 
     let keel_dir = keel_core::paths::keel_dir(&cwd);
     if keel_dir.exists() && !merge {

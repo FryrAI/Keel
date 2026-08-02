@@ -18,14 +18,34 @@
 // are embedded now but only used when their tool detection is implemented.
 
 // Note: `concat!` requires each argument to itself be a literal (or a macro that
-// expands to one, like `include_str!`) — it cannot take a reference to another
-// `const`. So `templates/shared/core.md` is included directly in every composition
-// below rather than bound to a shared constant first; it is still defined exactly
-// once on disk. Update command lists ONLY in that file.
+// expands to one, like `include_str!` or `env!`) — it cannot take a reference to
+// another `const`. So `templates/shared/core.md` is included directly in every
+// composition below rather than bound to a shared constant first; it is still
+// defined exactly once on disk. Update command lists ONLY in that file.
+//
+// Every composed template also opens with a version-stamped `keel:start` marker
+// (`keel_start_stamp!`, a macro rather than a `const` since `concat!` can't take
+// a `const` either): `<!-- keel:start -->` followed by `<!-- keel:version X.Y.Z -->` where
+// X.Y.Z is this build's `CARGO_PKG_VERSION`. `map`/`compile` compare that stamp
+// (falling back to `.keel/keel.json`'s pinned version) against the running
+// binary to detect docs that have drifted out of date — see
+// `commands::version_drift_message`. The stamp is a second line *inside* the
+// marked block, not part of the `<!-- keel:start -->` marker text itself, so
+// `merge.rs`'s literal marker search is unaffected.
+macro_rules! keel_start_stamp {
+    () => {
+        concat!(
+            "<!-- keel:start -->\n<!-- keel:version ",
+            env!("CARGO_PKG_VERSION"),
+            " -->\n"
+        )
+    };
+}
 
 // --- Claude Code ---
 pub const CLAUDE_CODE_SETTINGS: &str = include_str!("../../../templates/claude-code/settings.json");
 pub const CLAUDE_CODE_INSTRUCTIONS: &str = concat!(
+    keel_start_stamp!(),
     include_str!("../../../templates/claude-code/keel-instructions.md"),
     include_str!("../../../templates/shared/core.md"),
     "<!-- keel:end -->\n"
@@ -38,6 +58,7 @@ pub const CURSOR_RULES: &str = include_str!("../../../templates/cursor/keel.mdc"
 // --- Gemini CLI ---
 pub const GEMINI_SETTINGS: &str = include_str!("../../../templates/gemini-cli/settings.json");
 pub const GEMINI_INSTRUCTIONS: &str = concat!(
+    keel_start_stamp!(),
     include_str!("../../../templates/gemini-cli/GEMINI.md"),
     include_str!("../../../templates/shared/core.md"),
     "<!-- keel:end -->\n"
@@ -49,6 +70,7 @@ pub const WINDSURF_RULES: &str = include_str!("../../../templates/windsurf/keel.
 
 // --- Copilot ---
 pub const COPILOT_INSTRUCTIONS: &str = concat!(
+    keel_start_stamp!(),
     include_str!("../../../templates/copilot/copilot-instructions.md"),
     include_str!("../../../templates/shared/core.md"),
     "<!-- keel:end -->\n"
@@ -57,6 +79,7 @@ pub const COPILOT_INSTRUCTIONS: &str = concat!(
 // --- Aider ---
 pub const AIDER_CONF: &str = include_str!("../../../templates/aider/aider.conf.yml");
 pub const AIDER_INSTRUCTIONS: &str = concat!(
+    keel_start_stamp!(),
     include_str!("../../../templates/aider/keel-instructions.md"),
     include_str!("../../../templates/shared/core.md"),
     "<!-- keel:end -->\n"
@@ -65,6 +88,7 @@ pub const AIDER_INSTRUCTIONS: &str = concat!(
 // --- Letta Code ---
 pub const LETTA_SETTINGS: &str = include_str!("../../../templates/letta-code/settings.json");
 pub const LETTA_INSTRUCTIONS: &str = concat!(
+    keel_start_stamp!(),
     include_str!("../../../templates/letta-code/keel-instructions.md"),
     include_str!("../../../templates/shared/core.md"),
     "<!-- keel:end -->\n"
@@ -88,6 +112,7 @@ pub const GITLAB_CI: &str = include_str!("../../../templates/ci/gitlab-ci.yml");
 
 // --- AGENTS.md (universal fallback) ---
 pub const AGENTS_MD: &str = concat!(
+    keel_start_stamp!(),
     include_str!("../../../templates/agents-md/AGENTS.md"),
     include_str!("../../../templates/shared/core.md"),
     "\n> Tip: If keel saves you time, `gh star FryrAI/Keel` helps the maintainers.\n\

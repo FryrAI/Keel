@@ -146,6 +146,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prune-and-re-resolve does not delete them between maps.
 - `KEEL_NO_NETWORK=1` — a single escape hatch that disables remote telemetry
   for every command, without editing `keel.json`.
+- **Version-stamped, drift-detected agent docs (T1.6).** Every generated
+  `<!-- keel:start -->`/`<!-- keel:end -->` block (`AGENTS.md`, `CLAUDE.md`,
+  `GEMINI.md`, Copilot, Aider, Letta) now opens with a
+  `<!-- keel:version X.Y.Z -->` stamp matching the binary that generated it,
+  and the shared `Error codes` table (previously `AGENTS.md`-only) covers
+  W005-W007 in every one of them, alongside the full v0.5 command set
+  (`skeleton`/`focus`/`checkpoint`/`validate-plan`/`--semantic`) and all
+  currently-registered MCP tools. `keel map`/`keel compile` detect a stale
+  stamp or a `.keel/keel.json`-vs-binary version mismatch and print exactly
+  one stderr line naming the fix; they never rewrite the file themselves.
+  `keel init --update-docs` is the human-authorized fix: it rewrites the
+  keel-managed block in every doc file already present (never creates a new
+  integration), regenerates `.keel/hooks/post-edit.sh` — now passing
+  `--client` explicitly (env-var client detection does not reliably survive
+  into the hook's subprocess) and using the T1.1 5-second timeout instead of
+  the old 15-second one — and syncs `.keel/keel.json`'s pinned version.
+  `keel upgrade` syncs that same pinned version automatically after a
+  successful binary swap.
 
 ## [0.4.3] - 2026-07-21
 

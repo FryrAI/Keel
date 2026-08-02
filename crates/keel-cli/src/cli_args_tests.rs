@@ -18,7 +18,8 @@ fn parse_init() {
         cli.command,
         Commands::Init {
             merge: false,
-            yes: false
+            yes: false,
+            update_docs: false,
         }
     ));
 }
@@ -30,7 +31,8 @@ fn parse_init_merge() {
         cli.command,
         Commands::Init {
             merge: true,
-            yes: false
+            yes: false,
+            update_docs: false,
         }
     ));
 }
@@ -42,7 +44,8 @@ fn parse_init_yes() {
         cli.command,
         Commands::Init {
             merge: false,
-            yes: true
+            yes: true,
+            update_docs: false,
         }
     ));
 }
@@ -54,9 +57,35 @@ fn parse_init_yes_short() {
         cli.command,
         Commands::Init {
             merge: false,
-            yes: true
+            yes: true,
+            update_docs: false,
         }
     ));
+}
+
+#[test]
+fn parse_init_update_docs() {
+    let cli = parse(&["keel", "init", "--update-docs"]);
+    assert!(matches!(
+        cli.command,
+        Commands::Init {
+            merge: false,
+            yes: false,
+            update_docs: true,
+        }
+    ));
+}
+
+#[test]
+fn parse_client_global_flag() {
+    let cli = parse(&["keel", "compile", "--client", "claude-code"]);
+    assert_eq!(cli.client.as_deref(), Some("claude-code"));
+}
+
+#[test]
+fn parse_without_client_defaults_to_none() {
+    let cli = parse(&["keel", "compile"]);
+    assert_eq!(cli.client, None);
 }
 
 #[test]

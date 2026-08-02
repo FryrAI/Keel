@@ -35,6 +35,12 @@ pub fn run(
     };
     let keel_dir = keel_core::paths::keel_dir(&cwd);
 
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
+    // At most one line, emitted once per invocation.
+    if let Some(msg) = super::version_drift::version_drift_message(&cwd, &keel_dir) {
+        eprintln!("{msg}");
+    }
+
     // --cached: read from existing graph.db instead of re-parsing
     if cached {
         return super::map_cached::run_cached(&store, formatter, verbose, _depth);

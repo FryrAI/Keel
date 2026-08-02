@@ -58,11 +58,18 @@ fn main() {
 
     let cmd_name = telemetry_recorder::command_name(&cli.command);
     let start = Instant::now();
-    let client_name = telemetry_recorder::detect_client();
+    let client_name = cli
+        .client
+        .clone()
+        .or_else(telemetry_recorder::detect_client);
 
     let (exit_code, metrics) = match cli.command {
-        Commands::Init { merge, yes } => (
-            commands::init::run(&*formatter, cli.verbose, merge, yes),
+        Commands::Init {
+            merge,
+            yes,
+            update_docs,
+        } => (
+            commands::init::run(&*formatter, cli.verbose, merge, yes, update_docs),
             Default::default(),
         ),
         Commands::Map {

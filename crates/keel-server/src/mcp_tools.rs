@@ -20,6 +20,17 @@ pub(crate) struct ToolInfo {
     pub(crate) input_schema: Value,
 }
 
+/// Every MCP tool name currently registered, in `tools/list` order.
+///
+/// Exposed crate-externally (unlike `tool_list` and `ToolInfo`, both private)
+/// so `keel-cli`'s generated instruction templates — and their tests — can
+/// check the "MCP Tools" section against the server's actual manifest
+/// instead of a hand-maintained count that silently goes stale as tools are
+/// added.
+pub fn registered_tool_names() -> Vec<String> {
+    tool_list().into_iter().map(|t| t.name).collect()
+}
+
 /// Build the manifest of every tool this server exposes.
 pub(crate) fn tool_list() -> Vec<ToolInfo> {
     vec![

@@ -242,6 +242,25 @@ impl KeelConfig {
             }
         }
     }
+
+    /// Update just the pinned `version` field of `.keel/keel.json` in place,
+    /// preserving every other setting.
+    ///
+    /// Used by `keel upgrade` (syncs to the newly installed binary) and
+    /// `keel init --update-docs` (syncs to the binary currently running) —
+    /// the two writers of this field outside of a fresh `keel init`. A no-op
+    /// when `.keel/keel.json` does not exist; callers that require an
+    /// initialized project check that first.
+    pub fn sync_version(keel_dir: &Path, version: &str) -> Result<(), String> {
+        let config_path = keel_dir.join("keel.json");
+        if !config_path.exists() {
+            return Ok(());
+        }
+        let mut config = Self::load(keel_dir);
+        config.version = version.to_string();
+        let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        std::fs::write(&config_path, json).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(test)]
