@@ -144,6 +144,16 @@ cargo test                    # All unit tests
 
 ## Common Gotchas
 
+### Compile Sync Never Deletes on Failed Re-Resolution
+`sync_compiled_files` (keel-cli `compile_sync.rs`) deletes a stored `calls`/`uses` edge only on positive
+evidence: this pass re-added the same `(source_id, target_id, kind)`, or the target lives inside the
+compiled file. A cross-file reference that fails to re-resolve at compile time proves nothing — compile-time
+tier-2 resolvers have parsed only the compiled files — so its edge is KEPT, and a deleted cross-file call
+site keeps its edge until the next `keel map` (bounded staleness, accepted in PR #56). A zero-definition
+parse touches nothing. Do not "fix" the staleness by re-adding a wholesale prune: that was the edge-erosion
+bug where one compile permanently deleted a file's cross-crate edges, starving W005/E004/E001/`keel
+discover` and W009's stored-boundary baseline.
+
 ### Hash Computation
 Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Uses AST-based normalization, not raw text. Docstring is part of hash input.
 
