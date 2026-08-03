@@ -448,3 +448,50 @@ fn test_find_nodes_by_name_empty_kind_wildcard() {
     let none = store.find_nodes_by_name("nonexistent", "", "");
     assert!(none.is_empty());
 }
+
+#[test]
+fn reference_edges_from_file_scopes_by_file_and_kind() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let mut caller = test_node(1, "hash_caller", "caller");
+    caller.file_path = "src/a.rs".to_string();
+    let mut target = test_node(2, "hash_target", "target");
+    target.file_path = "lib/b.rs".to_string();
+    store
+        .update_nodes(vec![NodeChange::Add(caller), NodeChange::Add(target)])
+        .unwrap();
+
+    let edge = |id: u64, source_id: u64, target_id: u64, kind: EdgeKind, file: &str| {
+        EdgeChange::Add(GraphEdge {
+            id,
+            source_id,
+            target_id,
+            kind,
+            file_path: file.to_string(),
+            line: 1,
+            confidence: 0.9,
+        })
+    };
+    store
+        .update_edges(vec![
+            edge(10, 1, 2, EdgeKind::Calls, "src/a.rs"),
+            edge(11, 1, 2, EdgeKind::Uses, "src/a.rs"),
+            edge(12, 1, 2, EdgeKind::Imports, "src/a.rs"),
+            edge(13, 2, 1, EdgeKind::Calls, "lib/b.rs"),
+        ])
+        .unwrap();
+
+    let mut result = store.reference_edges_from_file("src/a.rs");
+    result.sort_by_key(|(e, _)| e.id);
+    assert_eq!(
+        result
+            .iter()
+            .map(|(e, tf)| (e.id, e.kind.clone(), tf.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (10, EdgeKind::Calls, "lib/b.rs"),
+            (11, EdgeKind::Uses, "lib/b.rs"),
+        ],
+        "only calls/uses edges from the requested file, with the target's file joined"
+    );
+    assert!(store.reference_edges_from_file("no/such.rs").is_empty());
+}

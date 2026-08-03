@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection};
 
-use crate::types::GraphError;
+use crate::types::{GraphEdge, GraphError};
 
 /// Module-profile persistence, split out to keep this file well under the
 /// 800-line budget.
@@ -534,20 +534,36 @@ impl SqliteGraphStore {
         node_max.max(edge_max) as u64
     }
 
-    /// Delete every outgoing `calls` and `uses` edge originating in `file_path`.
+    /// Every stored `calls`/`uses` edge originating in `file_path`, paired
+    /// with its target node's file path.
     ///
-    /// Both kinds are stored with the referencing file's path, so this prunes a
-    /// single file's outgoing reference edges before the incremental compile
-    /// sync re-resolves them. `uses` is included because the sync re-adds it
-    /// too: leaving it behind would keep a deleted value reference alive
-    /// forever and silence W005 on a function that really did go dead.
-    /// Returns the number of rows removed.
-    pub fn prune_call_edges_from_file(&self, file_path: &str) -> Result<u64, GraphError> {
-        let deleted = self.conn.execute(
-            "DELETE FROM edges WHERE file_path = ?1 AND kind IN ('calls', 'uses')",
-            params![file_path],
-        )?;
-        Ok(deleted as u64)
+    /// The compile sync's keep/replace input (see `compile_sync`'s module
+    /// docs for the policy): the target's file is joined in because whether
+    /// the target lives inside the compiled file decides replace vs keep.
+    pub fn reference_edges_from_file(&self, file_path: &str) -> Vec<(GraphEdge, String)> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT e.*, n.file_path AS target_file
+             FROM edges e JOIN nodes n ON n.id = e.target_id
+             WHERE e.file_path = ?1 AND e.kind IN ('calls', 'uses')",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[keel] reference_edges_from_file: prepare failed: {e}");
+                return Vec::new();
+            }
+        };
+        let result = match stmt.query_map(params![file_path], |row| {
+            let edge = Self::row_to_edge(row)?;
+            let target_file: String = row.get("target_file")?;
+            Ok((edge, target_file))
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                eprintln!("[keel] reference_edges_from_file: query failed: {e}");
+                Vec::new()
+            }
+        };
+        result
     }
 
     /// Clear all graph data (nodes, edges, etc.) for a full re-map.

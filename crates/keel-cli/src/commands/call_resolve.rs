@@ -11,10 +11,14 @@
 //! compile`, leaving them gone until the next full map.
 //!
 //! This module hosts ONE ladder, run by both pipelines through the
-//! [`CallIndex`] seam, so a compile's
-//! re-resolution reproduces exactly the edges the map would — the prune is
-//! lossless. The two pipelines differ only in how they back `CallIndex`: the
-//! map with its in-memory indices, the compile sync with graph-backed lookups.
+//! [`CallIndex`] seam, so every edge a compile *can* re-resolve is
+//! reproduced at map quality. The two pipelines differ only in how they back
+//! `CallIndex`: the map with its in-memory indices, the compile sync with
+//! graph-backed lookups. Sharing the rungs does not share the *inputs*,
+//! though — compile-time tier-2 resolvers have parsed only the compiled
+//! files — so references can still fail to re-resolve at compile time;
+//! `compile_sync` keeps their stored edges instead of pruning them (see its
+//! module docs for the keep/replace policy).
 
 use std::path::Path;
 

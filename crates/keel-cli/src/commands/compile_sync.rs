@@ -7,16 +7,36 @@
 //! - insert nodes for definitions new since the last map,
 //! - remove nodes for definitions that vanished from a file,
 //! - re-resolve each compiled file's outgoing reference edges — `calls` plus
-//!   the `uses` edges of functions named as values (prune + re-add).
+//!   the `uses` edges of functions named as values (replace, never wholesale
+//!   prune).
 //!
 //! Re-resolution runs the SAME ladder as the map's second pass
 //! ([`super::call_resolve::resolve_call_reference`]), backed here by
 //! graph-backed lookups ([`GraphIndex`]) instead of the map's in-memory
-//! indices. That is the whole point: an earlier version re-implemented a weaker
-//! ladder and, because it prunes a file's call edges before re-resolving, every
-//! `keel compile` deleted the method-call, same-directory, package, and
-//! boundary edges the map had built. Running the map's own ladder makes the
-//! prune lossless.
+//! indices. The ladder's *rungs* match the map's, but its *inputs* do not:
+//! the map's tier-2 resolvers have parsed the whole repo, while compile-time
+//! resolvers have parsed only the compiled files, so cross-file references
+//! the map resolved through tier 2 routinely fail to re-resolve here. A
+//! reference that fails to re-resolve therefore proves NOTHING about whether
+//! its call site still exists. The sync deletes a stored edge only on
+//! positive evidence: it re-resolved the same (source, target, kind) this
+//! pass, or the target lives inside the compiled file itself — where the
+//! ladder has complete information and replacement is at map parity. Every
+//! other stored edge is kept; a genuinely deleted cross-file call site keeps
+//! its edge until the next `keel map` rebuilds the graph (bounded staleness,
+//! the accepted trade — an earlier version pruned a file's edges wholesale
+//! and re-added what re-resolved, so ONE compile permanently erased a file's
+//! tier-2/cross-crate edges, eroding E001/E004/W005/`keel discover` and
+//! W009's stored-boundary baseline until the next full map).
+//!
+//! The keep rule deliberately covers `uses` edges too, superseding the old
+//! prune's rationale for including them ("leaving `uses` behind would keep a
+//! deleted value reference alive forever"): a deleted cross-file value
+//! reference now keeps its edge until the next map, so W005 can under-report
+//! a dead callback between maps — the mirror image of the false POSITIVES
+//! that wholesale-pruning live `uses` edges produced, and the cheaper error:
+//! it is bounded, and same-file `uses` edges (the common W005 case) are
+//! still replaced wholesale by the intra-file rule.
 //!
 //! It runs *after* enforcement (on a separate store handle) so E001/E004 still
 //! diff against the pre-edit graph; the refreshed edges are then in place for
@@ -335,10 +355,11 @@ pub fn sync_compiled_files(
     // compile must not share a hash, or the second silently overwrites the
     // first's row and its edges dangle.
     let mut assigned_hashes: HashSet<String> = HashSet::new();
-    // Edge prunes are deferred to the write phase: pruning during the read
-    // phase is a committed DELETE, so a later node-write failure would leave
-    // the file's outgoing edges destroyed with nothing re-added.
-    let mut files_to_prune: Vec<String> = Vec::new();
+    // Stored edge ids each file's keep/replace decision marked for deletion.
+    // Deferred to the write phase: deleting during the read phase would be a
+    // committed DELETE, so a later node-write failure would leave the file's
+    // outgoing edges destroyed with nothing re-added.
+    let mut edge_removals: Vec<u64> = Vec::new();
 
     // Files in this compile batch: a vanished definition with callers only in
     // these files was fixed in the same pass, so its node may be pruned. One
@@ -363,7 +384,7 @@ pub fn sync_compiled_files(
                 &mut edge_changes,
                 &mut node_tiers,
                 &mut assigned_hashes,
-                &mut files_to_prune,
+                &mut edge_removals,
             );
         }
     }
@@ -379,13 +400,17 @@ pub fn sync_compiled_files(
             return;
         }
     }
-    for rel_path in &files_to_prune {
-        if let Err(e) = store.prune_call_edges_from_file(rel_path) {
-            let _ = e; // best-effort; fresh edges for this file are added next
-        }
-    }
-    if !edge_changes.is_empty() {
-        if let Err(e) = store.update_edges(edge_changes) {
+    if !edge_removals.is_empty() || !edge_changes.is_empty() {
+        // Removals FIRST: `update_edges` applies changes in order and adds
+        // are INSERT OR IGNORE, so an add for an unchanged call site (same
+        // line) would be ignored against the still-present old row and a
+        // later removal would then delete the only copy.
+        let changes: Vec<EdgeChange> = edge_removals
+            .into_iter()
+            .map(EdgeChange::Remove)
+            .chain(edge_changes)
+            .collect();
+        if let Err(e) = store.update_edges(changes) {
             if verbose {
                 eprintln!("keel compile: graph sync (edges) failed: {}", e);
             }
@@ -410,8 +435,20 @@ fn sync_one_file(
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
     assigned_hashes: &mut HashSet<String>,
-    files_to_prune: &mut Vec<String>,
+    edge_removals: &mut Vec<u64>,
 ) {
+    // A parse that produced zero definitions is far more likely a transient
+    // parse failure (an on-edit hook compiling mid-edit syntax) than a file
+    // genuinely emptied out. Treat it as no-evidence and leave the graph
+    // exactly as it was — no node removals, no edge replacement; the next
+    // successful compile or `keel map` supplies the real state. E004/E001
+    // already ran against the pre-sync graph, so detection loses nothing.
+    // (With no definitions there is also no containing def to attribute any
+    // reference edge to, so nothing below could produce output anyway.)
+    if file.definitions.is_empty() {
+        return;
+    }
+
     let store = base.store;
     let rel_path = &file.file_path;
     let existing = store.get_nodes_in_file(rel_path);
@@ -488,10 +525,15 @@ fn sync_one_file(
         local.remove(&node.name);
     }
 
-    // Re-resolve this file's outgoing call edges: the stale set is pruned in
-    // the WRITE phase (after node writes succeed), then the fresh ones below
-    // are added — so a failed node write can never leave the file edge-less.
-    files_to_prune.push(rel_path.clone());
+    // Re-resolve this file's outgoing reference edges, then decide per stored
+    // edge whether the fresh result replaces it (see the module docs): delete
+    // a stored edge only when this pass re-added the same
+    // (source, target, kind), or when its target lives inside this file —
+    // never because a cross-file reference failed to re-resolve. The
+    // deletions land in the WRITE phase (after node writes succeed), so a
+    // failed node write can never leave the file edge-less.
+    let stored = store.reference_edges_from_file(rel_path);
+    let fresh_start = edge_changes.len();
     resolve_outgoing_edges(
         base,
         cwd,
@@ -501,6 +543,22 @@ fn sync_one_file(
         next_id,
         edge_changes,
         node_tiers,
+    );
+    let added: HashSet<(u64, u64, EdgeKind)> = edge_changes[fresh_start..]
+        .iter()
+        .filter_map(|c| match c {
+            EdgeChange::Add(e) => Some((e.source_id, e.target_id, e.kind.clone())),
+            _ => None,
+        })
+        .collect();
+    edge_removals.extend(
+        stored
+            .iter()
+            .filter(|(e, target_file)| {
+                added.contains(&(e.source_id, e.target_id, e.kind.clone()))
+                    || target_file == rel_path
+            })
+            .map(|(e, _)| e.id),
     );
 }
 
