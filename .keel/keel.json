@@ -1,5 +1,5 @@
 {
-  "version": "0.3.6",
+  "version": "0.5.0",
   "languages": [
     "python",
     "rust",
@@ -8,7 +8,12 @@
   "enforce": {
     "type_hints": true,
     "docstrings": true,
-    "placement": true
+    "placement": true,
+    "progressive": true,
+    "dead_code": true,
+    "duplication": true,
+    "oversized_files": true,
+    "max_file_lines": 400
   },
   "circuit_breaker": {
     "max_failures": 3
@@ -22,10 +27,6 @@
     "enabled": true,
     "remote": true,
     "endpoint": "https://keel.engineer/api/telemetry"
-  },
-  "naming_conventions": {
-    "style": null,
-    "prefixes": []
   },
   "monorepo": {
     "enabled": true,
@@ -44,5 +45,12 @@
     "scip_paths": {},
     "lsp_commands": {},
     "prefer_scip": true
+  },
+  "architecture": {
+    "count_type_deps": false,
+    "deny": []
+  },
+  "review": {
+    "gate": []
   }
 }
