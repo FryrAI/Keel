@@ -105,15 +105,24 @@ runs:
         # replaced an inline interpreter heredoc that reshaped keel's JSON — an
         # undeclared runtime dependency in a tool whose Article 1 is "single
         # binary, zero runtime dependencies". Keep this step interpreter-free.
-        keel "${cmd[@]}" --format github >"$ANNOTATIONS"
-        exit_code=$?
+        #
+        # `|| exit_code=$?`, not a bare `$?` on the next line: composite bash
+        # runs with implicit -e, so an ERROR-level keel exit would kill the
+        # script HERE — annotations unposted, outputs unset, sticky comment
+        # skipped — and the step would go red with nothing on it to read.
+        exit_code=0
+        keel "${cmd[@]}" --format github >"$ANNOTATIONS" || exit_code=$?
         echo "exit-code=$exit_code" >>"$GITHUB_OUTPUT"
 
         # The annotations ARE the output: echoing them is what posts them.
         cat "$ANNOTATIONS"
 
-        # One annotation per violation; a clean run prints nothing at all.
-        violations="$(grep -c '^::' "$ANNOTATIONS")"
+        # One annotation per violation; a clean run prints nothing at all —
+        # and `grep -c` exits 1 on that zero-match file, so without `|| true`
+        # the implicit -e turned every CLEAN run into a silent exit-1 failure
+        # (100% of pushes: `compile --changed` diffs a fresh checkout's
+        # working tree against HEAD, which is empty by construction).
+        violations="$(grep -c '^::' "$ANNOTATIONS" || true)"
         echo "violation-count=$violations" >>"$GITHUB_OUTPUT"
 
         if [ "$exit_code" -eq 0 ] && [ "$violations" -eq 0 ]; then
