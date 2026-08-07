@@ -271,6 +271,25 @@ fn review_mode_runs_keel_review_exactly_once() {
     );
 }
 
+/// The acceptance criterion from #64: history must round-trip through the
+/// CLI and be carried between runs by an actions/cache pair.
+#[test]
+fn quality_history_round_trips_through_export_import_and_cache() {
+    let yaml = read(".github/actions/keel/action.yml");
+    let code = code_only(&yaml);
+    assert!(code.contains("keel quality --import"));
+    assert!(code.contains("keel quality --export"));
+    assert!(code.contains("actions/cache/restore@v4") && code.contains("actions/cache/save@v4"));
+}
+
+/// Deliberate asymmetry with `the_graph_cache_has_no_prefix_fallback`: a stale
+/// restore here can only be missing the latest point, never wrong about one.
+#[test]
+fn the_quality_history_cache_may_use_a_prefix_restore_key() {
+    let yaml = code_only(&read(".github/actions/keel/action.yml"));
+    assert!(yaml.contains("restore-keys"));
+}
+
 /// What `keel init` scaffolds and what the maintained action does must be the
 /// same recipe. This is the divergence T2.3 deleted: the scaffold used to
 /// `curl install.sh` and run `keel map --json --strict`, so a user following

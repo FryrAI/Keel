@@ -16,6 +16,7 @@
 //! the comparison instead of silently mixing two definitions into one line.
 
 use rusqlite::params;
+use serde::{Deserialize, Serialize};
 
 use crate::sqlite::SqliteGraphStore;
 use crate::types::{sql_in_list, GraphError, QualityInputs, MODULE_DEP_KINDS, SYMBOL_DEP_KINDS};
@@ -47,7 +48,7 @@ pub const QUALITY_SNAPSHOTS_DDL: &str = "
 /// `metrics` is left as the raw JSON blob: this crate stores the series and
 /// knows nothing about what a metric means — `keel-enforce` owns the schema of
 /// the blob and the refusal rule for comparing across versions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QualitySnapshotRow {
     /// Monotonic insertion order. The series is ordered by this, not by
     /// `captured_at`: re-measuring an existing commit refreshes the timestamp

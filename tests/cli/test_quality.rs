@@ -267,3 +267,103 @@ fn empty_series_explains_how_to_start_one() {
     assert_eq!(out.status.code(), Some(0));
     assert!(stdout_of(&out).contains("keel quality --snapshot"));
 }
+
+/// #64's acceptance criterion — two consecutive CI runs on different commits
+/// must produce a `--trend` with >=2 points — hinges on the graph cache being
+/// keyed per commit: CI's db for a new commit never saw the prior commit's
+/// snapshot row (unlike a local repo re-mapping the SAME `.keel/graph.db`,
+/// which already carries it — see `trend_survives_re_maps_and_attributes...`).
+/// A deleted `graph.db` before the re-map stands in for that fresh-per-commit
+/// cache; without `--import` this would be exactly the
+/// `without_import_a_fresh_db_starts_its_own_series` case below.
+#[test]
+fn export_then_import_into_a_fresh_db_reproduces_the_trend() {
+    let dir = fixture();
+    let root = dir.path();
+    assert!(keel(root, &["quality", "--snapshot"]).status.success());
+    let history = root.join("history.jsonl");
+    assert!(
+        keel(root, &["quality", "--export", history.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(!fs::read_to_string(&history).unwrap().trim().is_empty());
+
+    git(root, &["commit", "-q", "--allow-empty", "-m", "second"]);
+    fs::remove_file(root.join(".keel/graph.db")).unwrap();
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+    assert!(
+        keel(root, &["quality", "--import", history.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(keel(root, &["quality", "--snapshot"]).status.success());
+
+    let trend = keel(root, &["quality", "--trend", "--llm"]);
+    assert!(
+        stdout_of(&trend).contains("points=2"),
+        "two consecutive runs on different commits must give >=2 trend points: {}",
+        stdout_of(&trend)
+    );
+}
+
+/// Control for the test above: `keel map`'s `clear_all` never touches
+/// `quality_snapshots`, so a re-map alone (same db file) already carries prior
+/// commits' rows — that's the "developer's local `.keel/graph.db`" case the
+/// action.yml comments call out. The scenario the CLI surface actually needs
+/// to solve is CI's *per-commit graph cache*: a genuinely fresh db that never
+/// saw those rows, which a deleted `graph.db` stands in for here. Without the
+/// import, that fresh db owns only its own snapshot.
+#[test]
+fn without_import_a_fresh_db_starts_its_own_series() {
+    let dir = fixture();
+    let root = dir.path();
+    assert!(keel(root, &["quality", "--snapshot"]).status.success());
+    let history = root.join("history.jsonl");
+    assert!(
+        keel(root, &["quality", "--export", history.to_str().unwrap()])
+            .status
+            .success()
+    );
+
+    git(root, &["commit", "-q", "--allow-empty", "-m", "second"]);
+    fs::remove_file(root.join(".keel/graph.db")).unwrap();
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+    assert!(keel(root, &["quality", "--snapshot"]).status.success());
+
+    let trend = keel(root, &["quality", "--trend", "--llm"]);
+    assert!(
+        stdout_of(&trend).contains("points=1"),
+        "a fresh db that never saw the history must not fabricate points: {}",
+        stdout_of(&trend)
+    );
+}
+
+/// Re-importing the same history twice must not stack duplicate points — the
+/// `commit_sha` UNIQUE upsert makes import naturally idempotent.
+#[test]
+fn reimporting_the_same_history_does_not_duplicate_points() {
+    let dir = fixture();
+    let root = dir.path();
+    assert!(keel(root, &["quality", "--snapshot"]).status.success());
+    let history = root.join("history.jsonl");
+    assert!(
+        keel(root, &["quality", "--export", history.to_str().unwrap()])
+            .status
+            .success()
+    );
+
+    for _ in 0..2 {
+        assert!(
+            keel(root, &["quality", "--import", history.to_str().unwrap()])
+                .status
+                .success()
+        );
+    }
+
+    let trend = keel(root, &["quality", "--trend", "--llm"]);
+    assert!(
+        stdout_of(&trend).contains("points=1"),
+        "re-importing the same commit_sha twice must not duplicate the row"
+    );
+}

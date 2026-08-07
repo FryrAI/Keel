@@ -226,6 +226,8 @@ fn main() {
             trend,
             since,
             last,
+            export,
+            import,
         } => (
             commands::quality::run(
                 &*formatter,
@@ -235,6 +237,8 @@ fn main() {
                     trend,
                     since,
                     last,
+                    export,
+                    import,
                 },
             ),
             Default::default(),

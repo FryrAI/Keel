@@ -23,6 +23,7 @@
 //! graph on demand, so a `map --cached` (which rebuilds nothing) cannot inject
 //! a duplicate point and the series stays smooth.
 
+pub mod history;
 pub mod trend;
 
 use std::collections::{HashMap, HashSet};

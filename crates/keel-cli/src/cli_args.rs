@@ -312,10 +312,10 @@ pub(crate) enum Commands {
     Quality {
         /// Capture the current reading as a snapshot against HEAD (one per
         /// merge; CI runs this on the default branch)
-        #[arg(long, conflicts_with = "trend")]
+        #[arg(long, conflicts_with_all = ["trend", "export", "import"])]
         snapshot: bool,
         /// Report the stored series instead of the current reading
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["export", "import"])]
         trend: bool,
         /// Start the trend at this commit (short prefixes accepted)
         #[arg(long, requires = "trend", conflicts_with = "last")]
@@ -323,6 +323,13 @@ pub(crate) enum Commands {
         /// Cap the trend to the last N snapshots
         #[arg(long, requires = "trend")]
         last: Option<usize>,
+        /// Export the stored snapshot history as JSON Lines (oldest to newest)
+        #[arg(long, conflicts_with_all = ["snapshot", "trend", "import"])]
+        export: Option<String>,
+        /// Import snapshot history from a JSON Lines file, upserting by
+        /// commit_sha
+        #[arg(long, conflicts_with_all = ["snapshot", "trend", "export"])]
+        import: Option<String>,
     },
 
     /// Validate a plan against the dependency graph before executing it

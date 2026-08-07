@@ -185,6 +185,24 @@ runs:
 
         exit $exit_code
 
+    # Restores the accumulated series so this run's snapshot lands as the next
+    # point rather than the first one. Unlike the graph cache (see
+    # `the_graph_cache_has_no_prefix_fallback`), a PREFIX restore-key is safe
+    # here on purpose: every row upserts by `commit_sha`
+    # (`insert_quality_snapshot`), so a stale prefix restore can only ever be
+    # *missing* the newest point, never wrong about an existing one, and the
+    # Quality snapshot step below re-exports the full current state on every
+    # run regardless. Do not "fix" this into matching the graph cache's
+    # no-prefix rule — the two caches have opposite failure modes.
+    - name: Restore quality history
+      if: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/keel-quality-history.jsonl
+        key: keel-quality-history-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          keel-quality-history-${{ runner.os }}-
+
     - name: Quality snapshot
       # One reading per merge on the default branch — the time axis `keel
       # quality --trend` reads. Push-only and default-branch-only: a pull
@@ -194,19 +212,24 @@ runs:
       # `always()`: a merge that carried violations is still a merge, and the
       # series must not develop holes wherever the build went red.
       #
-      # Honest limitation: the graph cache is keyed on the exact commit, so a
-      # push run always starts from a graph built for THIS commit and the
-      # series accumulates in the developer's local `.keel/graph.db` (which
-      # `keel map` deliberately does not clear), not in CI. This step is what
-      # puts the reading in front of a human on every merge.
+      # The graph cache is keyed on the exact commit, so this commit's
+      # fresh/restored graph.db never carries a prior commit's snapshot row on
+      # its own — the history file restored above, imported here, and
+      # re-exported below is what makes the series survive across runners.
       if: ${{ always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       shell: bash
+      env:
+        HISTORY: ${{ runner.temp }}/keel-quality-history.jsonl
       run: |
         set -uo pipefail
 
         if [ ! -f .keel/graph.db ]; then
           echo "keel: no graph to measure — skipping the quality snapshot"
           exit 0
+        fi
+
+        if [ -f "$HISTORY" ]; then
+          keel quality --import "$HISTORY" || echo "keel: quality history import failed — continuing with a fresh series"
         fi
 
         # ~10ms of graph work. `keel quality` never gates, and neither does
@@ -222,6 +245,15 @@ runs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
         fi
+
+        keel quality --export "$HISTORY" || echo "keel: quality history export failed"
+
+    - name: Save quality history
+      if: ${{ always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/keel-quality-history.jsonl
+        key: keel-quality-history-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Sticky review comment
       # `always()`: a red compile in review mode must still leave the report on
