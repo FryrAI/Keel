@@ -45,6 +45,16 @@ pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
     }
 }
 
+/// A private function definition flagged as living on a trait/interface
+/// contract surface (`Definition::in_trait_context`) — exempt from W005, and
+/// from W006 when its counterpart is also a trait method.
+pub(crate) fn trait_context_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        in_trait_context: true,
+        ..definition(name, file, false)
+    }
+}
+
 /// A private function definition flagged as auto-invoked — what a language's
 /// Tier-2 pass sets for a runtime/harness entrypoint (Go `init`/`main`/
 /// `TestMain`). Exempt from W005 without any language-from-path re-derivation.

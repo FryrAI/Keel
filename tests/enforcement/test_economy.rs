@@ -73,6 +73,43 @@ fn test_w006_duplicate_implementation_surfaces() {
     assert_eq!(v["confidence"].as_f64().unwrap(), 0.85);
 }
 
+/// W006 Type-2: two files whose functions share a structure but no identifier
+/// or literal must surface as a WARNING with the lower confidence 0.6.
+///
+/// The one test that proves the whole Type-2 pipeline end to end: `keel map`
+/// writes `body_index.t2_hash`, `keel compile` matches on it.
+#[test]
+fn test_w006_t2_renamed_clone_surfaces() {
+    let original = "  const first = x + 1;\n  const second = first * 2;\n  \
+                    const third = second - 3;\n  const fourth = third + first;\n  \
+                    return first + second + third + fourth;\n";
+    // Every local renamed and every literal changed: Type-1 sees two unrelated
+    // functions, Type-2 sees one shape.
+    let renamed = "  const one = y + 7;\n  const two = one * 8;\n  \
+                   const three = two - 9;\n  const four = three + one;\n  \
+                   return one + two + three + four;\n";
+    let dir = mapped_project(&[
+        (
+            "src/alpha.ts",
+            &format!("function computeAlpha(x: number): number {{\n{original}}}\n"),
+        ),
+        (
+            "src/beta.ts",
+            &format!("function computeBeta(y: number): number {{\n{renamed}}}\n"),
+        ),
+    ]);
+
+    let result = compile_json(dir.path(), "src/beta.ts");
+    let v = find_violation(&result, "W006");
+    assert_eq!(v["severity"], "WARNING");
+    assert_eq!(v["category"], "duplicate_implementation");
+    assert_eq!(v["confidence"].as_f64().unwrap(), 0.6);
+    assert!(
+        v["message"].as_str().unwrap().contains("computeAlpha"),
+        "{v:?}"
+    );
+}
+
 /// W007: a file mapped small then grown past the (lowered) line budget must
 /// surface as a WARNING with confidence 0.8.
 #[test]

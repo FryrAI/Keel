@@ -203,6 +203,11 @@ pub enum EdgeChange {
 pub struct BodyIndexEntry {
     /// Fingerprint of the normalized body — see `hash::compute_body_hash`.
     pub body_hash: String,
+    /// Fingerprint of the identifier/literal-normalized ("Type-2") body — see
+    /// `hash_t2::compute_t2_hash`. Empty when the Type-2 form did not clear
+    /// `hash_t2::MIN_T2_NORMALIZED_LEN`, and on rows written before the column
+    /// existed; empty is never a match, only a "not indexed for Type-2".
+    pub t2_hash: String,
     /// Identity key of the indexed function.
     ///
     /// Part of the storage primary key `(node_hash, file_path, line)` — a

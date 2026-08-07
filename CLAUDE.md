@@ -157,6 +157,17 @@ discover` and W009's stored-boundary baseline.
 ### Hash Computation
 Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Uses AST-based normalization, not raw text. Docstring is part of hash input.
 
+### W006 Has Two Tiers, and an Empty Fingerprint Is Not a Match
+Type-1 is `hash::normalize_body` (whitespace only, confidence 0.85). Type-2 is `hash_t2` — a lexical
+tokenizer that renames non-keyword identifiers to `v0, v1, …` and collapses literals to
+`<int>`/`<str>`/`<bool>` (confidence 0.6, fires only when Type-1 found nothing). It reuses
+`hash::strip_comments`, so the two normalizers can never disagree about where a comment or string ends.
+`body_index.t2_hash` is written **only by `keel map`** (compile reads it), stores `''` for anything under
+`hash_t2::MIN_T2_NORMALIZED_LEN` **and** for every row written before the column existed — so `''` must
+never match `''`; `body_index_find_t2` refuses an empty argument. The floor (120) was calibrated on keel's
+own tree: at 80, `match self { .. => <str> }` string tables and `&[<str>, <str>]` constant lists start
+colliding. Raise it before lowering it.
+
 ### Clean Compile Output
 When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**. This is critical — the LLM should never see output unless something needs attention.
 
@@ -247,7 +258,7 @@ project vault/notes directory is optional and entirely user-side.)
 | W001 | placement — function is in a non-ideal module |
 | W002 | duplicate_name — another function with the same name exists |
 | W005 | dead_code — private function has no callers in the graph |
-| W006 | duplicate_implementation — function body is identical to one elsewhere |
+| W006 | duplicate_implementation — function body is identical to one elsewhere, or identical apart from renamed identifiers/literals (lower confidence) |
 | W007 | oversized_file — file exceeds the configured line budget and grew |
 | W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |

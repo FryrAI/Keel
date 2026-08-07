@@ -124,8 +124,24 @@ pub fn first_pass(
             if def.kind == NodeKind::Function {
                 let normalized = keel_core::hash::normalize_body(&def.body_text);
                 if normalized.len() >= keel_core::hash::MIN_INDEXED_BODY_LEN {
+                    // Type-2 fingerprint (renamed identifiers, collapsed
+                    // literals). Empty below its own, higher floor: the
+                    // renamed form is shorter, so trivial shapes would
+                    // otherwise collide constantly. `entry.language` is what
+                    // `detect_language` produced, the same string compile time
+                    // derives from the path — the two must agree or no stored
+                    // fingerprint ever matches.
+                    let t2_normalized =
+                        keel_core::hash_t2::normalize_body_t2(&def.body_text, &entry.language);
+                    let t2_hash =
+                        if t2_normalized.len() >= keel_core::hash_t2::MIN_T2_NORMALIZED_LEN {
+                            keel_core::hash::hash_string(&t2_normalized)
+                        } else {
+                            String::new()
+                        };
                     body_index.push(keel_core::types::BodyIndexEntry {
                         body_hash: keel_core::hash::hash_normalized_body(&normalized),
+                        t2_hash,
                         node_hash: hash.clone(),
                         name: def.name.clone(),
                         file_path: file_path.clone(),

@@ -84,8 +84,11 @@ pub fn compute_hash_disambiguated(
 }
 
 /// Lexical comment/string family for [`normalize_body_for_hash`].
+///
+/// Crate-visible so [`crate::hash_t2`] tokenizes against the exact same
+/// comment/string rules instead of a drifting copy of them.
 #[derive(Clone, Copy, PartialEq)]
-enum BodySyntax {
+pub(crate) enum BodySyntax {
     /// C-family: `//` line comments, `/* */` block comments; `"`, `'`, and
     /// backtick string literals — a `'` ALWAYS opens a string (TypeScript/
     /// JavaScript, Go, Svelte have no lifetimes).
@@ -102,7 +105,7 @@ enum BodySyntax {
 /// to its lexical comment/string family. Anything that is not Python or Rust is
 /// treated as C-family — the safe default for the remaining supported languages
 /// and for unknown extensions.
-fn body_syntax(lang: &str) -> BodySyntax {
+pub(crate) fn body_syntax(lang: &str) -> BodySyntax {
     match lang {
         "python" => BodySyntax::Python,
         "rust" => BodySyntax::Rust,
@@ -121,7 +124,7 @@ fn body_syntax(lang: &str) -> BodySyntax {
 /// function of its input: `keel map` and `keel compile` always derive the same
 /// normalized body for the same source. Exotic literals (Rust raw strings with
 /// embedded quotes) may be handled imperfectly, but never non-deterministically.
-fn strip_comments(body: &str, syntax: BodySyntax) -> String {
+pub(crate) fn strip_comments(body: &str, syntax: BodySyntax) -> String {
     let b = body.as_bytes();
     let n = b.len();
     let mut out: Vec<u8> = Vec::with_capacity(n);

@@ -73,6 +73,18 @@ pub trait GraphStore {
         Vec::new()
     }
 
+    /// Find every indexed node whose Type-2 (identifier/literal-normalized)
+    /// fingerprint matches `t2_hash`.
+    ///
+    /// The near-clone counterpart of [`GraphStore::find_body_matches`], which
+    /// matches bodies byte-for-byte after whitespace normalization. An empty
+    /// `t2_hash` means "not indexed for Type-2" and must never match. Returns
+    /// an empty vec when the backend maintains no body index (the default).
+    fn find_t2_body_matches(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
+        let _ = t2_hash;
+        Vec::new()
+    }
+
     /// Load the persisted Tier 3 resolution cache (rows tagged `tier3`).
     ///
     /// Lets SCIP/LSP resolutions survive across `keel map` runs. Additive with
@@ -152,10 +164,10 @@ mod tests {
 
     /// A backend that implements only the pre-v5 required methods.
     ///
-    /// Its existence is the test: if `replace_body_index` or
-    /// `find_body_matches` ever stops being a defaulted method, this stops
-    /// compiling — which is exactly the additive guarantee we promised
-    /// downstream implementors.
+    /// Its existence is the test: if `replace_body_index`,
+    /// `find_body_matches` or `find_t2_body_matches` ever stops being a
+    /// defaulted method, this stops compiling — which is exactly the additive
+    /// guarantee we promised downstream implementors.
     struct MinimalStore;
 
     impl GraphStore for MinimalStore {
@@ -205,6 +217,7 @@ mod tests {
         store
             .replace_body_index(vec![BodyIndexEntry {
                 body_hash: "b".into(),
+                t2_hash: "t".into(),
                 node_hash: "n".into(),
                 name: "f".into(),
                 file_path: "src/a.rs".into(),
@@ -215,6 +228,10 @@ mod tests {
         assert!(
             store.find_body_matches("b").is_empty(),
             "a backend without a body index reports no duplicates"
+        );
+        assert!(
+            store.find_t2_body_matches("t").is_empty(),
+            "nor any near-duplicates"
         );
     }
 

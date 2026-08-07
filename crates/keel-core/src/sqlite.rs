@@ -25,7 +25,9 @@ pub type CircuitBreakerEntry = (String, String, u32, bool, String, String);
 ///
 /// Shared by `initialize_schema` (fresh databases) and `migrate_v4_to_v5`
 /// (existing ones) so the two can never drift apart. Lookups are by
-/// `body_hash`, so that column carries the index.
+/// `body_hash`, so that column carries the index; `t2_hash`'s index is created
+/// separately, after the idempotent ALTER that backfills the column on
+/// databases predating it.
 ///
 /// The primary key is the composite `(node_hash, file_path, line)`, not
 /// `node_hash` alone: hash disambiguation salts with the file path only, so
@@ -36,6 +38,7 @@ const BODY_INDEX_DDL: &str = "
     CREATE TABLE IF NOT EXISTS body_index (
         node_hash TEXT NOT NULL,
         body_hash TEXT NOT NULL,
+        t2_hash TEXT NOT NULL DEFAULT '',
         name TEXT NOT NULL,
         file_path TEXT NOT NULL,
         line INTEGER NOT NULL,
@@ -278,6 +281,16 @@ impl SqliteGraphStore {
         self.drop_stale_body_index()?;
         self.conn.execute_batch(BODY_INDEX_DDL)?;
 
+        // Type-2 (identifier/literal-normalized) fingerprint column (issue
+        // #59), added the same way and for the same reason as `is_associated`
+        // above: one additive, defaulted column does not justify a
+        // SCHEMA_VERSION bump. Rows written before it read back as '' — "not
+        // indexed for Type-2" — until the next `keel map`, and the empty
+        // fingerprint is never matched (see `body_index_find_t2`).
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE body_index ADD COLUMN t2_hash TEXT NOT NULL DEFAULT ''");
+
         // Quality snapshots (schema v7) — shared DDL, see
         // `crate::sqlite_quality::QUALITY_SNAPSHOTS_DDL`.
         self.conn
@@ -297,6 +310,9 @@ impl SqliteGraphStore {
         let _ = self
             .conn
             .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package)");
+        let _ = self.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_body_index_t2_hash ON body_index(t2_hash)",
+        );
 
         Ok(())
     }

@@ -7,8 +7,21 @@ use crate::store::GraphStore;
 use crate::types::BodyIndexEntry;
 
 fn entry(node_hash: &str, body_hash: &str, name: &str, file: &str, line: u32) -> BodyIndexEntry {
+    entry_t2(node_hash, body_hash, "", name, file, line)
+}
+
+/// An entry carrying a Type-2 fingerprint as well.
+fn entry_t2(
+    node_hash: &str,
+    body_hash: &str,
+    t2_hash: &str,
+    name: &str,
+    file: &str,
+    line: u32,
+) -> BodyIndexEntry {
     BodyIndexEntry {
         body_hash: body_hash.to_string(),
+        t2_hash: t2_hash.to_string(),
         node_hash: node_hash.to_string(),
         name: name.to_string(),
         file_path: file.to_string(),
@@ -264,6 +277,111 @@ fn test_stale_body_index_schema_is_recreated() {
         ])
         .expect("stale schema should have been recreated");
     assert_eq!(store.find_body_matches("sharedBody").len(), 2);
+}
+
+// --- Type-2 fingerprint column (issue #59) ---
+
+#[test]
+fn test_body_index_t2_roundtrip() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let e = entry_t2("node1", "bodyAAA", "t2AAA", "parse", "src/a.rs", 10);
+    store.replace_body_index(vec![e.clone()]).unwrap();
+
+    assert_eq!(store.find_t2_body_matches("t2AAA"), vec![e.clone()]);
+    assert_eq!(
+        store.find_body_matches("bodyAAA"),
+        vec![e],
+        "the Type-1 lookup must still return the same row"
+    );
+}
+
+/// The point of the second column: bodies that differ only by identifier names
+/// share a `t2_hash` while their `body_hash` values differ.
+#[test]
+fn test_body_index_finds_t2_duplicates() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_body_index(vec![
+            entry_t2("node1", "bodyA", "sharedT2", "parse", "src/a.rs", 10),
+            entry_t2("node2", "bodyB", "sharedT2", "parseAgain", "src/b.rs", 20),
+            entry_t2("node3", "bodyC", "otherT2", "unrelated", "src/c.rs", 30),
+        ])
+        .unwrap();
+
+    let near = store.find_t2_body_matches("sharedT2");
+    assert_eq!(near.len(), 2, "both near-clones should be returned");
+    assert_eq!(store.find_t2_body_matches("otherT2").len(), 1);
+
+    // The Type-1 namespace is untouched by the Type-2 collision.
+    assert_eq!(store.find_body_matches("bodyA").len(), 1);
+    assert!(store.find_body_matches("sharedT2").is_empty());
+}
+
+/// Pre-upgrade rows (and rows whose body never cleared the Type-2 floor) store
+/// `''`. Matching those against each other would make every unindexed function
+/// a near-duplicate of every other one.
+#[test]
+fn test_empty_t2_fingerprint_never_matches() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_body_index(vec![
+            entry("node1", "bodyA", "parse", "src/a.rs", 10),
+            entry("node2", "bodyB", "render", "src/b.rs", 20),
+        ])
+        .unwrap();
+
+    assert!(store.find_t2_body_matches("").is_empty());
+}
+
+/// A database created before the column existed gains it on open, keeps its
+/// rows, and reads them back as "not indexed for Type-2".
+#[test]
+fn test_existing_database_gains_t2_hash_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("pre_t2.db");
+    let db_str = db_path.to_str().unwrap();
+
+    // GIVEN a body_index with the current primary key but no t2_hash column.
+    {
+        let store = SqliteGraphStore::open(db_str).unwrap();
+        store
+            .conn
+            .execute_batch(
+                "DROP TABLE body_index;
+                 CREATE TABLE body_index (
+                     node_hash TEXT NOT NULL,
+                     body_hash TEXT NOT NULL,
+                     name TEXT NOT NULL,
+                     file_path TEXT NOT NULL,
+                     line INTEGER NOT NULL,
+                     PRIMARY KEY (node_hash, file_path, line)
+                 );
+                 INSERT INTO body_index VALUES ('n1', 'legacyBody', 'old', 'src/old.rs', 3);",
+            )
+            .unwrap();
+    }
+
+    // WHEN reopened.
+    let mut store = SqliteGraphStore::open(db_str).unwrap();
+
+    // THEN the legacy row survives, reads back empty, and never matches.
+    let legacy = store.find_body_matches("legacyBody");
+    assert_eq!(legacy.len(), 1, "existing rows must survive the ALTER");
+    assert_eq!(legacy[0].t2_hash, "");
+    assert!(store.find_t2_body_matches("").is_empty());
+
+    // AND the column is usable for new writes.
+    store
+        .replace_body_index(vec![entry_t2(
+            "n2",
+            "bodyX",
+            "t2X",
+            "fresh",
+            "src/new.rs",
+            5,
+        )])
+        .expect("t2_hash column usable after the idempotent ALTER");
+    assert_eq!(store.find_t2_body_matches("t2X").len(), 1);
 }
 
 /// End-to-end with the real hasher: reformatted copies of the same function

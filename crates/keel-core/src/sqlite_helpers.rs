@@ -25,13 +25,14 @@ impl SqliteGraphStore {
         {
             let mut stmt = tx.prepare(
                 "INSERT OR REPLACE INTO body_index
-                 (node_hash, body_hash, name, file_path, line)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 (node_hash, body_hash, t2_hash, name, file_path, line)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for e in &entries {
                 stmt.execute(params![
                     e.node_hash,
                     e.body_hash,
+                    e.t2_hash,
                     e.name,
                     e.file_path,
                     e.line
@@ -46,11 +47,37 @@ impl SqliteGraphStore {
     ///
     /// Backs [`GraphStore::find_body_matches`]. Uses `idx_body_index_body_hash`.
     pub(crate) fn body_index_find(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
-        let mut stmt = match self.conn.prepare(
-            "SELECT node_hash, body_hash, name, file_path, line
-             FROM body_index WHERE body_hash = ?1
-             ORDER BY file_path, line",
-        ) {
+        self.body_index_query("body_hash", body_hash)
+    }
+
+    /// Look up every indexed node sharing `t2_hash` — the identifier/literal-
+    /// normalized fingerprint.
+    ///
+    /// Backs [`GraphStore::find_t2_body_matches`]. Uses
+    /// `idx_body_index_t2_hash`. An empty fingerprint returns nothing: rows
+    /// written before the column existed (and rows whose body never cleared
+    /// `hash_t2::MIN_T2_NORMALIZED_LEN`) store `''`, and matching them against
+    /// each other would make every unindexed function a duplicate of every
+    /// other one.
+    pub(crate) fn body_index_find_t2(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
+        if t2_hash.is_empty() {
+            return Vec::new();
+        }
+        self.body_index_query("t2_hash", t2_hash)
+    }
+
+    /// Rows whose `column` equals `hash`, ordered by `(file_path, line)`.
+    ///
+    /// `column` is always one of this module's own literals — never caller
+    /// input — so interpolating it into the SQL text carries no injection
+    /// surface; the value stays a bound parameter.
+    fn body_index_query(&self, column: &str, hash: &str) -> Vec<BodyIndexEntry> {
+        let sql = format!(
+            "SELECT node_hash, body_hash, t2_hash, name, file_path, line
+             FROM body_index WHERE {column} = ?1
+             ORDER BY file_path, line"
+        );
+        let mut stmt = match self.conn.prepare(&sql) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[keel] body_index_find: prepare failed: {e}");
@@ -60,13 +87,14 @@ impl SqliteGraphStore {
 
         // Bind before returning: the `MappedRows` temporary borrows `stmt`, so
         // using the match as the tail expression outlives `stmt` (E0597).
-        let result = match stmt.query_map(params![body_hash], |row| {
+        let result = match stmt.query_map(params![hash], |row| {
             Ok(BodyIndexEntry {
                 node_hash: row.get(0)?,
                 body_hash: row.get(1)?,
-                name: row.get(2)?,
-                file_path: row.get(3)?,
-                line: row.get(4)?,
+                t2_hash: row.get(2)?,
+                name: row.get(3)?,
+                file_path: row.get(4)?,
+                line: row.get(5)?,
             })
         }) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),

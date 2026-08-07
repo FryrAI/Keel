@@ -380,6 +380,10 @@ impl GraphStore for SqliteGraphStore {
         self.body_index_find(body_hash)
     }
 
+    fn find_t2_body_matches(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
+        self.body_index_find_t2(t2_hash)
+    }
+
     fn load_resolution_cache(&self) -> Vec<ResolutionCacheEntry> {
         self.resolution_cache_load()
     }
