@@ -300,6 +300,11 @@ pub(crate) enum Commands {
         /// `review.gate` in keel.json (empty by default: gates nothing)
         #[arg(long)]
         gate: bool,
+        /// Additionally write the `--format github` annotations rendering to
+        /// this path while the primary format still goes to stdout — one
+        /// review run instead of two (annotations + comment body)
+        #[arg(long)]
+        annotations_file: Option<String>,
     },
 
     /// Countable maintainability metrics from the stored graph, and their

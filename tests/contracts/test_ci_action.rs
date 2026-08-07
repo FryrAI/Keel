@@ -249,6 +249,28 @@ fn custom_args_become_their_own_mode_before_the_mode_is_published() {
     );
 }
 
+/// #63: one `keel review` run must produce both the annotations file and the
+/// sticky-comment body — the second, output-shaping-only invocation is gone.
+#[test]
+fn review_mode_runs_keel_review_exactly_once() {
+    let yaml = read(".github/actions/keel/action.yml");
+    let run = embedded_scripts(&yaml)
+        .into_iter()
+        .find(|b| b.contains("read -r -a cmd"))
+        .expect("the run step must build the keel command from args/mode");
+    let code = code_only(&run);
+    assert!(code.contains("--annotations-file"));
+    assert_eq!(
+        code.matches(r#"keel "${cmd[@]}""#).count(),
+        1,
+        "the resolved command must be invoked exactly once regardless of mode"
+    );
+    assert!(
+        !code.contains(r#"keel review --base "$GRAPH_SHA" >"#),
+        "a second hardcoded review call for output shaping must not come back"
+    );
+}
+
 /// What `keel init` scaffolds and what the maintained action does must be the
 /// same recipe. This is the divergence T2.3 deleted: the scaffold used to
 /// `curl install.sh` and run `keel map --json --strict`, so a user following

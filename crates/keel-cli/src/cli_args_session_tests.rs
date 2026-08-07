@@ -96,10 +96,16 @@ fn parse_validate_plan_missing_arg() {
 #[test]
 fn parse_review_base() {
     match parse(&["keel", "review", "--base", "origin/main"]).command {
-        Commands::Review { base, format, gate } => {
+        Commands::Review {
+            base,
+            format,
+            gate,
+            annotations_file,
+        } => {
             assert_eq!(base, "origin/main");
             assert!(format.is_none(), "no CI protocol unless asked for");
             assert!(!gate, "review never gates by default");
+            assert!(annotations_file.is_none());
         }
         _ => panic!("expected Review"),
     }
@@ -115,6 +121,27 @@ fn parse_review_github_format_and_gate() {
         Commands::Review { format, gate, .. } => {
             assert_eq!(format, Some(crate::cli_args::WireFormat::Github));
             assert!(gate);
+        }
+        _ => panic!("expected Review"),
+    }
+}
+
+#[test]
+fn parse_review_annotations_file() {
+    match parse(&[
+        "keel",
+        "review",
+        "--base",
+        "main",
+        "--annotations-file",
+        "/tmp/annotations.txt",
+    ])
+    .command
+    {
+        Commands::Review {
+            annotations_file, ..
+        } => {
+            assert_eq!(annotations_file.as_deref(), Some("/tmp/annotations.txt"));
         }
         _ => panic!("expected Review"),
     }

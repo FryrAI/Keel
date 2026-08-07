@@ -85,9 +85,9 @@ runs:
 
         # An explicit `args:` wins over `mode` — the escape hatch for anything
         # this action does not model. It becomes its OWN mode: the caller's
-        # command IS the run, so the review plumbing below (a second `keel
-        # review`, the sticky comment keyed on this output) must not fire on top
-        # of it just because the event happened to be a pull_request.
+        # command IS the run, so the review plumbing below (the sticky comment
+        # keyed on this output) must not fire on top of it just because the
+        # event happened to be a pull_request.
         if [ -n "$ARGS" ]; then
           mode="custom"
           read -r -a cmd <<<"$ARGS"
@@ -101,18 +101,53 @@ runs:
         fi
         echo "mode=$mode" >>"$GITHUB_OUTPUT"
 
-        # `--format github` makes the binary emit the annotations itself. It
-        # replaced an inline interpreter heredoc that reshaped keel's JSON — an
-        # undeclared runtime dependency in a tool whose Article 1 is "single
-        # binary, zero runtime dependencies". Keep this step interpreter-free.
+        # In review mode `keel review --annotations-file` writes this itself as
+        # part of the one run below. Defensively create it up front anyway: if
+        # `keel` fails before producing output (an unresolvable `--base`) or
+        # the mode isn't review, nothing else guarantees the file exists, and
+        # `cat`/`grep -c` on a missing file would fail the step for the wrong
+        # reason.
+        : >"$ANNOTATIONS"
+
+        # `--format github`/`--annotations-file` make the binary emit the
+        # annotations itself. That replaced an inline interpreter heredoc that
+        # reshaped keel's JSON — an undeclared runtime dependency in a tool
+        # whose Article 1 is "single binary, zero runtime dependencies". Keep
+        # this step interpreter-free.
         #
+        # Review mode drives both outputs from ONE `keel review` run:
+        # `--annotations-file` writes the CI protocol to $ANNOTATIONS while
+        # stdout (redirected to $REVIEW) still carries the primary rendering
+        # for the sticky comment — no second, output-shaping-only invocation.
+        # Every other mode keeps its single `--format github` run, unchanged.
+        if [ "$mode" = "review" ]; then
+          rm -f "$REVIEW"
+          extra_args=(--annotations-file "$ANNOTATIONS")
+          out_file="$REVIEW"
+        else
+          extra_args=(--format github)
+          out_file="$ANNOTATIONS"
+        fi
+
         # `|| exit_code=$?`, not a bare `$?` on the next line: composite bash
         # runs with implicit -e, so an ERROR-level keel exit would kill the
         # script HERE — annotations unposted, outputs unset, sticky comment
-        # skipped — and the step would go red with nothing on it to read.
+        # skipped — and the step would go red with nothing on it to read. The
+        # assignment itself always exits 0, so -e never fires on this line.
         exit_code=0
-        keel "${cmd[@]}" --format github >"$ANNOTATIONS" || exit_code=$?
+        keel "${cmd[@]}" "${extra_args[@]}" >"$out_file" || exit_code=$?
         echo "exit-code=$exit_code" >>"$GITHUB_OUTPUT"
+
+        # A review that could not run must leave no $REVIEW behind: an empty
+        # file reads as "clean" to sticky_comment.sh, and it would say so
+        # untruthfully. Non-review modes have nothing to clean up here — their
+        # output lives in $ANNOTATIONS, which must survive a failure. An `if`
+        # with no `else`, not `[ ... ] && rm -f`: the latter's exit status is
+        # the test's when it's false, which would trip -e on every non-review
+        # failure.
+        if [ "$mode" = "review" ] && [ "$exit_code" -ne 0 ]; then
+          rm -f "$REVIEW"
+        fi
 
         # The annotations ARE the output: echoing them is what posts them.
         cat "$ANNOTATIONS"
@@ -132,14 +167,9 @@ runs:
         fi
         echo "summary=$summary" >>"$GITHUB_OUTPUT"
 
-        # In review mode the sticky comment is the report; the plain rendering
-        # is produced here so the comment step is pure plumbing.
-        if [ "$mode" = "review" ]; then
-          # A review that could not run must leave no body behind: an empty
-          # file reads as "clean", and the comment would say so untruthfully.
-          rm -f "$REVIEW"
-          keel review --base "$GRAPH_SHA" >"$REVIEW" || rm -f "$REVIEW"
-        else
+        # In review mode the sticky comment is the report — $REVIEW is already
+        # written above. Only the non-review modes need a step summary here.
+        if [ "$mode" != "review" ]; then
           {
             echo "### keel ${cmd[0]}"
             echo ""

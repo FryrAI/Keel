@@ -274,6 +274,76 @@ fn unresolvable_base_exits_two() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("no-such-ref"));
 }
 
+/// #63: `--annotations-file` drives both outputs from the one run — stdout
+/// keeps the primary rendering (what the sticky comment posts) while the
+/// github-format annotations land in the given file, so CI never needs a
+/// second `keel review` invocation.
+#[test]
+fn annotations_file_writes_github_format_while_stdout_stays_primary() {
+    let dir = fixture();
+    let root = dir.path();
+    write(
+        root,
+        "src/lib.ts",
+        "export function execute(cmd: number): number {\n  return cmd;\n}\n\
+         export function fresh(x: number): number {\n  return x;\n}\n",
+    );
+    let annotations_path = root.join("annotations.txt");
+
+    let out = keel(
+        root,
+        &[
+            "review",
+            "--base",
+            "HEAD",
+            "--llm",
+            "--annotations-file",
+            annotations_path.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("NEW 1 new violation(s)"),
+        "stdout must still carry the primary (non-github) rendering: {stdout}"
+    );
+    assert!(
+        !stdout.lines().any(|l| l.starts_with("::")),
+        "stdout must not turn into annotation lines just because the flag was passed: {stdout}"
+    );
+
+    let annotations = fs::read_to_string(&annotations_path).unwrap();
+    assert!(
+        annotations.lines().all(|l| l.starts_with("::")),
+        "the annotations file must hold the github-format rendering: {annotations}"
+    );
+    assert!(annotations.contains("title=[E003]"), "{annotations}");
+}
+
+/// An internal failure (unresolvable base) must not leave a stale/partial
+/// annotations file behind — mirrors "no output on internal error".
+#[test]
+fn unresolvable_base_with_annotations_file_writes_no_file() {
+    let dir = fixture();
+    let annotations_path = dir.path().join("annotations.txt");
+    let out = keel(
+        dir.path(),
+        &[
+            "review",
+            "--base",
+            "no-such-ref",
+            "--llm",
+            "--annotations-file",
+            annotations_path.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        !annotations_path.exists(),
+        "an internal error must not create the annotations file"
+    );
+}
+
 /// The perf budget from the plan: < 3s on a ~54-file PR. 60 changed files here
 /// stands in for the 54-file zenzy PR the budget was sized against.
 ///

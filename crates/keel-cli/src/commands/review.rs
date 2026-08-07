@@ -17,12 +17,18 @@ use keel_output::OutputFormatter;
 /// Honors the clean-output contract: a diff that moved no contract, introduced
 /// no violation, and touched no file keel cannot parse prints nothing, unless
 /// `--verbose` asks for the counts anyway.
+///
+/// `annotations_file`, when set, additionally writes the `--format github`
+/// rendering to that path while stdout still carries the primary format — one
+/// `review::review` run driving both a CI annotation file and a sticky-comment
+/// body, instead of two invocations.
 pub fn run(
     formatter: &dyn OutputFormatter,
     verbose: bool,
     base: String,
     github: bool,
     gate: bool,
+    annotations_file: Option<String>,
 ) -> i32 {
     let ctx = match super::open_repo("review") {
         Ok(x) => x,
@@ -44,6 +50,17 @@ pub fn run(
             return 2;
         }
     };
+
+    // Written unconditionally on success, including when empty, so the CI
+    // script can `cat`/`grep -c` it without a branch. Independent of `github`:
+    // both may be set (the primary format still goes to stdout either way).
+    if let Some(path) = &annotations_file {
+        let annotations = keel_output::github::annotations(&result.new_violations);
+        if let Err(e) = std::fs::write(path, &annotations) {
+            eprintln!("keel review: failed to write {}: {}", path, e);
+            return 2;
+        }
+    }
 
     if verbose {
         eprintln!(
