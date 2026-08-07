@@ -463,3 +463,93 @@ fn test_w002_stored_free_node_still_fires() {
     );
     assert_eq!(violations[0].code, "W002");
 }
+
+#[test]
+fn test_w002_build_rs_vs_main_rs_is_exempt() {
+    // Issue #62: build.rs and src/main.rs both define `fn main()` — each
+    // compiles as its own independent Cargo crate, so this is not ambiguity.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "crates/x/src/main.rs");
+    let fn_a = make_func_node(2, "main", "crates/x/src/main.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("main", "crates/x/build.rs", 1);
+    let file = make_file("crates/x/build.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert!(
+        violations.is_empty(),
+        "build.rs vs src/main.rs main() must not fire W002"
+    );
+}
+
+#[test]
+fn test_w002_two_bin_targets_are_exempt() {
+    // Two independent binary targets: each `src/bin/*.rs` is its own crate.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/bin/a.rs");
+    let fn_a = make_func_node(2, "main", "src/bin/a.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("main", "src/bin/b.rs", 1);
+    let file = make_file("src/bin/b.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert!(
+        violations.is_empty(),
+        "two independent bin targets' main() must not fire W002"
+    );
+}
+
+#[test]
+fn test_w002_genuine_duplicate_main_still_fires() {
+    // Scoped, not a blanket "main" exemption: two ordinary (non-Cargo-root)
+    // files defining a free function literally named `main` must still fire.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/game/loop_a.rs");
+    let fn_a = make_func_node(2, "main", "src/game/loop_a.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("main", "src/game/loop_b.rs", 1);
+    let file = make_file("src/game/loop_b.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert_eq!(
+        violations.len(),
+        1,
+        "a genuine duplicate main() outside any Cargo binary root must still fire"
+    );
+}
+
+#[test]
+fn test_w002_non_main_duplicate_in_build_rs_still_fires() {
+    // The exemption must not leak past `main`: some other same-named,
+    // same-signature free function shared between build.rs and src/main.rs
+    // is still a genuine duplicate.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/main.rs");
+    let fn_a = make_func_node(2, "helper", "src/main.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("helper", "build.rs", 1);
+    let file = make_file("build.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert_eq!(
+        violations.len(),
+        1,
+        "a non-main duplicate between build.rs and src/main.rs must still fire"
+    );
+}

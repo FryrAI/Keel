@@ -6,7 +6,8 @@ use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
 use crate::violations_util::{
-    extract_prefix, is_test_file, normalize_signature, parse_signature, receiver_is_type_like,
+    extract_prefix, is_cargo_binary_root, is_test_file, normalize_signature, parse_signature,
+    receiver_is_type_like,
 };
 
 /// Check E004: function_removed — a function was removed but callers still exist.
@@ -291,6 +292,15 @@ pub fn check_placement(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violatio
 /// contract. So this only fires when exactly one other matching site
 /// exists — 2 total copies. 3+ copies stay silent here (W006's body-hash
 /// check still catches genuine multi-copy duplication independent of name).
+///
+/// One more pair is exempt regardless of count: `fn main()` across two Cargo
+/// compilation roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`,
+/// `examples/*.rs`). Cargo compiles each as its own independent crate, so a
+/// `main` in one is invisible to every other — there is no ambiguity to
+/// rename away (issue #62). Gated strictly on `def.name == "main"` so it
+/// cannot mask an accidental duplicate of some other function that happens to
+/// live in one of those roots.
+///
 /// Uses indexed SQL query instead of triple-nested loop. O(F) not O(F*M*N).
 pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
@@ -357,6 +367,17 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
             continue;
         }
         let node = same_shape[0];
+
+        // Cargo-mandated dual `main`: build.rs vs src/main.rs, or two
+        // independent binary targets (src/bin/*.rs, examples/*.rs) — each
+        // compiles as its own crate, so there is no ambiguity to rename away
+        // (issue #62).
+        if def.name == "main"
+            && is_cargo_binary_root(&file.file_path)
+            && is_cargo_binary_root(&node.file_path)
+        {
+            continue;
+        }
 
         violations.push(Violation {
             code: "W002".to_string(),

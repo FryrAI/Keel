@@ -61,6 +61,23 @@ pub fn is_stub_file(path: &str) -> bool {
         || path.ends_with(".d.cts")
 }
 
+/// True for a Cargo-recognized binary/build-script compilation root:
+/// `build.rs`, `src/main.rs`, any `src/bin/*.rs`, any `examples/*.rs`.
+/// Cargo compiles each as its own independent crate — a `fn main()` in one
+/// is invisible to every other, so two such roots can never actually
+/// collide, no matter how many of them exist.
+pub fn is_cargo_binary_root(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
+    basename == "build.rs"
+        || normalized == "src/main.rs"
+        || normalized.ends_with("/src/main.rs")
+        || normalized.starts_with("src/bin/")
+        || normalized.contains("/src/bin/")
+        || normalized.starts_with("examples/")
+        || normalized.contains("/examples/")
+}
+
 /// Check if a file path is a test file by language convention.
 /// Patterns: *_test.go, test_*.py, *_test.py, conftest.py, *.test.ts,
 /// *.spec.ts, *.test.js, *.spec.js, *_test.rs, *_tests.rs, *_tests_*.rs,
@@ -448,6 +465,40 @@ pub fn extract_prefix(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_cargo_binary_root_matches_recognized_roots() {
+        for path in [
+            "build.rs",
+            "crates/x/build.rs",
+            "src/main.rs",
+            "crates/x/src/main.rs",
+            "src/bin/foo.rs",
+            "crates/x/src/bin/foo.rs",
+            "examples/demo.rs",
+            "crates/x/examples/demo.rs",
+        ] {
+            assert!(
+                is_cargo_binary_root(path),
+                "{path} should be a Cargo binary root"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_cargo_binary_root_rejects_ordinary_source() {
+        for path in [
+            "src/lib.rs",
+            "src/build_rs_helper.rs",
+            "src/mainframe.rs",
+            "crates/x/src/lib.rs",
+        ] {
+            assert!(
+                !is_cargo_binary_root(path),
+                "{path} must not match on substring"
+            );
+        }
+    }
 
     #[test]
     fn test_parse_signature_counts_params() {
