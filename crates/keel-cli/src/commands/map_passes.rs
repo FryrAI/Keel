@@ -90,6 +90,8 @@ pub fn first_pass(
             type_hints_present: true,
             has_docstring: false,
             is_associated: false,
+            // Modules are not measured — no body, nothing to branch.
+            complexity: 0,
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
@@ -146,6 +148,7 @@ pub fn first_pass(
                 type_hints_present: def.type_hints_present,
                 has_docstring: def.docstring.is_some(),
                 is_associated: def.is_associated,
+                complexity: def.complexity,
                 external_endpoints: vec![],
                 previous_hashes: vec![],
                 module_id,

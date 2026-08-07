@@ -37,6 +37,7 @@ fn make_file_with_missing_hints(file: &str) -> FileIndex {
         file_path: file.to_string(),
         content_hash: 0,
         definitions: vec![Definition {
+            complexity: 1,
             name: "untyped".to_string(),
             kind: NodeKind::Function,
             signature: "def untyped(data)".to_string(),

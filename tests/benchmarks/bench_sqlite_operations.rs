@@ -10,6 +10,7 @@ fn make_node(id: u64, name: &str, file_path: &str) -> GraphNode {
     let sig = format!("fn {name}()");
     let hash = compute_hash(&sig, "", "");
     GraphNode {
+        complexity: 0,
         id,
         hash,
         kind: NodeKind::Function,

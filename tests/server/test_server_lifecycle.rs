@@ -63,6 +63,7 @@ fn test_server_mcp_process_line_integration() {
     let store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 1,
             hash: "lifecycleH01".into(),
             kind: NodeKind::Function,
@@ -115,6 +116,7 @@ fn test_server_handles_concurrent_requests() {
     let store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 1,
             hash: "concHash0001".into(),
             kind: NodeKind::Function,

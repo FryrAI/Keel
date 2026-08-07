@@ -9,6 +9,7 @@ use crate::common::in_memory_store;
 
 fn make_node(id: u64, name: &str, sig: &str, body: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: compute_hash(sig, body, ""),
         kind: NodeKind::Function,
@@ -183,6 +184,7 @@ fn test_e004_function_still_exists_no_violation() {
         .unwrap();
 
     let def = Definition {
+        complexity: 1,
         name: "keep_me".to_string(),
         kind: NodeKind::Function,
         signature: "def keep_me()".to_string(),

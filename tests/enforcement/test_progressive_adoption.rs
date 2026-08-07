@@ -11,6 +11,7 @@ fn make_file_no_hints(name: &str) -> FileIndex {
         file_path: format!("{name}.py"),
         content_hash: 0,
         definitions: vec![Definition {
+            complexity: 1,
             name: name.to_string(),
             kind: NodeKind::Function,
             signature: format!("def {name}(data)"),
@@ -41,6 +42,7 @@ fn make_clean_file(name: &str) -> FileIndex {
         file_path: format!("{name}.py"),
         content_hash: 0,
         definitions: vec![Definition {
+            complexity: 1,
             name: name.to_string(),
             kind: NodeKind::Function,
             signature: format!("def {name}(data: str) -> str"),

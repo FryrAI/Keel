@@ -30,6 +30,7 @@ fn make_profile(module_id: u64, path: &str, prefix: &str) -> ModuleProfile {
 
 fn make_module_node(id: u64, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: compute_hash(&format!("module:{file}"), "", ""),
         kind: NodeKind::Module,
@@ -52,6 +53,7 @@ fn make_module_node(id: u64, file: &str) -> GraphNode {
 
 fn make_func_def(name: &str, file: &str) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: format!("def {name}()"),
@@ -146,6 +148,7 @@ fn test_w001_class_not_checked() {
 
     // Classes are skipped by check_placement (only functions)
     let class_def = Definition {
+        complexity: 1,
         name: "ValidateEmail".to_string(),
         kind: NodeKind::Class,
         signature: "class ValidateEmail".to_string(),

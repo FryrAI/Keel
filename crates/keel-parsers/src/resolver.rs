@@ -148,6 +148,14 @@ pub struct Definition {
     /// the parse cache rather than the graph, so there is no `nodes.is_macro`
     /// column and no schema bump. Other languages always carry `false`.
     pub is_macro: bool,
+    /// McCabe cyclomatic complexity of this definition's body: 1 + the number
+    /// of decision points (branches, loops, short-circuiting boolean
+    /// operators, catch/except arms, match/case arms) in its subtree, not
+    /// counting nested named function/method definitions — they get their own
+    /// count. 1 for modules, which capture no body. Deliberately absent from
+    /// [`Definition::hash`]: it is derived from `body_text`, which already
+    /// drives the hash.
+    pub complexity: u32,
 }
 
 impl Definition {
@@ -403,6 +411,7 @@ mod tests {
 
         let result = ParseResult {
             definitions: vec![Definition {
+                complexity: 1,
                 name: "foo".to_string(),
                 kind: NodeKind::Function,
                 signature: "fn foo()".to_string(),

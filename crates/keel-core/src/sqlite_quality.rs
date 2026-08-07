@@ -164,9 +164,9 @@ impl SqliteGraphStore {
         )
     }
 
-    /// Everything the `keel quality` metrics need, in four aggregate queries.
+    /// Everything the `keel quality` metrics need, in five aggregate queries.
     ///
-    /// All four are answered from existing indexes (`nodes.id` and
+    /// All five are answered from existing indexes (`nodes.id` and
     /// `edges.target_id` primary/secondary keys drive the joins), so a full
     /// measurement costs a handful of milliseconds instead of one query per
     /// node. Files are deduplicated here: hash-salt collisions can leave a file
@@ -238,12 +238,27 @@ impl SqliteGraphStore {
             )
             .unwrap_or((0, 0));
 
+        let complexity_by_fn = self
+            .collect(
+                "SELECT file_path, complexity, (line_end - line_start + 1)
+                 FROM nodes WHERE kind = 'function'",
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u32,
+                        row.get::<_, i64>(2)?.max(0) as u32,
+                    ))
+                },
+            )
+            .unwrap_or_default();
+
         QualityInputs {
             file_lines,
             uncalled_private_fns,
             module_deps,
             dependency_edges,
             cross_file_dependency_edges,
+            complexity_by_fn,
         }
     }
 

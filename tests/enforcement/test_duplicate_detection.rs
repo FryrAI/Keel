@@ -9,6 +9,7 @@ use crate::common::in_memory_store;
 
 fn make_module_node(id: u64, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: compute_hash(&format!("module:{file}"), "", ""),
         kind: NodeKind::Module,
@@ -31,6 +32,7 @@ fn make_module_node(id: u64, file: &str) -> GraphNode {
 
 fn make_func_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: compute_hash(&format!("def {name}()"), "pass", ""),
         kind: NodeKind::Function,
@@ -53,6 +55,7 @@ fn make_func_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
 
 fn make_func_def(name: &str, file: &str, line: u32) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: format!("def {name}()"),
@@ -356,6 +359,7 @@ fn test_w002_class_not_reported() {
     // Only function duplicates trigger W002, not classes
     let mod_a = make_module_node(1, "a.py");
     let class_a = GraphNode {
+        complexity: 0,
         id: 2,
         hash: compute_hash("class Model", "pass", ""),
         kind: NodeKind::Class,
@@ -380,6 +384,7 @@ fn test_w002_class_not_reported() {
 
     // File with class definition (not function)
     let class_def = Definition {
+        complexity: 1,
         name: "Model".to_string(),
         kind: NodeKind::Class,
         signature: "class Model".to_string(),

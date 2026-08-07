@@ -10,6 +10,7 @@ fn make_clean_file() -> FileIndex {
         file_path: "clean.py".to_string(),
         content_hash: 0,
         definitions: vec![Definition {
+            complexity: 1,
             name: "good_func".to_string(),
             kind: NodeKind::Function,
             signature: "def good_func(x: int) -> int".to_string(),
@@ -40,6 +41,7 @@ fn make_dirty_file() -> FileIndex {
         file_path: "dirty.py".to_string(),
         content_hash: 0,
         definitions: vec![Definition {
+            complexity: 1,
             name: "bad_func".to_string(),
             kind: NodeKind::Function,
             signature: "def bad_func(data)".to_string(),

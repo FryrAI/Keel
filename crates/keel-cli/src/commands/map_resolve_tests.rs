@@ -140,6 +140,7 @@ fn def(
     end: u32,
 ) -> keel_parsers::resolver::Definition {
     keel_parsers::resolver::Definition {
+        complexity: 1,
         name: name.to_string(),
         kind,
         signature: name.to_string(),

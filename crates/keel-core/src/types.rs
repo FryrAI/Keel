@@ -110,6 +110,13 @@ pub struct GraphNode {
     /// in a different file, across separate compiles (issue #46).
     #[serde(default)]
     pub is_associated: bool,
+    /// McCabe cyclomatic complexity, from `Definition::complexity`. 1 for
+    /// modules and (for now) classes — there is no meaningful "class
+    /// complexity". Zero means *not measured*: rows written before the column
+    /// existed read back as 0 until the next `keel map`/`keel compile` touches
+    /// them.
+    #[serde(default)]
+    pub complexity: u32,
     pub external_endpoints: Vec<ExternalEndpoint>,
     pub previous_hashes: Vec<String>,
     pub module_id: u64,
@@ -343,6 +350,11 @@ pub struct QualityInputs {
     pub dependency_edges: u64,
     /// How many of those cross a file boundary.
     pub cross_file_dependency_edges: u64,
+    /// One entry per function node: `(file_path, complexity, sloc)`, where
+    /// `sloc` is `line_end - line_start + 1` — the same span source as
+    /// `file_lines`. File-class and test exemptions are the caller's job, as
+    /// with every other field here.
+    pub complexity_by_fn: Vec<(String, u32, u32)>,
 }
 
 /// Errors that can occur during graph operations.

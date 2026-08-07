@@ -11,6 +11,7 @@ fn node(
     docstring: Option<&str>,
 ) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: hash.into(),
         kind,

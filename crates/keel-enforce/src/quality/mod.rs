@@ -9,7 +9,7 @@
 //!
 //! Three rules shape everything here:
 //!
-//! 1. **Countable, never a score.** Four metrics, each of which resolves to
+//! 1. **Countable, never a score.** Six metrics, each of which resolves to
 //!    named instances a reader can go look at. No composite "quality score", no
 //!    judgement about whether an abstraction is right.
 //! 2. **Report, never a gate.** `keel quality` always exits 0. A ratio in the
@@ -50,10 +50,14 @@ pub use trend::{MetricTrend, QualityPoint, QualityTrend, TrendStep};
 /// what version 1 *means*, since no released keel has written a snapshot yet.
 pub const METRICS_VERSION: u32 = 1;
 
-/// The four countable readings taken from one graph state.
+/// The six countable readings taken from one graph state.
 ///
 /// Serialized as the `metrics` blob of a `quality_snapshots` row. Field order
 /// is the reporting order.
+///
+/// Fields added after version 1 shipped carry `#[serde(default)]` and must be
+/// named in [`trend::METRICS_ADDED_AFTER_V1`], or a blob predating them would
+/// deserialize as `0.0` and the trend would draw a step out of "not measured".
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct QualityMetrics {
     /// Blob version — see [`METRICS_VERSION`].
@@ -79,15 +83,36 @@ pub struct QualityMetrics {
     /// Share of dependency edges that leave their own file. Trend-only: there
     /// is no good absolute value, only a direction over time.
     pub cross_module_edge_ratio: f64,
+    /// Share of the repo's complexity-weighted mass (`Σ cc·√sloc` over
+    /// functions in hand-written source) held by functions above
+    /// [`HIGH_CC_THRESHOLD`]. A rising share means branching is concentrating
+    /// into a shrinking set of hot functions — the shape erosion takes when
+    /// line counts stay flat. Judged: higher is worse.
+    #[serde(default)]
+    pub high_cc_mass_share: f64,
+    /// Share of module pairs where one transitively reaches the other
+    /// through calls/imports — `reachable_pairs / n²` over the module
+    /// dependency graph. Trend-only: a rise may be shared infrastructure
+    /// growing or coupling spreading, and keel cannot tell those apart.
+    #[serde(default)]
+    pub propagation_cost: f64,
 }
+
+/// Cyclomatic complexity above which a function's mass counts as "hot" for
+/// [`QualityMetrics::high_cc_mass_share`].
+///
+/// Hardcoded, like the audit's cycle cap: a configurable threshold would let a
+/// repo tune the metric until the series flattens, which is the one thing a
+/// trend must not permit.
+const HIGH_CC_THRESHOLD: u32 = 10;
 
 impl QualityMetrics {
     /// The reportable metrics as `(name, value, judged)`, in reporting order.
     ///
-    /// `judged` is false for `cross_module_edge_ratio`: a rising ratio may be
-    /// decomposition or may be scatter, and keel does not know which, so it is
-    /// reported as a direction and never as "worse".
-    pub fn rows(&self) -> [(&'static str, f64, bool); 4] {
+    /// `judged` is false for `cross_module_edge_ratio` and `propagation_cost`:
+    /// a rise in either may be decomposition or may be scatter, and keel does
+    /// not know which, so it is reported as a direction and never as "worse".
+    pub fn rows(&self) -> [(&'static str, f64, bool); 6] {
         [
             ("files_over_budget", self.files_over_budget as f64, true),
             ("cycle_count", self.cycle_count as f64, true),
@@ -97,6 +122,8 @@ impl QualityMetrics {
                 self.cross_module_edge_ratio,
                 false,
             ),
+            ("high_cc_mass_share", self.high_cc_mass_share, true),
+            ("propagation_cost", self.propagation_cost, false),
         ]
     }
 
@@ -141,9 +168,9 @@ impl QualityReport {
     }
 }
 
-/// Measure the four metrics against the persisted graph.
+/// Measure the six metrics against the persisted graph.
 ///
-/// The store answers the whole measurement in four aggregate queries (see
+/// The store answers the whole measurement in five aggregate queries (see
 /// [`keel_core::types::QualityInputs`]); this function applies the exemption
 /// rules keel-enforce owns — file class, entrypoint names, reportable cycles —
 /// and does no graph traversal of its own. That split is what keeps a full
@@ -180,19 +207,35 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         })
         .count() as u32;
 
-    let cycle_count = find_cycles(&module_dependency_graph(inputs))
+    // One graph, two readings — cycles and reachability walk the same edges.
+    let graph = module_dependency_graph(inputs);
+    let cycle_count = find_cycles(&graph)
         .iter()
         .filter(|c| is_reportable_cycle(c))
         .count() as u32;
 
-    let cross_module_edge_ratio = if inputs.dependency_edges == 0 {
-        0.0
-    } else {
-        // Two decimals: the series is read as a direction, and more precision
-        // manufactures movement out of a single re-resolved edge.
-        let raw = inputs.cross_file_dependency_edges as f64 / inputs.dependency_edges as f64;
-        (raw * 100.0).round() / 100.0
-    };
+    let cross_module_edge_ratio = ratio(
+        inputs.cross_file_dependency_edges as f64,
+        inputs.dependency_edges as f64,
+    );
+
+    // Weighting by √sloc rather than by sloc keeps a single 400-line switch
+    // from dominating the share, while still ranking a long hot function above
+    // a short one.
+    let (hot_mass, total_mass) = inputs
+        .complexity_by_fn
+        .iter()
+        .filter(|(path, _, _)| FileClass::classify(path).grades_size_and_naming())
+        .fold((0.0f64, 0.0f64), |(hot, total), (_, cc, sloc)| {
+            let mass = *cc as f64 * (*sloc as f64).sqrt();
+            let hot = if *cc > HIGH_CC_THRESHOLD {
+                hot + mass
+            } else {
+                hot
+            };
+            (hot, total + mass)
+        });
+    let high_cc_mass_share = ratio(hot_mass, total_mass);
 
     QualityMetrics {
         version: METRICS_VERSION,
@@ -200,7 +243,53 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         cycle_count,
         dead_private_fns,
         cross_module_edge_ratio,
+        high_cc_mass_share,
+        propagation_cost: propagation_cost(&graph),
     }
+}
+
+/// `part / whole` rounded to two decimals; 0 when `whole` is 0.
+///
+/// Two decimals because the series is read as a direction, and more precision
+/// manufactures movement out of a single re-resolved edge.
+fn ratio(part: f64, whole: f64) -> f64 {
+    if whole == 0.0 {
+        return 0.0;
+    }
+    (part / whole * 100.0).round() / 100.0
+}
+
+/// `reachable_pairs / n²`: for every module, how many *other* modules it can
+/// transitively reach via calls/imports, summed over modules.
+///
+/// Self-pairs are excluded from the numerator — a module trivially "reaches"
+/// itself, and that is not propagation. Unjudged: a rise may be legitimate
+/// shared infrastructure or spreading coupling, the same stance
+/// `cross_module_edge_ratio` takes.
+///
+/// O(n·(V+E)): a DFS per module. Fine at the hundreds-to-low-thousands of
+/// files `keel quality`'s budget targets.
+fn propagation_cost(graph: &HashMap<String, HashSet<String>>) -> f64 {
+    let n = graph.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let reachable_pairs: usize = graph
+        .keys()
+        .map(|start| {
+            let mut seen: HashSet<&str> = HashSet::new();
+            let mut stack: Vec<&str> = vec![start.as_str()];
+            while let Some(module) = stack.pop() {
+                for next in graph.get(module).into_iter().flatten() {
+                    if next != start && seen.insert(next.as_str()) {
+                        stack.push(next.as_str());
+                    }
+                }
+            }
+            seen.len()
+        })
+        .sum();
+    ratio(reachable_pairs as f64, (n * n) as f64)
 }
 
 /// The module dependency graph, in the shape Tarjan's SCC wants.

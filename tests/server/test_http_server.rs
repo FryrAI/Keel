@@ -27,6 +27,7 @@ fn engine_with_node() -> SharedEngine {
     let store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 1,
             hash: "httpTestHash".into(),
             kind: NodeKind::Function,

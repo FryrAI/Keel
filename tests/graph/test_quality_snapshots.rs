@@ -12,6 +12,7 @@ use keel_core::types::{GraphNode, NodeChange, NodeKind};
 
 fn node(id: u64, name: &str, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: format!("qs{id}"),
         kind: NodeKind::Function,

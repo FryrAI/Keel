@@ -9,6 +9,7 @@ use crate::common::in_memory_store;
 
 fn make_definition(name: &str, sig: &str, body: &str, file: &str, line: u32) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: sig.to_string(),
@@ -43,6 +44,7 @@ fn make_file_index(file: &str, defs: Vec<Definition>) -> FileIndex {
 
 fn make_node(id: u64, name: &str, sig: &str, body: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: compute_hash(sig, body, ""),
         kind: NodeKind::Function,

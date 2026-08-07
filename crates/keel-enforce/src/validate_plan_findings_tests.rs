@@ -5,6 +5,7 @@ use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeKind};
 
 fn node(id: u64, hash: &str, name: &str, sig: &str, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: hash.into(),
         kind: NodeKind::Function,

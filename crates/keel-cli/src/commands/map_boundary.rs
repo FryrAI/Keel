@@ -204,6 +204,8 @@ fn alloc_node(
         type_hints_present: true,
         has_docstring: false,
         is_associated: false,
+        // Boundary declarations (`.baml` functions) have no walked body.
+        complexity: 0,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,

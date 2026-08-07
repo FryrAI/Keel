@@ -12,6 +12,7 @@ use keel_core::types::{
 /// Helper to create a minimal test node.
 fn test_node(id: u64, hash: &str, name: &str, kind: NodeKind, module_id: u64) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: hash.to_string(),
         kind,

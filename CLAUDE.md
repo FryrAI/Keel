@@ -165,6 +165,13 @@ When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**
 
 `quality_snapshots` (schema v7) stores a versioned JSON blob keyed on `commit_sha` (UNIQUE — a second capture at the same commit *updates* in place). Bump `keel_enforce::quality::METRICS_VERSION` whenever a metric's *definition* changes: `--trend` then refuses to compare across versions rather than silently re-baselining. `dead_private_fns` is computed from the graph alone, so it over-counts relative to W005 (no decorator/trait-context/`keel:keep` awareness) — it is a trend line, not a violation count.
 
+A metric *added* without a version bump (its field carries `#[serde(default)]`) must also be named in
+`quality::trend::METRICS_ADDED_AFTER_V1`. Otherwise a blob written before the field existed deserializes as
+`0.0` and `--trend` draws a step from "not measured" to a real reading — the same silent re-baselining
+`refused` exists to prevent. Named there, `build_trend` records the gap per point and omits the metric
+(reported in `QualityTrend::omitted`, rendered as `—` in the per-commit table) instead of trending it.
+Append to that list, never remove from it.
+
 The one exception is **honesty about files keel cannot parse**: compiling a `.sql`, `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .sql is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
 
 ### What the Audit Grades
@@ -287,7 +294,7 @@ project vault/notes directory is optional and entirely user-side.)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
 - `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution (callers at risk, risk level, callers-first order) plus P001/P002 plan findings; always exits 0 unless `--strict` is passed
 - `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
-- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
+- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`, `high_cc_mass_share`, `propagation_cost`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 

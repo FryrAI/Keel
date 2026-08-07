@@ -12,9 +12,17 @@ use keel_enforce::quality::{MetricTrend, QualityMetrics, QualityReport, QualityT
 const NO_SNAPSHOTS_HINT: &str =
     "no snapshots yet — run `keel quality --snapshot` (CI takes one per merge) to start the series";
 
-/// Render one metric value: counts as integers, the ratio to two decimals.
+/// Metrics that are fractions rather than counts — rendered to two decimals,
+/// or a 0.34 reading would print as `0` and the series would read as flat.
+const FRACTIONAL_METRICS: &[&str] = &[
+    "cross_module_edge_ratio",
+    "high_cc_mass_share",
+    "propagation_cost",
+];
+
+/// Render one metric value: counts as integers, fractions to two decimals.
 fn value(name: &str, v: f64) -> String {
-    if name == "cross_module_edge_ratio" {
+    if FRACTIONAL_METRICS.contains(&name) {
         format!("{v:.2}")
     } else {
         format!("{v:.0}")
@@ -102,17 +110,29 @@ fn human_trend(trend: &QualityTrend) -> String {
 
     out.push_str("\n  per-commit:\n");
     for p in &trend.points {
+        // A metric this snapshot predates deserializes as 0.0. Printing that
+        // would be the same fabricated reading the trend refuses to draw.
         let cells: Vec<String> = p
             .metrics
             .rows()
             .iter()
-            .map(|(name, v, _)| format!("{}={}", name, value(name, *v)))
+            .map(|(name, v, _)| match p.legacy_missing.contains(name) {
+                true => format!("{name}=—"),
+                false => format!("{}={}", name, value(name, *v)),
+            })
             .collect();
         out.push_str(&format!(
             "    {}  {}  {}\n",
             short(p.commit.as_ref()),
             p.captured_at,
             cells.join(" "),
+        ));
+    }
+
+    if !trend.omitted.is_empty() {
+        out.push_str(&format!(
+            "\n  not trended ({}): a snapshot in this window predates the metric\n",
+            trend.omitted.join(", ")
         ));
     }
 
@@ -210,6 +230,12 @@ fn llm_trend(trend: &QualityTrend) -> Vec<String> {
             step,
         ));
     }
+    if !trend.omitted.is_empty() {
+        lines.push(format!(
+            "omitted={} reason=metric_not_in_every_snapshot",
+            trend.omitted.join(",")
+        ));
+    }
     lines
 }
 
@@ -217,6 +243,7 @@ fn llm_trend(trend: &QualityTrend) -> Vec<String> {
 mod tests {
     use super::*;
     use keel_enforce::quality::{QualityPoint, TrendStep, METRICS_VERSION};
+    use std::collections::HashSet;
 
     fn metrics(over: u32, ratio: f64) -> QualityMetrics {
         QualityMetrics {
@@ -225,6 +252,8 @@ mod tests {
             cycle_count: 1,
             dead_private_fns: 2,
             cross_module_edge_ratio: ratio,
+            high_cc_mass_share: 0.5,
+            propagation_cost: 0.12,
         }
     }
 
@@ -240,6 +269,7 @@ mod tests {
             commit: Some(sha.into()),
             captured_at: "2026-08-01 10:00:00".into(),
             metrics: m,
+            legacy_missing: HashSet::new(),
         }
     }
 
@@ -249,6 +279,7 @@ mod tests {
             metrics: Vec::new(),
             refused: None,
             unreadable: 0,
+            omitted: Vec::new(),
         }
     }
 
@@ -290,6 +321,7 @@ mod tests {
             }],
             refused: None,
             unreadable: 0,
+            omitted: vec!["propagation_cost".to_string()],
         };
         let out = llm(&report(None, Some(trend)));
         assert!(out.contains("QUALITY-TREND points=2 span=aaaaaaa..bbbbbbb"));
@@ -309,10 +341,32 @@ mod tests {
             metrics: Vec::new(),
             refused: Some("metrics version changed".into()),
             unreadable: 0,
+            omitted: Vec::new(),
         };
         let out = human(&report(None, Some(trend)));
         assert!(out.contains("comparison refused"));
         assert!(!out.contains("worsening"));
+    }
+
+    /// A metric a snapshot predates deserializes as `0.0`. Neither the trend
+    /// table nor the per-commit series may print that as a reading.
+    #[test]
+    fn a_metric_a_snapshot_predates_renders_as_absent_not_as_zero() {
+        let legacy = QualityPoint {
+            legacy_missing: HashSet::from(["propagation_cost"]),
+            ..point("aaaaaaa1", metrics(10, 0.30))
+        };
+        let trend = QualityTrend {
+            points: vec![legacy, point("bbbbbbb2", metrics(12, 0.31))],
+            metrics: Vec::new(),
+            refused: None,
+            unreadable: 0,
+            omitted: vec!["propagation_cost".to_string()],
+        };
+        let out = human(&report(None, Some(trend)));
+        assert!(out.contains("propagation_cost=—"));
+        assert!(out.contains("propagation_cost=0.12"));
+        assert!(out.contains("not trended (propagation_cost)"));
     }
 
     #[test]

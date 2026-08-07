@@ -4,6 +4,7 @@ use keel_parsers::resolver::Definition;
 
 fn undocumented_def(name: &str, file: &str) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: format!("fn {name}()"),
@@ -39,6 +40,7 @@ fn file_with(def: Definition) -> FileIndex {
 /// A stored node whose hash matches the definition exactly (untouched).
 fn matching_node(def: &Definition) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id: 1,
         hash: keel_core::hash::compute_hash(
             &def.signature,

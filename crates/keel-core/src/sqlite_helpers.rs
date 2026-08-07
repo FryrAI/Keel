@@ -266,8 +266,8 @@ impl SqliteGraphStore {
     /// Insert a node into the database, or update it on hash conflict (upsert).
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {
         self.conn.execute(
-            "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, module_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, complexity, module_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT(hash) DO UPDATE SET
                 kind = excluded.kind,
                 name = excluded.name,
@@ -280,6 +280,7 @@ impl SqliteGraphStore {
                 type_hints_present = excluded.type_hints_present,
                 has_docstring = excluded.has_docstring,
                 is_associated = excluded.is_associated,
+                complexity = excluded.complexity,
                 module_id = excluded.module_id,
                 updated_at = datetime('now')",
             params![
@@ -296,6 +297,7 @@ impl SqliteGraphStore {
                 node.type_hints_present as i32,
                 node.has_docstring as i32,
                 node.is_associated as i32,
+                node.complexity,
                 if node.module_id == 0 { None } else { Some(node.module_id) },
             ],
         )?;
@@ -402,7 +404,7 @@ impl SqliteGraphStore {
         }
 
         self.conn.execute(
-            "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, is_associated = ?12, module_id = ?13, updated_at = datetime('now') WHERE id = ?14",
+            "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, is_associated = ?12, complexity = ?13, module_id = ?14, updated_at = datetime('now') WHERE id = ?15",
             params![
                 node.hash,
                 node.kind.as_str(),
@@ -416,6 +418,7 @@ impl SqliteGraphStore {
                 node.type_hints_present as i32,
                 node.has_docstring as i32,
                 node.is_associated as i32,
+                node.complexity,
                 if node.module_id == 0 { None } else { Some(node.module_id) },
                 node.id,
             ],
@@ -459,6 +462,7 @@ impl SqliteGraphStore {
             type_hints_present: row.get::<_, i32>("type_hints_present")? != 0,
             has_docstring: row.get::<_, i32>("has_docstring")? != 0,
             is_associated: row.get::<_, i32>("is_associated")? != 0,
+            complexity: row.get("complexity")?,
             external_endpoints: Vec::new(), // loaded separately
             previous_hashes: Vec::new(),    // loaded separately
             module_id: row.get::<_, Option<u64>>("module_id")?.unwrap_or(0),

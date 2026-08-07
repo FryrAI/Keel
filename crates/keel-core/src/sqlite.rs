@@ -155,6 +155,7 @@ impl SqliteGraphStore {
                 type_hints_present INTEGER NOT NULL DEFAULT 0,
                 has_docstring INTEGER NOT NULL DEFAULT 0,
                 is_associated INTEGER NOT NULL DEFAULT 0,
+                complexity INTEGER NOT NULL DEFAULT 0,
                 module_id INTEGER REFERENCES nodes(id),
                 package TEXT DEFAULT NULL,
                 resolution_tier TEXT NOT NULL DEFAULT '',
@@ -263,6 +264,15 @@ impl SqliteGraphStore {
         let _ = self
             .conn
             .execute_batch("ALTER TABLE nodes ADD COLUMN is_associated INTEGER NOT NULL DEFAULT 0");
+
+        // Per-function cyclomatic complexity (issue #58), added the same way
+        // and for the same reason as `is_associated` above: one additive,
+        // defaulted column does not justify a SCHEMA_VERSION bump. Existing
+        // rows read back as 0 — "not measured" — until the next map/compile
+        // rewrites them.
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE nodes ADD COLUMN complexity INTEGER NOT NULL DEFAULT 0");
 
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
         self.drop_stale_body_index()?;

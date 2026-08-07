@@ -11,6 +11,7 @@ use crate::types::{AuditOptions, AuditResult};
 
 fn function_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: format!("h{id:010}"),
         kind: NodeKind::Function,

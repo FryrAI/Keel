@@ -32,6 +32,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        complexity: 1,
     }
 }
 
@@ -124,6 +125,7 @@ pub(crate) fn function_node(id: u64, hash: &str, name: &str, file: &str) -> Grap
         type_hints_present: true,
         has_docstring: false,
         is_associated: false,
+        complexity: 1,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -138,6 +140,7 @@ pub(crate) fn node_for_definition(id: u64, def: &Definition) -> GraphNode {
     let mut node = function_node(id, &hash, &def.name, &def.file_path);
     node.is_public = def.is_public;
     node.is_associated = def.is_associated;
+    node.complexity = def.complexity;
     node.line_start = def.line_start;
     node.line_end = def.line_end;
     node

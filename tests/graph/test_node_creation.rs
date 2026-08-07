@@ -6,6 +6,7 @@ use keel_core::types::{ExternalEndpoint, GraphNode, NodeKind};
 /// Creating a GraphNode with NodeKind::Function should populate all required fields.
 fn test_create_function_node() {
     let node = GraphNode {
+        complexity: 0,
         id: 1,
         hash: "abc12345678".into(),
         kind: NodeKind::Function,
@@ -37,6 +38,7 @@ fn test_create_function_node() {
 /// Creating a GraphNode with NodeKind::Class should store class-level metadata.
 fn test_create_class_node() {
     let node = GraphNode {
+        complexity: 0,
         id: 2,
         hash: "cls12345678".into(),
         kind: NodeKind::Class,
@@ -65,6 +67,7 @@ fn test_create_class_node() {
 /// Creating a GraphNode with NodeKind::Module should represent a file-level module.
 fn test_create_module_node() {
     let node = GraphNode {
+        complexity: 0,
         id: 3,
         hash: "mod12345678".into(),
         kind: NodeKind::Module,
@@ -93,6 +96,7 @@ fn test_create_module_node() {
 /// Note: NodeKind has 3 variants (Module, Class, Function). Methods are Function.
 fn test_create_method_node() {
     let node = GraphNode {
+        complexity: 0,
         id: 4,
         hash: "mth12345678".into(),
         kind: NodeKind::Function,
@@ -120,6 +124,7 @@ fn test_create_method_node() {
 /// Creating a GraphNode for an interface should use NodeKind::Class.
 fn test_create_interface_node() {
     let node = GraphNode {
+        complexity: 0,
         id: 5,
         hash: "ifc12345678".into(),
         kind: NodeKind::Class,
@@ -147,6 +152,7 @@ fn test_create_interface_node() {
 /// Creating a GraphNode for a trait should use NodeKind::Class.
 fn test_create_trait_node() {
     let node = GraphNode {
+        complexity: 0,
         id: 6,
         hash: "trt12345678".into(),
         kind: NodeKind::Class,
@@ -175,6 +181,7 @@ fn test_create_trait_node() {
 /// A GraphNode created without a docstring should have None for the docstring field.
 fn test_node_without_docstring() {
     let node = GraphNode {
+        complexity: 0,
         id: 7,
         hash: "ndc12345678".into(),
         kind: NodeKind::Function,
@@ -201,6 +208,7 @@ fn test_node_without_docstring() {
 /// A GraphNode created with a docstring should store it.
 fn test_node_with_docstring() {
     let node_with = GraphNode {
+        complexity: 0,
         id: 8,
         hash: "doc12345678".into(),
         kind: NodeKind::Function,
@@ -228,6 +236,7 @@ fn test_node_with_docstring() {
 /// A GraphNode should track its module_id to associate with its containing module.
 fn test_node_module_id_association() {
     let module_node = GraphNode {
+        complexity: 0,
         id: 100,
         hash: "modA1234567".into(),
         kind: NodeKind::Module,
@@ -248,6 +257,7 @@ fn test_node_module_id_association() {
     };
 
     let func_node = GraphNode {
+        complexity: 0,
         id: 101,
         hash: "fnA12345678".into(),
         kind: NodeKind::Function,
@@ -282,6 +292,7 @@ fn test_node_with_external_endpoints() {
     };
 
     let node = GraphNode {
+        complexity: 0,
         id: 10,
         hash: "api12345678".into(),
         kind: NodeKind::Function,

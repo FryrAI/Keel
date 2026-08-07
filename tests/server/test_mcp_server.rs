@@ -22,6 +22,7 @@ fn populated_node_store() -> SqliteGraphStore {
     let store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 1,
             hash: "testHash1234".into(),
             kind: NodeKind::Function,
@@ -60,6 +61,7 @@ fn store_with_graph() -> SharedStore {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 1,
             hash: "targetFunc01".into(),
             kind: NodeKind::Function,
@@ -81,6 +83,7 @@ fn store_with_graph() -> SharedStore {
         .unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 2,
             hash: "callerFunc01".into(),
             kind: NodeKind::Function,
@@ -118,6 +121,7 @@ fn engine_with_graph() -> SharedEngine {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 1,
             hash: "targetFunc01".into(),
             kind: NodeKind::Function,
@@ -139,6 +143,7 @@ fn engine_with_graph() -> SharedEngine {
         .unwrap();
     store
         .insert_node(&GraphNode {
+            complexity: 0,
             id: 2,
             hash: "callerFunc01".into(),
             kind: NodeKind::Function,

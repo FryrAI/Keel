@@ -3,6 +3,7 @@ use keel_core::types::EdgeDirection;
 
 fn def(name: &str, file: &str) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: format!("fn {}()", name),

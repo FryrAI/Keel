@@ -10,6 +10,7 @@ use keel_parsers::resolver::ResolvedEdge;
 /// Helper: build a GraphNode with sensible defaults.
 fn make_node(id: u64, hash: &str, kind: NodeKind, name: &str, module_id: u64) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: hash.to_string(),
         kind,

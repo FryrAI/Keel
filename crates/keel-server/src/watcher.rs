@@ -363,6 +363,7 @@ mod tests {
 
         fn node(id: u64, name: &str, file: &str) -> GraphNode {
             GraphNode {
+                complexity: 0,
                 id,
                 hash: format!("h{id}"),
                 kind: NodeKind::Function,

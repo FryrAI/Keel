@@ -16,6 +16,7 @@ const HARNESS_SIBLING: &str = "crates/harness/src/setup.rs";
 /// A stored function node, optionally inside a declared package.
 fn node(id: u64, name: &str, file: &str, package: Option<&str>, is_public: bool) -> GraphNode {
     GraphNode {
+        complexity: 0,
         id,
         hash: format!("h{id}"),
         kind: NodeKind::Function,

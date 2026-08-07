@@ -183,6 +183,7 @@ fn make_test_node(id: u64, name: &str, module_id: u64) -> GraphNode {
         type_hints_present: true,
         has_docstring: true,
         is_associated: false,
+        complexity: 1,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
