@@ -33,6 +33,7 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         has_keep_marker: false,
         is_macro: false,
         complexity: 1,
+        is_trivial_wrapper_body: false,
     }
 }
 

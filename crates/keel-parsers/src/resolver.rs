@@ -156,6 +156,14 @@ pub struct Definition {
     /// [`Definition::hash`]: it is derived from `body_text`, which already
     /// drives the hash.
     pub complexity: u32,
+    /// True when this definition's body is exactly one statement that is a
+    /// call expression — a bare call, `return call(...)`, or (TS/JS) a
+    /// concise-arrow body that IS the call — modulo a leading docstring
+    /// (Python) or `pass` (Python). Detected once at parse time in
+    /// `treesitter::body_shape` because it needs the real AST node, not the
+    /// flattened `body_text`. Consumed by `keel audit`'s `trivial_wrapper`
+    /// smell, combined there with the stored graph's caller count.
+    pub is_trivial_wrapper_body: bool,
 }
 
 impl Definition {
@@ -412,6 +420,7 @@ mod tests {
         let result = ParseResult {
             definitions: vec![Definition {
                 complexity: 1,
+                is_trivial_wrapper_body: false,
                 name: "foo".to_string(),
                 kind: NodeKind::Function,
                 signature: "fn foo()".to_string(),

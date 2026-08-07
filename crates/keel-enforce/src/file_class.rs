@@ -82,7 +82,8 @@ impl FileClass {
     }
 
     /// Whether size- and naming-shaped audit checks (`function_size`,
-    /// `god_file`, `public_ratio`, `cryptic_name`) apply to this file.
+    /// `god_file`, `public_ratio`, `cryptic_name`, `trivial_wrapper`) apply to
+    /// this file.
     ///
     /// False for everything but [`FileClass::Source`]: a 253-line integration
     /// test is not a maintainability defect, a generated client's shape is not

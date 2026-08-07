@@ -4,6 +4,7 @@ use std::path::Path;
 
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
+use keel_parsers::resolver::Definition;
 
 use crate::file_class::FileClass;
 use crate::types::{AuditFinding, AuditSeverity};
@@ -19,6 +20,10 @@ pub fn check_structure(
     files: Option<&[String]>,
 ) -> Vec<AuditFinding> {
     let mut findings = Vec::new();
+    // Tier-1-only re-parse: `trivial_wrapper` needs the real AST shape
+    // (`Definition::is_trivial_wrapper_body`), which the graph store does not
+    // persist. One instance amortizes resolver construction across modules.
+    let mut parser = crate::parse_util::BlobParser::new();
 
     let modules = match files {
         Some(paths) => paths
@@ -42,6 +47,20 @@ pub fn check_structure(
         // integration test, a generated client, or a `.sql`/`.baml` file is not
         // a maintainability defect (see `file_class`).
         let graded = FileClass::classify(&module.file_path).grades_size_and_naming();
+
+        // Re-parsed once per module, only for graded (hand-written source)
+        // files — `trivial_wrapper` reuses the same gate as the size/naming
+        // checks below rather than re-reading test fixtures and generated
+        // clients for a smell that doesn't apply to them either.
+        let file_defs: Vec<Definition> = if graded {
+            std::fs::read_to_string(root_dir.join(&module.file_path))
+                .ok()
+                .and_then(|content| parser.parse(&module.file_path, &content))
+                .map(|idx| idx.definitions)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         // File size checks. Deliberately NOT gated on `graded`: a 900-line
         // test file or generated client is still too big for an agent to read,
@@ -178,6 +197,66 @@ pub fn check_structure(
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
+            }
+
+            // Trivial wrapper: body is a single delegating call with ≤1
+            // caller. Requires the re-parsed [`Definition`] because the graph
+            // node itself carries no body shape — matched back to `node` by
+            // hash, falling back to the unique-name-in-file case, exactly the
+            // strategy `check_dead_code` uses for the same graph/parse split.
+            if graded {
+                let candidates: Vec<&Definition> = file_defs
+                    .iter()
+                    .filter(|d| d.kind == NodeKind::Function && d.name == node.name)
+                    .collect();
+                let def = candidates
+                    .iter()
+                    .find(|d| crate::violations_util::node_hash_matches(node, d, &module.file_path))
+                    .copied()
+                    .or_else(|| {
+                        if candidates.len() == 1 {
+                            Some(candidates[0])
+                        } else {
+                            None
+                        }
+                    });
+
+                if let Some(def) = def {
+                    if def.is_trivial_wrapper_body
+                        // Superset of `in_trait_context`: also covers inherent
+                        // impls and class bodies, where a same-named
+                        // one-line delegation is an addressed `Type::name`
+                        // call, not ambiguous or accidental.
+                        && !def.is_associated
+                        && !def.is_decorated
+                        && !def.has_keep_marker
+                        && !def.in_test_context
+                    {
+                        let callers = store
+                            .get_edges(node.id, EdgeDirection::Incoming)
+                            .iter()
+                            .filter(|e| e.kind == EdgeKind::Calls || e.kind == EdgeKind::Uses)
+                            .count();
+                        if callers <= 1 {
+                            findings.push(AuditFinding {
+                                severity: AuditSeverity::Warn,
+                                check: "trivial_wrapper".into(),
+                                message: format!(
+                                    "`{}` in {} — body is a single delegating call, {} caller(s)",
+                                    node.name, module.file_path, callers,
+                                ),
+                                tip: Some(format!(
+                                    "`{}` only forwards to another call. Inline it at its {} \
+                                     call site and delete the wrapper.",
+                                    node.name,
+                                    if callers == 1 { "one" } else { "zero" },
+                                )),
+                                file: Some(module.file_path.clone()),
+                                count: None,
+                            });
+                        }
+                    }
+                }
             }
         }
     }

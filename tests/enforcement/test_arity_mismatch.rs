@@ -261,6 +261,7 @@ fn test_e005_batch_signature_wins_over_stored() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let lib_file = FileIndex {
         file_path: "lib.py".to_string(),
@@ -311,6 +312,7 @@ fn test_e005_ambiguous_batch_fallback_skips() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let lib_file = FileIndex {
         file_path: "lib.py".to_string(),

@@ -139,3 +139,37 @@ fn test_strict_cycles_flag_runs() {
     let out = audit(&dir, &["--strict-cycles"]);
     assert!(out.starts_with("audit:"), "unexpected output: {out}");
 }
+
+#[test]
+/// A one-line delegating wrapper with no callers is a `trivial_wrapper`
+/// finding (#60).
+fn test_trivial_wrapper_smell_detected() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("src/wrap.rs"),
+        "pub fn helper(x: i32) -> i32 {\n    x + 1\n}\n\npub fn wrapper(x: i32) -> i32 {\n    helper(x)\n}\n",
+    )
+    .unwrap();
+
+    let keel = keel_bin();
+    for args in [vec!["init"], vec!["map"]] {
+        let out = Command::new(&keel)
+            .args(&args)
+            .current_dir(dir.path())
+            .output()
+            .expect("failed to run keel");
+        assert!(
+            out.status.success(),
+            "keel {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    let out = audit(&dir, &["--max-tokens", "100000", "--top", "0"]);
+    assert!(
+        out.contains("trivial_wrapper"),
+        "expected a trivial_wrapper finding, got:\n{out}"
+    );
+}
