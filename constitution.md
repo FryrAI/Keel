@@ -210,7 +210,7 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | W003 | naming_convention | WARNING | Name doesn't match module naming pattern (Phase 2) |
 | W004 | cross_repo_endpoint | WARNING | Changed endpoint consumed by linked repo (Phase 2) |
 | W005 | dead_code | WARNING | Function has no callers in the graph |
-| W006 | duplicate_implementation | WARNING | Function body identical (whitespace-normalized) to an existing function |
+| W006 | duplicate_implementation | WARNING | Function body identical (whitespace-normalized) to an existing function, or identical after identifier/literal normalization (lower confidence) |
 | W007 | oversized_file | WARNING | File exceeds the configured line budget and grew in this change |
 | W009 | new_cross_boundary_dep | WARNING | File depends on a package it did not depend on at the last `keel map` |
 | S001 | suppressed | INFO | Violation suppressed via inline or config |

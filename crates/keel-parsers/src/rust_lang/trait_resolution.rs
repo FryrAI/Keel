@@ -120,7 +120,7 @@ pub fn extract_associated_type_impls(content: &str) -> Vec<(String, String, Stri
         (None, 0, false);
     for line in content.lines() {
         let trimmed = line.trim();
-        if let Some((tn, _)) = parse_impl_trait_for(trimmed) {
+        if let Some((tn, _)) = super::helpers::parse_impl_trait_for_line(trimmed) {
             current_trait = Some(tn);
             in_impl = false;
             brace_depth = 0;
@@ -327,26 +327,6 @@ fn parse_where_clause_items(clause: &str, result: &mut HashMap<String, Vec<Strin
             }
         }
     }
-}
-
-/// Parse `impl Trait for Type` line into (trait_name, type_name).
-fn parse_impl_trait_for(line: &str) -> Option<(String, String)> {
-    let s = line.strip_prefix("impl ")?.trim();
-    let for_pos = s.find(" for ")?;
-    let trait_part = s[..for_pos].trim();
-    let rest = s[for_pos + 5..].trim();
-    let type_end = rest
-        .find(['{', '<'])
-        .or_else(|| rest.find(" where "))
-        .unwrap_or(rest.len());
-    let type_part = rest[..type_end].trim();
-    if trait_part.is_empty() || type_part.is_empty() {
-        return None;
-    }
-    let trait_name = trait_part
-        .find('<')
-        .map_or(trait_part, |i| &trait_part[..i]);
-    Some((trait_name.to_string(), type_part.to_string()))
 }
 
 /// Parse `type Name = ConcreteType;` from inside an impl block.

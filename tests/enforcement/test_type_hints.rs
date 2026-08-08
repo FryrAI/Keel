@@ -5,6 +5,7 @@ use keel_parsers::resolver::{Definition, FileIndex};
 
 fn make_def(name: &str, is_public: bool, type_hints: bool) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: if type_hints {
@@ -26,6 +27,7 @@ fn make_def(name: &str, is_public: bool, type_hints: bool) -> Definition {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     }
 }
 
@@ -91,6 +93,7 @@ fn test_e002_private_function_no_violation() {
 #[test]
 fn test_e002_class_not_checked() {
     let class_def = Definition {
+        complexity: 1,
         name: "MyClass".to_string(),
         kind: NodeKind::Class,
         signature: "class MyClass".to_string(),
@@ -108,6 +111,7 @@ fn test_e002_class_not_checked() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let file = make_file(vec![class_def]);
     let violations = check_missing_type_hints(&file);

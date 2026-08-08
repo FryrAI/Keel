@@ -249,6 +249,72 @@ fn custom_args_become_their_own_mode_before_the_mode_is_published() {
     );
 }
 
+/// #63: one `keel review` run must produce both the annotations file and the
+/// sticky-comment body — the second, output-shaping-only invocation is gone.
+#[test]
+fn review_mode_runs_keel_review_exactly_once() {
+    let yaml = read(".github/actions/keel/action.yml");
+    let run = embedded_scripts(&yaml)
+        .into_iter()
+        .find(|b| b.contains("read -r -a cmd"))
+        .expect("the run step must build the keel command from args/mode");
+    let code = code_only(&run);
+    assert!(code.contains("--annotations-file"));
+    assert_eq!(
+        code.matches(r#"keel "${cmd[@]}""#).count(),
+        1,
+        "the resolved command must be invoked exactly once regardless of mode"
+    );
+    assert!(
+        !code.contains(r#"keel review --base "$GRAPH_SHA" >"#),
+        "a second hardcoded review call for output shaping must not come back"
+    );
+}
+
+/// The acceptance criterion from #64: history must round-trip through the
+/// CLI and be carried between runs by an actions/cache pair.
+#[test]
+fn quality_history_round_trips_through_export_import_and_cache() {
+    let yaml = read(".github/actions/keel/action.yml");
+    let code = code_only(&yaml);
+    assert!(code.contains("keel quality --import"));
+    assert!(code.contains("keel quality --export"));
+    assert!(code.contains("actions/cache/restore@v4") && code.contains("actions/cache/save@v4"));
+}
+
+/// A failed import silently restarts the series, and a one-point series is
+/// indistinguishable from a young repo. It must annotate, not whisper.
+#[test]
+fn a_failed_quality_history_import_is_annotated_not_swallowed() {
+    let code = code_only(&read(".github/actions/keel/action.yml"));
+    let import = code
+        .lines()
+        .position(|l| l.contains("keel quality --import"))
+        .expect("the quality step must import the restored history");
+    let fallback = code
+        .lines()
+        .skip(import)
+        .take(2)
+        .find(|l| l.contains("||"))
+        .expect("the import must have a non-fatal fallback");
+    assert!(
+        fallback.contains("::warning::"),
+        "the import fallback must emit a GitHub warning annotation, got: {fallback}"
+    );
+    assert!(
+        fallback.contains("previous history lost"),
+        "the annotation must say what was lost, got: {fallback}"
+    );
+}
+
+/// Deliberate asymmetry with `the_graph_cache_has_no_prefix_fallback`: a stale
+/// restore here can only be missing the latest point, never wrong about one.
+#[test]
+fn the_quality_history_cache_may_use_a_prefix_restore_key() {
+    let yaml = code_only(&read(".github/actions/keel/action.yml"));
+    assert!(yaml.contains("restore-keys"));
+}
+
 /// What `keel init` scaffolds and what the maintained action does must be the
 /// same recipe. This is the divergence T2.3 deleted: the scaffold used to
 /// `curl install.sh` and run `keel map --json --strict`, so a user following

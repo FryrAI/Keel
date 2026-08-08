@@ -6,13 +6,18 @@ use super::*;
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::sqlite_quality::QualitySnapshotRow;
-use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
+use keel_core::types::{
+    EdgeChange, EdgeKind, FragmentCloneEntry, GraphEdge, GraphNode, NodeChange, NodeKind,
+};
 
 const BUDGET: u32 = 400;
 
 /// A stored node. `lines` sets the span, which is what the size metric reads.
 fn node(id: u64, name: &str, file: &str, kind: NodeKind, is_public: bool, lines: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: format!("h{id}"),
         kind,
@@ -30,6 +35,26 @@ fn node(id: u64, name: &str, file: &str, kind: NodeKind, is_public: bool, lines:
         previous_hashes: vec![],
         module_id: 0,
         package: None,
+    }
+}
+
+/// A stored public function node carrying a real cyclomatic complexity.
+fn fn_node(id: u64, name: &str, file: &str, cc: u32, lines: u32) -> GraphNode {
+    GraphNode {
+        complexity: cc,
+        ..node(id, name, file, NodeKind::Function, true, lines)
+    }
+}
+
+/// One stored fragment-clone measurement.
+fn fragment(file: &str, cloned: u32, code: u32) -> FragmentCloneEntry {
+    FragmentCloneEntry {
+        node_hash: format!("h_{file}"),
+        name: "f".to_string(),
+        file_path: file.to_string(),
+        line: 1,
+        cloned_lines: cloned,
+        code_lines: code,
     }
 }
 
@@ -172,6 +197,78 @@ fn cycle_count_matches_the_audit_population() {
 }
 
 #[test]
+fn high_cc_mass_share_weights_hot_functions_and_skips_ungraded_files() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    seed(
+        &mut store,
+        vec![
+            node(1, "mod_a", "src/a.ts", NodeKind::Module, true, 10),
+            // Above the threshold: 20 · √100 = 200 of hot mass.
+            fn_node(2, "hot", "src/a.ts", 20, 100),
+            // At/below it: 5 · √100 = 50 of ordinary mass.
+            fn_node(3, "cool", "src/a.ts", 5, 100),
+            // Hot, but generated and test code respectively — neither may move
+            // a metric about hand-written maintainability.
+            fn_node(4, "gen", "baml_client/x.py", 40, 100),
+            fn_node(5, "spec_hot", "src/a.spec.ts", 40, 100),
+        ],
+    );
+    assert!((compute_metrics(&store, BUDGET).high_cc_mass_share - 0.8).abs() < 1e-9);
+}
+
+#[test]
+fn propagation_cost_counts_transitively_reachable_module_pairs() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    seed(
+        &mut store,
+        vec![
+            node(1, "mod_a", "src/a.ts", NodeKind::Module, true, 10),
+            node(2, "mod_b", "src/b.ts", NodeKind::Module, true, 10),
+            node(3, "mod_c", "src/c.ts", NodeKind::Module, true, 10),
+            fn_node(4, "a1", "src/a.ts", 1, 5),
+            fn_node(5, "b1", "src/b.ts", 1, 5),
+            fn_node(6, "c1", "src/c.ts", 1, 5),
+        ],
+    );
+    // A chain a → b → c: a reaches 2, b reaches 1, c reaches 0 → 3/3² = 0.33.
+    edge(&mut store, 1, 4, 5, EdgeKind::Calls, "src/a.ts");
+    edge(&mut store, 2, 5, 6, EdgeKind::Calls, "src/b.ts");
+
+    assert!((compute_metrics(&store, BUDGET).propagation_cost - 0.33).abs() < 1e-9);
+}
+
+#[test]
+fn clone_loc_ratio_divides_cloned_lines_by_measured_code_lines() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![
+            fragment("src/a.ts", 10, 40),
+            fragment("src/b.ts", 0, 60),
+            // Generated and test code are excluded by the scan, and excluded
+            // again here — a stale row written by an older map must not move a
+            // metric about hand-written maintainability.
+            fragment("baml_client/x.py", 50, 50),
+            fragment("src/a.spec.ts", 50, 50),
+        ])
+        .expect("store measurements");
+
+    assert!((compute_metrics(&store, BUDGET).clone_loc_ratio - 0.1).abs() < 1e-9);
+}
+
+/// A graph mapped before fragment measurements existed carries no rows at all.
+/// The metric must read 0 rather than divide by zero — and the trend omits it
+/// entirely, see `trend_omits_metrics_that_a_point_in_the_window_predates`.
+#[test]
+fn clone_loc_ratio_is_zero_when_nothing_was_measured() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    seed(
+        &mut store,
+        vec![node(1, "mod_a", "src/a.ts", NodeKind::Module, true, 10)],
+    );
+    assert_eq!(compute_metrics(&store, BUDGET).clone_loc_ratio, 0.0);
+}
+
+#[test]
 fn empty_graph_measures_zero_rather_than_dividing_by_zero() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let m = compute_metrics(&store, BUDGET);
@@ -179,6 +276,9 @@ fn empty_graph_measures_zero_rather_than_dividing_by_zero() {
     assert_eq!(m.cycle_count, 0);
     assert_eq!(m.dead_private_fns, 0);
     assert_eq!(m.cross_module_edge_ratio, 0.0);
+    assert_eq!(m.high_cc_mass_share, 0.0);
+    assert_eq!(m.propagation_cost, 0.0);
+    assert_eq!(m.clone_loc_ratio, 0.0);
 }
 
 /// A file with two stored `module` rows (hash-salt collisions do happen) is one
@@ -214,6 +314,9 @@ fn metrics_blob(over: u32, cycles: u32, dead: u32, ratio: f64) -> String {
         cycle_count: cycles,
         dead_private_fns: dead,
         cross_module_edge_ratio: ratio,
+        high_cc_mass_share: 0.4,
+        propagation_cost: 0.2,
+        clone_loc_ratio: 0.1,
     }
     .to_json()
 }
@@ -228,7 +331,8 @@ fn trend_reports_direction_and_per_commit_attribution() {
     let trend = build_trend(&rows);
     assert!(trend.refused.is_none());
     assert_eq!(trend.points.len(), 3);
-    assert_eq!(trend.metrics.len(), 4);
+    assert_eq!(trend.metrics.len(), 7);
+    assert!(trend.omitted.is_empty());
 
     let over = &trend.metrics[0];
     assert_eq!(over.name, "files_over_budget");
@@ -268,6 +372,43 @@ fn trend_refuses_to_compare_across_metrics_versions() {
     );
     // The readable point is still shown, so the reader can narrow the window.
     assert_eq!(trend.points.len(), 1);
+}
+
+/// A metric added without a version bump reads back as a defaulted `0.0` from
+/// blobs written before it existed. Trending that would draw a step out of
+/// "not measured" — the exact silent re-baselining `refused` exists to
+/// prevent — so the metric is omitted and named instead, while every metric
+/// both points did measure trends as usual.
+#[test]
+fn trend_omits_metrics_that_a_point_in_the_window_predates() {
+    let legacy = format!(
+        "{{\"version\":{METRICS_VERSION},\"files_over_budget\":10,\"cycle_count\":2,\
+          \"dead_private_fns\":5,\"cross_module_edge_ratio\":0.3}}"
+    );
+    let rows = vec![
+        row(1, "aaaaaaa1", &legacy),
+        row(2, "bbbbbbb2", &metrics_blob(18, 1, 4, 0.34)),
+    ];
+    let trend = build_trend(&rows);
+
+    assert!(trend.refused.is_none());
+    assert_eq!(trend.points.len(), 2);
+    let names: Vec<&str> = trend.metrics.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "files_over_budget",
+            "cycle_count",
+            "dead_private_fns",
+            "cross_module_edge_ratio"
+        ]
+    );
+    assert_eq!(
+        trend.omitted,
+        vec!["high_cc_mass_share", "propagation_cost", "clone_loc_ratio"]
+    );
+    assert_eq!(trend.metrics[0].first, 10.0);
+    assert_eq!(trend.metrics[0].last, 18.0);
 }
 
 #[test]

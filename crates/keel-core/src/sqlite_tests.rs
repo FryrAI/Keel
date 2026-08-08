@@ -15,6 +15,9 @@ mod resolution_cache;
 
 fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.to_string(),
         kind: NodeKind::Function,
@@ -197,6 +200,34 @@ fn test_is_associated_round_trips_through_insert_and_update_node() {
     node.is_associated = false;
     store.update_node_in_db(&node).unwrap();
     assert!(!store.get_node_by_id(1).unwrap().is_associated);
+}
+
+#[test]
+fn test_complexity_round_trips_through_every_node_write_path() {
+    // `high_cc_mass_share` reads `nodes.complexity` straight out of the store
+    // (issue #58), so a write path that dropped it would silently report the
+    // whole repo as decision-free.
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let mut node = test_node(1, "cplx12345678", "dispatch");
+    node.complexity = 17;
+    store
+        .update_nodes(vec![NodeChange::Add(node.clone())])
+        .unwrap();
+    assert_eq!(store.get_node("cplx12345678").unwrap().complexity, 17);
+    assert_eq!(store.get_node_by_id(1).unwrap().complexity, 17);
+
+    node.complexity = 4;
+    store.update_nodes(vec![NodeChange::Update(node)]).unwrap();
+    assert_eq!(store.get_node_by_id(1).unwrap().complexity, 4);
+
+    let mut single = test_node(2, "cplx87654321", "route");
+    single.complexity = 9;
+    store.insert_node(&single).unwrap();
+    assert_eq!(store.get_node_by_id(2).unwrap().complexity, 9);
+
+    single.complexity = 1;
+    store.update_node_in_db(&single).unwrap();
+    assert_eq!(store.get_node_by_id(2).unwrap().complexity, 1);
 }
 
 #[test]

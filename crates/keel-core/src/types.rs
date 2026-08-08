@@ -110,6 +110,28 @@ pub struct GraphNode {
     /// in a different file, across separate compiles (issue #46).
     #[serde(default)]
     pub is_associated: bool,
+    /// McCabe cyclomatic complexity, from `Definition::complexity`. 1 for
+    /// modules and (for now) classes — there is no meaningful "class
+    /// complexity". Zero means *not measured*: rows written before the column
+    /// existed read back as 0 until the next `keel map`/`keel compile` touches
+    /// them.
+    #[serde(default)]
+    pub complexity: u32,
+    /// True when this function's body is a single delegating call AND none of
+    /// the parse-time exemptions the graph does NOT persist separately apply
+    /// (decorated definitions, `keel:keep` markers). Written already-exempted
+    /// so the audit needs no re-parse: the exemptions that ARE persisted
+    /// (`is_associated`, `in_test_context`) are applied by the reader, and no
+    /// exemption is checked at both layers.
+    #[serde(default)]
+    pub is_trivial_wrapper: bool,
+    /// True when this definition lives in a test context — a `#[cfg(test)]`
+    /// module, a `#[test]`/`@pytest`-style harness function — as opposed to a
+    /// test *file*, which every consumer can already tell from the path.
+    /// Persisted so store-only surfaces (`keel audit`, `keel quality`) can
+    /// apply the same population rule the parse-time checks do.
+    #[serde(default)]
+    pub in_test_context: bool,
     pub external_endpoints: Vec<ExternalEndpoint>,
     pub previous_hashes: Vec<String>,
     pub module_id: u64,
@@ -196,6 +218,11 @@ pub enum EdgeChange {
 pub struct BodyIndexEntry {
     /// Fingerprint of the normalized body — see `hash::compute_body_hash`.
     pub body_hash: String,
+    /// Fingerprint of the identifier/literal-normalized ("Type-2") body — see
+    /// `hash_t2::compute_t2_hash`. Empty when the Type-2 form did not clear
+    /// `hash_t2::MIN_T2_NORMALIZED_LEN`, and on rows written before the column
+    /// existed; empty is never a match, only a "not indexed for Type-2".
+    pub t2_hash: String,
     /// Identity key of the indexed function.
     ///
     /// Part of the storage primary key `(node_hash, file_path, line)` — a
@@ -209,6 +236,32 @@ pub struct BodyIndexEntry {
     pub file_path: String,
     /// Line the node starts on.
     pub line: u32,
+}
+
+/// One function's fragment-clone measurement — see [`crate::fragments`].
+///
+/// Written wholesale by `keel map` (the scan needs every body at once) and read
+/// only by the `clone_loc_ratio` quality metric. Rows exist for functions with
+/// no clone at all: `code_lines` is the metric's denominator, so dropping them
+/// would make the ratio depend on which functions happened to match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentCloneEntry {
+    /// Identity key of the measured function.
+    pub node_hash: String,
+    /// Function name, carried so a reader can find the row without a join.
+    pub name: String,
+    /// File the function lives in.
+    pub file_path: String,
+    /// Line the function starts on.
+    pub line: u32,
+    /// Code lines of the body covered by a token window that also occurs in a
+    /// different function. A window edge landing mid-line marks the whole
+    /// line, so a matched region over-reports by up to a line at each edge —
+    /// fine for a trend ratio, not a per-line accounting.
+    pub cloned_lines: u32,
+    /// Code lines of the body in total — lines carrying at least one Type-2
+    /// token, so comment-only and blank lines are excluded.
+    pub code_lines: u32,
 }
 
 /// One persisted Tier 3 resolution-cache row (`resolution_tier = 'tier3'`).
@@ -343,6 +396,16 @@ pub struct QualityInputs {
     pub dependency_edges: u64,
     /// How many of those cross a file boundary.
     pub cross_file_dependency_edges: u64,
+    /// One entry per measured function: `(file_path, cloned_lines,
+    /// code_lines)` — see [`FragmentCloneEntry`]. Empty until the tree has been
+    /// mapped by a keel that writes fragment measurements.
+    pub fragment_clones_by_fn: Vec<(String, u32, u32)>,
+    /// One entry per non-test-context function node: `(file_path, complexity,
+    /// sloc)`, where `sloc` is `line_end - line_start + 1` — the same span
+    /// source as `file_lines`. Test-CONTEXT symbols are excluded here because
+    /// only the store can see the flag; the file-class exemption is the
+    /// caller's job, as with every other field.
+    pub complexity_by_fn: Vec<(String, u32, u32)>,
 }
 
 /// Errors that can occur during graph operations.

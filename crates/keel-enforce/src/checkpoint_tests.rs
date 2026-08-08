@@ -7,6 +7,9 @@ use crate::types::{CompileInfo, CompileResult, Violation};
 
 fn node(id: u64, hash: &str, name: &str, file: &str, kind: NodeKind) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.into(),
         kind,
@@ -29,6 +32,7 @@ fn node(id: u64, hash: &str, name: &str, file: &str, kind: NodeKind) -> GraphNod
 
 fn def(name: &str, signature: &str, body: &str) -> Definition {
     Definition {
+        complexity: 1,
         name: name.into(),
         kind: NodeKind::Function,
         signature: signature.into(),
@@ -46,6 +50,7 @@ fn def(name: &str, signature: &str, body: &str) -> Definition {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     }
 }
 

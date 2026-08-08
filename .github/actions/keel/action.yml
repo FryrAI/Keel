@@ -85,9 +85,9 @@ runs:
 
         # An explicit `args:` wins over `mode` — the escape hatch for anything
         # this action does not model. It becomes its OWN mode: the caller's
-        # command IS the run, so the review plumbing below (a second `keel
-        # review`, the sticky comment keyed on this output) must not fire on top
-        # of it just because the event happened to be a pull_request.
+        # command IS the run, so the review plumbing below (the sticky comment
+        # keyed on this output) must not fire on top of it just because the
+        # event happened to be a pull_request.
         if [ -n "$ARGS" ]; then
           mode="custom"
           read -r -a cmd <<<"$ARGS"
@@ -101,18 +101,53 @@ runs:
         fi
         echo "mode=$mode" >>"$GITHUB_OUTPUT"
 
-        # `--format github` makes the binary emit the annotations itself. It
-        # replaced an inline interpreter heredoc that reshaped keel's JSON — an
-        # undeclared runtime dependency in a tool whose Article 1 is "single
-        # binary, zero runtime dependencies". Keep this step interpreter-free.
+        # In review mode `keel review --annotations-file` writes this itself as
+        # part of the one run below. Defensively create it up front anyway: if
+        # `keel` fails before producing output (an unresolvable `--base`) or
+        # the mode isn't review, nothing else guarantees the file exists, and
+        # `cat`/`grep -c` on a missing file would fail the step for the wrong
+        # reason.
+        : >"$ANNOTATIONS"
+
+        # `--format github`/`--annotations-file` make the binary emit the
+        # annotations itself. That replaced an inline interpreter heredoc that
+        # reshaped keel's JSON — an undeclared runtime dependency in a tool
+        # whose Article 1 is "single binary, zero runtime dependencies". Keep
+        # this step interpreter-free.
         #
+        # Review mode drives both outputs from ONE `keel review` run:
+        # `--annotations-file` writes the CI protocol to $ANNOTATIONS while
+        # stdout (redirected to $REVIEW) still carries the primary rendering
+        # for the sticky comment — no second, output-shaping-only invocation.
+        # Every other mode keeps its single `--format github` run, unchanged.
+        if [ "$mode" = "review" ]; then
+          rm -f "$REVIEW"
+          extra_args=(--annotations-file "$ANNOTATIONS")
+          out_file="$REVIEW"
+        else
+          extra_args=(--format github)
+          out_file="$ANNOTATIONS"
+        fi
+
         # `|| exit_code=$?`, not a bare `$?` on the next line: composite bash
         # runs with implicit -e, so an ERROR-level keel exit would kill the
         # script HERE — annotations unposted, outputs unset, sticky comment
-        # skipped — and the step would go red with nothing on it to read.
+        # skipped — and the step would go red with nothing on it to read. The
+        # assignment itself always exits 0, so -e never fires on this line.
         exit_code=0
-        keel "${cmd[@]}" --format github >"$ANNOTATIONS" || exit_code=$?
+        keel "${cmd[@]}" "${extra_args[@]}" >"$out_file" || exit_code=$?
         echo "exit-code=$exit_code" >>"$GITHUB_OUTPUT"
+
+        # A review that could not run must leave no $REVIEW behind: an empty
+        # file reads as "clean" to sticky_comment.sh, and it would say so
+        # untruthfully. Non-review modes have nothing to clean up here — their
+        # output lives in $ANNOTATIONS, which must survive a failure. An `if`
+        # with no `else`, not `[ ... ] && rm -f`: the latter's exit status is
+        # the test's when it's false, which would trip -e on every non-review
+        # failure.
+        if [ "$mode" = "review" ] && [ "$exit_code" -ne 0 ]; then
+          rm -f "$REVIEW"
+        fi
 
         # The annotations ARE the output: echoing them is what posts them.
         cat "$ANNOTATIONS"
@@ -132,14 +167,9 @@ runs:
         fi
         echo "summary=$summary" >>"$GITHUB_OUTPUT"
 
-        # In review mode the sticky comment is the report; the plain rendering
-        # is produced here so the comment step is pure plumbing.
-        if [ "$mode" = "review" ]; then
-          # A review that could not run must leave no body behind: an empty
-          # file reads as "clean", and the comment would say so untruthfully.
-          rm -f "$REVIEW"
-          keel review --base "$GRAPH_SHA" >"$REVIEW" || rm -f "$REVIEW"
-        else
+        # In review mode the sticky comment is the report — $REVIEW is already
+        # written above. Only the non-review modes need a step summary here.
+        if [ "$mode" != "review" ]; then
           {
             echo "### keel ${cmd[0]}"
             echo ""
@@ -155,6 +185,24 @@ runs:
 
         exit $exit_code
 
+    # Restores the accumulated series so this run's snapshot lands as the next
+    # point rather than the first one. Unlike the graph cache (see
+    # `the_graph_cache_has_no_prefix_fallback`), a PREFIX restore-key is safe
+    # here on purpose: every row upserts by `commit_sha`
+    # (`insert_quality_snapshot`), so a stale prefix restore can only ever be
+    # *missing* the newest point, never wrong about an existing one, and the
+    # Quality snapshot step below re-exports the full current state on every
+    # run regardless. Do not "fix" this into matching the graph cache's
+    # no-prefix rule — the two caches have opposite failure modes.
+    - name: Restore quality history
+      if: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/keel-quality-history.jsonl
+        key: keel-quality-history-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          keel-quality-history-${{ runner.os }}-
+
     - name: Quality snapshot
       # One reading per merge on the default branch — the time axis `keel
       # quality --trend` reads. Push-only and default-branch-only: a pull
@@ -164,19 +212,31 @@ runs:
       # `always()`: a merge that carried violations is still a merge, and the
       # series must not develop holes wherever the build went red.
       #
-      # Honest limitation: the graph cache is keyed on the exact commit, so a
-      # push run always starts from a graph built for THIS commit and the
-      # series accumulates in the developer's local `.keel/graph.db` (which
-      # `keel map` deliberately does not clear), not in CI. This step is what
-      # puts the reading in front of a human on every merge.
+      # The graph cache is keyed on the exact commit, so this commit's
+      # fresh/restored graph.db never carries a prior commit's snapshot row on
+      # its own — the history file restored above, imported here, and
+      # re-exported below is what makes the series survive across runners.
       if: ${{ always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       shell: bash
+      env:
+        HISTORY: ${{ runner.temp }}/keel-quality-history.jsonl
       run: |
         set -uo pipefail
 
         if [ ! -f .keel/graph.db ]; then
           echo "keel: no graph to measure — skipping the quality snapshot"
           exit 0
+        fi
+
+        # A failed import is data loss, not a hiccup: the restored series is
+        # dropped and this run's snapshot becomes point 1 of a new one, which
+        # a reader of `--trend` cannot tell from a genuinely young repo. It
+        # must therefore be an annotation, not an echo buried in the log — the
+        # step still does not fail, because a lost series must not turn a
+        # green merge red, and the engine's import stays strict.
+        if [ -f "$HISTORY" ]; then
+          keel quality --import "$HISTORY" \
+            || echo "::warning::keel quality history import failed — starting a fresh series (previous history lost)"
         fi
 
         # ~10ms of graph work. `keel quality` never gates, and neither does
@@ -192,6 +252,15 @@ runs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
         fi
+
+        keel quality --export "$HISTORY" || echo "keel: quality history export failed"
+
+    - name: Save quality history
+      if: ${{ always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/keel-quality-history.jsonl
+        key: keel-quality-history-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Sticky review comment
       # `always()`: a red compile in review mode must still leave the report on

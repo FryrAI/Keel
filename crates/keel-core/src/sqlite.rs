@@ -25,7 +25,9 @@ pub type CircuitBreakerEntry = (String, String, u32, bool, String, String);
 ///
 /// Shared by `initialize_schema` (fresh databases) and `migrate_v4_to_v5`
 /// (existing ones) so the two can never drift apart. Lookups are by
-/// `body_hash`, so that column carries the index.
+/// `body_hash`, so that column carries the index; `t2_hash`'s index is created
+/// separately, after the idempotent ALTER that backfills the column on
+/// databases predating it.
 ///
 /// The primary key is the composite `(node_hash, file_path, line)`, not
 /// `node_hash` alone: hash disambiguation salts with the file path only, so
@@ -36,12 +38,41 @@ const BODY_INDEX_DDL: &str = "
     CREATE TABLE IF NOT EXISTS body_index (
         node_hash TEXT NOT NULL,
         body_hash TEXT NOT NULL,
+        t2_hash TEXT NOT NULL DEFAULT '',
         name TEXT NOT NULL,
         file_path TEXT NOT NULL,
         line INTEGER NOT NULL,
         PRIMARY KEY (node_hash, file_path, line)
     );
     CREATE INDEX IF NOT EXISTS idx_body_index_body_hash ON body_index(body_hash);
+";
+
+/// DDL for the fragment-clone measurements (issue #66).
+///
+/// Created idempotently on every open rather than behind a SCHEMA_VERSION bump,
+/// for the same reason as the additive columns below: the table is a derived
+/// cache that `keel map` rebuilds wholesale, so an existing database that has
+/// never seen it simply measures no clones until the next map.
+///
+/// One row per *function*, not per matched window. Measured on keel's own tree
+/// (issue #66 asked for this before persisting anything): 1,207 scanned bodies
+/// hold 166k tokens and therefore 120k windows, so a windows index would be
+/// ~120k rows plus a hash index — several MB against a 6 MB graph — while the
+/// per-function aggregate is 1,207 rows and 100 KB. Nothing downstream needs
+/// the individual windows; the only consumer is a ratio.
+///
+/// The primary key mirrors `body_index`'s composite: hash disambiguation salts
+/// with the file path only, so `node_hash` alone is not unique.
+const FRAGMENT_CLONES_DDL: &str = "
+    CREATE TABLE IF NOT EXISTS fragment_clones (
+        node_hash TEXT NOT NULL,
+        name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        line INTEGER NOT NULL,
+        cloned_lines INTEGER NOT NULL,
+        code_lines INTEGER NOT NULL,
+        PRIMARY KEY (node_hash, file_path, line)
+    );
 ";
 
 /// DDL for the `edges` table, parameterized on the table name.
@@ -155,6 +186,9 @@ impl SqliteGraphStore {
                 type_hints_present INTEGER NOT NULL DEFAULT 0,
                 has_docstring INTEGER NOT NULL DEFAULT 0,
                 is_associated INTEGER NOT NULL DEFAULT 0,
+                complexity INTEGER NOT NULL DEFAULT 0,
+                is_trivial_wrapper INTEGER NOT NULL DEFAULT 0,
+                in_test_context INTEGER NOT NULL DEFAULT 0,
                 module_id INTEGER REFERENCES nodes(id),
                 package TEXT DEFAULT NULL,
                 resolution_tier TEXT NOT NULL DEFAULT '',
@@ -264,9 +298,51 @@ impl SqliteGraphStore {
             .conn
             .execute_batch("ALTER TABLE nodes ADD COLUMN is_associated INTEGER NOT NULL DEFAULT 0");
 
+        // Per-function cyclomatic complexity (issue #58), added the same way
+        // and for the same reason as `is_associated` above: one additive,
+        // defaulted column does not justify a SCHEMA_VERSION bump. Existing
+        // rows read back as 0 — "not measured" — until the next map/compile
+        // rewrites them.
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE nodes ADD COLUMN complexity INTEGER NOT NULL DEFAULT 0");
+
+        // Parse-time shape/context flags, added the same way and for the same
+        // reason as `is_associated` above. They exist so the store-only
+        // surfaces stop re-parsing source to recover facts the parser already
+        // knew: `keel audit`'s `trivial_wrapper` used to re-read and re-parse
+        // every graded file just to see a body shape, and `keel quality`'s
+        // `high_cc_mass_share` had no way to exclude inline test modules from
+        // its population.
+        //
+        // `is_trivial_wrapper` is written ALREADY EXEMPTED for the parse-time
+        // facts the graph does not persist separately (decorated definitions,
+        // `keel:keep` markers); `is_associated`/`in_test_context` stay the
+        // reader's business, so no exemption is checked at both layers.
+        // Existing rows read back as 0 until the next map/compile rewrites them.
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN is_trivial_wrapper INTEGER NOT NULL DEFAULT 0",
+        );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN in_test_context INTEGER NOT NULL DEFAULT 0",
+        );
+
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
         self.drop_stale_body_index()?;
         self.conn.execute_batch(BODY_INDEX_DDL)?;
+
+        // Type-2 (identifier/literal-normalized) fingerprint column (issue
+        // #59), added the same way and for the same reason as `is_associated`
+        // above: one additive, defaulted column does not justify a
+        // SCHEMA_VERSION bump. Rows written before it read back as '' — "not
+        // indexed for Type-2" — until the next `keel map`, and the empty
+        // fingerprint is never matched (see `body_index_find_t2`).
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE body_index ADD COLUMN t2_hash TEXT NOT NULL DEFAULT ''");
+
+        // Fragment-clone measurements (issue #66) — see FRAGMENT_CLONES_DDL.
+        self.conn.execute_batch(FRAGMENT_CLONES_DDL)?;
 
         // Quality snapshots (schema v7) — shared DDL, see
         // `crate::sqlite_quality::QUALITY_SNAPSHOTS_DDL`.
@@ -287,6 +363,9 @@ impl SqliteGraphStore {
         let _ = self
             .conn
             .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_package ON nodes(package)");
+        let _ = self.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_body_index_t2_hash ON body_index(t2_hash)",
+        );
 
         Ok(())
     }
@@ -586,6 +665,7 @@ impl SqliteGraphStore {
             DELETE FROM external_endpoints;
             DELETE FROM previous_hashes;
             DELETE FROM body_index;
+            DELETE FROM fragment_clones;
             DELETE FROM nodes;
             ",
         )?;

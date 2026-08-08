@@ -3,10 +3,50 @@
 use std::path::Path;
 
 use keel_core::store::GraphStore;
-use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
+use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
 
 use crate::file_class::FileClass;
 use crate::types::{AuditFinding, AuditSeverity};
+
+/// `trivial_wrapper`: a stored function whose body is a single delegating call
+/// and which has at most one caller — something to inline, not a layer.
+///
+/// Answered from the graph alone. `GraphNode::is_trivial_wrapper` is written
+/// already exempted for the parse-time facts the graph does not persist
+/// (decorated definitions, `keel:keep` markers); the two exemptions it DOES
+/// persist are applied here and only here. An associated item — a superset of
+/// trait context, covering inherent impls and class bodies — delegating under
+/// its own type is an addressed `Type::name` call, not an accident, and a
+/// test-context helper is fixture plumbing.
+fn trivial_wrapper_finding(store: &dyn GraphStore, node: &GraphNode) -> Option<AuditFinding> {
+    if !node.is_trivial_wrapper || node.is_associated || node.in_test_context {
+        return None;
+    }
+    let callers = store
+        .get_edges(node.id, EdgeDirection::Incoming)
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls || e.kind == EdgeKind::Uses)
+        .count();
+    if callers > 1 {
+        return None;
+    }
+    Some(AuditFinding {
+        severity: AuditSeverity::Warn,
+        check: "trivial_wrapper".into(),
+        message: format!(
+            "`{}` in {} — body is a single delegating call, {} caller(s)",
+            node.name, node.file_path, callers,
+        ),
+        tip: Some(format!(
+            "`{}` only forwards to another call. Inline it at its {} call site \
+             and delete the wrapper.",
+            node.name,
+            if callers == 1 { "one" } else { "zero" },
+        )),
+        file: Some(node.file_path.clone()),
+        count: None,
+    })
+}
 
 /// Audit the structure dimension: is the code organized into coherent units?
 ///
@@ -178,6 +218,10 @@ pub fn check_structure(
                     file: Some(module.file_path.clone()),
                     count: None,
                 });
+            }
+
+            if graded {
+                findings.extend(trivial_wrapper_finding(store, node));
             }
         }
     }

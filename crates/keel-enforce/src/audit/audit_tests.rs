@@ -11,6 +11,9 @@ use crate::types::{AuditOptions, AuditResult};
 
 fn function_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: format!("h{id:010}"),
         kind: NodeKind::Function,
@@ -214,4 +217,145 @@ fn strict_cycles_restores_rust_cycle_reporting() {
     let rust = cyclic_pair("rs");
     let result = audit_with(&rust, "navigation", true);
     assert!(!checks_on(&result, "circular_dep").is_empty());
+}
+
+// --- trivial_wrapper (#60) ---------------------------------------------
+//
+// Answered from the graph alone: the body shape and the test-context flag are
+// persisted on the node. The fixtures still start from real source and parse
+// it exactly as `keel map` does, so what is under test is the whole chain —
+// body shape to persisted flag to finding — not a hand-set boolean.
+
+/// Parse `content` as `file`, then store its module node and every function
+/// node it defines, carrying the flags `keel map` persists. Returns the
+/// function node ids in definition order.
+fn wrapper_fixture(store: &mut SqliteGraphStore, file: &str, content: &str) -> Vec<u64> {
+    let index = crate::parse_util::BlobParser::new()
+        .parse(file, content)
+        .expect("fixture source must parse");
+    let mut id = 1u64;
+    store.insert_node(&module_node(id, file, 100)).unwrap();
+    let mut ids = Vec::new();
+    for def in index
+        .definitions
+        .iter()
+        .filter(|d| d.kind == NodeKind::Function)
+    {
+        id += 1;
+        let mut node = function_node(id, &def.name, file, def.line_start);
+        def.apply_parse_facts(&mut node);
+        store.insert_node(&node).unwrap();
+        ids.push(id);
+    }
+    ids
+}
+
+fn trivial_wrapper_findings(store: &SqliteGraphStore) -> usize {
+    crate::audit::structure::check_structure(store, std::path::Path::new("."), None)
+        .iter()
+        .filter(|f| f.check == "trivial_wrapper")
+        .count()
+}
+
+const WRAP_RS: &str =
+    "fn helper(x: i32) -> i32 {\n    x + 1\n}\n\nfn wrapper(x: i32) -> i32 {\n    helper(x)\n}\n";
+
+#[test]
+fn trivial_wrapper_fires_with_zero_callers() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    wrapper_fixture(&mut store, "src/wrap.rs", WRAP_RS);
+
+    assert_eq!(trivial_wrapper_findings(&store), 1);
+}
+
+#[test]
+fn trivial_wrapper_fires_with_one_caller() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let ids = wrapper_fixture(&mut store, "src/wrap.rs", WRAP_RS);
+    store
+        .insert_node(&function_node(900, "caller_a", "src/wrap.rs", 50))
+        .unwrap();
+    store
+        .update_edges(vec![call_edge(1, 900, ids[1], "src/wrap.rs")])
+        .unwrap();
+
+    assert_eq!(trivial_wrapper_findings(&store), 1);
+}
+
+#[test]
+fn trivial_wrapper_silent_with_two_callers() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let ids = wrapper_fixture(&mut store, "src/wrap.rs", WRAP_RS);
+    store
+        .insert_node(&function_node(900, "caller_a", "src/wrap.rs", 50))
+        .unwrap();
+    store
+        .insert_node(&function_node(901, "caller_b", "src/wrap.rs", 51))
+        .unwrap();
+    store
+        .update_edges(vec![
+            call_edge(1, 900, ids[1], "src/wrap.rs"),
+            call_edge(2, 901, ids[1], "src/wrap.rs"),
+        ])
+        .unwrap();
+
+    assert_eq!(trivial_wrapper_findings(&store), 0);
+}
+
+#[test]
+fn trivial_wrapper_skips_test_files() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    wrapper_fixture(&mut store, "tests/wrap_test.rs", WRAP_RS);
+
+    assert_eq!(trivial_wrapper_findings(&store), 0);
+}
+
+#[test]
+fn trivial_wrapper_skips_test_context_helpers() {
+    // The exemption a path-based class cannot see: an inline `#[cfg(test)]`
+    // module inside a production file. Persisted as `nodes.in_test_context`.
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    wrapper_fixture(
+        &mut store,
+        "src/ctx.rs",
+        "fn helper(x: i32) -> i32 {\n    x + 1\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    fn wrapper(x: i32) -> i32 {\n        helper(x)\n    }\n}\n",
+    );
+
+    assert_eq!(trivial_wrapper_findings(&store), 0);
+}
+
+#[test]
+fn trivial_wrapper_skips_decorated_python() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    wrapper_fixture(
+        &mut store,
+        "src/dec.py",
+        "def helper(x):\n    return x + 1\n\n\n@some_decorator\ndef wrapper(x):\n    return helper(x)\n",
+    );
+
+    assert_eq!(trivial_wrapper_findings(&store), 0);
+}
+
+#[test]
+fn trivial_wrapper_skips_associated_impl_methods() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    wrapper_fixture(
+        &mut store,
+        "src/imp.rs",
+        "struct Foo;\n\nimpl Foo {\n    fn helper(x: i32) -> i32 {\n        x + 1\n    }\n\n    fn wrapper(x: i32) -> i32 {\n        Self::helper(x)\n    }\n}\n",
+    );
+
+    assert_eq!(trivial_wrapper_findings(&store), 0);
+}
+
+#[test]
+fn trivial_wrapper_skips_keel_keep_marker() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    wrapper_fixture(
+        &mut store,
+        "src/keep.rs",
+        "fn helper(x: i32) -> i32 {\n    x + 1\n}\n\n// keel:keep\nfn wrapper(x: i32) -> i32 {\n    helper(x)\n}\n",
+    );
+
+    assert_eq!(trivial_wrapper_findings(&store), 0);
 }

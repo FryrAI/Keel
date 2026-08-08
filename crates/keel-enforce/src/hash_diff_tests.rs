@@ -7,6 +7,9 @@ use crate::engine::EnforcementEngine;
 
 fn make_node(id: u64, hash: &str, name: &str, sig: &str, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.to_string(),
         kind: NodeKind::Function,
@@ -41,6 +44,7 @@ fn make_call_edge(id: u64, src: u64, tgt: u64, file: &str) -> GraphEdge {
 
 fn make_definition(name: &str, sig: &str, body: &str, file: &str) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: sig.to_string(),
@@ -58,6 +62,7 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str) -> Definition 
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     }
 }
 

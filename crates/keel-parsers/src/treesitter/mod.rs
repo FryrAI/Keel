@@ -1,3 +1,5 @@
+mod body_shape;
+mod complexity;
 mod docstrings;
 mod imports;
 
@@ -530,6 +532,12 @@ fn extract_definitions(
                 has_keep_marker: has_keep_marker(&lines, line_start),
                 // Only `macro_rules!` sets this; the node stays a Function.
                 is_macro: capture_was_macro,
+                // No body captured (module definitions) means nothing to walk:
+                // one decision-free path.
+                complexity: body_node.map_or(1, |n| complexity::compute(n, lang)),
+                is_trivial_wrapper_body: body_shape::is_trivial_wrapper_body(
+                    body_node, lang, source,
+                ),
             });
         }
     }
@@ -771,3 +779,6 @@ mod tests_import_names;
 
 #[cfg(test)]
 mod tests_call_arity;
+
+#[cfg(test)]
+mod tests_complexity;

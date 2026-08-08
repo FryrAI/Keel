@@ -96,10 +96,16 @@ fn parse_validate_plan_missing_arg() {
 #[test]
 fn parse_review_base() {
     match parse(&["keel", "review", "--base", "origin/main"]).command {
-        Commands::Review { base, format, gate } => {
+        Commands::Review {
+            base,
+            format,
+            gate,
+            annotations_file,
+        } => {
             assert_eq!(base, "origin/main");
             assert!(format.is_none(), "no CI protocol unless asked for");
             assert!(!gate, "review never gates by default");
+            assert!(annotations_file.is_none());
         }
         _ => panic!("expected Review"),
     }
@@ -115,6 +121,27 @@ fn parse_review_github_format_and_gate() {
         Commands::Review { format, gate, .. } => {
             assert_eq!(format, Some(crate::cli_args::WireFormat::Github));
             assert!(gate);
+        }
+        _ => panic!("expected Review"),
+    }
+}
+
+#[test]
+fn parse_review_annotations_file() {
+    match parse(&[
+        "keel",
+        "review",
+        "--base",
+        "main",
+        "--annotations-file",
+        "/tmp/annotations.txt",
+    ])
+    .command
+    {
+        Commands::Review {
+            annotations_file, ..
+        } => {
+            assert_eq!(annotations_file.as_deref(), Some("/tmp/annotations.txt"));
         }
         _ => panic!("expected Review"),
     }
@@ -139,10 +166,13 @@ fn parse_quality_defaults_to_the_current_reading() {
             trend,
             since,
             last,
+            export,
+            import,
         } => {
             assert!(!snapshot, "reading the graph never writes by default");
             assert!(!trend);
             assert!(since.is_none() && last.is_none());
+            assert!(export.is_none() && import.is_none());
         }
         _ => panic!("expected Quality"),
     }
@@ -184,4 +214,31 @@ fn parse_quality_rejects_contradictory_flags() {
         "keel", "quality", "--trend", "--since", "abc", "--last", "5",
     ])
     .expect_err("--since and --last are mutually exclusive");
+    // --export/--import are their own runs, exclusive of a reading or a trend.
+    Cli::try_parse_from(["keel", "quality", "--export", "x", "--snapshot"])
+        .expect_err("--export and --snapshot are mutually exclusive");
+    Cli::try_parse_from(["keel", "quality", "--import", "x", "--trend"])
+        .expect_err("--import and --trend are mutually exclusive");
+    Cli::try_parse_from(["keel", "quality", "--export", "x", "--import", "y"])
+        .expect_err("--export and --import are mutually exclusive");
+}
+
+#[test]
+fn parse_quality_export() {
+    match parse(&["keel", "quality", "--export", "history.jsonl"]).command {
+        Commands::Quality { export, .. } => {
+            assert_eq!(export.as_deref(), Some("history.jsonl"));
+        }
+        _ => panic!("expected Quality"),
+    }
+}
+
+#[test]
+fn parse_quality_import() {
+    match parse(&["keel", "quality", "--import", "history.jsonl"]).command {
+        Commands::Quality { import, .. } => {
+            assert_eq!(import.as_deref(), Some("history.jsonl"));
+        }
+        _ => panic!("expected Quality"),
+    }
 }

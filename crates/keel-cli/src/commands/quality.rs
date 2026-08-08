@@ -18,6 +18,11 @@ pub struct QualityArgs {
     pub since: Option<String>,
     /// Cap the trend to the last N snapshots.
     pub last: Option<usize>,
+    /// Export the stored snapshot history as JSON Lines to this path.
+    pub export: Option<String>,
+    /// Import snapshot history from this JSON Lines file, upserting by
+    /// `commit_sha`.
+    pub import: Option<String>,
 }
 
 /// Run `keel quality`.
@@ -27,12 +32,52 @@ pub struct QualityArgs {
 /// by construction: no file, no line, no hash, no fix. Only an internal failure
 /// (no initialized graph, an unwritable database) exits 2, per the CLI
 /// contract.
+///
+/// `--export`/`--import` are their own runs (mutually exclusive with a
+/// reading or a trend, enforced by clap): they move the `quality_snapshots`
+/// series to/from a JSON Lines file so CI can accumulate history across a
+/// per-commit graph cache that never carries a prior commit's row on its own.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, args: QualityArgs) -> i32 {
     let ctx = match super::open_repo("quality") {
         Ok(x) => x,
         Err(code) => return code,
     };
     let (cwd, store) = (ctx.cwd, ctx.store);
+
+    if let Some(path) = &args.export {
+        let jsonl = keel_enforce::quality::history::export_jsonl(&store);
+        if let Err(e) = std::fs::write(path, &jsonl) {
+            eprintln!("keel quality: failed to write {}: {}", path, e);
+            return 2;
+        }
+        return 0;
+    }
+    if let Some(path) = &args.import {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("keel quality: failed to read {}: {}", path, e);
+                return 2;
+            }
+        };
+        return match keel_enforce::quality::history::import_jsonl(&store, &content) {
+            Ok(summary) => {
+                if verbose {
+                    eprintln!(
+                        "keel quality: imported {} snapshot(s) ({} new, {} updated)",
+                        summary.total(),
+                        summary.inserted,
+                        summary.updated
+                    );
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("keel quality: failed to import {}: {}", path, e);
+                2
+            }
+        };
+    }
 
     let commit = keel_enforce::gitdiff::head_commit(&cwd);
     let mut report = QualityReport::new(commit.clone());

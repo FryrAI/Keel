@@ -6,7 +6,8 @@ use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
 use crate::violations_util::{
-    extract_prefix, is_test_file, normalize_signature, parse_signature, receiver_is_type_like,
+    distinct_compilation_units, extract_prefix, is_test_file, normalize_signature, parse_signature,
+    receiver_is_type_like,
 };
 
 /// Check E004: function_removed — a function was removed but callers still exist.
@@ -291,6 +292,15 @@ pub fn check_placement(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violatio
 /// contract. So this only fires when exactly one other matching site
 /// exists — 2 total copies. 3+ copies stay silent here (W006's body-hash
 /// check still catches genuine multi-copy duplication independent of name).
+///
+/// One more pair is exempt regardless of count: two definitions living in
+/// DISTINCT Cargo compilation units (different build scripts, binaries,
+/// examples, benches — see `distinct_compilation_units`). Cargo compiles
+/// each target as its own crate, so a name in one is invisible to the other
+/// and there is no ambiguity to rename away (issue #62; widened from the
+/// original `main`-only gate — the reasoning was never name-specific, and
+/// W006's body tiers still catch real copy-paste between targets).
+///
 /// Uses indexed SQL query instead of triple-nested loop. O(F) not O(F*M*N).
 pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
     let mut violations = Vec::new();
@@ -357,6 +367,15 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
             continue;
         }
         let node = same_shape[0];
+
+        // Two separate Cargo compilation units — build.rs vs src/main.rs, two
+        // src/bin targets, two examples. Each compiles as its own crate, so
+        // there is no ambiguity to rename away (issue #62). Structural, not
+        // `main`-specific: any name two binary targets happen to share is as
+        // invisible across them as `main` is.
+        if distinct_compilation_units(&file.file_path, &node.file_path) {
+            continue;
+        }
 
         violations.push(Violation {
             code: "W002".to_string(),

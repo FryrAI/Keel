@@ -16,6 +16,7 @@
 //! the comparison instead of silently mixing two definitions into one line.
 
 use rusqlite::params;
+use serde::{Deserialize, Serialize};
 
 use crate::sqlite::SqliteGraphStore;
 use crate::types::{sql_in_list, GraphError, QualityInputs, MODULE_DEP_KINDS, SYMBOL_DEP_KINDS};
@@ -47,7 +48,7 @@ pub const QUALITY_SNAPSHOTS_DDL: &str = "
 /// `metrics` is left as the raw JSON blob: this crate stores the series and
 /// knows nothing about what a metric means — `keel-enforce` owns the schema of
 /// the blob and the refusal rule for comparing across versions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QualitySnapshotRow {
     /// Monotonic insertion order. The series is ordered by this, not by
     /// `captured_at`: re-measuring an existing commit refreshes the timestamp
@@ -164,9 +165,9 @@ impl SqliteGraphStore {
         )
     }
 
-    /// Everything the `keel quality` metrics need, in four aggregate queries.
+    /// Everything the `keel quality` metrics need, in five aggregate queries.
     ///
-    /// All four are answered from existing indexes (`nodes.id` and
+    /// All five are answered from existing indexes (`nodes.id` and
     /// `edges.target_id` primary/secondary keys drive the joins), so a full
     /// measurement costs a handful of milliseconds instead of one query per
     /// node. Files are deduplicated here: hash-salt collisions can leave a file
@@ -238,12 +239,51 @@ impl SqliteGraphStore {
             )
             .unwrap_or((0, 0));
 
+        // `in_test_context = 0` is the same population rule the fragment scan
+        // applies: an inline `#[cfg(test)] mod tests` is not production mass,
+        // and its fixture bodies would otherwise move a production metric.
+        // Rows written before the column existed read back as 0 and are
+        // therefore included — the metric under-excludes until the next map,
+        // never over-excludes.
+        let complexity_by_fn = self
+            .collect(
+                "SELECT file_path, complexity, (line_end - line_start + 1)
+                 FROM nodes WHERE kind = 'function' AND in_test_context = 0",
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u32,
+                        row.get::<_, i64>(2)?.max(0) as u32,
+                    ))
+                },
+            )
+            .unwrap_or_default();
+
+        // Fragment-clone measurements, as written by the last `keel map`. A
+        // database that has never been mapped by a keel carrying issue #66
+        // returns nothing here, and the metric reads 0 — "not measured" — until
+        // the next map, exactly like `complexity` did when it was added.
+        let fragment_clones_by_fn = self
+            .collect(
+                "SELECT file_path, cloned_lines, code_lines FROM fragment_clones",
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u32,
+                        row.get::<_, i64>(2)?.max(0) as u32,
+                    ))
+                },
+            )
+            .unwrap_or_default();
+
         QualityInputs {
             file_lines,
             uncalled_private_fns,
             module_deps,
             dependency_edges,
             cross_file_dependency_edges,
+            complexity_by_fn,
+            fragment_clones_by_fn,
         }
     }
 

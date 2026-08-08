@@ -148,6 +148,22 @@ pub struct Definition {
     /// the parse cache rather than the graph, so there is no `nodes.is_macro`
     /// column and no schema bump. Other languages always carry `false`.
     pub is_macro: bool,
+    /// McCabe cyclomatic complexity of this definition's body: 1 + the number
+    /// of decision points (branches, loops, short-circuiting boolean
+    /// operators, catch/except arms, match/case arms) in its subtree, not
+    /// counting nested named function/method definitions — they get their own
+    /// count. 1 for modules, which capture no body. Deliberately absent from
+    /// [`Definition::hash`]: it is derived from `body_text`, which already
+    /// drives the hash.
+    pub complexity: u32,
+    /// True when this definition's body is exactly one statement that is a
+    /// call expression — a bare call, `return call(...)`, or (TS/JS) a
+    /// concise-arrow body that IS the call — modulo a leading docstring
+    /// (Python) or `pass` (Python). Detected once at parse time in
+    /// `treesitter::body_shape` because it needs the real AST node, not the
+    /// flattened `body_text`. Consumed by `keel audit`'s `trivial_wrapper`
+    /// smell, combined there with the stored graph's caller count.
+    pub is_trivial_wrapper_body: bool,
 }
 
 impl Definition {
@@ -173,6 +189,35 @@ impl Definition {
             &self.body_for_hash(),
             self.docstring.as_deref().unwrap_or(""),
         )
+    }
+
+    /// The value `nodes.is_trivial_wrapper` stores for this definition: a
+    /// single delegating body, minus the parse-time exemptions the graph does
+    /// not persist in a column of their own.
+    ///
+    /// One definition because both node writers (`keel map`'s first pass and
+    /// `keel compile`'s sync) must fold in exactly the same exemptions — a
+    /// disagreement would make the audit's finding depend on which command
+    /// last touched the row. Exemptions the graph DOES persist
+    /// (`is_associated`, `in_test_context`) are deliberately absent: the reader
+    /// applies those.
+    pub fn stored_trivial_wrapper(&self) -> bool {
+        self.is_trivial_wrapper_body && !self.is_decorated && !self.has_keep_marker
+    }
+
+    /// Copy every parse-derived fact this definition owns onto its stored
+    /// node.
+    ///
+    /// The single list shared by all three node writers — `keel map`'s bulk
+    /// pass, compile-sync's incremental insert, and the engine's hash-moved
+    /// update. A flag added here reaches all of them; a hand-maintained copy
+    /// at one site is how facts went stale on the update path twice already.
+    pub fn apply_parse_facts(&self, node: &mut keel_core::types::GraphNode) {
+        node.kind = self.kind.clone();
+        node.complexity = self.complexity;
+        node.is_trivial_wrapper = self.stored_trivial_wrapper();
+        node.in_test_context = self.in_test_context;
+        node.is_associated = self.is_associated;
     }
 
     /// The disambiguated content hash, salted with `file_path` — the identity
@@ -336,6 +381,19 @@ impl FileIndex {
             parse_duration_us: 0,
         }
     }
+
+    /// The language name this file's bodies are tokenized under — `""` when
+    /// no grammar claims the path.
+    ///
+    /// Derived from the canonical [`crate::treesitter::detect_language`] table,
+    /// which is also what the walker records as `WalkEntry::language` and what
+    /// [`Definition::body_for_hash`] uses. Consumers ask the index rather than
+    /// re-deriving it, so "map and compile fingerprint under the same language
+    /// string" holds because there is one derivation, not because a comment
+    /// says so.
+    pub fn language(&self) -> &'static str {
+        crate::treesitter::detect_language(Path::new(&self.file_path)).unwrap_or("")
+    }
 }
 
 /// Thread-safe per-file parse cache shared by every language resolver.
@@ -403,6 +461,8 @@ mod tests {
 
         let result = ParseResult {
             definitions: vec![Definition {
+                complexity: 1,
+                is_trivial_wrapper_body: false,
                 name: "foo".to_string(),
                 kind: NodeKind::Function,
                 signature: "fn foo()".to_string(),

@@ -188,6 +188,8 @@ Multiple symbols share the same name in overlapping scope.
 
 **Fix:** Rename one of the symbols to be more specific. Use `keel name "<description>"` for naming suggestions.
 
+Two files that Cargo compiles as *separate* units — `build.rs`, `src/main.rs`, each `src/bin/*.rs`, each `examples/*.rs` — never collide with each other, so a name shared between them is exempt whatever the name is. A pair involving a library file still fires.
+
 ### W005 — Dead Code
 
 **Severity:** WARNING
@@ -213,7 +215,10 @@ A private function has no callers anywhere in the graph and isn't referenced in 
 
 **Severity:** WARNING
 
-A function body is identical (whitespace-normalized) to a function already defined in another file.
+A function body duplicates one already defined in another file, in one of two tiers:
+
+- **Type-1** — identical after whitespace normalization. Confidence 0.85.
+- **Type-2** — identical in structure once identifiers are renamed and literals collapsed, i.e. a copy-paste-then-rename. Confidence 0.6, and only reported when Type-1 found nothing.
 
 ```json
 {
@@ -228,7 +233,17 @@ A function body is identical (whitespace-normalized) to a function already defin
 }
 ```
 
-**Fix:** Call the existing implementation instead of duplicating it, or extract a shared helper both call. Trivial bodies (under ~60 normalized characters, e.g. one-line getters) are exempt. Disable with `enforce.duplication: false` in `keel.json`.
+A Type-2 finding reads:
+
+```json
+{
+  "code": "W006",
+  "message": "Body of `formatCurrency` is a near-duplicate of `formatMoney` at src/utils/money.ts:12 (same structure, renamed identifiers/literals)",
+  "confidence": 0.6
+}
+```
+
+**Fix:** Call the existing implementation instead of duplicating it, or extract a shared helper both call. Trivial bodies (under ~60 normalized characters, e.g. one-line getters) are exempt; the Type-2 tier applies a higher floor still, since renaming shrinks what it compares. Two implementors of the same trait/interface sharing a body shape are exempt on both tiers. Disable with `enforce.duplication: false` in `keel.json`.
 
 ### W007 — Oversized File
 

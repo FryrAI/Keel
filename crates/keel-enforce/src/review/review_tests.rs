@@ -57,6 +57,9 @@ fn repo(files: &[(&str, &str)]) -> TempDir {
 
 fn node(id: u64, name: &str, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: format!("hash{:07}", id),
         kind: NodeKind::Function,

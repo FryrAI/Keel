@@ -15,6 +15,9 @@ use crate::common::in_memory_store;
 
 fn make_target(id: u64, name: &str, sig: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: compute_hash(sig, "pass", ""),
         kind: NodeKind::Function,
@@ -242,6 +245,7 @@ fn test_e005_batch_signature_wins_over_stored() {
     store.update_nodes(vec![NodeChange::Add(target)]).unwrap();
 
     let fresh_def = keel_parsers::resolver::Definition {
+        complexity: 1,
         name: "foo".to_string(),
         kind: NodeKind::Function,
         signature: "def foo(a: int, b: int, c: int)".to_string(),
@@ -259,6 +263,7 @@ fn test_e005_batch_signature_wins_over_stored() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let lib_file = FileIndex {
         file_path: "lib.py".to_string(),
@@ -291,6 +296,7 @@ fn test_e005_ambiguous_batch_fallback_skips() {
     store.update_nodes(vec![NodeChange::Add(target)]).unwrap();
 
     let def_at = |line: u32, sig: &str| keel_parsers::resolver::Definition {
+        complexity: 1,
         name: "foo".to_string(),
         kind: NodeKind::Function,
         signature: sig.to_string(),
@@ -308,6 +314,7 @@ fn test_e005_ambiguous_batch_fallback_skips() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let lib_file = FileIndex {
         file_path: "lib.py".to_string(),

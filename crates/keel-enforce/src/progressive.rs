@@ -38,30 +38,24 @@ pub fn apply_progressive_adoption(
         .into_iter()
         .map(|mut v| {
             if v.severity == "ERROR" && PROGRESSIVE_CODES.contains(&v.code.as_str()) {
-                // ANY same-named stored node may be this def's identity (a
-                // file can hold several `run`s across impl blocks) — the
-                // hash comparison, not first-name-wins, decides which one.
-                // Modified-earlier-this-session functions carry their old
-                // hash in previous_hashes; they must NOT decay back to
-                // "pre-existing".
+                // Which stored node IS this def is `bind_to_node`'s question,
+                // not first-name-wins: a file can hold several `run`s across
+                // impl blocks. Untouched then means the bound node still
+                // carries this exact body AND has no rename history —
+                // modified-earlier-this-session functions carry their old hash
+                // in previous_hashes and must NOT decay back to "pre-existing".
                 let untouched = file
                     .definitions
                     .iter()
                     .find(|d| d.line_start == v.line)
-                    .map(|def| {
-                        existing_nodes
-                            .iter()
-                            .filter(|n| n.name == def.name)
-                            .any(|node| {
-                                node.previous_hashes.is_empty()
-                                    && crate::violations_util::node_hash_matches(
-                                        node,
-                                        def,
-                                        &file.file_path,
-                                    )
-                            })
+                    .and_then(|def| {
+                        crate::violations_util::bind_to_node(def, file, existing_nodes)
+                            .map(|node| (node, def))
                     })
-                    .unwrap_or(false);
+                    .is_some_and(|(node, def)| {
+                        node.previous_hashes.is_empty()
+                            && crate::violations_util::node_hash_matches(node, def, &file.file_path)
+                    });
                 if untouched {
                     v.severity = "WARNING".to_string();
                     v.fix_hint = Some(format!(

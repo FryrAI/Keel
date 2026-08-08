@@ -357,6 +357,9 @@ mod tests {
         let store = SqliteGraphStore::in_memory().unwrap();
         store
             .insert_node(&GraphNode {
+                complexity: 0,
+                is_trivial_wrapper: false,
+                in_test_context: false,
                 id: 1,
                 hash: "abc12345678".to_string(),
                 kind: keel_core::types::NodeKind::Function,

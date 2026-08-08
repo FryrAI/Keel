@@ -36,7 +36,7 @@ The main configuration file. All fields have sensible defaults -- you only need 
 | `enforce.placement` | `bool` | `true` | Enforce structural placement. When true, functions placed in modules where they don't belong produce W001 warnings. |
 | `enforce.progressive` | `bool` | `true` | Progressive adoption. When true, E002/E003 on pre-existing functions the current change didn't touch are downgraded to WARNING instead of ERROR, so adopting keel on a legacy repo doesn't flood errors. |
 | `enforce.dead_code` | `bool` | `true` | Enforce liveness. When true, private functions with no callers anywhere in the graph produce W005 warnings. |
-| `enforce.duplication` | `bool` | `true` | Enforce non-duplication. When true, function bodies identical (whitespace-normalized) to a function elsewhere in the graph produce W006 warnings. |
+| `enforce.duplication` | `bool` | `true` | Enforce non-duplication. When true, function bodies identical (whitespace-normalized, Type-1) or structurally identical after identifier/literal normalization (Type-2, lower confidence) to a function elsewhere in the graph produce W006 warnings. |
 | `enforce.oversized_files` | `bool` | `true` | Enforce file size budgets. When true, files that exceed `enforce.max_file_lines` and grew since the last `keel map` produce W007 warnings. |
 | `enforce.max_file_lines` | `u32` | `400` | Line budget used by the W007 oversized-file check. |
 | `circuit_breaker.max_failures` | `u32` | `3` | Maximum consecutive failures on the same error-code + hash pair before auto-downgrade. After N failures: attempt 1 = fix_hint, attempt 2 = wider discover context, attempt N = auto-downgrade to WARNING. Resets on success or a different error. |

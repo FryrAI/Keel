@@ -205,13 +205,19 @@ fn main() {
             commands::checkpoint::run(&*formatter, cli.verbose, since, staged, output),
             Default::default(),
         ),
-        Commands::Review { base, format, gate } => (
+        Commands::Review {
+            base,
+            format,
+            gate,
+            annotations_file,
+        } => (
             commands::review::run(
                 &*formatter,
                 cli.verbose,
                 base,
                 format == Some(cli_args::WireFormat::Github),
                 gate,
+                annotations_file,
             ),
             Default::default(),
         ),
@@ -220,6 +226,8 @@ fn main() {
             trend,
             since,
             last,
+            export,
+            import,
         } => (
             commands::quality::run(
                 &*formatter,
@@ -229,6 +237,8 @@ fn main() {
                     trend,
                     since,
                     last,
+                    export,
+                    import,
                 },
             ),
             Default::default(),

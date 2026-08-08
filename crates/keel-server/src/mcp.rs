@@ -259,6 +259,33 @@ pub(crate) fn lock_store(
     })
 }
 
+/// Shared body of the argument-plus-depth engine lookups (`keel/discover`,
+/// `keel/focus`): read `key` and a defaulted `depth`, lock the engine, run
+/// `lookup`, and serialize the result or report the argument as not found.
+pub(crate) fn engine_lookup<T: serde::Serialize>(
+    engine: &SharedEngine,
+    params: Option<serde_json::Value>,
+    key: &str,
+    default_depth: u32,
+    lookup: impl FnOnce(&keel_enforce::engine::EnforcementEngine, &str, u32) -> Option<T>,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let arg = param_str(&params, key)?.to_string();
+    let depth = param_u32(&params, "depth", default_depth);
+    let engine = lock_engine(engine)?;
+    let result = lookup(&engine, &arg, depth).ok_or_else(|| not_found(&arg))?;
+    serde_json::to_value(result).map_err(internal_err)
+}
+
+/// Acquire the shared engine mutex, returning a JSON-RPC error if poisoned.
+pub(crate) fn lock_engine(
+    engine: &SharedEngine,
+) -> Result<std::sync::MutexGuard<'_, keel_enforce::engine::EnforcementEngine>, JsonRpcError> {
+    engine.lock().map_err(|_| JsonRpcError {
+        code: -32603,
+        message: "Engine lock poisoned".into(),
+    })
+}
+
 /// Create a shared enforcement engine backed by a disk store with project config.
 /// Falls back to in-memory store if db_path is None.
 /// Circuit breaker and batch state persist across MCP calls within a session.

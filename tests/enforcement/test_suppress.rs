@@ -90,6 +90,7 @@ fn test_suppress_via_engine() {
         file_path: "test.py".to_string(),
         content_hash: 0,
         definitions: vec![Definition {
+            complexity: 1,
             name: "untyped".to_string(),
             kind: NodeKind::Function,
             signature: "def untyped(data)".to_string(),
@@ -107,6 +108,7 @@ fn test_suppress_via_engine() {
             is_decorated: false,
             has_keep_marker: false,
             is_macro: false,
+            is_trivial_wrapper_body: false,
         }],
         references: vec![],
         imports: vec![],

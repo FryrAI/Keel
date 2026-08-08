@@ -32,6 +32,8 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        complexity: 1,
+        is_trivial_wrapper_body: false,
     }
 }
 
@@ -40,6 +42,16 @@ pub(crate) fn definition(name: &str, file: &str, is_public: bool) -> Definition 
 pub(crate) fn test_context_definition(name: &str, file: &str) -> Definition {
     Definition {
         in_test_context: true,
+        ..definition(name, file, false)
+    }
+}
+
+/// A private function definition flagged as living on a trait/interface
+/// contract surface (`Definition::in_trait_context`) — exempt from W005, and
+/// from W006 when its counterpart is also a trait method.
+pub(crate) fn trait_context_definition(name: &str, file: &str) -> Definition {
+    Definition {
+        in_trait_context: true,
         ..definition(name, file, false)
     }
 }
@@ -124,6 +136,9 @@ pub(crate) fn function_node(id: u64, hash: &str, name: &str, file: &str) -> Grap
         type_hints_present: true,
         has_docstring: false,
         is_associated: false,
+        complexity: 1,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -137,8 +152,11 @@ pub(crate) fn node_for_definition(id: u64, def: &Definition) -> GraphNode {
     let (hash, _) = crate::violations_util::definition_hashes(def, &def.file_path);
     let mut node = function_node(id, &hash, &def.name, &def.file_path);
     node.is_public = def.is_public;
-    node.is_associated = def.is_associated;
     node.line_start = def.line_start;
     node.line_end = def.line_end;
+    // The production fact list, not a hand copy — a fact added to
+    // `apply_parse_facts` must reach the fixtures the checks are asserted
+    // against, or tests keep passing while the real writers drift.
+    def.apply_parse_facts(&mut node);
     node
 }

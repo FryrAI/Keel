@@ -2,8 +2,9 @@
 //!
 //! - W005 `dead_code` — private function with no callers or value usages in
 //!   the graph.
-//! - W006 `duplicate_implementation` — body identical (whitespace-normalized)
-//!   to a function in another file.
+//! - W006 `duplicate_implementation` — body identical (whitespace-normalized,
+//!   "Type-1") or structurally identical after identifier/literal
+//!   normalization ("Type-2", lower confidence) to a function in another file.
 //! - W007 `oversized_file` — file exceeds the configured line budget and grew.
 //!
 //! All three are WARNING severity, deferrable in batch mode, and gated by
@@ -12,12 +13,13 @@
 use std::collections::{HashMap, HashSet};
 
 use keel_core::config::EnforceConfig;
+use keel_core::hash_t2;
 use keel_core::store::GraphStore;
-use keel_core::types::{EdgeDirection, EdgeKind, GraphNode, NodeKind};
+use keel_core::types::{BodyIndexEntry, EdgeDirection, EdgeKind, GraphNode, NodeKind};
 use keel_parsers::resolver::{Definition, FileIndex};
 
 use crate::types::Violation;
-use crate::violations_util::{is_bench_file, is_stub_file, is_test_file, node_hash_matches};
+use crate::violations_util::{bind_to_node, is_bench_file, is_stub_file, is_test_file};
 
 /// Bodies shorter than this (whitespace-normalized) are too trivial to call
 /// duplicates — one-line getters and delegations legitimately repeat.
@@ -26,6 +28,18 @@ const MIN_DUPLICATE_BODY_LEN: usize = 60;
 // Anything this check wants to match must have been indexed at map time,
 // which gates on the (lower) MIN_INDEXED_BODY_LEN.
 const _: () = assert!(MIN_DUPLICATE_BODY_LEN >= keel_core::hash::MIN_INDEXED_BODY_LEN);
+
+/// Floor for the Type-2 token stream, higher than its Type-1 counterpart —
+/// see [`keel_core::hash_t2::MIN_T2_NORMALIZED_LEN`] for why.
+const MIN_T2_NORMALIZED_LEN: usize = hash_t2::MIN_T2_NORMALIZED_LEN;
+const _: () = assert!(MIN_T2_NORMALIZED_LEN > MIN_DUPLICATE_BODY_LEN);
+
+/// Confidence for a Type-1 duplicate — the same body, modulo whitespace.
+const DUPLICATE_T1_CONFIDENCE: f64 = 0.85;
+/// Confidence for a Type-2-only near-clone: the same structure with renamed
+/// identifiers and different literals. A heuristic about shape, not evidence
+/// of a literal copy, so it sits below the "attempt one fix" threshold.
+const DUPLICATE_T2_CONFIDENCE: f64 = 0.6;
 
 /// Names that are entrypoints or conventionally uncalled in every language —
 /// never dead.
@@ -85,30 +99,111 @@ pub fn batch_reference_names(files: &[FileIndex]) -> HashSet<String> {
     names
 }
 
-/// Index the normalized-body hashes of every trait-context definition in the
-/// compile batch, mapped to the files that define them.
-///
-/// W006 consults this to answer "is the function my body matches ALSO a trait
-/// method?" — the graph does not persist trait-context provenance, so the
-/// answer has to come from the freshly parsed batch.
-pub fn batch_trait_context_bodies(files: &[FileIndex]) -> HashMap<String, HashSet<String>> {
-    let mut bodies: HashMap<String, HashSet<String>> = HashMap::new();
-    for file in files {
-        for def in &file.definitions {
-            if !def.in_trait_context || def.kind != NodeKind::Function {
-                continue;
-            }
-            let normalized = keel_core::hash::normalize_body(&def.body_text);
-            if normalized.len() < MIN_DUPLICATE_BODY_LEN {
-                continue;
-            }
-            bodies
-                .entry(keel_core::hash::hash_normalized_body(&normalized))
-                .or_default()
-                .insert(file.file_path.clone());
+/// The two fingerprints of one function body, `None` per tier when the
+/// normalized form is under that tier's floor.
+struct BodyFingerprints {
+    /// Whitespace-normalized body hash — the Type-1 identity.
+    t1: Option<String>,
+    /// Identifier/literal-normalized token-stream hash — the Type-2 identity.
+    t2: Option<String>,
+}
+
+impl BodyFingerprints {
+    /// Fingerprint `body` in both tiers.
+    ///
+    /// The only place a body is normalized during a compile. Both tiers are
+    /// computed together because a body that fires Type-1 is still the Type-2
+    /// twin a later file in the batch may be looking for, so there is no
+    /// branch on which one is skippable.
+    fn of(body: &str, lang: &str) -> Self {
+        let normalized = keel_core::hash::normalize_body(body);
+        let t2_normalized = hash_t2::normalize_body_t2(body, lang);
+        BodyFingerprints {
+            t1: (normalized.len() >= MIN_DUPLICATE_BODY_LEN)
+                .then(|| keel_core::hash::hash_normalized_body(&normalized)),
+            t2: (t2_normalized.len() >= MIN_T2_NORMALIZED_LEN)
+                .then(|| keel_core::hash::hash_string(&t2_normalized)),
         }
     }
-    bodies
+}
+
+/// What W006 precomputes for one compile batch: every function body's
+/// fingerprints, and which of those bodies sit on a trait contract surface.
+///
+/// The trait maps answer "is the function my body matches ALSO a trait
+/// method?" — the graph persists no trait-context provenance, so the answer
+/// has to come from the freshly parsed batch. They are built from the same
+/// pass that fingerprints the bodies: keeping them separate meant every trait
+/// method was normalized twice per compile, with the two normalizations held
+/// in step by hand.
+#[derive(Default)]
+pub struct DuplicateIndex {
+    /// `file_path` → definition index → fingerprints. The index is the def's
+    /// position in `FileIndex::definitions`, the one key that cannot collide:
+    /// names repeat within a file (free fn + method), lines repeat in
+    /// minified sources, and even `(line, name)` repeats when two impl blocks
+    /// share a line — any content-derived key hands one def another's
+    /// fingerprints. Both walks iterate the same vec, so the index is shared
+    /// by construction.
+    per_def: HashMap<String, HashMap<usize, BodyFingerprints>>,
+    /// Type-1 fingerprint → the files defining it on a trait surface.
+    trait_t1: HashMap<String, HashSet<String>>,
+    /// Type-2 fingerprint → the same, keyed on the other tier's fingerprint.
+    trait_t2: HashMap<String, HashSet<String>>,
+}
+
+impl DuplicateIndex {
+    /// Fingerprint every function body in `files`.
+    pub fn new(files: &[FileIndex]) -> Self {
+        let mut index = DuplicateIndex::default();
+        for file in files {
+            index.add_file(file);
+        }
+        index
+    }
+
+    /// Fingerprint one file's function bodies into the index. Idempotent — a
+    /// second pass over the same file recomputes identical entries.
+    fn add_file(&mut self, file: &FileIndex) {
+        // Must be the same language string `keel map` indexed under, or no
+        // stored Type-2 fingerprint ever matches. `FileIndex::language` is
+        // that one derivation.
+        let lang = file.language();
+        let slot = self.per_def.entry(file.file_path.clone()).or_default();
+        for (idx, def) in file.definitions.iter().enumerate() {
+            if def.kind != NodeKind::Function {
+                continue;
+            }
+            let fingerprints = BodyFingerprints::of(&def.body_text, lang);
+            if def.in_trait_context {
+                for (fingerprint, map) in [
+                    (&fingerprints.t1, &mut self.trait_t1),
+                    (&fingerprints.t2, &mut self.trait_t2),
+                ] {
+                    if let Some(f) = fingerprint {
+                        map.entry(f.clone())
+                            .or_default()
+                            .insert(file.file_path.clone());
+                    }
+                }
+            }
+            slot.insert(idx, fingerprints);
+        }
+    }
+
+    /// The fingerprints of the definition at position `idx` of its file's
+    /// `definitions` vec.
+    fn get(&self, file: &str, idx: usize) -> Option<&BodyFingerprints> {
+        self.per_def.get(file)?.get(&idx)
+    }
+}
+
+/// The bodies already visited in this batch, per tier: fingerprint →
+/// `(file, name, line)` of the first definition that carried it.
+#[derive(Default)]
+pub struct SeenBodies {
+    t1: HashMap<String, (String, String, u32)>,
+    t2: HashMap<String, (String, String, u32)>,
 }
 
 /// Batch-wide state the three economy checks share across one pass over a
@@ -120,18 +215,18 @@ pub fn batch_trait_context_bodies(files: &[FileIndex]) -> HashMap<String, HashSe
 /// one side skips manufactures a phantom "new" finding on the other.
 pub struct EconomyBatch {
     referenced: HashSet<String>,
-    trait_bodies: HashMap<String, HashSet<String>>,
-    seen_bodies: HashMap<String, (String, String, u32)>,
+    duplicates: DuplicateIndex,
+    seen: SeenBodies,
 }
 
 impl EconomyBatch {
-    /// Precompute the batch-wide facts for `files` (names referenced anywhere
-    /// in the batch, and the bodies that came from a trait context).
+    /// Precompute the batch-wide facts for `files`: the names referenced
+    /// anywhere in the batch, and every function body's fingerprints.
     pub fn new(files: &[FileIndex]) -> Self {
         Self {
             referenced: batch_reference_names(files),
-            trait_bodies: batch_trait_context_bodies(files),
-            seen_bodies: HashMap::new(),
+            duplicates: DuplicateIndex::new(files),
+            seen: SeenBodies::default(),
         }
     }
 
@@ -164,8 +259,8 @@ impl EconomyBatch {
             out.extend(check_duplicate_implementation(
                 file,
                 store,
-                &mut self.seen_bodies,
-                &self.trait_bodies,
+                &self.duplicates,
+                &mut self.seen,
             ));
         }
         if cfg.oversized_files {
@@ -230,20 +325,10 @@ pub fn check_dead_code(
         // (one file compiled per edit) a freshly extracted helper's caller
         // often isn't written yet, so flagging it would misfire constantly.
         // New dead code is caught on the compile after the next `keel map`.
-        let candidates: Vec<&GraphNode> = existing_nodes
-            .iter()
-            .filter(|n| n.name == def.name)
-            .collect();
-        // Same-named siblings (impl-block methods): pick the node whose hash
-        // matches this def; when nothing matches unambiguously, skip rather
-        // than consult the wrong node's edges.
-        let node = match candidates
-            .iter()
-            .find(|n| node_hash_matches(n, def, &file.file_path))
-        {
-            Some(n) => *n,
-            None if candidates.len() == 1 => candidates[0],
-            None => continue,
+        // An undecidable pairing (same-named siblings, no hash evidence) is
+        // skipped rather than resolved against the wrong node's edges.
+        let Some(node) = bind_to_node(def, file, existing_nodes) else {
+            continue;
         };
         // `Uses` counts as a caller: a function handed around as a value
         // (callback, handler table, `#[serde(default = "...")]`) is used, even
@@ -284,24 +369,102 @@ pub fn check_dead_code(
     violations
 }
 
-/// W006: function bodies identical (whitespace-normalized) to another
-/// function — either one already in the graph's body index (populated at
-/// `keel map` time) or one seen earlier in this same compile batch.
+/// True when `def` and the function its fingerprint matches are BOTH on a
+/// trait contract surface.
 ///
-/// `seen_bodies` maps body_hash → (file, name, line) across the batch and
-/// must be shared by every file of one compile call.
+/// Two implementors of one trait legitimately share a body shape (`fn as_str`,
+/// `fn fmt`, a defaulted method copied into an override) and cannot be deduped
+/// — each impl must supply its own. Only exempt when the COUNTERPART is also a
+/// trait method: a trait impl that duplicates a free function's body is still a
+/// real "extract a helper" finding.
+fn trait_pair_exempt(
+    def: &Definition,
+    fingerprint: &str,
+    trait_bodies: &HashMap<String, HashSet<String>>,
+    own_file: &str,
+) -> bool {
+    def.in_trait_context
+        && trait_bodies
+            .get(fingerprint)
+            .is_some_and(|files| files.iter().any(|f| f != own_file))
+}
+
+/// The cross-file twin of `fingerprint` as `(name, file, line)`, preferring a
+/// stored-graph match over one seen earlier in this batch.
+///
+/// Cross-FILE only: identical siblings within one file are usually a
+/// deliberate dispatch pattern (trait impls, `format_*` fan-out), while a copy
+/// in another file is the drift risk worth flagging.
+fn cross_file_twin(
+    matches: Vec<BodyIndexEntry>,
+    seen: &HashMap<String, (String, String, u32)>,
+    fingerprint: &str,
+    own_file: &str,
+) -> Option<(String, String, u32)> {
+    matches
+        .into_iter()
+        .filter(|m| m.file_path != own_file)
+        .find(|m| !is_test_file(&m.file_path))
+        .map(|m| (m.name, m.file_path, m.line))
+        .or_else(|| {
+            seen.get(fingerprint)
+                .filter(|(f, _, _)| f != own_file)
+                .map(|(f, n, l)| (n.clone(), f.clone(), *l))
+        })
+}
+
+/// One W006 violation. The two tiers differ only in wording and confidence;
+/// every other field is fixed here so they cannot drift apart.
+fn duplicate_violation(
+    def: &Definition,
+    file_path: &str,
+    message: String,
+    fix_hint: String,
+    confidence: f64,
+) -> Violation {
+    Violation {
+        code: "W006".to_string(),
+        severity: "WARNING".to_string(),
+        category: "duplicate_implementation".to_string(),
+        message,
+        file: file_path.to_string(),
+        line: def.line_start,
+        hash: String::new(),
+        confidence,
+        resolution_tier: "heuristic".to_string(),
+        fix_hint: Some(fix_hint),
+        suppressed: false,
+        suppress_hint: None,
+        affected: vec![],
+        suggested_module: None,
+        existing: None,
+    }
+}
+
+/// W006: function bodies duplicated in another file — either byte-identical
+/// after whitespace normalization (Type-1), or identical in structure once
+/// identifiers are renamed and literals collapsed (Type-2, issue #59). The
+/// counterpart is either already in the graph's body index (populated at
+/// `keel map` time) or was seen earlier in this same compile batch.
+///
+/// Type-1 wins: a def that matches exactly never also reports the weaker
+/// Type-2 finding, so one duplicated body yields exactly one violation.
+///
+/// `index` holds the batch's precomputed fingerprints (a body absent from it
+/// was never fingerprinted and is skipped); `seen` carries the per-tier
+/// first-sighting maps and must be shared by every file of one compile call.
 pub fn check_duplicate_implementation(
     file: &FileIndex,
     store: &dyn GraphStore,
-    seen_bodies: &mut HashMap<String, (String, String, u32)>,
-    trait_bodies: &HashMap<String, HashSet<String>>,
+    index: &DuplicateIndex,
+    seen: &mut SeenBodies,
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
     if is_test_file(&file.file_path) || is_stub_file(&file.file_path) {
         return violations;
     }
 
-    for def in &file.definitions {
+    for (idx, def) in file.definitions.iter().enumerate() {
         if def.kind != NodeKind::Function {
             continue;
         }
@@ -313,74 +476,82 @@ pub fn check_duplicate_implementation(
         if def.in_test_context {
             continue;
         }
-        let normalized = keel_core::hash::normalize_body(&def.body_text);
-        if normalized.len() < MIN_DUPLICATE_BODY_LEN {
+        let Some(fingerprints) = index.get(&file.file_path, idx) else {
             continue;
-        }
-        let body_hash = keel_core::hash::hash_normalized_body(&normalized);
-
-        // Both sides on a trait contract surface: two implementors of the same
-        // trait legitimately share a body shape (`fn as_str`, `fn fmt`, a
-        // defaulted trait method copied into an override). Deduping them is not
-        // possible — each impl must supply its own. Only skip when the
-        // COUNTERPART is also a trait method: a trait impl that duplicates a
-        // free function's body is still a real "extract a helper" finding.
-        if def.in_trait_context
-            && trait_bodies
-                .get(&body_hash)
-                .is_some_and(|files| files.iter().any(|f| f != &file.file_path))
-        {
+        };
+        // A body under the Type-1 floor is too trivial to judge in EITHER
+        // tier: one-line getters and delegations legitimately repeat.
+        let Some(body_hash) = &fingerprints.t1 else {
             continue;
-        }
+        };
 
-        // Cross-FILE matches only: identical siblings within one file are
-        // usually a deliberate dispatch pattern (trait impls, format_* fan-out),
-        // while a copy in another file is the drift risk worth flagging.
-        // Prefer a graph-index match; fall back to a batch-local one.
-        let graph_match = store
-            .find_body_matches(&body_hash)
-            .into_iter()
-            .filter(|m| m.file_path != file.file_path)
-            .find(|m| !is_test_file(&m.file_path));
-        let local_match = seen_bodies
-            .get(&body_hash)
-            .filter(|(f, _, _)| f != &file.file_path)
-            .cloned();
+        let t1_twin = if trait_pair_exempt(def, body_hash, &index.trait_t1, &file.file_path) {
+            None
+        } else {
+            cross_file_twin(
+                store.find_body_matches(body_hash),
+                &seen.t1,
+                body_hash,
+                &file.file_path,
+            )
+        };
 
-        let duplicate = graph_match
-            .map(|m| (m.name, m.file_path, m.line))
-            .or_else(|| local_match.map(|(f, n, l)| (n, f, l)));
-
-        if let Some((other_name, other_file, other_line)) = duplicate {
-            violations.push(Violation {
-                code: "W006".to_string(),
-                severity: "WARNING".to_string(),
-                category: "duplicate_implementation".to_string(),
-                message: format!(
+        if let Some((other_name, other_file, other_line)) = t1_twin {
+            violations.push(duplicate_violation(
+                def,
+                &file.file_path,
+                format!(
                     "Body of `{}` is identical to `{}` at {}:{}",
                     def.name, other_name, other_file, other_line
                 ),
-                file: file.file_path.clone(),
-                line: def.line_start,
-                hash: String::new(),
-                confidence: 0.85,
-                resolution_tier: "heuristic".to_string(),
-                fix_hint: Some(format!(
+                format!(
                     "Call `{}` ({}:{}) instead of duplicating it, or extract a \
                      shared helper",
                     other_name, other_file, other_line
-                )),
-                suppressed: false,
-                suppress_hint: None,
-                affected: vec![],
-                suggested_module: None,
-                existing: None,
-            });
+                ),
+                DUPLICATE_T1_CONFIDENCE,
+            ));
+        } else if let Some(t2) = &fingerprints.t2 {
+            let t2_twin = if trait_pair_exempt(def, t2, &index.trait_t2, &file.file_path) {
+                None
+            } else {
+                cross_file_twin(
+                    store.find_t2_body_matches(t2),
+                    &seen.t2,
+                    t2,
+                    &file.file_path,
+                )
+            };
+            if let Some((other_name, other_file, other_line)) = t2_twin {
+                violations.push(duplicate_violation(
+                    def,
+                    &file.file_path,
+                    format!(
+                        "Body of `{}` is a near-duplicate of `{}` at {}:{} \
+                         (same structure, renamed identifiers/literals)",
+                        def.name, other_name, other_file, other_line
+                    ),
+                    format!(
+                        "Structurally identical to `{}` ({}:{}) apart from renamed \
+                         names/literals — extract a shared helper or call it directly",
+                        other_name, other_file, other_line
+                    ),
+                    DUPLICATE_T2_CONFIDENCE,
+                ));
+            }
         }
 
-        seen_bodies
-            .entry(body_hash)
+        // Bookkeeping runs whether or not this def fired: a def that already
+        // has a Type-1 duplicate is still the Type-2 twin a later file in the
+        // batch may be looking for.
+        seen.t1
+            .entry(body_hash.clone())
             .or_insert_with(|| (file.file_path.clone(), def.name.clone(), def.line_start));
+        if let Some(t2) = &fingerprints.t2 {
+            seen.t2
+                .entry(t2.clone())
+                .or_insert_with(|| (file.file_path.clone(), def.name.clone(), def.line_start));
+        }
     }
 
     violations

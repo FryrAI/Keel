@@ -9,6 +9,9 @@ use crate::common::in_memory_store;
 
 fn make_module_node(id: u64, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: compute_hash(&format!("module:{file}"), "", ""),
         kind: NodeKind::Module,
@@ -31,6 +34,9 @@ fn make_module_node(id: u64, file: &str) -> GraphNode {
 
 fn make_func_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: compute_hash(&format!("def {name}()"), "pass", ""),
         kind: NodeKind::Function,
@@ -53,6 +59,7 @@ fn make_func_node(id: u64, name: &str, file: &str, line: u32) -> GraphNode {
 
 fn make_func_def(name: &str, file: &str, line: u32) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: format!("def {name}()"),
@@ -70,6 +77,7 @@ fn make_func_def(name: &str, file: &str, line: u32) -> Definition {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     }
 }
 
@@ -356,6 +364,9 @@ fn test_w002_class_not_reported() {
     // Only function duplicates trigger W002, not classes
     let mod_a = make_module_node(1, "a.py");
     let class_a = GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 2,
         hash: compute_hash("class Model", "pass", ""),
         kind: NodeKind::Class,
@@ -380,6 +391,7 @@ fn test_w002_class_not_reported() {
 
     // File with class definition (not function)
     let class_def = Definition {
+        complexity: 1,
         name: "Model".to_string(),
         kind: NodeKind::Class,
         signature: "class Model".to_string(),
@@ -397,6 +409,7 @@ fn test_w002_class_not_reported() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let file = make_file("b.py", vec![class_def]);
 
@@ -455,4 +468,135 @@ fn test_w002_stored_free_node_still_fires() {
         "a free-vs-free duplicate must still fire after the associated-node filter"
     );
     assert_eq!(violations[0].code, "W002");
+}
+
+#[test]
+fn test_w002_build_rs_vs_main_rs_is_exempt() {
+    // Issue #62: build.rs and src/main.rs both define `fn main()` — each
+    // compiles as its own independent Cargo crate, so this is not ambiguity.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "crates/x/src/main.rs");
+    let fn_a = make_func_node(2, "main", "crates/x/src/main.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("main", "crates/x/build.rs", 1);
+    let file = make_file("crates/x/build.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert!(
+        violations.is_empty(),
+        "build.rs vs src/main.rs main() must not fire W002"
+    );
+}
+
+#[test]
+fn test_w002_two_bin_targets_are_exempt() {
+    // Two independent binary targets: each `src/bin/*.rs` is its own crate.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/bin/a.rs");
+    let fn_a = make_func_node(2, "main", "src/bin/a.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("main", "src/bin/b.rs", 1);
+    let file = make_file("src/bin/b.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert!(
+        violations.is_empty(),
+        "two independent bin targets' main() must not fire W002"
+    );
+}
+
+#[test]
+fn test_w002_genuine_duplicate_main_still_fires() {
+    // Scoped, not a blanket "main" exemption: two ordinary (non-Cargo-root)
+    // files defining a free function literally named `main` must still fire.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/game/loop_a.rs");
+    let fn_a = make_func_node(2, "main", "src/game/loop_a.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("main", "src/game/loop_b.rs", 1);
+    let file = make_file("src/game/loop_b.rs", vec![def]);
+
+    let violations = check_duplicate_names(&file, &store);
+    assert_eq!(
+        violations.len(),
+        1,
+        "a genuine duplicate main() outside any Cargo binary root must still fire"
+    );
+}
+
+#[test]
+fn test_w002_any_shared_name_between_binary_roots_is_exempt() {
+    // The exemption is structural, not `main`-specific: a `helper` shared
+    // between build.rs and src/main.rs is as invisible across those two
+    // crates as `main` is, so there is no ambiguity for a rename to resolve.
+    // A real copy-paste between them is still caught — by W006's body tiers,
+    // which do not care which crate a body compiles into.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/main.rs");
+    let fn_a = make_func_node(2, "helper", "src/main.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("helper", "build.rs", 1);
+    let file = make_file("build.rs", vec![def]);
+
+    assert!(
+        check_duplicate_names(&file, &store).is_empty(),
+        "a shared non-main name between two Cargo binary roots must not fire"
+    );
+}
+
+#[test]
+fn test_w002_two_bin_targets_sharing_a_non_main_name_are_exempt() {
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/bin/a.rs");
+    let fn_a = make_func_node(2, "parse_args", "src/bin/a.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("parse_args", "src/bin/b.rs", 1);
+    let file = make_file("src/bin/b.rs", vec![def]);
+
+    assert!(
+        check_duplicate_names(&file, &store).is_empty(),
+        "two independent bin targets share no namespace, whatever the name"
+    );
+}
+
+#[test]
+fn test_w002_binary_root_versus_library_file_still_fires() {
+    // Only a pair of SEPARATE units is exempt. `src/main.rs` and a library
+    // module compile together, so a shared name there is real ambiguity.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/util.rs");
+    let fn_a = make_func_node(2, "helper", "src/util.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("helper", "src/main.rs", 1);
+    let file = make_file("src/main.rs", vec![def]);
+
+    assert_eq!(
+        check_duplicate_names(&file, &store).len(),
+        1,
+        "a binary root sharing a name with a library module must still fire"
+    );
 }

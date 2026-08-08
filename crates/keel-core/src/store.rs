@@ -1,6 +1,7 @@
 use crate::types::{
-    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
-    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
+    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, FragmentCloneEntry,
+    GraphEdge, GraphError, GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs,
+    ResolutionCacheEntry,
 };
 
 /// FROZEN CONTRACT — GraphStore trait.
@@ -71,6 +72,31 @@ pub trait GraphStore {
     fn find_body_matches(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
         let _ = body_hash;
         Vec::new()
+    }
+
+    /// Find every indexed node whose Type-2 (identifier/literal-normalized)
+    /// fingerprint matches `t2_hash`.
+    ///
+    /// The near-clone counterpart of [`GraphStore::find_body_matches`], which
+    /// matches bodies byte-for-byte after whitespace normalization. An empty
+    /// `t2_hash` means "not indexed for Type-2" and must never match. Returns
+    /// an empty vec when the backend maintains no body index (the default).
+    fn find_t2_body_matches(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
+        let _ = t2_hash;
+        Vec::new()
+    }
+
+    /// Replace the stored fragment-clone measurements with `entries`.
+    ///
+    /// Populated during `keel map` — the scan needs every body at once, so
+    /// there is no incremental path. Additive with a no-op default: a backend
+    /// that does not store them simply reports a `clone_loc_ratio` of 0.
+    fn replace_fragment_clones(
+        &mut self,
+        entries: Vec<FragmentCloneEntry>,
+    ) -> Result<(), GraphError> {
+        let _ = entries;
+        Ok(())
     }
 
     /// Load the persisted Tier 3 resolution cache (rows tagged `tier3`).
@@ -152,10 +178,10 @@ mod tests {
 
     /// A backend that implements only the pre-v5 required methods.
     ///
-    /// Its existence is the test: if `replace_body_index` or
-    /// `find_body_matches` ever stops being a defaulted method, this stops
-    /// compiling — which is exactly the additive guarantee we promised
-    /// downstream implementors.
+    /// Its existence is the test: if `replace_body_index`,
+    /// `find_body_matches` or `find_t2_body_matches` ever stops being a
+    /// defaulted method, this stops compiling — which is exactly the additive
+    /// guarantee we promised downstream implementors.
     struct MinimalStore;
 
     impl GraphStore for MinimalStore {
@@ -205,6 +231,7 @@ mod tests {
         store
             .replace_body_index(vec![BodyIndexEntry {
                 body_hash: "b".into(),
+                t2_hash: "t".into(),
                 node_hash: "n".into(),
                 name: "f".into(),
                 file_path: "src/a.rs".into(),
@@ -215,6 +242,30 @@ mod tests {
         assert!(
             store.find_body_matches("b").is_empty(),
             "a backend without a body index reports no duplicates"
+        );
+        assert!(
+            store.find_t2_body_matches("t").is_empty(),
+            "nor any near-duplicates"
+        );
+    }
+
+    #[test]
+    fn test_fragment_clone_defaults_are_no_ops() {
+        let mut store = MinimalStore;
+        store
+            .replace_fragment_clones(vec![FragmentCloneEntry {
+                node_hash: "n".into(),
+                name: "f".into(),
+                file_path: "src/a.rs".into(),
+                line: 1,
+                cloned_lines: 5,
+                code_lines: 10,
+            }])
+            .expect("default replace_fragment_clones must succeed");
+
+        assert!(
+            store.quality_inputs().fragment_clones_by_fn.is_empty(),
+            "a backend that stores no measurements reports a clone ratio of 0"
         );
     }
 

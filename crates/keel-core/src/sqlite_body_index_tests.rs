@@ -4,11 +4,24 @@
 
 use super::*;
 use crate::store::GraphStore;
-use crate::types::BodyIndexEntry;
+use crate::types::{BodyIndexEntry, FragmentCloneEntry};
 
 fn entry(node_hash: &str, body_hash: &str, name: &str, file: &str, line: u32) -> BodyIndexEntry {
+    entry_t2(node_hash, body_hash, "", name, file, line)
+}
+
+/// An entry carrying a Type-2 fingerprint as well.
+fn entry_t2(
+    node_hash: &str,
+    body_hash: &str,
+    t2_hash: &str,
+    name: &str,
+    file: &str,
+    line: u32,
+) -> BodyIndexEntry {
     BodyIndexEntry {
         body_hash: body_hash.to_string(),
+        t2_hash: t2_hash.to_string(),
         node_hash: node_hash.to_string(),
         name: name.to_string(),
         file_path: file.to_string(),
@@ -266,6 +279,111 @@ fn test_stale_body_index_schema_is_recreated() {
     assert_eq!(store.find_body_matches("sharedBody").len(), 2);
 }
 
+// --- Type-2 fingerprint column (issue #59) ---
+
+#[test]
+fn test_body_index_t2_roundtrip() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let e = entry_t2("node1", "bodyAAA", "t2AAA", "parse", "src/a.rs", 10);
+    store.replace_body_index(vec![e.clone()]).unwrap();
+
+    assert_eq!(store.find_t2_body_matches("t2AAA"), vec![e.clone()]);
+    assert_eq!(
+        store.find_body_matches("bodyAAA"),
+        vec![e],
+        "the Type-1 lookup must still return the same row"
+    );
+}
+
+/// The point of the second column: bodies that differ only by identifier names
+/// share a `t2_hash` while their `body_hash` values differ.
+#[test]
+fn test_body_index_finds_t2_duplicates() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_body_index(vec![
+            entry_t2("node1", "bodyA", "sharedT2", "parse", "src/a.rs", 10),
+            entry_t2("node2", "bodyB", "sharedT2", "parseAgain", "src/b.rs", 20),
+            entry_t2("node3", "bodyC", "otherT2", "unrelated", "src/c.rs", 30),
+        ])
+        .unwrap();
+
+    let near = store.find_t2_body_matches("sharedT2");
+    assert_eq!(near.len(), 2, "both near-clones should be returned");
+    assert_eq!(store.find_t2_body_matches("otherT2").len(), 1);
+
+    // The Type-1 namespace is untouched by the Type-2 collision.
+    assert_eq!(store.find_body_matches("bodyA").len(), 1);
+    assert!(store.find_body_matches("sharedT2").is_empty());
+}
+
+/// Pre-upgrade rows (and rows whose body never cleared the Type-2 floor) store
+/// `''`. Matching those against each other would make every unindexed function
+/// a near-duplicate of every other one.
+#[test]
+fn test_empty_t2_fingerprint_never_matches() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_body_index(vec![
+            entry("node1", "bodyA", "parse", "src/a.rs", 10),
+            entry("node2", "bodyB", "render", "src/b.rs", 20),
+        ])
+        .unwrap();
+
+    assert!(store.find_t2_body_matches("").is_empty());
+}
+
+/// A database created before the column existed gains it on open, keeps its
+/// rows, and reads them back as "not indexed for Type-2".
+#[test]
+fn test_existing_database_gains_t2_hash_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("pre_t2.db");
+    let db_str = db_path.to_str().unwrap();
+
+    // GIVEN a body_index with the current primary key but no t2_hash column.
+    {
+        let store = SqliteGraphStore::open(db_str).unwrap();
+        store
+            .conn
+            .execute_batch(
+                "DROP TABLE body_index;
+                 CREATE TABLE body_index (
+                     node_hash TEXT NOT NULL,
+                     body_hash TEXT NOT NULL,
+                     name TEXT NOT NULL,
+                     file_path TEXT NOT NULL,
+                     line INTEGER NOT NULL,
+                     PRIMARY KEY (node_hash, file_path, line)
+                 );
+                 INSERT INTO body_index VALUES ('n1', 'legacyBody', 'old', 'src/old.rs', 3);",
+            )
+            .unwrap();
+    }
+
+    // WHEN reopened.
+    let mut store = SqliteGraphStore::open(db_str).unwrap();
+
+    // THEN the legacy row survives, reads back empty, and never matches.
+    let legacy = store.find_body_matches("legacyBody");
+    assert_eq!(legacy.len(), 1, "existing rows must survive the ALTER");
+    assert_eq!(legacy[0].t2_hash, "");
+    assert!(store.find_t2_body_matches("").is_empty());
+
+    // AND the column is usable for new writes.
+    store
+        .replace_body_index(vec![entry_t2(
+            "n2",
+            "bodyX",
+            "t2X",
+            "fresh",
+            "src/new.rs",
+            5,
+        )])
+        .expect("t2_hash column usable after the idempotent ALTER");
+    assert_eq!(store.find_t2_body_matches("t2X").len(), 1);
+}
+
 /// End-to-end with the real hasher: reformatted copies of the same function
 /// collide in the index, which is what W006 will key on.
 #[test]
@@ -301,4 +419,70 @@ fn test_body_index_with_real_body_hashes() {
         "reformatted copy should collide with the original"
     );
     assert_eq!(store.find_body_matches(&h_different).len(), 1);
+}
+
+// --- fragment clones (issue #66) -----------------------------------------
+//
+// Read back through `quality_inputs`, the one consumer: the measurements have
+// no lookup API of their own, and asserting on the only path that reads them
+// is what keeps the SQL and the metric from drifting.
+
+fn fragment(node_hash: &str, file: &str, cloned: u32, code: u32) -> FragmentCloneEntry {
+    FragmentCloneEntry {
+        node_hash: node_hash.to_string(),
+        name: "f".to_string(),
+        file_path: file.to_string(),
+        line: 1,
+        cloned_lines: cloned,
+        code_lines: code,
+    }
+}
+
+#[test]
+fn test_fragment_clones_roundtrip() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![
+            fragment("n1", "src/a.rs", 12, 40),
+            fragment("n2", "src/b.rs", 0, 25),
+        ])
+        .expect("replace should succeed");
+
+    let mut rows = store.quality_inputs().fragment_clones_by_fn;
+    rows.sort();
+    assert_eq!(
+        rows,
+        vec![
+            ("src/a.rs".to_string(), 12, 40),
+            ("src/b.rs".to_string(), 0, 25),
+        ]
+    );
+}
+
+#[test]
+fn test_replace_fragment_clones_overwrites_previous_measurement() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![fragment("old", "src/old.rs", 30, 30)])
+        .unwrap();
+    store
+        .replace_fragment_clones(vec![fragment("new", "src/new.rs", 1, 10)])
+        .unwrap();
+
+    let rows = store.quality_inputs().fragment_clones_by_fn;
+    assert_eq!(rows, vec![("src/new.rs".to_string(), 1, 10)]);
+}
+
+#[test]
+fn test_clear_all_wipes_fragment_clones() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![fragment("n1", "src/a.rs", 5, 10)])
+        .unwrap();
+
+    store.clear_all().unwrap();
+    assert!(
+        store.quality_inputs().fragment_clones_by_fn.is_empty(),
+        "clear_all must wipe the measurements for a clean re-map"
+    );
 }

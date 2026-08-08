@@ -20,6 +20,9 @@ const CORE_FILE: &str = "crates/core/src/ingest.rs";
 /// A stored module node for `file`, carrying [`MODULE_HASH`].
 fn module_node(id: u64, file: &str, package: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: MODULE_HASH.to_string(),
         kind: NodeKind::Module,

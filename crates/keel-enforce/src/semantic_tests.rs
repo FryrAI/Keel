@@ -11,6 +11,9 @@ fn node(
     docstring: Option<&str>,
 ) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.into(),
         kind,

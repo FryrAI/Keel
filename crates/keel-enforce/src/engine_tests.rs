@@ -9,6 +9,9 @@ use keel_parsers::resolver::Definition;
 
 fn make_node(id: u64, hash: &str, name: &str, sig: &str, file: &str) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.to_string(),
         kind: NodeKind::Function,
@@ -43,6 +46,7 @@ fn make_call_edge(id: u64, src: u64, tgt: u64, file: &str) -> GraphEdge {
 
 fn make_definition(name: &str, sig: &str, body: &str, file: &str) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: sig.to_string(),
@@ -60,6 +64,7 @@ fn make_definition(name: &str, sig: &str, body: &str, file: &str) -> Definition 
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     }
 }
 
@@ -118,4 +123,54 @@ fn test_prune_file_missing_is_noop() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let mut engine = EnforcementEngine::new(Box::new(store));
     assert_eq!(engine.prune_file("src/never_existed.rs").unwrap(), 0);
+}
+
+#[test]
+fn test_compile_update_refreshes_parse_derived_node_facts() {
+    // The hash-moved update path used to clone the stored node and copy only
+    // hash/signature/docstring/visibility — complexity, is_trivial_wrapper
+    // and in_test_context stayed stale until the next full `keel map`,
+    // silently corrupting high_cc_mass_share and the trivial_wrapper audit
+    // for anything edited through the hook-driven compile path.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let old_hash =
+        keel_core::hash::compute_hash("fn shifty(x: i32)", "{ x + 1 }", "Doc for shifty");
+    let mut node = make_node(1, &old_hash, "shifty", "fn shifty(x: i32)", "src/lib.rs");
+    node.docstring = Some("Doc for shifty".to_string());
+    node.complexity = 1;
+    node.is_trivial_wrapper = false;
+    node.in_test_context = false;
+    store.insert_node(&node).unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+
+    let mut def = make_definition(
+        "shifty",
+        "fn shifty(x: i32)",
+        "{ if x > 0 { helper(x) } else { helper(-x) } }",
+        "src/lib.rs",
+    );
+    def.complexity = 3;
+    def.in_test_context = true;
+    let file = FileIndex {
+        file_path: "src/lib.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![def],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+    engine.compile(&[file]);
+
+    let updated = engine
+        .store
+        .get_nodes_in_file("src/lib.rs")
+        .into_iter()
+        .find(|n| n.name == "shifty")
+        .expect("node survives the update");
+    assert_eq!(updated.complexity, 3, "complexity must move with the hash");
+    assert!(
+        updated.in_test_context,
+        "test context must move with the hash"
+    );
 }

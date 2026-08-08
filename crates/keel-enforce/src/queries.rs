@@ -182,6 +182,9 @@ mod tests {
 
     fn node(id: u64, name: &str, kind: NodeKind) -> GraphNode {
         GraphNode {
+            complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id,
             hash: format!("hash{id:08}"),
             kind,

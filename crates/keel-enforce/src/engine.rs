@@ -354,6 +354,14 @@ impl EnforcementEngine {
                         updated_node.is_public = def.is_public;
                         updated_node.line_start = def.line_start;
                         updated_node.line_end = def.line_end;
+                        // Every parse-derived fact (incl. `kind`) must move
+                        // with the hash, or hook-driven compiles serve stale
+                        // metric inputs until the next full map. Facts that
+                        // move WITHOUT the hash — wrapping a mod in
+                        // `#[cfg(test)]`, moving a fn into an impl — stay
+                        // stale until then: bounded, same class as
+                        // compile-sync's kept edges.
+                        def.apply_parse_facts(&mut updated_node);
                         node_changes.push(keel_core::types::NodeChange::Update(updated_node));
                     }
                 } else {

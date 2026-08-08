@@ -6,11 +6,25 @@
 //! unreadable), this module says so and reports no direction, rather than
 //! drawing a line through two different definitions.
 
+use std::collections::HashSet;
+
 use serde::Serialize;
 
 use keel_core::sqlite_quality::QualitySnapshotRow;
 
-use super::{QualityMetrics, METRICS_VERSION};
+use super::{MetricKind, QualityMetrics, METRICS_VERSION};
+
+/// Metric names introduced after metrics version 1 shipped (issues #58, #61,
+/// #66).
+///
+/// A blob written before a name existed has no such JSON key at all, and its
+/// `#[serde(default)]` field reads back as `0.0` — indistinguishable from a
+/// real zero. Naming them here lets [`build_trend`] record the gap per point so
+/// [`metric_trends`] can omit the metric instead of drawing a step out of "not
+/// measured". Append here — never remove — whenever a future metric is added
+/// without a version bump.
+pub(crate) const METRICS_ADDED_AFTER_V1: &[&str] =
+    &["high_cc_mass_share", "propagation_cost", "clone_loc_ratio"];
 
 /// One point of the series: a measurement and the commit it belongs to.
 #[derive(Debug, Clone, Serialize)]
@@ -21,6 +35,9 @@ pub struct QualityPoint {
     pub captured_at: String,
     /// The reading.
     pub metrics: QualityMetrics,
+    /// Names from `METRICS_ADDED_AFTER_V1` this row's raw blob did not
+    /// carry — measured as absent, not as zero.
+    pub legacy_missing: HashSet<&'static str>,
 }
 
 /// The single largest per-commit move in a metric — the "attribution" half of
@@ -51,6 +68,9 @@ pub struct MetricTrend {
     pub direction: String,
     /// Whether `direction` carries a value judgement.
     pub judged: bool,
+    /// Count or fraction — carried so a renderer prints this metric the same
+    /// way the current reading does, without a name list of its own.
+    pub kind: MetricKind,
     /// The largest single-commit move, when the window has more than one point.
     pub largest_step: Option<TrendStep>,
 }
@@ -66,6 +86,9 @@ pub struct QualityTrend {
     pub refused: Option<String>,
     /// Rows in the window whose blob could not be parsed at all.
     pub unreadable: usize,
+    /// Metrics left out of `metrics` because at least one point in the window
+    /// predates them — see `METRICS_ADDED_AFTER_V1`.
+    pub omitted: Vec<String>,
 }
 
 /// Build a trend from stored snapshot rows, oldest → newest.
@@ -75,13 +98,19 @@ pub struct QualityTrend {
 /// directions of drift: a window straddling a definition change, and a whole
 /// series written by a newer keel. Points are still returned in both cases, so
 /// the reader can see what exists and pick a narrower `--since`.
+///
+/// Metrics added after version 1 are omitted rather than refused: they are the
+/// only ones a same-version window can disagree about, so dropping the two
+/// affected lines is honest where refusing the whole window would be
+/// disproportionate. `omitted` names them.
 pub fn build_trend(rows: &[QualitySnapshotRow]) -> QualityTrend {
     let mut points = Vec::with_capacity(rows.len());
     let mut foreign_versions: Vec<u32> = Vec::new();
     let mut unreadable = 0usize;
 
     for row in rows {
-        match blob_version(&row.metrics) {
+        let parsed: Option<serde_json::Value> = serde_json::from_str(&row.metrics).ok();
+        match parsed.as_ref().and_then(blob_version) {
             None => unreadable += 1,
             Some(v) if v != METRICS_VERSION => {
                 if !foreign_versions.contains(&v) {
@@ -93,6 +122,7 @@ pub fn build_trend(rows: &[QualitySnapshotRow]) -> QualityTrend {
                     commit: row.commit_sha.clone(),
                     captured_at: row.captured_at.clone(),
                     metrics,
+                    legacy_missing: legacy_missing(parsed.as_ref()),
                 }),
                 Err(_) => unreadable += 1,
             },
@@ -114,11 +144,12 @@ pub fn build_trend(rows: &[QualitySnapshotRow]) -> QualityTrend {
                 METRICS_VERSION,
             )),
             unreadable,
+            omitted: Vec::new(),
         };
     }
 
-    let metrics = if points.len() < 2 {
-        Vec::new()
+    let (metrics, omitted) = if points.len() < 2 {
+        (Vec::new(), Vec::new())
     } else {
         metric_trends(&points)
     };
@@ -128,45 +159,60 @@ pub fn build_trend(rows: &[QualitySnapshotRow]) -> QualityTrend {
         metrics,
         refused: None,
         unreadable,
+        omitted,
     }
 }
 
-/// The blob's declared version, or `None` when it is not readable JSON with a
-/// numeric `version`.
+/// The blob's declared version, or `None` when it carries no numeric
+/// `version`.
 ///
 /// Probed separately from the full parse so a future blob whose *fields*
 /// changed is reported as a version mismatch (refusable, explainable) instead
 /// of as a corrupt row.
-fn blob_version(blob: &str) -> Option<u32> {
-    serde_json::from_str::<serde_json::Value>(blob)
-        .ok()?
-        .get("version")?
-        .as_u64()
-        .map(|v| v as u32)
+fn blob_version(blob: &serde_json::Value) -> Option<u32> {
+    blob.get("version")?.as_u64().map(|v| v as u32)
 }
 
-/// Movement per metric across `points` (which must hold at least two).
-fn metric_trends(points: &[QualityPoint]) -> Vec<MetricTrend> {
+/// The [`METRICS_ADDED_AFTER_V1`] names absent from a raw blob.
+fn legacy_missing(blob: Option<&serde_json::Value>) -> HashSet<&'static str> {
+    METRICS_ADDED_AFTER_V1
+        .iter()
+        .copied()
+        .filter(|name| blob.and_then(|b| b.get(name)).is_none())
+        .collect()
+}
+
+/// Movement per metric across `points` (which must hold at least two), plus
+/// the metrics omitted because a point in the window predates them.
+///
+/// A metric only trends when *every* point measured it: a step from a defaulted
+/// `0.0` to a real reading is a fabricated regression, and reporting one would
+/// re-baseline the series exactly as a silent version bump would.
+fn metric_trends(points: &[QualityPoint]) -> (Vec<MetricTrend>, Vec<String>) {
     let first_row = points[0].metrics.rows();
     let last_row = points[points.len() - 1].metrics.rows();
+    let mut trends = Vec::new();
+    let mut omitted = Vec::new();
 
-    first_row
-        .iter()
-        .enumerate()
-        .map(|(i, (name, first, judged))| {
-            let last = last_row[i].1;
-            let delta = last - first;
-            MetricTrend {
-                name: (*name).to_string(),
-                first: *first,
-                last,
-                delta,
-                direction: direction(delta, *judged),
-                judged: *judged,
-                largest_step: largest_step(points, i),
-            }
-        })
-        .collect()
+    for (i, row) in first_row.iter().enumerate() {
+        if points.iter().any(|p| p.legacy_missing.contains(row.name)) {
+            omitted.push(row.name.to_string());
+            continue;
+        }
+        let last = last_row[i].value;
+        let delta = last - row.value;
+        trends.push(MetricTrend {
+            name: row.name.to_string(),
+            first: row.value,
+            last,
+            delta,
+            direction: direction(delta, row.judged),
+            judged: row.judged,
+            kind: row.kind,
+            largest_step: largest_step(points, i),
+        });
+    }
+    (trends, omitted)
 }
 
 /// Word for a delta. Lower is better for every judged metric, so a positive
@@ -196,7 +242,7 @@ fn direction(delta: f64, judged: bool) -> String {
 fn largest_step(points: &[QualityPoint], index: usize) -> Option<TrendStep> {
     let mut best: Option<TrendStep> = None;
     for pair in points.windows(2) {
-        let delta = pair[1].metrics.rows()[index].1 - pair[0].metrics.rows()[index].1;
+        let delta = pair[1].metrics.rows()[index].value - pair[0].metrics.rows()[index].value;
         if delta.abs() < f64::EPSILON {
             continue;
         }

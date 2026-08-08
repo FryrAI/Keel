@@ -157,6 +157,17 @@ discover` and W009's stored-boundary baseline.
 ### Hash Computation
 Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Uses AST-based normalization, not raw text. Docstring is part of hash input.
 
+### W006 Has Two Tiers, and an Empty Fingerprint Is Not a Match
+Type-1 is `hash::normalize_body` (whitespace only, confidence 0.85). Type-2 is `hash_t2` — a lexical
+tokenizer that renames non-keyword identifiers to `v0, v1, …` and collapses literals to
+`<int>`/`<str>`/`<bool>` (confidence 0.6, fires only when Type-1 found nothing). It reuses
+`hash::strip_comments`, so the two normalizers can never disagree about where a comment or string ends.
+`body_index.t2_hash` is written **only by `keel map`** (compile reads it), stores `''` for anything under
+`hash_t2::MIN_T2_NORMALIZED_LEN` **and** for every row written before the column existed — so `''` must
+never match `''`; `body_index_find_t2` refuses an empty argument. The floor (120) was calibrated on keel's
+own tree: at 80, `match self { .. => <str> }` string tables and `&[<str>, <str>]` constant lists start
+colliding. Raise it before lowering it.
+
 ### Clean Compile Output
 When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**. This is critical — the LLM should never see output unless something needs attention.
 
@@ -165,14 +176,42 @@ When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**
 
 `quality_snapshots` (schema v7) stores a versioned JSON blob keyed on `commit_sha` (UNIQUE — a second capture at the same commit *updates* in place). Bump `keel_enforce::quality::METRICS_VERSION` whenever a metric's *definition* changes: `--trend` then refuses to compare across versions rather than silently re-baselining. `dead_private_fns` is computed from the graph alone, so it over-counts relative to W005 (no decorator/trait-context/`keel:keep` awareness) — it is a trend line, not a violation count.
 
+`high_cc_mass_share`'s population is **hand-written, non-test-context functions** — the same rule `clone_loc_ratio` uses. Test *files* are dropped by `FileClass`; inline `#[cfg(test)] mod tests` blocks are dropped by the persisted `nodes.in_test_context` flag, which the `complexity_by_fn` query filters on. Rows written before that column existed read back as 0, so the metric under-excludes until the next `keel map`, never over-excludes.
+
+Whether a metric prints as a count or as a two-decimal fraction is carried by `MetricKind` on `QualityMetrics::rows()` and on `MetricTrend`, not by a name list in the renderer — a fraction printed as an integer reads as a flat series.
+
+A metric *added* without a version bump (its field carries `#[serde(default)]`) must also be named in
+`quality::trend::METRICS_ADDED_AFTER_V1`. Otherwise a blob written before the field existed deserializes as
+`0.0` and `--trend` draws a step from "not measured" to a real reading — the same silent re-baselining
+`refused` exists to prevent. Named there, `build_trend` records the gap per point and omits the metric
+(reported in `QualityTrend::omitted`, rendered as `—` in the per-commit table) instead of trending it.
+Append to that list, never remove from it.
+
+`clone_loc_ratio` (issue #66) is the one metric not computed from the graph: `keel map` slides a
+50-token window over every hand-written, non-test function body (`keel_core::fragments`), records per
+function how many code lines sit under a window that also occurs in a *different* function, and stores
+the two counts in `fragment_clones` — one row per function, not per window (120k windows vs 1.2k rows on
+keel's own tree). `keel compile` never reads or refreshes it, so the reading is as fresh as the last
+`keel map`. Windows are tokenized with `hash_t2::IdentifierMode::Verbatim`, **not** the renamed Type-2
+stream: positional renaming is defined over a whole body, so the same copied block after a different
+prefix renames differently and never matches. It is unjudged — on keel's tree the head of the list is
+real duplicated machinery (`check_missing_docstring` vs `check_missing_type_hints`, every human/LLM
+`format_*` pair) but the tail is dispatch boilerplate, which is why #66 landed as a trend metric and not
+as a W006 variant.
+
 The one exception is **honesty about files keel cannot parse**: compiling a `.sql`, `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .sql is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
 
 ### What the Audit Grades
-`keel audit` grades size and naming smells (`function_size`, `god_file`, `public_ratio`, `cryptic_name`) on **hand-written source only**. `FileClass` (keel-enforce `file_class.rs`) classifies every path as Source / Boundary (`.baml`, `.proto`, `.graphql`) / Generated (`baml_client`, `baml_sdk`) / Data (`.sql`) / Test (`violations_util::is_test_file`), deriving Source from the canonical `detect_language` table so the two can't drift. Only Source is graded; `orphan_file` deliberately still applies to `.baml` (T1.4 gives those files real edges — real edges beat exemptions).
+`keel audit` grades size and naming smells (`function_size`, `god_file`, `public_ratio`, `cryptic_name`, `trivial_wrapper`) on **hand-written source only**. `FileClass` (keel-enforce `file_class.rs`) classifies every path as Source / Boundary (`.baml`, `.proto`, `.graphql`) / Generated (`baml_client`, `baml_sdk`) / Data (`.sql`) / Test (`violations_util::is_test_file`), deriving Source from the canonical `detect_language` table so the two can't drift. Only Source is graded; `orphan_file` deliberately still applies to `.baml` (T1.4 gives those files real edges — real edges beat exemptions).
 
 `circular_dep` is **disabled for Rust**: intra-crate module cycles are legal, idiomatic Rust and cargo already forbids the illegal inter-crate ones. It still applies to TS/Python/Go, capped at cycles of ≤8 modules. `--strict-cycles` restores the old behavior.
 
+`trivial_wrapper` reads the graph alone — no re-parse. `nodes.is_trivial_wrapper` is written by the map/compile node writers via `Definition::stored_trivial_wrapper`, **already exempted** for the parse-time facts the graph does not persist in a column (decorated definitions, `keel:keep`). The exemptions it *does* persist — `is_associated`, `in_test_context` — are applied by the audit. Each exemption lives at exactly one layer; adding a check at the other layer is the bug to avoid.
+
 Findings are deduplicated on rule+file+symbol before scoring, then ranked by (severity, agent-config over per-file smells, dimension-score impact, count). `--llm` prints the top 20 and states how many it omitted; `--top 0` lifts the cap.
+
+### W002 Exempts Distinct Cargo Compilation Units, Not the Name `main`
+`violations_util::distinct_compilation_units` exempts a duplicate-name pair when BOTH files are Cargo binary/build roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`, `examples/*.rs`) — each compiles as its own crate, so the two names never share a namespace and there is no ambiguity a rename could resolve. Structural, not `main`-specific: two `src/bin` targets sharing `parse_args` are as invisible to each other as two `main`s. A pair involving a library file still fires. Real copy-paste between two binary targets is still caught by W006's body tiers, which do not care which crate a body compiles into.
 
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.
@@ -240,7 +279,7 @@ project vault/notes directory is optional and entirely user-side.)
 | W001 | placement — function is in a non-ideal module |
 | W002 | duplicate_name — another function with the same name exists |
 | W005 | dead_code — private function has no callers in the graph |
-| W006 | duplicate_implementation — function body is identical to one elsewhere |
+| W006 | duplicate_implementation — function body is identical to one elsewhere, or identical apart from renamed identifiers/literals (lower confidence) |
 | W007 | oversized_file — file exceeds the configured line budget and grew |
 | W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
@@ -287,7 +326,7 @@ project vault/notes directory is optional and entirely user-side.)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
 - `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution (callers at risk, risk level, callers-first order) plus P001/P002 plan findings; always exits 0 unless `--strict` is passed
 - `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
-- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
+- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`, `high_cc_mass_share`, `propagation_cost`, `clone_loc_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 

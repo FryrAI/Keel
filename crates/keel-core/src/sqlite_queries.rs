@@ -3,8 +3,9 @@ use rusqlite::params;
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
-    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
-    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
+    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, FragmentCloneEntry,
+    GraphEdge, GraphError, GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs,
+    ResolutionCacheEntry,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -116,25 +117,10 @@ impl GraphStore for SqliteGraphStore {
     }
 
     fn get_all_modules(&self) -> Vec<GraphNode> {
-        let mut stmt = match self
-            .conn
-            .prepare("SELECT * FROM nodes WHERE kind = 'module'")
-        {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[keel] get_all_modules: prepare failed: {e}");
-                return Vec::new();
-            }
-        };
-        let nodes: Vec<GraphNode> = match stmt.query_map([], Self::row_to_node) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
-            Err(e) => {
-                eprintln!("[keel] get_all_modules: query failed: {e}");
-                return Vec::new();
-            }
-        };
-        // Batch-load relations: 2 queries total instead of 2*N
-        self.nodes_with_relations_batch(nodes)
+        self.select_nodes(
+            "SELECT * FROM nodes WHERE kind = 'module'",
+            "get_all_modules",
+        )
     }
 
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError> {
@@ -161,8 +147,8 @@ impl GraphStore for SqliteGraphStore {
                     }
                     // UPSERT to handle re-map without cascade-deleting related rows
                     tx.execute(
-                        "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, module_id, package)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                        "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, complexity, is_trivial_wrapper, in_test_context, module_id, package)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                          ON CONFLICT(hash) DO UPDATE SET
                             kind = excluded.kind,
                             name = excluded.name,
@@ -175,6 +161,9 @@ impl GraphStore for SqliteGraphStore {
                             type_hints_present = excluded.type_hints_present,
                             has_docstring = excluded.has_docstring,
                             is_associated = excluded.is_associated,
+                            complexity = excluded.complexity,
+                            is_trivial_wrapper = excluded.is_trivial_wrapper,
+                            in_test_context = excluded.in_test_context,
                             module_id = excluded.module_id,
                             package = excluded.package,
                             updated_at = datetime('now')",
@@ -192,6 +181,9 @@ impl GraphStore for SqliteGraphStore {
                             node.type_hints_present as i32,
                             node.has_docstring as i32,
                             node.is_associated as i32,
+                            node.complexity,
+                            node.is_trivial_wrapper as i32,
+                            node.in_test_context as i32,
                             if node.module_id == 0 { None } else { Some(node.module_id) },
                             node.package,
                         ],
@@ -226,7 +218,7 @@ impl GraphStore for SqliteGraphStore {
                         }
                     }
                     tx.execute(
-                        "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, is_associated = ?12, module_id = ?13, package = ?14, updated_at = datetime('now') WHERE id = ?15",
+                        "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, is_associated = ?12, complexity = ?13, is_trivial_wrapper = ?14, in_test_context = ?15, module_id = ?16, package = ?17, updated_at = datetime('now') WHERE id = ?18",
                         params![
                             node.hash,
                             node.kind.as_str(),
@@ -240,6 +232,9 @@ impl GraphStore for SqliteGraphStore {
                             node.type_hints_present as i32,
                             node.has_docstring as i32,
                             node.is_associated as i32,
+                            node.complexity,
+                            node.is_trivial_wrapper as i32,
+                            node.in_test_context as i32,
                             if node.module_id == 0 { None } else { Some(node.module_id) },
                             node.package,
                             node.id,
@@ -375,6 +370,17 @@ impl GraphStore for SqliteGraphStore {
 
     fn find_body_matches(&self, body_hash: &str) -> Vec<BodyIndexEntry> {
         self.body_index_find(body_hash)
+    }
+
+    fn find_t2_body_matches(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
+        self.body_index_find_t2(t2_hash)
+    }
+
+    fn replace_fragment_clones(
+        &mut self,
+        entries: Vec<FragmentCloneEntry>,
+    ) -> Result<(), GraphError> {
+        self.fragment_clones_replace(entries)
     }
 
     fn load_resolution_cache(&self) -> Vec<ResolutionCacheEntry> {

@@ -9,6 +9,9 @@ use keel_core::types::{GraphNode, NodeChange, NodeKind};
 
 fn make_node(id: u64, hash: &str, name: &str, kind: NodeKind) -> GraphNode {
     GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.into(),
         kind,
@@ -40,6 +43,9 @@ fn test_sqlite_module_profile_storage() {
     // Create store and insert a module node
     let mut store = SqliteGraphStore::open(db_str).unwrap();
     let module_node = GraphNode {
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 42,
         hash: "mod_hash_42".into(),
         kind: NodeKind::Module,

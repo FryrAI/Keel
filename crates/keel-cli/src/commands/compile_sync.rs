@@ -713,6 +713,10 @@ fn module_node(id: u64, rel_path: &str, file: &FileIndex) -> GraphNode {
         type_hints_present: true,
         has_docstring: false,
         is_associated: false,
+        // Modules are not measured — no body, nothing to branch.
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -728,7 +732,7 @@ fn definition_node(
     rel_path: &str,
     module_id: u64,
 ) -> GraphNode {
-    GraphNode {
+    let mut node = GraphNode {
         id,
         hash,
         kind: def.kind.clone(),
@@ -741,12 +745,21 @@ fn definition_node(
         is_public: def.is_public,
         type_hints_present: def.type_hints_present,
         has_docstring: def.docstring.is_some(),
-        is_associated: def.is_associated,
+        // Placeholders (and `kind` above, re-written the same way) —
+        // `apply_parse_facts` below is the single owner of
+        // every parse-derived fact, shared with map's pass and the engine's
+        // update path so the three writers cannot drift.
+        is_associated: false,
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
         package: None,
-    }
+    };
+    def.apply_parse_facts(&mut node);
+    node
 }
 
 #[cfg(test)]

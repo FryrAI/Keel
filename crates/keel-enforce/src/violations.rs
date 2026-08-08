@@ -37,10 +37,14 @@ pub fn check_broken_callers_with_cache(
     let mut violations = Vec::new();
 
     for def in &file.definitions {
-        // Find existing node by name in same file
-        let existing = existing_nodes.iter().find(|n| n.name == def.name);
-
-        let Some(existing) = existing else { continue };
+        // Pair this def with the stored node that IS it. A repeated name with
+        // no hash evidence (a free `search_graph` beside a `search_graph`
+        // method) is undecidable: comparing the method's fresh signature
+        // against the free fn's stored one manufactures a phantom "signature
+        // changed", so `bind_to_node` refuses and E001 stays silent.
+        let Some(existing) = crate::violations_util::bind_to_node(def, file, existing_nodes) else {
+            continue;
+        };
 
         // Body/docstring-only changes cannot break callers. Compare signatures
         // whitespace-normalized (a pure reformat — rustfmt/prettier line wrap —

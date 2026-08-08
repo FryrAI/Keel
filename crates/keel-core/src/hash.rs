@@ -84,14 +84,24 @@ pub fn compute_hash_disambiguated(
 }
 
 /// Lexical comment/string family for [`normalize_body_for_hash`].
+///
+/// Crate-visible so [`crate::hash_t2`] tokenizes against the exact same
+/// comment/string rules instead of a drifting copy of them.
 #[derive(Clone, Copy, PartialEq)]
-enum BodySyntax {
+pub(crate) enum BodySyntax {
     /// C-family: `//` line comments, `/* */` block comments; `"`, `'`, and
     /// backtick string literals — a `'` ALWAYS opens a string (TypeScript/
-    /// JavaScript, Go, Svelte have no lifetimes).
+    /// JavaScript, Svelte have no lifetimes), and backslash escapes apply in
+    /// every literal (backtick = TS template literal).
     CFamily,
+    /// Go: C-family comments and quotes, but a backtick opens a RAW string —
+    /// no escapes, ends at the next backtick. Treating `\` as an escape there
+    /// let `` `C:\` `` swallow its closing tick, and a comment after it
+    /// leaked into the node hash.
+    Go,
     /// Rust: C-family comments, but `'` is a lifetime (`'a`) unless it forms a
-    /// char literal (`'x'` / `'\..'`), and there are no backtick strings.
+    /// char literal (`'x'` / `'\..'`), raw strings (`r#"…"#`) have no escapes,
+    /// and there are no backtick strings.
     Rust,
     /// Python: `#` line comments (no block comments); `"`, `'`, `"""`, `'''`
     /// string literals.
@@ -102,26 +112,70 @@ enum BodySyntax {
 /// to its lexical comment/string family. Anything that is not Python or Rust is
 /// treated as C-family — the safe default for the remaining supported languages
 /// and for unknown extensions.
-fn body_syntax(lang: &str) -> BodySyntax {
+pub(crate) fn body_syntax(lang: &str) -> BodySyntax {
     match lang {
         "python" => BodySyntax::Python,
         "rust" => BodySyntax::Rust,
+        "go" => BodySyntax::Go,
         _ => BodySyntax::CFamily,
     }
 }
 
-/// Strip comments from `body`, preserving string-literal contents **verbatim**.
+/// End index (exclusive) of the Go backtick raw string opening at `i` — no
+/// escapes, ends at the next backtick, unterminated consumes to end of input.
+/// Shared by `strip_comments` and the Type-2 tokenizer for the same reason as
+/// [`raw_string_end`]: one owner per literal form, so the lexers cannot
+/// disagree.
+pub(crate) fn go_raw_string_end(b: &[u8], i: usize) -> usize {
+    b[i + 1..]
+        .iter()
+        .position(|&x| x == b'`')
+        .map_or(b.len(), |p| i + 2 + p)
+}
+
+/// End index (exclusive) of the Rust raw string starting at `i`, or `None`
+/// when `i` does not start one (`r"…"`, `r#"…"#`, `br##"…"##`). Raw strings
+/// contain no escapes; the literal ends at the first `"` followed by the
+/// opener's `#` count. Unterminated consumes to end of input, like the other
+/// literal scanners.
+pub(crate) fn raw_string_end(b: &[u8], i: usize) -> Option<usize> {
+    let n = b.len();
+    let mut j = i;
+    if b[j] == b'b' {
+        j += 1;
+    }
+    if j >= n || b[j] != b'r' {
+        return None;
+    }
+    j += 1;
+    let mut hashes = 0usize;
+    while j < n && b[j] == b'#' {
+        hashes += 1;
+        j += 1;
+    }
+    if j >= n || b[j] != b'"' {
+        return None;
+    }
+    j += 1;
+    while j < n {
+        if b[j] == b'"'
+            && j + 1 + hashes <= n
+            && b[j + 1..j + 1 + hashes].iter().all(|&x| x == b'#')
+        {
+            return Some(j + 1 + hashes);
+        }
+        j += 1;
+    }
+    Some(n)
+}
+
+/// Drop comments from `body` under `syntax`'s lexical rules, preserving
+/// string/char literal contents verbatim (block comments leave one space).
 ///
-/// Line comments are dropped up to (but not including) the newline; block
-/// comments are replaced by a single space so they still separate tokens
-/// (`a/*x*/b` → `a b`, never `ab`). String literals — including comment-looking
-/// text inside them — are copied through unchanged, so `"// x"` stays `"// x"`.
-///
-/// This is a deliberately lexical pass (no AST), so it is a *pure, deterministic*
-/// function of its input: `keel map` and `keel compile` always derive the same
-/// normalized body for the same source. Exotic literals (Rust raw strings with
-/// embedded quotes) may be handled imperfectly, but never non-deterministically.
-fn strip_comments(body: &str, syntax: BodySyntax) -> String {
+/// The single owner of "where does a comment or literal end" — the node hash
+/// (`normalize_body_for_hash`) and the Type-2 normalizer (`hash_t2`) both
+/// delegate here, so the two can never disagree about what counts as code.
+pub(crate) fn strip_comments(body: &str, syntax: BodySyntax) -> String {
     let b = body.as_bytes();
     let n = b.len();
     let mut out: Vec<u8> = Vec::with_capacity(n);
@@ -155,6 +209,24 @@ fn strip_comments(body: &str, syntax: BodySyntax) -> String {
             continue;
         }
 
+        // Rust raw strings: no escapes, and the closing quote must carry the
+        // same `#` count as the opener. Must run before the generic `"`
+        // handling — pairing a raw string's quotes generically shifts quote
+        // parity, and a `/*` in the mis-classified "code" after it then
+        // swallows the rest of the body as one block comment (tail-blind
+        // node hashes, Type-2 false collisions).
+        if syntax == BodySyntax::Rust
+            && (c == b'r' || c == b'b')
+            && !(i > 0
+                && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] >= 0x80))
+        {
+            if let Some(end) = raw_string_end(b, i) {
+                out.extend_from_slice(&b[i..end]);
+                i = end;
+                continue;
+            }
+        }
+
         // Rust lifetimes (`'a`) are an unpaired `'` — not a char literal.
         // Treating them as string openers would swallow the rest of the body
         // (and any trailing comments), so emit the tick as an ordinary token
@@ -176,6 +248,14 @@ fn strip_comments(body: &str, syntax: BodySyntax) -> String {
         }
 
         // String literals — content preserved verbatim.
+        // Go backtick raw strings: no escapes, end at the next backtick.
+        if syntax == BodySyntax::Go && c == b'`' {
+            let end = go_raw_string_end(b, i);
+            out.extend_from_slice(&b[i..end]);
+            i = end;
+            continue;
+        }
+
         let is_string_delim =
             c == b'"' || c == b'\'' || (syntax == BodySyntax::CFamily && c == b'`');
         if is_string_delim {
@@ -252,7 +332,7 @@ pub fn normalize_body_for_hash(body: &str, lang: &str) -> String {
     let stripped = strip_comments(body, syntax);
     match syntax {
         BodySyntax::Python => normalize_body(&stripped),
-        BodySyntax::CFamily | BodySyntax::Rust => {
+        BodySyntax::CFamily | BodySyntax::Go | BodySyntax::Rust => {
             stripped.split_whitespace().collect::<Vec<_>>().join(" ")
         }
     }
@@ -665,6 +745,51 @@ mod tests {
         let a = "{ const g = 'src/*trick*/x'; run(g); }";
         let b = "{ const g = 'src/*trick*/x'; halt(g); }";
         assert_ne!(hbody(a, "typescript"), hbody(b, "typescript"));
+    }
+
+    /// A Rust raw string holding a quote and a `/*` used to shift quote
+    /// parity: the tail was stripped as one block comment, so edits after the
+    /// raw string did not change the hash.
+    #[test]
+    fn test_rust_raw_string_does_not_swallow_trailing_code() {
+        let prefix = "{ let t = r#\"members = [\"crates/*\"]\"#; parse(t);";
+        let a = format!("{prefix} Ok(done) }}");
+        let b = format!("{prefix} Err(other_thing) }}");
+        assert_ne!(
+            hbody(&a, "rust"),
+            hbody(&b, "rust"),
+            "a code edit after a raw string must change the hash"
+        );
+    }
+
+    /// Raw strings have no escapes: `r"a\"` is complete at the quote, and the
+    /// code after it stays code.
+    #[test]
+    fn test_rust_raw_string_backslash_is_not_an_escape() {
+        let a = "{ let p = r\"C:\\\"; join(p, x) }";
+        let b = "{ let p = r\"C:\\\"; split(p, x) }";
+        assert_ne!(hbody(a, "rust"), hbody(b, "rust"));
+    }
+
+    /// A Go backtick raw string has no escapes: `` `C:\` `` ends at the
+    /// second tick. Treating `\` as an escape swallowed the closing tick, and
+    /// a comment after it leaked into the hash (probe finding, round 2).
+    #[test]
+    fn test_go_backtick_raw_string_has_no_escapes() {
+        let with = "{ p := `C:\\`; use(p) // note\n done(p) }";
+        let without = "{ p := `C:\\`; use(p) done(p) }";
+        assert_eq!(
+            hbody(with, "go"),
+            hbody(without, "go"),
+            "a comment after a backtick raw string must still be stripped"
+        );
+        let a = "{ p := `alpha`; use(p) }";
+        let b = "{ p := `omega`; use(p) }";
+        assert_ne!(
+            hbody(a, "go"),
+            hbody(b, "go"),
+            "content is part of the hash"
+        );
     }
 
     /// Go rune literals still terminate correctly under the always-a-string rule.

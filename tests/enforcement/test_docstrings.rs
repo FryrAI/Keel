@@ -5,6 +5,7 @@ use keel_parsers::resolver::{Definition, FileIndex};
 
 fn make_def(name: &str, is_public: bool, docstring: Option<&str>) -> Definition {
     Definition {
+        complexity: 1,
         name: name.to_string(),
         kind: NodeKind::Function,
         signature: format!("def {name}(x: int) -> int"),
@@ -22,6 +23,7 @@ fn make_def(name: &str, is_public: bool, docstring: Option<&str>) -> Definition 
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     }
 }
 
@@ -86,6 +88,7 @@ fn test_e003_private_function_no_docstring_passes() {
 #[test]
 fn test_e003_class_not_checked() {
     let class_def = Definition {
+        complexity: 1,
         name: "MyClass".to_string(),
         kind: NodeKind::Class,
         signature: "class MyClass".to_string(),
@@ -103,6 +106,7 @@ fn test_e003_class_not_checked() {
         is_decorated: false,
         has_keep_marker: false,
         is_macro: false,
+        is_trivial_wrapper_body: false,
     };
     let file = make_file(vec![class_def]);
     let violations = check_missing_docstring(&file);
