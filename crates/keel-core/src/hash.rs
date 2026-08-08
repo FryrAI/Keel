@@ -124,6 +124,48 @@ pub(crate) fn body_syntax(lang: &str) -> BodySyntax {
 /// function of its input: `keel map` and `keel compile` always derive the same
 /// normalized body for the same source. Exotic literals (Rust raw strings with
 /// embedded quotes) may be handled imperfectly, but never non-deterministically.
+/// End index (exclusive) of the Rust raw string starting at `i`, or `None`
+/// when `i` does not start one (`r"…"`, `r#"…"#`, `br##"…"##`). Raw strings
+/// contain no escapes; the literal ends at the first `"` followed by the
+/// opener's `#` count. Unterminated consumes to end of input, like the other
+/// literal scanners.
+fn raw_string_end(b: &[u8], i: usize) -> Option<usize> {
+    let n = b.len();
+    let mut j = i;
+    if b[j] == b'b' {
+        j += 1;
+    }
+    if j >= n || b[j] != b'r' {
+        return None;
+    }
+    j += 1;
+    let mut hashes = 0usize;
+    while j < n && b[j] == b'#' {
+        hashes += 1;
+        j += 1;
+    }
+    if j >= n || b[j] != b'"' {
+        return None;
+    }
+    j += 1;
+    while j < n {
+        if b[j] == b'"'
+            && j + 1 + hashes <= n
+            && b[j + 1..j + 1 + hashes].iter().all(|&x| x == b'#')
+        {
+            return Some(j + 1 + hashes);
+        }
+        j += 1;
+    }
+    Some(n)
+}
+
+/// Drop comments from `body` under `syntax`'s lexical rules, preserving
+/// string/char literal contents verbatim (block comments leave one space).
+///
+/// The single owner of "where does a comment or literal end" — the node hash
+/// (`normalize_body_for_hash`) and the Type-2 normalizer (`hash_t2`) both
+/// delegate here, so the two can never disagree about what counts as code.
 pub(crate) fn strip_comments(body: &str, syntax: BodySyntax) -> String {
     let b = body.as_bytes();
     let n = b.len();
@@ -156,6 +198,23 @@ pub(crate) fn strip_comments(body: &str, syntax: BodySyntax) -> String {
             i = (i + 2).min(n); // skip the closing */ (or land on EOF)
             out.push(b' ');
             continue;
+        }
+
+        // Rust raw strings: no escapes, and the closing quote must carry the
+        // same `#` count as the opener. Must run before the generic `"`
+        // handling — pairing a raw string's quotes generically shifts quote
+        // parity, and a `/*` in the mis-classified "code" after it then
+        // swallows the rest of the body as one block comment (tail-blind
+        // node hashes, Type-2 false collisions).
+        if syntax == BodySyntax::Rust
+            && (c == b'r' || c == b'b')
+            && !(i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
+        {
+            if let Some(end) = raw_string_end(b, i) {
+                out.extend_from_slice(&b[i..end]);
+                i = end;
+                continue;
+            }
         }
 
         // Rust lifetimes (`'a`) are an unpaired `'` — not a char literal.
@@ -668,6 +727,30 @@ mod tests {
         let a = "{ const g = 'src/*trick*/x'; run(g); }";
         let b = "{ const g = 'src/*trick*/x'; halt(g); }";
         assert_ne!(hbody(a, "typescript"), hbody(b, "typescript"));
+    }
+
+    /// A Rust raw string holding a quote and a `/*` used to shift quote
+    /// parity: the tail was stripped as one block comment, so edits after the
+    /// raw string did not change the hash.
+    #[test]
+    fn test_rust_raw_string_does_not_swallow_trailing_code() {
+        let prefix = "{ let t = r#\"members = [\"crates/*\"]\"#; parse(t);";
+        let a = format!("{prefix} Ok(done) }}");
+        let b = format!("{prefix} Err(other_thing) }}");
+        assert_ne!(
+            hbody(&a, "rust"),
+            hbody(&b, "rust"),
+            "a code edit after a raw string must change the hash"
+        );
+    }
+
+    /// Raw strings have no escapes: `r"a\"` is complete at the quote, and the
+    /// code after it stays code.
+    #[test]
+    fn test_rust_raw_string_backslash_is_not_an_escape() {
+        let a = "{ let p = r\"C:\\\"; join(p, x) }";
+        let b = "{ let p = r\"C:\\\"; split(p, x) }";
+        assert_ne!(hbody(a, "rust"), hbody(b, "rust"));
     }
 
     /// Go rune literals still terminate correctly under the always-a-string rule.

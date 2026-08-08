@@ -255,7 +255,9 @@ pub struct FragmentCloneEntry {
     /// Line the function starts on.
     pub line: u32,
     /// Code lines of the body covered by a token window that also occurs in a
-    /// different function.
+    /// different function. A window edge landing mid-line marks the whole
+    /// line, so a matched region over-reports by up to a line at each edge —
+    /// fine for a trend ratio, not a per-line accounting.
     pub cloned_lines: u32,
     /// Code lines of the body in total — lines carrying at least one Type-2
     /// token, so comment-only and blank lines are excluded.

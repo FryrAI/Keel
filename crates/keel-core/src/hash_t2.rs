@@ -18,7 +18,10 @@
 //! names are emitted verbatim, so bodies differing by a real type (`i32` vs
 //! `String`) stay distinct. A *user-defined* type or class name is
 //! indistinguishable from an ordinary identifier at this layer and is renamed
-//! like one.
+//! like one. TS/JS regex literals are the other known lexical limit: `/…/`
+//! is indistinguishable from division without parser state, so a regex
+//! containing a quote shifts string pairing and the rest of that body
+//! normalizes as if truncated — deterministic, but tail-blind for that body.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -146,8 +149,10 @@ fn skip_string(b: &[u8], mut i: usize, syntax: BodySyntax) -> usize {
 ///
 /// Deliberately loose: digits, `_`, hex digits and a trailing suffix run
 /// (`1_000u32`, `0x1F`, `10L`) are all one literal. A `.` continues the
-/// literal only when a digit follows, so Rust's `1..10` stays a range between
-/// two numbers instead of one malformed one.
+/// literal only when a digit follows — so Rust's `1..10` emits
+/// `<int> . <int>`: the range's first `.` is punctuation, its second starts
+/// the number `.10`. Imprecise but deterministic, and `1 . 10` is not valid
+/// code for it to collide with.
 fn skip_number(b: &[u8], mut i: usize) -> usize {
     let n = b.len();
     if b[i] == b'.' {
@@ -330,9 +335,14 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
             continue;
         }
 
-        if c.is_ascii_alphabetic() || c == b'_' {
+        // Any byte >= 0x80 is identifier material: it is the continuation or
+        // start of a multibyte UTF-8 scalar, and non-ASCII identifiers
+        // (`café`, `变量`) must form ONE renameable token — per-byte fallback
+        // tokens are never renamed, which broke Type-2's rename invariance on
+        // unicode-identifier codebases and inflated fragment token counts.
+        if c.is_ascii_alphabetic() || c == b'_' || c >= 0x80 {
             let start = i;
-            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] >= 0x80) {
                 i += 1;
             }
             let word = &stripped[start..i];
@@ -398,9 +408,12 @@ pub fn rename_and_join(tokens: &[PositionedToken], lang: &str) -> String {
         }
         let text: &str = token.text.as_ref();
         // Identifier tokens are the only renameable ones: literals collapse to
-        // `<int>`/`<str>`/`<bool>` and punctuation is a single non-alphabetic
-        // byte, so neither can start with an ASCII letter or `_`.
-        let is_identifier = text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_');
+        // `<int>`/`<str>`/`<bool>` and punctuation is a single ASCII
+        // non-alphabetic byte, so neither starts with a letter, `_`, or a
+        // non-ASCII scalar (non-ASCII identifiers are one token by the same
+        // rule the tokenizer uses).
+        let is_identifier =
+            text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || !c.is_ascii());
         if is_identifier && !keywords.contains(&text) {
             let next = renames.len();
             out.push_str(renames.entry(text).or_insert_with(|| format!("v{next}")));

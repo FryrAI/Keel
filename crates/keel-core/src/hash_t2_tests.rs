@@ -278,3 +278,44 @@ fn test_renaming_is_relative_to_the_body_not_the_statement() {
     assert_eq!(without[1], "v0");
     assert_eq!(with_prefix[6], "v1", "same statement, different rename");
 }
+
+#[test]
+fn test_t2_rust_raw_string_does_not_swallow_the_tail() {
+    // A raw string whose contents hold a quote and a `/*` used to shift
+    // quote parity in strip_comments: the tail was stripped as one block
+    // comment, and two bodies with COMPLETELY different tails fingerprinted
+    // identically (the reachable W006 Type-2 false positive from the
+    // adversarial probe).
+    let prefix = r##"{
+    let config_source = r#"members = ["crates/*"]"#;
+    let parsed = parse_workspace(config_source);
+"##;
+    let a = format!(
+        "{prefix}    for package in parsed.members {{ register(package); }}\n    Ok(a_specific_result)\n}}"
+    );
+    let b = format!("{prefix}    return Err(TotallyDifferentError::NotAWorkspace);\n}}");
+    assert_ne!(
+        compute_t2_hash(&a, "rust"),
+        compute_t2_hash(&b, "rust"),
+        "different tails after a raw string must fingerprint differently"
+    );
+}
+
+#[test]
+fn test_t2_rename_invariance_holds_for_non_ascii_identifiers() {
+    // Non-ASCII identifiers must be ONE renameable token, not per-byte
+    // fallback tokens (which are never renamed and broke Type-2's whole
+    // purpose on unicode-identifier codebases).
+    let body_a = "{ let 变量 = compute(); let café = 变量 + other(变量); finish(café, 变量, other_thing, more_stuff); }";
+    let body_b = "{ let renamed = compute(); let refill = renamed + other(renamed); finish(refill, renamed, other_thing, more_stuff); }";
+    assert_eq!(
+        normalize_body_t2(body_a, "rust"),
+        normalize_body_t2(body_b, "rust"),
+        "a CJK/accented rename-pair must normalize identically to an ASCII one"
+    );
+    let tokens = tokenize_positioned(body_a, "rust", IdentifierMode::Verbatim);
+    assert!(
+        tokens.iter().any(|t| t.text == "café") && tokens.iter().any(|t| t.text == "变量"),
+        "non-ASCII identifiers must survive as single verbatim tokens"
+    );
+}

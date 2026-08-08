@@ -45,17 +45,24 @@ pub fn export_jsonl(store: &SqliteGraphStore) -> String {
 /// error naming its 1-based line number — a corrupt history file must not
 /// silently lose rows from the one series that exists to catch decay a human
 /// wouldn't otherwise see.
+///
+/// Parse-all-then-write: the hard error must mean "nothing was imported", so
+/// every line is validated before the first row touches the store. (A
+/// mid-write store failure can still leave a partial import; parse errors —
+/// the way a history file actually corrupts — cannot.)
 pub fn import_jsonl(store: &SqliteGraphStore, content: &str) -> Result<ImportSummary, String> {
-    let mut summary = ImportSummary::default();
+    let mut rows: Vec<QualitySnapshotRow> = Vec::new();
     for (i, line) in content.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
-        let row: QualitySnapshotRow =
-            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?;
+        rows.push(serde_json::from_str(line).map_err(|e| format!("line {}: {e}", i + 1))?);
+    }
+    let mut summary = ImportSummary::default();
+    for row in rows {
         match store
             .insert_quality_snapshot(row.commit_sha.as_deref(), &row.metrics)
-            .map_err(|e| format!("line {}: {e}", i + 1))?
+            .map_err(|e| e.to_string())?
         {
             SnapshotWrite::Inserted => summary.inserted += 1,
             SnapshotWrite::Updated => summary.updated += 1,
@@ -142,5 +149,11 @@ mod tests {
         );
         let err = import_jsonl(&target, &content).expect_err("line 2 is not valid JSON");
         assert!(err.starts_with("line 2:"), "got: {err}");
+        // The hard error means NOTHING was imported — valid rows before the
+        // corrupt line must not survive it (parse-all-then-write).
+        assert!(
+            target.quality_snapshots(0).is_empty(),
+            "a failed import must leave the store untouched"
+        );
     }
 }
