@@ -22,8 +22,7 @@ fn scan_of(bodies: &[(&str, &str)]) -> Vec<FragmentCloneEntry> {
             (*name).to_string(),
             format!("src/{name}.rs"),
             1,
-            body,
-            "rust",
+            hash_t2::tokenize_positioned(body, "rust", hash_t2::IdentifierMode::Verbatim),
         );
     }
     scan.finish()
@@ -129,8 +128,7 @@ fn test_rows_carry_their_node_identity() {
         "parse".to_string(),
         "src/parser.rs".to_string(),
         42,
-        &body,
-        "rust",
+        hash_t2::tokenize_positioned(&body, "rust", hash_t2::IdentifierMode::Verbatim),
     );
     let rows = scan.finish();
 

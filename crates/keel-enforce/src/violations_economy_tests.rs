@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::*;
 use crate::test_fixtures::{
@@ -285,37 +285,30 @@ fn w005_silent_for_test_context_definition_but_fires_on_dead_sibling() {
 // --- W006 duplicate_implementation ---
 
 /// The batch-wide state `check_duplicate_implementation` threads through one
-/// compile: the two seen-fingerprint maps (Type-1, Type-2) and the two
-/// trait-context maps.
+/// compile: the precomputed fingerprints and the per-tier seen maps.
 #[derive(Default)]
 struct DupState {
-    seen: HashMap<String, (String, String, u32)>,
-    seen_t2: HashMap<String, (String, String, u32)>,
-    trait_bodies: HashMap<String, HashSet<String>>,
-    trait_bodies_t2: HashMap<String, HashSet<String>>,
+    index: DuplicateIndex,
+    seen: SeenBodies,
 }
 
 impl DupState {
-    /// Batch state carrying the trait-context maps the real batch would build
-    /// for `files` — the only way to exercise the trait exemption honestly.
+    /// Batch state carrying the fingerprints and trait-context maps the real
+    /// batch would build for `files` — the only way to exercise the
+    /// cross-file trait exemption honestly.
     fn for_files(files: &[FileIndex]) -> Self {
-        let (trait_bodies, trait_bodies_t2) = batch_trait_context_bodies(files);
         Self {
-            trait_bodies,
-            trait_bodies_t2,
-            ..Default::default()
+            index: DuplicateIndex::new(files),
+            seen: SeenBodies::default(),
         }
     }
 
     fn check(&mut self, file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
-        check_duplicate_implementation(
-            file,
-            store,
-            &mut self.seen,
-            &self.trait_bodies,
-            &mut self.seen_t2,
-            &self.trait_bodies_t2,
-        )
+        // `DupState::default()` then `check(f)` is the single-file batch: the
+        // index has to hold `f`'s fingerprints, and adding them is idempotent
+        // for a state that was already seeded by `for_files`.
+        self.index.add_file(file);
+        check_duplicate_implementation(file, store, &self.index, &mut self.seen)
     }
 }
 

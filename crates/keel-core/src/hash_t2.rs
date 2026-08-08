@@ -20,6 +20,7 @@
 //! indistinguishable from an ordinary identifier at this layer and is renamed
 //! like one.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::hash::{self, BodySyntax};
@@ -176,7 +177,13 @@ fn skip_number(b: &[u8], mut i: usize) -> usize {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PositionedToken {
     /// The normalized token text — see [`tokenize`].
-    pub text: String,
+    ///
+    /// Borrowed for every token whose text is fixed (keywords, the three
+    /// literal placeholders, ASCII punctuation), owned only for a verbatim
+    /// identifier or a renamed `v0`. On keel's own tree that is most of the
+    /// ~640k tokens a map produces, so the distinction is the difference
+    /// between one allocation per token and one per distinct identifier.
+    pub text: Cow<'static, str>,
     /// 0-based line within the comment-stripped body where the token starts.
     pub line: u32,
 }
@@ -208,8 +215,52 @@ pub enum IdentifierMode {
 pub fn tokenize(body: &str, lang: &str) -> Vec<String> {
     tokenize_positioned(body, lang, IdentifierMode::Renamed)
         .into_iter()
-        .map(|t| t.text)
+        .map(|t| t.text.into_owned())
         .collect()
+}
+
+/// The one-character token text for an ASCII punctuation byte, as a `'static`
+/// string so operators and separators never allocate.
+///
+/// `None` for anything else — a non-ASCII byte outside a literal, which falls
+/// back to an owned single-char token. Deliberately not exhaustive over ASCII:
+/// only the bytes that actually occur as punctuation in the four languages are
+/// listed, and the fallback keeps every other byte deterministic.
+fn punctuation_token(c: u8) -> Option<&'static str> {
+    Some(match c {
+        b'(' => "(",
+        b')' => ")",
+        b'[' => "[",
+        b']' => "]",
+        b'{' => "{",
+        b'}' => "}",
+        b'<' => "<",
+        b'>' => ">",
+        b';' => ";",
+        b',' => ",",
+        b'.' => ".",
+        b':' => ":",
+        b'=' => "=",
+        b'+' => "+",
+        b'-' => "-",
+        b'*' => "*",
+        b'/' => "/",
+        b'%' => "%",
+        b'!' => "!",
+        b'&' => "&",
+        b'|' => "|",
+        b'^' => "^",
+        b'~' => "~",
+        b'?' => "?",
+        b'@' => "@",
+        b'#' => "#",
+        b'$' => "$",
+        b'\\' => "\\",
+        b'\'' => "'",
+        b'"' => "\"",
+        b'`' => "`",
+        _ => return None,
+    })
 }
 
 /// [`tokenize`], with each token's body-relative line attached and the
@@ -236,7 +287,10 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
     // the only places `line` moves.
     macro_rules! push {
         ($text:expr) => {
-            out.push(PositionedToken { text: $text, line })
+            out.push(PositionedToken {
+                text: $text.into(),
+                line,
+            })
         };
     }
     while i < n {
@@ -256,7 +310,7 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
             let is_char_lit = (i + 1 < n && b[i + 1] == b'\\')
                 || (i + 2 < n && b[i + 1] != b'\'' && b[i + 2] == b'\'');
             if !is_char_lit {
-                push!("'".to_string());
+                push!("'");
                 i += 1;
                 continue;
             }
@@ -265,14 +319,14 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
         if c == b'"' || c == b'\'' || (syntax == BodySyntax::CFamily && c == b'`') {
             let start = i;
             i = skip_string(b, i, syntax);
-            push!(STR_TOKEN.to_string());
+            push!(STR_TOKEN);
             line += b[start..i].iter().filter(|&&x| x == b'\n').count() as u32;
             continue;
         }
 
         if c.is_ascii_digit() || (c == b'.' && i + 1 < n && b[i + 1].is_ascii_digit()) {
             i = skip_number(b, i);
-            push!(NUM_TOKEN.to_string());
+            push!(NUM_TOKEN);
             continue;
         }
 
@@ -283,8 +337,12 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
             }
             let word = &stripped[start..i];
             if matches!(word, "true" | "false" | "True" | "False") {
-                push!(BOOL_TOKEN.to_string());
-            } else if keywords.contains(&word) || mode == IdentifierMode::Verbatim {
+                push!(BOOL_TOKEN);
+            } else if let Some(keyword) = keywords.iter().copied().find(|k| *k == word) {
+                // The `'static` copy from the table, not the borrowed slice of
+                // this body — a keyword token never allocates.
+                push!(keyword);
+            } else if mode == IdentifierMode::Verbatim {
                 push!(word.to_string());
             } else {
                 let next = renames.len();
@@ -296,19 +354,61 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
 
         // Operators and punctuation, one byte per token: two copies of the same
         // code tokenize identically either way, so no maximal-munch operator
-        // table is needed. A non-ASCII byte outside a literal takes the same
-        // path — still deterministic, which is the only requirement.
-        push!((c as char).to_string());
+        // table is needed. A non-ASCII byte outside a literal takes the owned
+        // fallback — still deterministic, which is the only requirement.
+        match punctuation_token(c) {
+            Some(text) => push!(text),
+            None => push!((c as char).to_string()),
+        }
         i += 1;
     }
     out
 }
 
-/// Type-2 normalized form of `body`: [`tokenize`]'s output joined by spaces.
+/// Type-2 normalized form of `body`: the renamed token stream joined by spaces.
 ///
 /// Length-gate against [`MIN_T2_NORMALIZED_LEN`] before fingerprinting it.
 pub fn normalize_body_t2(body: &str, lang: &str) -> String {
-    tokenize(body, lang).join(" ")
+    rename_and_join(
+        &tokenize_positioned(body, lang, IdentifierMode::Renamed),
+        lang,
+    )
+}
+
+/// The Type-2 normalized form of an already-tokenized body — the token texts
+/// joined by spaces, with non-keyword identifiers renamed positionally.
+///
+/// Lets a caller that already holds an [`IdentifierMode::Verbatim`] stream
+/// derive the renamed form without tokenizing the body a second time. `keel
+/// map` needs both: the verbatim stream feeds fragment-level clone detection,
+/// the renamed one the Type-2 whole-body fingerprint. The two differ only in
+/// how non-keyword identifiers are spelled, and the renaming is positional
+/// over the whole stream — which walking these tokens in order reproduces
+/// exactly.
+///
+/// Applying it to a stream that is already renamed is a no-op: `v0` renames to
+/// `v0`, since first-appearance order is unchanged.
+pub fn rename_and_join(tokens: &[PositionedToken], lang: &str) -> String {
+    let keywords = keyword_set(lang);
+    let mut renames: HashMap<&str, String> = HashMap::new();
+    let mut out = String::new();
+    for token in tokens {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        let text: &str = token.text.as_ref();
+        // Identifier tokens are the only renameable ones: literals collapse to
+        // `<int>`/`<str>`/`<bool>` and punctuation is a single non-alphabetic
+        // byte, so neither can start with an ASCII letter or `_`.
+        let is_identifier = text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_');
+        if is_identifier && !keywords.contains(&text) {
+            let next = renames.len();
+            out.push_str(renames.entry(text).or_insert_with(|| format!("v{next}")));
+        } else {
+            out.push_str(text);
+        }
+    }
+    out
 }
 
 /// Type-2 fingerprint of `body` — `base62(xxhash64(normalize_body_t2(body)))`.

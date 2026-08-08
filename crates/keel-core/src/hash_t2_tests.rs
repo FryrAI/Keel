@@ -228,10 +228,44 @@ fn test_verbatim_mode_keeps_identifiers_and_still_collapses_literals() {
     let tokens: Vec<String> =
         tokenize_positioned("let total = 42;", "rust", IdentifierMode::Verbatim)
             .into_iter()
-            .map(|t| t.text)
+            .map(|t| t.text.into_owned())
             .collect();
 
     assert_eq!(tokens, vec!["let", "total", "=", "<int>", ";"]);
+}
+
+/// `keel map` tokenizes each body ONCE, verbatim, and derives the Type-2
+/// fingerprint from that stream. The derivation must be indistinguishable from
+/// a direct renamed tokenization, in every language's keyword table, or stored
+/// and compile-time fingerprints stop matching.
+#[test]
+fn test_rename_and_join_matches_a_direct_renamed_tokenization() {
+    let bodies = [
+        (
+            "rust",
+            "let mut total = 0;\nfor item in items {\n    if item.ok { total += item.n; }\n}\ntotal",
+        ),
+        (
+            "python",
+            "total = 0\nfor item in items:\n    if item.ok:\n        total += item.n\nreturn total",
+        ),
+        (
+            "go",
+            "total := 0\nfor _, item := range items {\n\tif item.ok {\n\t\ttotal += item.n\n\t}\n}\nreturn total",
+        ),
+        (
+            "typescript",
+            "let total = 0;\nfor (const item of items) {\n  if (item.ok) { total += item.n; }\n}\nreturn total;",
+        ),
+    ];
+    for (lang, body) in bodies {
+        let verbatim = tokenize_positioned(body, lang, IdentifierMode::Verbatim);
+        assert_eq!(
+            rename_and_join(&verbatim, lang),
+            normalize_body_t2(body, lang),
+            "{lang}: derived rename must match a direct one"
+        );
+    }
 }
 
 /// Why fragment matching cannot use the renamed stream: the same statement gets

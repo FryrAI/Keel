@@ -102,7 +102,7 @@ struct Unit {
 #[derive(Default)]
 pub struct FragmentScan {
     /// Token text → dense id. Interning makes window hashing integer work.
-    vocab: HashMap<String, u32>,
+    vocab: HashMap<std::borrow::Cow<'static, str>, u32>,
     units: Vec<Unit>,
 }
 
@@ -114,21 +114,21 @@ impl FragmentScan {
 
     /// Add one function body to the scan.
     ///
-    /// `body` is raw source (`Definition::body_text`) and `lang` the language
-    /// name `detect_language` produced — the same pair `keel map` feeds the
-    /// Type-2 whole-body fingerprint, so the two can never tokenize
-    /// differently. Callers decide which files are worth scanning; this type
-    /// applies no file-class rule of its own.
+    /// `tokens` must be the body's [`hash_t2::IdentifierMode::Verbatim`]
+    /// stream — see the module docs for why the renamed one cannot work here.
+    /// The caller passes it in rather than a body plus a language because
+    /// `keel map` derives the Type-2 whole-body fingerprint from the very same
+    /// vector, so the two measurements cannot tokenize differently. Callers
+    /// also decide which files are worth scanning; this type applies no
+    /// file-class rule of its own.
     pub fn add(
         &mut self,
         node_hash: String,
         name: String,
         file_path: String,
         line: u32,
-        body: &str,
-        lang: &str,
+        tokens: Vec<hash_t2::PositionedToken>,
     ) {
-        let tokens = hash_t2::tokenize_positioned(body, lang, hash_t2::IdentifierMode::Verbatim);
         if tokens.is_empty() {
             return;
         }

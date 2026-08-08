@@ -69,6 +69,10 @@ pub fn first_pass(
 
         let result = resolver.parse_file(&entry.path, &content);
         let file_path = make_relative(cwd, &entry.path);
+        // A property of the path, so it is answered once per file rather than
+        // once per definition.
+        let grades_size_and_naming =
+            keel_enforce::file_class::FileClass::classify(&file_path).grades_size_and_naming();
 
         // Create module node for this file
         let module_id = *next_id;
@@ -121,61 +125,70 @@ pub fn first_pass(
                 .or_default()
                 .push((file_path.clone(), node_id));
 
-            // Feed the fragment-clone scan (issue #66). Unlike the W006 index
-            // below this takes *every* function body of hand-written source,
-            // however short: the metric it feeds is a ratio whose denominator
-            // is the code lines counted here, so a length gate would silently
-            // shrink the denominator. Tests, generated clients and declarative
-            // surfaces are excluded outright — a source function must not read
-            // as cloned because a fixture copied it. `in_test_context` is the
-            // half a path-based class cannot see: an inline `#[cfg(test)] mod`
-            // inside a production file, whose near-identical fixture bodies
-            // otherwise dominate the count (measured on keel's own tree: test
-            // bodies clone at 0.36, production at 0.10).
-            if def.kind == NodeKind::Function
-                && !def.in_test_context
-                && keel_enforce::file_class::FileClass::classify(&file_path)
-                    .grades_size_and_naming()
-            {
-                fragments.add(
-                    hash.clone(),
-                    def.name.clone(),
-                    file_path.clone(),
-                    def.line_start,
-                    &def.body_text,
-                    &entry.language,
-                );
-            }
-
-            // Feed the W006 duplicate-implementation index. Trivial bodies
-            // are skipped here only to bound index size; enforcement applies
-            // its own (higher, compile-time-asserted) similarity threshold.
+            // Both body-level indexes below read the SAME token stream, so the
+            // body is tokenized at most once here.
+            //
+            // The fragment-clone scan (issue #66) takes *every* function body
+            // of hand-written source, however short: the metric it feeds is a
+            // ratio whose denominator is the code lines counted there, so a
+            // length gate would silently shrink the denominator. Tests,
+            // generated clients and declarative surfaces are excluded outright
+            // — a source function must not read as cloned because a fixture
+            // copied it. `in_test_context` is the half a path-based class
+            // cannot see: an inline `#[cfg(test)] mod` inside a production
+            // file, whose near-identical fixture bodies otherwise dominate the
+            // count (measured on keel's own tree: test bodies clone at 0.36,
+            // production at 0.10).
+            //
+            // The W006 duplicate-implementation index skips trivial bodies
+            // only to bound index size; enforcement applies its own (higher,
+            // compile-time-asserted) similarity threshold.
             if def.kind == NodeKind::Function {
+                let scan_fragments = !def.in_test_context && grades_size_and_naming;
                 let normalized = keel_core::hash::normalize_body(&def.body_text);
-                if normalized.len() >= keel_core::hash::MIN_INDEXED_BODY_LEN {
-                    // Type-2 fingerprint (renamed identifiers, collapsed
-                    // literals). Empty below its own, higher floor: the
-                    // renamed form is shorter, so trivial shapes would
-                    // otherwise collide constantly. `entry.language` is what
-                    // `detect_language` produced, the same string compile time
-                    // derives from the path — the two must agree or no stored
-                    // fingerprint ever matches.
-                    let t2_normalized =
-                        keel_core::hash_t2::normalize_body_t2(&def.body_text, &entry.language);
-                    let t2_hash =
-                        if t2_normalized.len() >= keel_core::hash_t2::MIN_T2_NORMALIZED_LEN {
-                            keel_core::hash::hash_string(&t2_normalized)
-                        } else {
-                            String::new()
-                        };
-                    body_index.push(keel_core::types::BodyIndexEntry {
-                        body_hash: keel_core::hash::hash_normalized_body(&normalized),
-                        t2_hash,
-                        node_hash: hash.clone(),
-                        name: def.name.clone(),
-                        file_path: file_path.clone(),
-                        line: def.line_start,
-                    });
+                let index_body = normalized.len() >= keel_core::hash::MIN_INDEXED_BODY_LEN;
+                if scan_fragments || index_body {
+                    // Verbatim, because that is what fragment matching needs;
+                    // the renamed Type-2 stream is derived from it below.
+                    // `entry.language` is what `detect_language` produced, the
+                    // same string compile time derives from the path — the two
+                    // must agree or no stored fingerprint ever matches.
+                    let tokens = keel_core::hash_t2::tokenize_positioned(
+                        &def.body_text,
+                        &entry.language,
+                        keel_core::hash_t2::IdentifierMode::Verbatim,
+                    );
+                    if index_body {
+                        // Type-2 fingerprint (renamed identifiers, collapsed
+                        // literals). Empty below its own, higher floor: the
+                        // renamed form is shorter, so trivial shapes would
+                        // otherwise collide constantly.
+                        let t2_normalized =
+                            keel_core::hash_t2::rename_and_join(&tokens, &entry.language);
+                        let t2_hash =
+                            if t2_normalized.len() >= keel_core::hash_t2::MIN_T2_NORMALIZED_LEN {
+                                keel_core::hash::hash_string(&t2_normalized)
+                            } else {
+                                String::new()
+                            };
+                        body_index.push(keel_core::types::BodyIndexEntry {
+                            body_hash: keel_core::hash::hash_normalized_body(&normalized),
+                            t2_hash,
+                            node_hash: hash.clone(),
+                            name: def.name.clone(),
+                            file_path: file_path.clone(),
+                            line: def.line_start,
+                        });
+                    }
+                    if scan_fragments {
+                        fragments.add(
+                            hash.clone(),
+                            def.name.clone(),
+                            file_path.clone(),
+                            def.line_start,
+                            tokens,
+                        );
+                    }
                 }
             }
 
