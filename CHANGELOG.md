@@ -7,7 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-08
+
+Slop-free keel: the SlopCodeBench-motivated release (arxiv.org/abs/2603.24755).
+Agents' pass rates stay flat while structure erodes; this release gives keel
+the metrics that see it and the detectors that catch it at generation time.
+
+### Added
+- **Per-function cyclomatic complexity (#58)**, computed at parse time for all
+  four languages and stored on nodes. `keel quality` gains
+  `high_cc_mass_share` — the share of `cc·√sloc` mass held by functions with
+  cc>10, the paper's "structural erosion" score — and **`propagation_cost`
+  (#61)**, the average transitive reachability of the module graph. Metrics
+  added after v1 are named in `METRICS_ADDED_AFTER_V1`: a snapshot predating a
+  metric is reported as unmeasured (`—`), never trended from a fabricated 0.
+- **W006 Type-2 clone detection (#59).** A lexical fingerprint that renames
+  identifiers positionally and collapses literals, so copy-paste-then-rename
+  duplicates are caught (confidence 0.6, only when Type-1 finds nothing).
+  Floor calibrated on keel's own tree — which promptly surfaced three real
+  duplicate pairs in keel itself, deduplicated in the same PR.
+- **Fragment-level clone detection (#66).** Rabin-Karp over 50-token windows
+  at map time (pure Rust — no jscpd, no Node): sub-function block clones W006
+  cannot see, reported as the trend-only `clone_loc_ratio` quality metric.
+  The compile hot path is untouched.
+- **`trivial_wrapper` audit smell (#60):** a single-delegating-call function
+  with at most one caller, detected at parse time and persisted on the node.
+- **`keel review --annotations-file` (#63):** one review run produces both
+  the primary output and the GitHub annotations; the CI action no longer runs
+  review twice.
+- **`keel quality --export/--import` (#64):** JSON Lines round-trip of the
+  quality-snapshot series (upsert by commit sha; a corrupt file imports
+  nothing rather than half). The CI action accumulates history across runs
+  via a cache, so `--trend` works in CI.
+- **`perf-contract` CI job (#65):** the release-mode benchmark asserts that
+  guard the documented <200ms single-file compile now actually run in CI.
+  (Measured reality: 36–43ms; the reported ~1s was a debug binary under
+  parallel test load.)
+
 ### Fixed
+- **E001 no longer phantom-fires on same-file duplicate names** (a free
+  `search_graph` beside a `search_graph` method): definition↔node pairing
+  goes through one shared binder (hash evidence first, refuse when genuinely
+  undecidable) used by E001, W005, and progressive adoption.
+- **W002's Cargo exemption is structural (#62):** duplicate names across
+  DISTINCT Cargo compilation units (build scripts, binaries, examples,
+  benches — by target identity, Rust-only) are exempt; the old false positive
+  on `build.rs` vs `src/main.rs` `main` is gone, and modules of one
+  multi-file target still fire.
+- **Raw strings no longer blind the hashes.** Rust `r#"…"#` and Go backtick
+  strings shifted quote parity in the comment stripper: the rest of the body
+  was silently dropped from node hashes (edits there didn't change the hash)
+  and could produce false Type-2 collisions. One scanner per literal form,
+  shared by both lexers. Affected bodies re-hash on the next `keel map`.
+- **Non-ASCII identifiers** (`café`, `变量`) are single renameable tokens, so
+  Type-2's rename invariance holds on unicode codebases.
+- **Hook-driven compiles no longer serve stale metric inputs:** all three
+  node writers share `Definition::apply_parse_facts`, so complexity and
+  context flags move with the hash instead of waiting for the next map.
+
+### Changed
+- `violations_util.rs` (945 lines) split into focused submodules; MCP
+  handlers share `engine_lookup`/`lock_engine`; each body is fingerprinted
+  once per compile and tokenized once per map.
+
+### Fixed (pre-0.6.0, shipped on main)
 - **E005 arity_mismatch is reachable (#54).** No production site ever set
   `Reference::resolved_to`, so the check compared nothing and E005 could not
   fire outside unit tests. `keel compile` now resolves each compiled file's
