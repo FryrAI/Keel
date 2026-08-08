@@ -16,6 +16,8 @@ use crate::common::in_memory_store;
 fn make_target(id: u64, name: &str, sig: &str) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: compute_hash(sig, "pass", ""),
         kind: NodeKind::Function,

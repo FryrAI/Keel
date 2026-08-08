@@ -239,10 +239,16 @@ impl SqliteGraphStore {
             )
             .unwrap_or((0, 0));
 
+        // `in_test_context = 0` is the same population rule the fragment scan
+        // applies: an inline `#[cfg(test)] mod tests` is not production mass,
+        // and its fixture bodies would otherwise move a production metric.
+        // Rows written before the column existed read back as 0 and are
+        // therefore included — the metric under-excludes until the next map,
+        // never over-excludes.
         let complexity_by_fn = self
             .collect(
                 "SELECT file_path, complexity, (line_end - line_start + 1)
-                 FROM nodes WHERE kind = 'function'",
+                 FROM nodes WHERE kind = 'function' AND in_test_context = 0",
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,

@@ -117,6 +117,21 @@ pub struct GraphNode {
     /// them.
     #[serde(default)]
     pub complexity: u32,
+    /// True when this function's body is a single delegating call AND none of
+    /// the parse-time exemptions the graph does NOT persist separately apply
+    /// (decorated definitions, `keel:keep` markers). Written already-exempted
+    /// so the audit needs no re-parse: the exemptions that ARE persisted
+    /// (`is_associated`, `in_test_context`) are applied by the reader, and no
+    /// exemption is checked at both layers.
+    #[serde(default)]
+    pub is_trivial_wrapper: bool,
+    /// True when this definition lives in a test context — a `#[cfg(test)]`
+    /// module, a `#[test]`/`@pytest`-style harness function — as opposed to a
+    /// test *file*, which every consumer can already tell from the path.
+    /// Persisted so store-only surfaces (`keel audit`, `keel quality`) can
+    /// apply the same population rule the parse-time checks do.
+    #[serde(default)]
+    pub in_test_context: bool,
     pub external_endpoints: Vec<ExternalEndpoint>,
     pub previous_hashes: Vec<String>,
     pub module_id: u64,
@@ -383,10 +398,11 @@ pub struct QualityInputs {
     /// code_lines)` — see [`FragmentCloneEntry`]. Empty until the tree has been
     /// mapped by a keel that writes fragment measurements.
     pub fragment_clones_by_fn: Vec<(String, u32, u32)>,
-    /// One entry per function node: `(file_path, complexity, sloc)`, where
-    /// `sloc` is `line_end - line_start + 1` — the same span source as
-    /// `file_lines`. File-class and test exemptions are the caller's job, as
-    /// with every other field here.
+    /// One entry per non-test-context function node: `(file_path, complexity,
+    /// sloc)`, where `sloc` is `line_end - line_start + 1` — the same span
+    /// source as `file_lines`. Test-CONTEXT symbols are excluded here because
+    /// only the store can see the flag; the file-class exemption is the
+    /// caller's job, as with every other field.
     pub complexity_by_fn: Vec<(String, u32, u32)>,
 }
 

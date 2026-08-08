@@ -17,6 +17,8 @@ fn make_node(
 ) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.to_string(),
         kind,
@@ -442,6 +444,8 @@ pub fn create_single_module_graph() -> SqliteGraphStore {
         )),
         NodeChange::Add(GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 1,
             hash: "fn_add_hash00".to_string(),
             kind: NodeKind::Function,
@@ -462,6 +466,8 @@ pub fn create_single_module_graph() -> SqliteGraphStore {
         }),
         NodeChange::Add(GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 2,
             hash: "fn_sub_hash00".to_string(),
             kind: NodeKind::Function,
@@ -482,6 +488,8 @@ pub fn create_single_module_graph() -> SqliteGraphStore {
         }),
         NodeChange::Add(GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 3,
             hash: "fn_mul_hash00".to_string(),
             kind: NodeKind::Function,

@@ -23,6 +23,8 @@ fn test_store() -> SharedStore {
 fn make_test_node() -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 1,
         hash: "a7Bx3kM9f2Q".to_string(),
         kind: NodeKind::Function,
@@ -62,6 +64,8 @@ fn engine_with_node() -> SharedEngine {
 fn make_node(id: u64, hash: &str, name: &str, sig: &str, file: &str) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.into(),
         kind: NodeKind::Function,
@@ -149,6 +153,8 @@ fn store_with_module_and_node() -> SharedStore {
     store
         .insert_node(&GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 100,
             hash: "moduleHash01".to_string(),
             kind: NodeKind::Module,

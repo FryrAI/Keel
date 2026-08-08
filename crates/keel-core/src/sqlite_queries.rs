@@ -147,8 +147,8 @@ impl GraphStore for SqliteGraphStore {
                     }
                     // UPSERT to handle re-map without cascade-deleting related rows
                     tx.execute(
-                        "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, complexity, module_id, package)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                        "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, complexity, is_trivial_wrapper, in_test_context, module_id, package)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                          ON CONFLICT(hash) DO UPDATE SET
                             kind = excluded.kind,
                             name = excluded.name,
@@ -162,6 +162,8 @@ impl GraphStore for SqliteGraphStore {
                             has_docstring = excluded.has_docstring,
                             is_associated = excluded.is_associated,
                             complexity = excluded.complexity,
+                            is_trivial_wrapper = excluded.is_trivial_wrapper,
+                            in_test_context = excluded.in_test_context,
                             module_id = excluded.module_id,
                             package = excluded.package,
                             updated_at = datetime('now')",
@@ -180,6 +182,8 @@ impl GraphStore for SqliteGraphStore {
                             node.has_docstring as i32,
                             node.is_associated as i32,
                             node.complexity,
+                            node.is_trivial_wrapper as i32,
+                            node.in_test_context as i32,
                             if node.module_id == 0 { None } else { Some(node.module_id) },
                             node.package,
                         ],
@@ -214,7 +218,7 @@ impl GraphStore for SqliteGraphStore {
                         }
                     }
                     tx.execute(
-                        "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, is_associated = ?12, complexity = ?13, module_id = ?14, package = ?15, updated_at = datetime('now') WHERE id = ?16",
+                        "UPDATE nodes SET hash = ?1, kind = ?2, name = ?3, signature = ?4, file_path = ?5, line_start = ?6, line_end = ?7, docstring = ?8, is_public = ?9, type_hints_present = ?10, has_docstring = ?11, is_associated = ?12, complexity = ?13, is_trivial_wrapper = ?14, in_test_context = ?15, module_id = ?16, package = ?17, updated_at = datetime('now') WHERE id = ?18",
                         params![
                             node.hash,
                             node.kind.as_str(),
@@ -229,6 +233,8 @@ impl GraphStore for SqliteGraphStore {
                             node.has_docstring as i32,
                             node.is_associated as i32,
                             node.complexity,
+                            node.is_trivial_wrapper as i32,
+                            node.in_test_context as i32,
                             if node.module_id == 0 { None } else { Some(node.module_id) },
                             node.package,
                             node.id,

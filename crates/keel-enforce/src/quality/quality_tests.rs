@@ -16,6 +16,8 @@ const BUDGET: u32 = 400;
 fn node(id: u64, name: &str, file: &str, kind: NodeKind, is_public: bool, lines: u32) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: format!("h{id}"),
         kind,

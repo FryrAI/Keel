@@ -187,6 +187,8 @@ impl SqliteGraphStore {
                 has_docstring INTEGER NOT NULL DEFAULT 0,
                 is_associated INTEGER NOT NULL DEFAULT 0,
                 complexity INTEGER NOT NULL DEFAULT 0,
+                is_trivial_wrapper INTEGER NOT NULL DEFAULT 0,
+                in_test_context INTEGER NOT NULL DEFAULT 0,
                 module_id INTEGER REFERENCES nodes(id),
                 package TEXT DEFAULT NULL,
                 resolution_tier TEXT NOT NULL DEFAULT '',
@@ -304,6 +306,26 @@ impl SqliteGraphStore {
         let _ = self
             .conn
             .execute_batch("ALTER TABLE nodes ADD COLUMN complexity INTEGER NOT NULL DEFAULT 0");
+
+        // Parse-time shape/context flags, added the same way and for the same
+        // reason as `is_associated` above. They exist so the store-only
+        // surfaces stop re-parsing source to recover facts the parser already
+        // knew: `keel audit`'s `trivial_wrapper` used to re-read and re-parse
+        // every graded file just to see a body shape, and `keel quality`'s
+        // `high_cc_mass_share` had no way to exclude inline test modules from
+        // its population.
+        //
+        // `is_trivial_wrapper` is written ALREADY EXEMPTED for the parse-time
+        // facts the graph does not persist separately (decorated definitions,
+        // `keel:keep` markers); `is_associated`/`in_test_context` stay the
+        // reader's business, so no exemption is checked at both layers.
+        // Existing rows read back as 0 until the next map/compile rewrites them.
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN is_trivial_wrapper INTEGER NOT NULL DEFAULT 0",
+        );
+        let _ = self.conn.execute_batch(
+            "ALTER TABLE nodes ADD COLUMN in_test_context INTEGER NOT NULL DEFAULT 0",
+        );
 
         // Body-hash duplicate index (schema v5) — shared DDL, see BODY_INDEX_DDL.
         self.drop_stale_body_index()?;

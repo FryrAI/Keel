@@ -137,6 +137,8 @@ pub(crate) fn function_node(id: u64, hash: &str, name: &str, file: &str) -> Grap
         has_docstring: false,
         is_associated: false,
         complexity: 1,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
@@ -152,6 +154,8 @@ pub(crate) fn node_for_definition(id: u64, def: &Definition) -> GraphNode {
     node.is_public = def.is_public;
     node.is_associated = def.is_associated;
     node.complexity = def.complexity;
+    node.is_trivial_wrapper = def.stored_trivial_wrapper();
+    node.in_test_context = def.in_test_context;
     node.line_start = def.line_start;
     node.line_end = def.line_end;
     node

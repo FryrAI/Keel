@@ -31,6 +31,8 @@ fn make_profile(module_id: u64, path: &str, prefix: &str) -> ModuleProfile {
 fn make_module_node(id: u64, file: &str) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: compute_hash(&format!("module:{file}"), "", ""),
         kind: NodeKind::Module,

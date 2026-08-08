@@ -8,6 +8,8 @@ use crate::types::{CompileInfo, CompileResult, Violation};
 fn node(id: u64, hash: &str, name: &str, file: &str, kind: NodeKind) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.into(),
         kind,

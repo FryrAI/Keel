@@ -275,10 +275,19 @@ fn test_e001_partial_batch_skips_only_batch_callers() {
 
 #[test]
 fn test_e001_refuses_same_file_duplicate_names() {
-    // A free `search_graph` next to a `search_graph` method: the name-keyed
-    // pairing cannot know which stored node matches which fresh def, so E001
-    // must refuse to claim rather than compare the method's signature against
-    // the free fn's stored one (the phantom-signature-change FP).
+    // A free `search_graph` next to a `search_graph` method. The free fn binds
+    // to the stored node by hash and compares clean; the method has no hash
+    // evidence and no unique name to fall back on, so `bind_to_node` refuses
+    // and E001 stays silent instead of comparing the method's fresh signature
+    // against the free fn's stored one (the phantom-signature-change FP).
+    //
+    // Refusal is the ONLY outcome reachable for a repeated name: E001 needs a
+    // changed signature, a changed signature moves the hash, and a moved hash
+    // is exactly the evidence rule 1 of the binder would have needed. So there
+    // is no "hash evidence rescues the changed twin" case to test — the
+    // improvement over the old blanket refusal is that a repeated name no
+    // longer suppresses the *other* defs in the file, which the free fn's
+    // clean comparison here exercises.
     let store = SqliteGraphStore::in_memory().unwrap();
     let old_hash = keel_core::hash::compute_hash(
         "fn search_graph(store: &dyn GraphStore, term: &str)",
@@ -296,7 +305,13 @@ fn test_e001_refuses_same_file_duplicate_names() {
     store.insert_node(&node).unwrap();
 
     // A caller of the free fn, so E001 would have someone to blame.
-    let caller = make_node(2, "cal22222222", "run_search", "fn run_search()", "src/cli.rs");
+    let caller = make_node(
+        2,
+        "cal22222222",
+        "run_search",
+        "fn run_search()",
+        "src/cli.rs",
+    );
     store.insert_node(&caller).unwrap();
     let mut store_mut = store;
     store_mut

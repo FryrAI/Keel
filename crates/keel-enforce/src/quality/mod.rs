@@ -84,11 +84,15 @@ pub struct QualityMetrics {
     /// Share of dependency edges that leave their own file. Trend-only: there
     /// is no good absolute value, only a direction over time.
     pub cross_module_edge_ratio: f64,
-    /// Share of the repo's complexity-weighted mass (`Σ cc·√sloc` over
-    /// functions in hand-written source) held by functions above
-    /// `HIGH_CC_THRESHOLD`. A rising share means branching is concentrating
-    /// into a shrinking set of hot functions — the shape erosion takes when
-    /// line counts stay flat. Judged: higher is worse.
+    /// Share of the repo's complexity-weighted mass (`Σ cc·√sloc`) held by
+    /// functions above `HIGH_CC_THRESHOLD`. A rising share means branching is
+    /// concentrating into a shrinking set of hot functions — the shape erosion
+    /// takes when line counts stay flat. Judged: higher is worse.
+    ///
+    /// Population: hand-written, non-test-context functions — the same rule
+    /// [`Self::clone_loc_ratio`] uses. Test *files* are dropped by
+    /// [`FileClass`], inline `#[cfg(test)]` modules by the persisted
+    /// `in_test_context` flag.
     #[serde(default)]
     pub high_cc_mass_share: f64,
     /// Share of module pairs where one transitively reaches the other

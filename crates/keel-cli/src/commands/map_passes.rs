@@ -93,6 +93,8 @@ pub fn first_pass(
             is_associated: false,
             // Modules are not measured — no body, nothing to branch.
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             external_endpoints: vec![],
             previous_hashes: vec![],
             module_id: 0,
@@ -192,6 +194,8 @@ pub fn first_pass(
                 has_docstring: def.docstring.is_some(),
                 is_associated: def.is_associated,
                 complexity: def.complexity,
+                is_trivial_wrapper: def.stored_trivial_wrapper(),
+                in_test_context: def.in_test_context,
                 external_endpoints: vec![],
                 previous_hashes: vec![],
                 module_id,

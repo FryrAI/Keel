@@ -7,6 +7,8 @@ use keel_core::types::{ExternalEndpoint, GraphNode, NodeKind};
 fn test_create_function_node() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 1,
         hash: "abc12345678".into(),
         kind: NodeKind::Function,
@@ -39,6 +41,8 @@ fn test_create_function_node() {
 fn test_create_class_node() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 2,
         hash: "cls12345678".into(),
         kind: NodeKind::Class,
@@ -68,6 +72,8 @@ fn test_create_class_node() {
 fn test_create_module_node() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 3,
         hash: "mod12345678".into(),
         kind: NodeKind::Module,
@@ -97,6 +103,8 @@ fn test_create_module_node() {
 fn test_create_method_node() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 4,
         hash: "mth12345678".into(),
         kind: NodeKind::Function,
@@ -125,6 +133,8 @@ fn test_create_method_node() {
 fn test_create_interface_node() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 5,
         hash: "ifc12345678".into(),
         kind: NodeKind::Class,
@@ -153,6 +163,8 @@ fn test_create_interface_node() {
 fn test_create_trait_node() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 6,
         hash: "trt12345678".into(),
         kind: NodeKind::Class,
@@ -182,6 +194,8 @@ fn test_create_trait_node() {
 fn test_node_without_docstring() {
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 7,
         hash: "ndc12345678".into(),
         kind: NodeKind::Function,
@@ -209,6 +223,8 @@ fn test_node_without_docstring() {
 fn test_node_with_docstring() {
     let node_with = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 8,
         hash: "doc12345678".into(),
         kind: NodeKind::Function,
@@ -237,6 +253,8 @@ fn test_node_with_docstring() {
 fn test_node_module_id_association() {
     let module_node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 100,
         hash: "modA1234567".into(),
         kind: NodeKind::Module,
@@ -258,6 +276,8 @@ fn test_node_module_id_association() {
 
     let func_node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 101,
         hash: "fnA12345678".into(),
         kind: NodeKind::Function,
@@ -293,6 +313,8 @@ fn test_node_with_external_endpoints() {
 
     let node = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 10,
         hash: "api12345678".into(),
         kind: NodeKind::Function,

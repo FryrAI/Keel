@@ -191,6 +191,20 @@ impl Definition {
         )
     }
 
+    /// The value `nodes.is_trivial_wrapper` stores for this definition: a
+    /// single delegating body, minus the parse-time exemptions the graph does
+    /// not persist in a column of their own.
+    ///
+    /// One definition because both node writers (`keel map`'s first pass and
+    /// `keel compile`'s sync) must fold in exactly the same exemptions — a
+    /// disagreement would make the audit's finding depend on which command
+    /// last touched the row. Exemptions the graph DOES persist
+    /// (`is_associated`, `in_test_context`) are deliberately absent: the reader
+    /// applies those.
+    pub fn stored_trivial_wrapper(&self) -> bool {
+        self.is_trivial_wrapper_body && !self.is_decorated && !self.has_keep_marker
+    }
+
     /// The disambiguated content hash, salted with `file_path` — the identity
     /// `keel map` falls back to when a symbol's base [`hash`](Self::hash)
     /// collides with a different node.

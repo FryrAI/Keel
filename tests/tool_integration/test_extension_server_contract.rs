@@ -34,6 +34,8 @@ const API_FILE: &str = "src/api.rs";
 fn func(id: u64, hash: &str, name: &str, line: u32) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.to_string(),
         kind: NodeKind::Function,
@@ -73,6 +75,8 @@ fn contract_engine() -> SharedEngine {
 
     let module = GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 100,
         hash: API_MODULE_HASH.to_string(),
         kind: NodeKind::Module,

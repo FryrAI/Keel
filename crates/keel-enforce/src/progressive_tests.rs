@@ -42,6 +42,8 @@ fn file_with(def: Definition) -> FileIndex {
 fn matching_node(def: &Definition) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id: 1,
         hash: keel_core::hash::compute_hash(
             &def.signature,

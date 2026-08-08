@@ -21,7 +21,7 @@ use keel_parsers::resolver::{Definition, FileIndex};
 use keel_parsers::treesitter::detect_language;
 
 use crate::types::Violation;
-use crate::violations_util::{is_bench_file, is_stub_file, is_test_file, node_hash_matches};
+use crate::violations_util::{bind_to_node, is_bench_file, is_stub_file, is_test_file};
 
 /// Bodies shorter than this (whitespace-normalized) are too trivial to call
 /// duplicates — one-line getters and delegations legitimately repeat.
@@ -267,20 +267,10 @@ pub fn check_dead_code(
         // (one file compiled per edit) a freshly extracted helper's caller
         // often isn't written yet, so flagging it would misfire constantly.
         // New dead code is caught on the compile after the next `keel map`.
-        let candidates: Vec<&GraphNode> = existing_nodes
-            .iter()
-            .filter(|n| n.name == def.name)
-            .collect();
-        // Same-named siblings (impl-block methods): pick the node whose hash
-        // matches this def; when nothing matches unambiguously, skip rather
-        // than consult the wrong node's edges.
-        let node = match candidates
-            .iter()
-            .find(|n| node_hash_matches(n, def, &file.file_path))
-        {
-            Some(n) => *n,
-            None if candidates.len() == 1 => candidates[0],
-            None => continue,
+        // An undecidable pairing (same-named siblings, no hash evidence) is
+        // skipped rather than resolved against the wrong node's edges.
+        let Some(node) = bind_to_node(def, file, existing_nodes) else {
+            continue;
         };
         // `Uses` counts as a caller: a function handed around as a value
         // (callback, handler table, `#[serde(default = "...")]`) is used, even

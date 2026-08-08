@@ -46,6 +46,8 @@ fn make_file_index(file: &str, defs: Vec<Definition>) -> FileIndex {
 fn make_node(id: u64, name: &str, sig: &str, body: &str, file: &str, line: u32) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: compute_hash(sig, body, ""),
         kind: NodeKind::Function,

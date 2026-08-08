@@ -23,6 +23,8 @@ fn populated_node_store() -> SqliteGraphStore {
     store
         .insert_node(&GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 1,
             hash: "testHash1234".into(),
             kind: NodeKind::Function,
@@ -62,6 +64,8 @@ fn store_with_graph() -> SharedStore {
     store
         .insert_node(&GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 1,
             hash: "targetFunc01".into(),
             kind: NodeKind::Function,
@@ -84,6 +88,8 @@ fn store_with_graph() -> SharedStore {
     store
         .insert_node(&GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 2,
             hash: "callerFunc01".into(),
             kind: NodeKind::Function,
@@ -122,6 +128,8 @@ fn engine_with_graph() -> SharedEngine {
     store
         .insert_node(&GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 1,
             hash: "targetFunc01".into(),
             kind: NodeKind::Function,
@@ -144,6 +152,8 @@ fn engine_with_graph() -> SharedEngine {
     store
         .insert_node(&GraphNode {
             complexity: 0,
+            is_trivial_wrapper: false,
+            in_test_context: false,
             id: 2,
             hash: "callerFunc01".into(),
             kind: NodeKind::Function,

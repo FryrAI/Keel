@@ -8,6 +8,8 @@ use rusqlite::params;
 fn make_node(id: u64, hash: &str, name: &str, kind: NodeKind) -> GraphNode {
     GraphNode {
         complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         id,
         hash: hash.into(),
         kind,
