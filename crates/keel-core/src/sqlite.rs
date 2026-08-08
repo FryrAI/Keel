@@ -47,6 +47,34 @@ const BODY_INDEX_DDL: &str = "
     CREATE INDEX IF NOT EXISTS idx_body_index_body_hash ON body_index(body_hash);
 ";
 
+/// DDL for the fragment-clone measurements (issue #66).
+///
+/// Created idempotently on every open rather than behind a SCHEMA_VERSION bump,
+/// for the same reason as the additive columns below: the table is a derived
+/// cache that `keel map` rebuilds wholesale, so an existing database that has
+/// never seen it simply measures no clones until the next map.
+///
+/// One row per *function*, not per matched window. Measured on keel's own tree
+/// (issue #66 asked for this before persisting anything): 1,207 scanned bodies
+/// hold 166k tokens and therefore 120k windows, so a windows index would be
+/// ~120k rows plus a hash index — several MB against a 6 MB graph — while the
+/// per-function aggregate is 1,207 rows and 100 KB. Nothing downstream needs
+/// the individual windows; the only consumer is a ratio.
+///
+/// The primary key mirrors `body_index`'s composite: hash disambiguation salts
+/// with the file path only, so `node_hash` alone is not unique.
+const FRAGMENT_CLONES_DDL: &str = "
+    CREATE TABLE IF NOT EXISTS fragment_clones (
+        node_hash TEXT NOT NULL,
+        name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        line INTEGER NOT NULL,
+        cloned_lines INTEGER NOT NULL,
+        code_lines INTEGER NOT NULL,
+        PRIMARY KEY (node_hash, file_path, line)
+    );
+";
+
 /// DDL for the `edges` table, parameterized on the table name.
 ///
 /// Shared by `initialize_schema` (fresh databases) and `migrate_v5_to_v6`,
@@ -290,6 +318,9 @@ impl SqliteGraphStore {
         let _ = self
             .conn
             .execute_batch("ALTER TABLE body_index ADD COLUMN t2_hash TEXT NOT NULL DEFAULT ''");
+
+        // Fragment-clone measurements (issue #66) — see FRAGMENT_CLONES_DDL.
+        self.conn.execute_batch(FRAGMENT_CLONES_DDL)?;
 
         // Quality snapshots (schema v7) — shared DDL, see
         // `crate::sqlite_quality::QUALITY_SNAPSHOTS_DDL`.
@@ -612,6 +643,7 @@ impl SqliteGraphStore {
             DELETE FROM external_endpoints;
             DELETE FROM previous_hashes;
             DELETE FROM body_index;
+            DELETE FROM fragment_clones;
             DELETE FROM nodes;
             ",
         )?;

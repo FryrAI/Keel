@@ -18,6 +18,7 @@ const FRACTIONAL_METRICS: &[&str] = &[
     "cross_module_edge_ratio",
     "high_cc_mass_share",
     "propagation_cost",
+    "clone_loc_ratio",
 ];
 
 /// Render one metric value: counts as integers, fractions to two decimals.
@@ -254,6 +255,7 @@ mod tests {
             cross_module_edge_ratio: ratio,
             high_cc_mass_share: 0.5,
             propagation_cost: 0.12,
+            clone_loc_ratio: 0.07,
         }
     }
 

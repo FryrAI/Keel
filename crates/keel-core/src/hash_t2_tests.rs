@@ -196,3 +196,51 @@ fn test_min_t2_normalized_len_is_sane() {
         "a real multi-statement body must clear the floor"
     );
 }
+
+#[test]
+fn test_positioned_tokens_carry_body_relative_lines() {
+    let tokens = tokenize_positioned("let a = 1;\nreturn a;", "rust", IdentifierMode::Verbatim);
+
+    assert_eq!(tokens[0].text, "let");
+    assert_eq!(tokens[0].line, 0);
+    assert_eq!(tokens.last().unwrap().text, ";");
+    assert_eq!(tokens.last().unwrap().line, 1);
+}
+
+#[test]
+fn test_positioned_lines_survive_a_multiline_string() {
+    // The literal collapses to one token but spans two lines: whatever follows
+    // it must still be attributed to the line it is actually on.
+    let tokens = tokenize_positioned(
+        "let s = \"one\ntwo\";\nreturn s;",
+        "rust",
+        IdentifierMode::Verbatim,
+    );
+    let ret = tokens
+        .iter()
+        .find(|t| t.text == "return")
+        .expect("return token");
+    assert_eq!(ret.line, 2);
+}
+
+#[test]
+fn test_verbatim_mode_keeps_identifiers_and_still_collapses_literals() {
+    let tokens: Vec<String> =
+        tokenize_positioned("let total = 42;", "rust", IdentifierMode::Verbatim)
+            .into_iter()
+            .map(|t| t.text)
+            .collect();
+
+    assert_eq!(tokens, vec!["let", "total", "=", "<int>", ";"]);
+}
+
+/// Why fragment matching cannot use the renamed stream: the same statement gets
+/// different numbers depending on what preceded it in the body.
+#[test]
+fn test_renaming_is_relative_to_the_body_not_the_statement() {
+    let with_prefix = tokenize("let unrelated = 1; let total = 2;", "rust");
+    let without = tokenize("let total = 2;", "rust");
+
+    assert_eq!(without[1], "v0");
+    assert_eq!(with_prefix[6], "v1", "same statement, different rename");
+}

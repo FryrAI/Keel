@@ -44,6 +44,7 @@ pub fn first_pass(
     assigned_hashes: &mut HashSet<String>,
     valid_node_ids: &mut HashSet<u64>,
     body_index: &mut Vec<keel_core::types::BodyIndexEntry>,
+    fragments: &mut keel_core::fragments::FragmentScan,
 ) -> Vec<FileParseData> {
     let mut all_file_data: Vec<FileParseData> = Vec::new();
 
@@ -117,6 +118,32 @@ pub fn first_pass(
                 .entry(def.name.clone())
                 .or_default()
                 .push((file_path.clone(), node_id));
+
+            // Feed the fragment-clone scan (issue #66). Unlike the W006 index
+            // below this takes *every* function body of hand-written source,
+            // however short: the metric it feeds is a ratio whose denominator
+            // is the code lines counted here, so a length gate would silently
+            // shrink the denominator. Tests, generated clients and declarative
+            // surfaces are excluded outright — a source function must not read
+            // as cloned because a fixture copied it. `in_test_context` is the
+            // half a path-based class cannot see: an inline `#[cfg(test)] mod`
+            // inside a production file, whose near-identical fixture bodies
+            // otherwise dominate the count (measured on keel's own tree: test
+            // bodies clone at 0.36, production at 0.10).
+            if def.kind == NodeKind::Function
+                && !def.in_test_context
+                && keel_enforce::file_class::FileClass::classify(&file_path)
+                    .grades_size_and_naming()
+            {
+                fragments.add(
+                    hash.clone(),
+                    def.name.clone(),
+                    file_path.clone(),
+                    def.line_start,
+                    &def.body_text,
+                    &entry.language,
+                );
+            }
 
             // Feed the W006 duplicate-implementation index. Trivial bodies
             // are skipped here only to bound index size; enforcement applies

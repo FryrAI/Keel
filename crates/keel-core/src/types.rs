@@ -223,6 +223,30 @@ pub struct BodyIndexEntry {
     pub line: u32,
 }
 
+/// One function's fragment-clone measurement — see [`crate::fragments`].
+///
+/// Written wholesale by `keel map` (the scan needs every body at once) and read
+/// only by the `clone_loc_ratio` quality metric. Rows exist for functions with
+/// no clone at all: `code_lines` is the metric's denominator, so dropping them
+/// would make the ratio depend on which functions happened to match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentCloneEntry {
+    /// Identity key of the measured function.
+    pub node_hash: String,
+    /// Function name, carried so a reader can find the row without a join.
+    pub name: String,
+    /// File the function lives in.
+    pub file_path: String,
+    /// Line the function starts on.
+    pub line: u32,
+    /// Code lines of the body covered by a token window that also occurs in a
+    /// different function.
+    pub cloned_lines: u32,
+    /// Code lines of the body in total — lines carrying at least one Type-2
+    /// token, so comment-only and blank lines are excluded.
+    pub code_lines: u32,
+}
+
 /// One persisted Tier 3 resolution-cache row (`resolution_tier = 'tier3'`).
 ///
 /// Lets SCIP/LSP resolutions survive across `keel map` runs. Keyed by
@@ -355,6 +379,10 @@ pub struct QualityInputs {
     pub dependency_edges: u64,
     /// How many of those cross a file boundary.
     pub cross_file_dependency_edges: u64,
+    /// One entry per measured function: `(file_path, cloned_lines,
+    /// code_lines)` — see [`FragmentCloneEntry`]. Empty until the tree has been
+    /// mapped by a keel that writes fragment measurements.
+    pub fragment_clones_by_fn: Vec<(String, u32, u32)>,
     /// One entry per function node: `(file_path, complexity, sloc)`, where
     /// `sloc` is `line_end - line_start + 1` — the same span source as
     /// `file_lines`. File-class and test exemptions are the caller's job, as

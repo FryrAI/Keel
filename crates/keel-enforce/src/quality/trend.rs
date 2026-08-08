@@ -14,7 +14,8 @@ use keel_core::sqlite_quality::QualitySnapshotRow;
 
 use super::{QualityMetrics, METRICS_VERSION};
 
-/// Metric names introduced after metrics version 1 shipped (issues #58, #61).
+/// Metric names introduced after metrics version 1 shipped (issues #58, #61,
+/// #66).
 ///
 /// A blob written before a name existed has no such JSON key at all, and its
 /// `#[serde(default)]` field reads back as `0.0` — indistinguishable from a
@@ -22,7 +23,8 @@ use super::{QualityMetrics, METRICS_VERSION};
 /// [`metric_trends`] can omit the metric instead of drawing a step out of "not
 /// measured". Append here — never remove — whenever a future metric is added
 /// without a version bump.
-pub(crate) const METRICS_ADDED_AFTER_V1: &[&str] = &["high_cc_mass_share", "propagation_cost"];
+pub(crate) const METRICS_ADDED_AFTER_V1: &[&str] =
+    &["high_cc_mass_share", "propagation_cost", "clone_loc_ratio"];
 
 /// One point of the series: a measurement and the commit it belongs to.
 #[derive(Debug, Clone, Serialize)]

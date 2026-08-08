@@ -130,6 +130,7 @@ pub fn run(
 
     // === First pass: create nodes and same-file edges ===
     let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
+    let mut fragments = keel_core::fragments::FragmentScan::new();
     let all_file_data = map_passes::first_pass(
         &entries,
         &cwd,
@@ -147,6 +148,7 @@ pub fn run(
         &mut assigned_hashes,
         &mut valid_node_ids,
         &mut body_index,
+        &mut fragments,
     );
 
     // === Boundary providers: materialise the declarations scanned above (from
@@ -321,6 +323,14 @@ pub fn run(
     // the graph itself).
     if let Err(e) = store.replace_body_index(body_index) {
         eprintln!("keel map: failed to update body index: {}", e);
+    }
+
+    // Refresh the fragment-clone measurements (issue #66) — also a full
+    // rebuild, and for a stronger reason: whether a fragment is cloned depends
+    // on every *other* body in the repo, so no subset of the tree can update
+    // one row correctly.
+    if let Err(e) = store.replace_fragment_clones(fragments.finish()) {
+        eprintln!("keel map: failed to update fragment clones: {}", e);
     }
 
     // Persist the Tier 3 resolution cache for the next run. Skipped when tier-3

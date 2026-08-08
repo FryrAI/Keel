@@ -253,6 +253,23 @@ impl SqliteGraphStore {
             )
             .unwrap_or_default();
 
+        // Fragment-clone measurements, as written by the last `keel map`. A
+        // database that has never been mapped by a keel carrying issue #66
+        // returns nothing here, and the metric reads 0 — "not measured" — until
+        // the next map, exactly like `complexity` did when it was added.
+        let fragment_clones_by_fn = self
+            .collect(
+                "SELECT file_path, cloned_lines, code_lines FROM fragment_clones",
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u32,
+                        row.get::<_, i64>(2)?.max(0) as u32,
+                    ))
+                },
+            )
+            .unwrap_or_default();
+
         QualityInputs {
             file_lines,
             uncalled_private_fns,
@@ -260,6 +277,7 @@ impl SqliteGraphStore {
             dependency_edges,
             cross_file_dependency_edges,
             complexity_by_fn,
+            fragment_clones_by_fn,
         }
     }
 

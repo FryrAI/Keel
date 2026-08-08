@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::store::GraphStore;
-use crate::types::BodyIndexEntry;
+use crate::types::{BodyIndexEntry, FragmentCloneEntry};
 
 fn entry(node_hash: &str, body_hash: &str, name: &str, file: &str, line: u32) -> BodyIndexEntry {
     entry_t2(node_hash, body_hash, "", name, file, line)
@@ -419,4 +419,70 @@ fn test_body_index_with_real_body_hashes() {
         "reformatted copy should collide with the original"
     );
     assert_eq!(store.find_body_matches(&h_different).len(), 1);
+}
+
+// --- fragment clones (issue #66) -----------------------------------------
+//
+// Read back through `quality_inputs`, the one consumer: the measurements have
+// no lookup API of their own, and asserting on the only path that reads them
+// is what keeps the SQL and the metric from drifting.
+
+fn fragment(node_hash: &str, file: &str, cloned: u32, code: u32) -> FragmentCloneEntry {
+    FragmentCloneEntry {
+        node_hash: node_hash.to_string(),
+        name: "f".to_string(),
+        file_path: file.to_string(),
+        line: 1,
+        cloned_lines: cloned,
+        code_lines: code,
+    }
+}
+
+#[test]
+fn test_fragment_clones_roundtrip() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![
+            fragment("n1", "src/a.rs", 12, 40),
+            fragment("n2", "src/b.rs", 0, 25),
+        ])
+        .expect("replace should succeed");
+
+    let mut rows = store.quality_inputs().fragment_clones_by_fn;
+    rows.sort();
+    assert_eq!(
+        rows,
+        vec![
+            ("src/a.rs".to_string(), 12, 40),
+            ("src/b.rs".to_string(), 0, 25),
+        ]
+    );
+}
+
+#[test]
+fn test_replace_fragment_clones_overwrites_previous_measurement() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![fragment("old", "src/old.rs", 30, 30)])
+        .unwrap();
+    store
+        .replace_fragment_clones(vec![fragment("new", "src/new.rs", 1, 10)])
+        .unwrap();
+
+    let rows = store.quality_inputs().fragment_clones_by_fn;
+    assert_eq!(rows, vec![("src/new.rs".to_string(), 1, 10)]);
+}
+
+#[test]
+fn test_clear_all_wipes_fragment_clones() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![fragment("n1", "src/a.rs", 5, 10)])
+        .unwrap();
+
+    store.clear_all().unwrap();
+    assert!(
+        store.quality_inputs().fragment_clones_by_fn.is_empty(),
+        "clear_all must wipe the measurements for a clean re-map"
+    );
 }

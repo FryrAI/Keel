@@ -3,8 +3,9 @@ use rusqlite::params;
 use crate::sqlite::SqliteGraphStore;
 use crate::store::GraphStore;
 use crate::types::{
-    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
-    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
+    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, FragmentCloneEntry,
+    GraphEdge, GraphError, GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs,
+    ResolutionCacheEntry,
 };
 
 impl GraphStore for SqliteGraphStore {
@@ -382,6 +383,13 @@ impl GraphStore for SqliteGraphStore {
 
     fn find_t2_body_matches(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
         self.body_index_find_t2(t2_hash)
+    }
+
+    fn replace_fragment_clones(
+        &mut self,
+        entries: Vec<FragmentCloneEntry>,
+    ) -> Result<(), GraphError> {
+        self.fragment_clones_replace(entries)
     }
 
     fn load_resolution_cache(&self) -> Vec<ResolutionCacheEntry> {

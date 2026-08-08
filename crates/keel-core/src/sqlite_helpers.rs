@@ -6,8 +6,8 @@ use crate::sqlite::SqliteGraphStore;
 use crate::sqlite_meta::BATCH_STATE;
 use crate::store::GraphStore;
 use crate::types::{
-    BodyIndexEntry, EdgeKind, ExternalEndpoint, GraphEdge, GraphError, GraphNode, NodeKind,
-    ResolutionCacheEntry,
+    BodyIndexEntry, EdgeKind, ExternalEndpoint, FragmentCloneEntry, GraphEdge, GraphError,
+    GraphNode, NodeKind, ResolutionCacheEntry,
 };
 
 impl SqliteGraphStore {
@@ -36,6 +36,40 @@ impl SqliteGraphStore {
                     e.name,
                     e.file_path,
                     e.line
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Rebuild the fragment-clone measurements from `entries` in one
+    /// transaction.
+    ///
+    /// Backs [`GraphStore::replace_fragment_clones`]. Wholesale like
+    /// [`SqliteGraphStore::body_index_replace`], and for the same reason: a
+    /// clone is a property of the whole repo, so a partial rewrite would leave
+    /// rows describing a set of bodies that no longer exists.
+    pub(crate) fn fragment_clones_replace(
+        &self,
+        entries: Vec<FragmentCloneEntry>,
+    ) -> Result<(), GraphError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM fragment_clones", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO fragment_clones
+                 (node_hash, name, file_path, line, cloned_lines, code_lines)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for e in &entries {
+                stmt.execute(params![
+                    e.node_hash,
+                    e.name,
+                    e.file_path,
+                    e.line,
+                    e.cloned_lines,
+                    e.code_lines
                 ])?;
             }
         }

@@ -6,7 +6,9 @@ use super::*;
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::sqlite_quality::QualitySnapshotRow;
-use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
+use keel_core::types::{
+    EdgeChange, EdgeKind, FragmentCloneEntry, GraphEdge, GraphNode, NodeChange, NodeKind,
+};
 
 const BUDGET: u32 = 400;
 
@@ -39,6 +41,18 @@ fn fn_node(id: u64, name: &str, file: &str, cc: u32, lines: u32) -> GraphNode {
     GraphNode {
         complexity: cc,
         ..node(id, name, file, NodeKind::Function, true, lines)
+    }
+}
+
+/// One stored fragment-clone measurement.
+fn fragment(file: &str, cloned: u32, code: u32) -> FragmentCloneEntry {
+    FragmentCloneEntry {
+        node_hash: format!("h_{file}"),
+        name: "f".to_string(),
+        file_path: file.to_string(),
+        line: 1,
+        cloned_lines: cloned,
+        code_lines: code,
     }
 }
 
@@ -222,6 +236,37 @@ fn propagation_cost_counts_transitively_reachable_module_pairs() {
 }
 
 #[test]
+fn clone_loc_ratio_divides_cloned_lines_by_measured_code_lines() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .replace_fragment_clones(vec![
+            fragment("src/a.ts", 10, 40),
+            fragment("src/b.ts", 0, 60),
+            // Generated and test code are excluded by the scan, and excluded
+            // again here — a stale row written by an older map must not move a
+            // metric about hand-written maintainability.
+            fragment("baml_client/x.py", 50, 50),
+            fragment("src/a.spec.ts", 50, 50),
+        ])
+        .expect("store measurements");
+
+    assert!((compute_metrics(&store, BUDGET).clone_loc_ratio - 0.1).abs() < 1e-9);
+}
+
+/// A graph mapped before fragment measurements existed carries no rows at all.
+/// The metric must read 0 rather than divide by zero — and the trend omits it
+/// entirely, see `trend_omits_metrics_that_a_point_in_the_window_predates`.
+#[test]
+fn clone_loc_ratio_is_zero_when_nothing_was_measured() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    seed(
+        &mut store,
+        vec![node(1, "mod_a", "src/a.ts", NodeKind::Module, true, 10)],
+    );
+    assert_eq!(compute_metrics(&store, BUDGET).clone_loc_ratio, 0.0);
+}
+
+#[test]
 fn empty_graph_measures_zero_rather_than_dividing_by_zero() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let m = compute_metrics(&store, BUDGET);
@@ -231,6 +276,7 @@ fn empty_graph_measures_zero_rather_than_dividing_by_zero() {
     assert_eq!(m.cross_module_edge_ratio, 0.0);
     assert_eq!(m.high_cc_mass_share, 0.0);
     assert_eq!(m.propagation_cost, 0.0);
+    assert_eq!(m.clone_loc_ratio, 0.0);
 }
 
 /// A file with two stored `module` rows (hash-salt collisions do happen) is one
@@ -268,6 +314,7 @@ fn metrics_blob(over: u32, cycles: u32, dead: u32, ratio: f64) -> String {
         cross_module_edge_ratio: ratio,
         high_cc_mass_share: 0.4,
         propagation_cost: 0.2,
+        clone_loc_ratio: 0.1,
     }
     .to_json()
 }
@@ -282,7 +329,7 @@ fn trend_reports_direction_and_per_commit_attribution() {
     let trend = build_trend(&rows);
     assert!(trend.refused.is_none());
     assert_eq!(trend.points.len(), 3);
-    assert_eq!(trend.metrics.len(), 6);
+    assert_eq!(trend.metrics.len(), 7);
     assert!(trend.omitted.is_empty());
 
     let over = &trend.metrics[0];
@@ -356,7 +403,7 @@ fn trend_omits_metrics_that_a_point_in_the_window_predates() {
     );
     assert_eq!(
         trend.omitted,
-        vec!["high_cc_mass_share", "propagation_cost"]
+        vec!["high_cc_mass_share", "propagation_cost", "clone_loc_ratio"]
     );
     assert_eq!(trend.metrics[0].first, 10.0);
     assert_eq!(trend.metrics[0].last, 18.0);

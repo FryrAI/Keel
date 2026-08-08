@@ -1,6 +1,7 @@
 use crate::types::{
-    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, GraphEdge, GraphError,
-    GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs, ResolutionCacheEntry,
+    BodyIndexEntry, Boundary, BoundaryTarget, EdgeChange, EdgeDirection, FragmentCloneEntry,
+    GraphEdge, GraphError, GraphNode, ModuleBoundaryInfo, ModuleProfile, NodeChange, QualityInputs,
+    ResolutionCacheEntry,
 };
 
 /// FROZEN CONTRACT — GraphStore trait.
@@ -83,6 +84,19 @@ pub trait GraphStore {
     fn find_t2_body_matches(&self, t2_hash: &str) -> Vec<BodyIndexEntry> {
         let _ = t2_hash;
         Vec::new()
+    }
+
+    /// Replace the stored fragment-clone measurements with `entries`.
+    ///
+    /// Populated during `keel map` — the scan needs every body at once, so
+    /// there is no incremental path. Additive with a no-op default: a backend
+    /// that does not store them simply reports a `clone_loc_ratio` of 0.
+    fn replace_fragment_clones(
+        &mut self,
+        entries: Vec<FragmentCloneEntry>,
+    ) -> Result<(), GraphError> {
+        let _ = entries;
+        Ok(())
     }
 
     /// Load the persisted Tier 3 resolution cache (rows tagged `tier3`).
@@ -232,6 +246,26 @@ mod tests {
         assert!(
             store.find_t2_body_matches("t").is_empty(),
             "nor any near-duplicates"
+        );
+    }
+
+    #[test]
+    fn test_fragment_clone_defaults_are_no_ops() {
+        let mut store = MinimalStore;
+        store
+            .replace_fragment_clones(vec![FragmentCloneEntry {
+                node_hash: "n".into(),
+                name: "f".into(),
+                file_path: "src/a.rs".into(),
+                line: 1,
+                cloned_lines: 5,
+                code_lines: 10,
+            }])
+            .expect("default replace_fragment_clones must succeed");
+
+        assert!(
+            store.quality_inputs().fragment_clones_by_fn.is_empty(),
+            "a backend that stores no measurements reports a clone ratio of 0"
         );
     }
 

@@ -183,6 +183,18 @@ A metric *added* without a version bump (its field carries `#[serde(default)]`) 
 (reported in `QualityTrend::omitted`, rendered as `—` in the per-commit table) instead of trending it.
 Append to that list, never remove from it.
 
+`clone_loc_ratio` (issue #66) is the one metric not computed from the graph: `keel map` slides a
+50-token window over every hand-written, non-test function body (`keel_core::fragments`), records per
+function how many code lines sit under a window that also occurs in a *different* function, and stores
+the two counts in `fragment_clones` — one row per function, not per window (120k windows vs 1.2k rows on
+keel's own tree). `keel compile` never reads or refreshes it, so the reading is as fresh as the last
+`keel map`. Windows are tokenized with `hash_t2::IdentifierMode::Verbatim`, **not** the renamed Type-2
+stream: positional renaming is defined over a whole body, so the same copied block after a different
+prefix renames differently and never matches. It is unjudged — on keel's tree the head of the list is
+real duplicated machinery (`check_missing_docstring` vs `check_missing_type_hints`, every human/LLM
+`format_*` pair) but the tail is dispatch boilerplate, which is why #66 landed as a trend metric and not
+as a W006 variant.
+
 The one exception is **honesty about files keel cannot parse**: compiling a `.sql`, `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .sql is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
 
 ### What the Audit Grades
@@ -305,7 +317,7 @@ project vault/notes directory is optional and entirely user-side.)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
 - `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution (callers at risk, risk level, callers-first order) plus P001/P002 plan findings; always exits 0 unless `--strict` is passed
 - `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
-- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`, `high_cc_mass_share`, `propagation_cost`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
+- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`, `high_cc_mass_share`, `propagation_cost`, `clone_loc_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 

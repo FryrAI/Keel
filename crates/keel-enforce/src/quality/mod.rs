@@ -9,7 +9,7 @@
 //!
 //! Three rules shape everything here:
 //!
-//! 1. **Countable, never a score.** Six metrics, each of which resolves to
+//! 1. **Countable, never a score.** Seven metrics, each of which resolves to
 //!    named instances a reader can go look at. No composite "quality score", no
 //!    judgement about whether an abstraction is right.
 //! 2. **Report, never a gate.** `keel quality` always exits 0. A ratio in the
@@ -51,7 +51,7 @@ pub use trend::{MetricTrend, QualityPoint, QualityTrend, TrendStep};
 /// what version 1 *means*, since no released keel has written a snapshot yet.
 pub const METRICS_VERSION: u32 = 1;
 
-/// The six countable readings taken from one graph state.
+/// The seven countable readings taken from one graph state.
 ///
 /// Serialized as the `metrics` blob of a `quality_snapshots` row. Field order
 /// is the reporting order.
@@ -97,6 +97,18 @@ pub struct QualityMetrics {
     /// growing or coupling spreading, and keel cannot tell those apart.
     #[serde(default)]
     pub propagation_cost: f64,
+    /// Share of function-body code lines that sit under a token window
+    /// repeated in a *different* function — fragment-level (jscpd-style)
+    /// duplication, measured by [`keel_core::fragments`] during `keel map`.
+    ///
+    /// Trend-only, and deliberately so: a match is a token shape, so a rise
+    /// may be genuine copy-paste or may be a family of functions converging on
+    /// one dispatch idiom. Both numerator and denominator count only
+    /// lines carrying code, in hand-written source, so the ratio is
+    /// interpretable on its own scale — but the level is not a target, only
+    /// its direction is readable.
+    #[serde(default)]
+    pub clone_loc_ratio: f64,
 }
 
 /// Cyclomatic complexity above which a function's mass counts as "hot" for
@@ -110,10 +122,12 @@ const HIGH_CC_THRESHOLD: u32 = 10;
 impl QualityMetrics {
     /// The reportable metrics as `(name, value, judged)`, in reporting order.
     ///
-    /// `judged` is false for `cross_module_edge_ratio` and `propagation_cost`:
-    /// a rise in either may be decomposition or may be scatter, and keel does
-    /// not know which, so it is reported as a direction and never as "worse".
-    pub fn rows(&self) -> [(&'static str, f64, bool); 6] {
+    /// `judged` is false for `cross_module_edge_ratio`, `propagation_cost` and
+    /// `clone_loc_ratio`: a rise in the first two may be decomposition or may
+    /// be scatter, and a rise in the third may be copy-paste or may be a
+    /// shared idiom. keel does not know which, so each is reported as a
+    /// direction and never as "worse".
+    pub fn rows(&self) -> [(&'static str, f64, bool); 7] {
         [
             ("files_over_budget", self.files_over_budget as f64, true),
             ("cycle_count", self.cycle_count as f64, true),
@@ -125,6 +139,7 @@ impl QualityMetrics {
             ),
             ("high_cc_mass_share", self.high_cc_mass_share, true),
             ("propagation_cost", self.propagation_cost, false),
+            ("clone_loc_ratio", self.clone_loc_ratio, false),
         ]
     }
 
@@ -169,7 +184,7 @@ impl QualityReport {
     }
 }
 
-/// Measure the six metrics against the persisted graph.
+/// Measure the seven metrics against the persisted graph.
 ///
 /// The store answers the whole measurement in five aggregate queries (see
 /// [`keel_core::types::QualityInputs`]); this function applies the exemption
@@ -238,6 +253,17 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         });
     let high_cc_mass_share = ratio(hot_mass, total_mass);
 
+    // The scan already excluded everything that is not hand-written source, but
+    // the rows are read back from a database that an older map may have
+    // written, so the class filter is applied again here rather than trusted.
+    let (cloned_lines, code_lines) = inputs
+        .fragment_clones_by_fn
+        .iter()
+        .filter(|(path, _, _)| FileClass::classify(path).grades_size_and_naming())
+        .fold((0.0f64, 0.0f64), |(cloned, total), (_, c, l)| {
+            (cloned + *c as f64, total + *l as f64)
+        });
+
     QualityMetrics {
         version: METRICS_VERSION,
         files_over_budget,
@@ -246,6 +272,7 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         cross_module_edge_ratio,
         high_cc_mass_share,
         propagation_cost: propagation_cost(&graph),
+        clone_loc_ratio: ratio(cloned_lines, code_lines),
     }
 }
 

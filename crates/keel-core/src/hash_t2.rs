@@ -166,6 +166,39 @@ fn skip_number(b: &[u8], mut i: usize) -> usize {
     i
 }
 
+/// One Type-2 token and the body-relative line it was read from.
+///
+/// `line` is 0-based and counted over the *comment-stripped* body, so a line
+/// holding only a comment carries no token and is invisible to any consumer
+/// that counts lines through this type — which is what makes
+/// [`crate::fragments`]'s line counts SLOC-like rather than raw-span-like.
+/// A multi-line `/* … */` collapses to one line for the same reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionedToken {
+    /// The normalized token text — see [`tokenize`].
+    pub text: String,
+    /// 0-based line within the comment-stripped body where the token starts.
+    pub line: u32,
+}
+
+/// What the tokenizer does with a non-keyword identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentifierMode {
+    /// Rename positionally — `v0`, `v1`, … in first-appearance order. The
+    /// Type-2 rule: a copy-paste-then-rename fingerprints identically to its
+    /// original.
+    ///
+    /// Whole-body only. The numbering is relative to the *body*, so the same
+    /// fragment appearing after a different prefix in two bodies is renamed
+    /// differently and the two streams do not match.
+    Renamed,
+    /// Keep the identifier verbatim.
+    ///
+    /// What fragment-level matching needs: a window's tokens must mean the
+    /// same thing regardless of what came before it in the body.
+    Verbatim,
+}
+
 /// Tokenize `body` into its Type-2 token stream.
 ///
 /// Comments are dropped, literals collapse to `<int>`/`<str>`/`<bool>`,
@@ -173,18 +206,45 @@ fn skip_number(b: &[u8], mut i: usize) -> usize {
 /// every other byte is its own single-character token. Whitespace is never
 /// emitted, so reformatting is invisible for free.
 pub fn tokenize(body: &str, lang: &str) -> Vec<String> {
+    tokenize_positioned(body, lang, IdentifierMode::Renamed)
+        .into_iter()
+        .map(|t| t.text)
+        .collect()
+}
+
+/// [`tokenize`], with each token's body-relative line attached and the
+/// identifier rule chosen by the caller.
+///
+/// The single tokenizer implementation: [`tokenize`] drops the positions and
+/// always renames. Fragment-level clone detection needs the positions to
+/// translate a matched token window back into a count of source lines, and
+/// needs [`IdentifierMode::Verbatim`] because positional renaming is only
+/// meaningful over a whole body.
+pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<PositionedToken> {
     let syntax = hash::body_syntax(lang);
     let stripped = hash::strip_comments(body, syntax);
     let keywords = keyword_set(lang);
     let b = stripped.as_bytes();
     let n = b.len();
 
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<PositionedToken> = Vec::new();
     let mut renames: HashMap<&str, String> = HashMap::new();
     let mut i = 0;
+    let mut line = 0u32;
+    // Only the whitespace and string-literal branches can cross a newline —
+    // identifiers, numbers and single-byte tokens never do — so those two are
+    // the only places `line` moves.
+    macro_rules! push {
+        ($text:expr) => {
+            out.push(PositionedToken { text: $text, line })
+        };
+    }
     while i < n {
         let c = b[i];
         if c.is_ascii_whitespace() {
+            if c == b'\n' {
+                line += 1;
+            }
             i += 1;
             continue;
         }
@@ -196,21 +256,23 @@ pub fn tokenize(body: &str, lang: &str) -> Vec<String> {
             let is_char_lit = (i + 1 < n && b[i + 1] == b'\\')
                 || (i + 2 < n && b[i + 1] != b'\'' && b[i + 2] == b'\'');
             if !is_char_lit {
-                out.push("'".to_string());
+                push!("'".to_string());
                 i += 1;
                 continue;
             }
         }
 
         if c == b'"' || c == b'\'' || (syntax == BodySyntax::CFamily && c == b'`') {
+            let start = i;
             i = skip_string(b, i, syntax);
-            out.push(STR_TOKEN.to_string());
+            push!(STR_TOKEN.to_string());
+            line += b[start..i].iter().filter(|&&x| x == b'\n').count() as u32;
             continue;
         }
 
         if c.is_ascii_digit() || (c == b'.' && i + 1 < n && b[i + 1].is_ascii_digit()) {
             i = skip_number(b, i);
-            out.push(NUM_TOKEN.to_string());
+            push!(NUM_TOKEN.to_string());
             continue;
         }
 
@@ -221,13 +283,13 @@ pub fn tokenize(body: &str, lang: &str) -> Vec<String> {
             }
             let word = &stripped[start..i];
             if matches!(word, "true" | "false" | "True" | "False") {
-                out.push(BOOL_TOKEN.to_string());
-            } else if keywords.contains(&word) {
-                out.push(word.to_string());
+                push!(BOOL_TOKEN.to_string());
+            } else if keywords.contains(&word) || mode == IdentifierMode::Verbatim {
+                push!(word.to_string());
             } else {
                 let next = renames.len();
                 let token = renames.entry(word).or_insert_with(|| format!("v{next}"));
-                out.push(token.clone());
+                push!(token.clone());
             }
             continue;
         }
@@ -236,7 +298,7 @@ pub fn tokenize(body: &str, lang: &str) -> Vec<String> {
         // code tokenize identically either way, so no maximal-munch operator
         // table is needed. A non-ASCII byte outside a literal takes the same
         // path — still deterministic, which is the only requirement.
-        out.push((c as char).to_string());
+        push!((c as char).to_string());
         i += 1;
     }
     out

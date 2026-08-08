@@ -89,6 +89,41 @@ fn reading_prints_four_metrics_and_exits_zero() {
     );
 }
 
+/// End-to-end wiring for `clone_loc_ratio` (issue #66): `keel map` measures
+/// fragment clones, the metric reads them back. A copied 8-line block sits in
+/// two otherwise different functions — invisible to W006, which compares whole
+/// bodies — so a reading of 0 here means the map never wrote the measurements.
+#[test]
+fn clone_loc_ratio_sees_a_block_copied_between_two_functions() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let shared = (0..8)
+        .map(|i| format!("  const step{i} = rows[{i}].value * weight + offset;\n  total = total + step{i};\n"))
+        .collect::<String>();
+    write(
+        root,
+        "src/a.ts",
+        &format!("export function alpha(rows: number[], weight: number, offset: number): number {{\n  let total = 0;\n{shared}  return total;\n}}\n"),
+    );
+    write(
+        root,
+        "src/b.ts",
+        &format!("export function beta(rows: number[], weight: number, offset: number): number {{\n  let total = 100;\n  console.log('beta');\n{shared}  return total * 2;\n}}\n"),
+    );
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    let out = keel(root, &["quality", "--json"]);
+    assert_eq!(out.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+    let ratio = json["metrics"]["clone_loc_ratio"].as_f64().expect("metric");
+    assert!(
+        ratio > 0.0,
+        "a block copied between two functions must register: {ratio}"
+    );
+}
+
 #[test]
 fn reading_json_carries_the_versioned_metrics_blob() {
     let dir = fixture();
