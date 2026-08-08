@@ -192,7 +192,7 @@ pub fn first_pass(
                 }
             }
 
-            node_changes.push(NodeChange::Add(GraphNode {
+            let mut node = GraphNode {
                 id: node_id,
                 hash,
                 kind: def.kind.clone(),
@@ -205,15 +205,20 @@ pub fn first_pass(
                 is_public: def.is_public,
                 type_hints_present: def.type_hints_present,
                 has_docstring: def.docstring.is_some(),
-                is_associated: def.is_associated,
-                complexity: def.complexity,
-                is_trivial_wrapper: def.stored_trivial_wrapper(),
-                in_test_context: def.in_test_context,
+                // Placeholders — `apply_parse_facts` below is the single
+                // owner of every parse-derived fact, shared with
+                // compile-sync's insert and the engine's update path.
+                is_associated: false,
+                complexity: 0,
+                is_trivial_wrapper: false,
+                in_test_context: false,
                 external_endpoints: vec![],
                 previous_hashes: vec![],
                 module_id,
                 package: entry.package.clone(),
-            }));
+            };
+            def.apply_parse_facts(&mut node);
+            node_changes.push(NodeChange::Add(node));
 
             // "contains" edge from module to definition
             let edge_id = *next_id;

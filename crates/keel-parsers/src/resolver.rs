@@ -205,6 +205,21 @@ impl Definition {
         self.is_trivial_wrapper_body && !self.is_decorated && !self.has_keep_marker
     }
 
+    /// Copy every parse-derived fact this definition owns onto its stored
+    /// node.
+    ///
+    /// The single list shared by all three node writers — `keel map`'s bulk
+    /// pass, compile-sync's incremental insert, and the engine's hash-moved
+    /// update. A flag added here reaches all of them; a hand-maintained copy
+    /// at one site is how facts went stale on the update path twice already.
+    pub fn apply_parse_facts(&self, node: &mut keel_core::types::GraphNode) {
+        node.kind = self.kind.clone();
+        node.complexity = self.complexity;
+        node.is_trivial_wrapper = self.stored_trivial_wrapper();
+        node.in_test_context = self.in_test_context;
+        node.is_associated = self.is_associated;
+    }
+
     /// The disambiguated content hash, salted with `file_path` — the identity
     /// `keel map` falls back to when a symbol's base [`hash`](Self::hash)
     /// collides with a different node.

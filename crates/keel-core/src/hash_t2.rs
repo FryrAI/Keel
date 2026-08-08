@@ -96,9 +96,11 @@ const JS_TS_KEYWORDS: &[&str] = &[
 /// The verbatim-word table for `lang`.
 ///
 /// Switches on the raw language name, **not** on [`BodySyntax`]: that enum
-/// collapses Go, TypeScript, JavaScript and Svelte into one comment/string
-/// family (correct there — same lexical rules), but their keyword and
-/// primitive-type vocabularies differ (`func`/`chan` vs `function`/`typeof`).
+/// still collapses TypeScript, JavaScript and Svelte into one comment/string
+/// family (correct there — same lexical rules), but keyword and
+/// primitive-type vocabularies are per-language (`function`/`typeof` vs
+/// `chan`/`iota`), and Go now carries its own syntax variant purely for its
+/// escape-free backtick strings.
 fn keyword_set(lang: &str) -> &'static [&'static str] {
     match lang {
         "rust" => RUST_KEYWORDS,
@@ -319,6 +321,33 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
                 i += 1;
                 continue;
             }
+        }
+
+        // Rust raw strings (`r"…"`, `r#"…"#`, `br##"…"##`) — delegated to the
+        // same scanner `strip_comments` uses so the two lexers cannot
+        // disagree: pairing their quotes generically swallows the body's tail
+        // whenever the contents hold an odd number of `"`.
+        if syntax == BodySyntax::Rust
+            && (c == b'r' || c == b'b')
+            && !(i > 0
+                && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] >= 0x80))
+        {
+            if let Some(end) = hash::raw_string_end(b, i) {
+                push!(STR_TOKEN);
+                line += b[i..end].iter().filter(|&&x| x == b'\n').count() as u32;
+                i = end;
+                continue;
+            }
+        }
+
+        // Go backtick raw strings: no escapes, end at the next backtick.
+        if syntax == BodySyntax::Go && c == b'`' {
+            let close = b[i + 1..].iter().position(|&x| x == b'`');
+            let end = close.map_or(n, |p| i + 2 + p);
+            push!(STR_TOKEN);
+            line += b[i..end].iter().filter(|&&x| x == b'\n').count() as u32;
+            i = end;
+            continue;
         }
 
         if c == b'"' || c == b'\'' || (syntax == BodySyntax::CFamily && c == b'`') {

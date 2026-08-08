@@ -732,7 +732,7 @@ fn definition_node(
     rel_path: &str,
     module_id: u64,
 ) -> GraphNode {
-    GraphNode {
+    let mut node = GraphNode {
         id,
         hash,
         kind: def.kind.clone(),
@@ -745,15 +745,20 @@ fn definition_node(
         is_public: def.is_public,
         type_hints_present: def.type_hints_present,
         has_docstring: def.docstring.is_some(),
-        is_associated: def.is_associated,
-        complexity: def.complexity,
-        is_trivial_wrapper: def.stored_trivial_wrapper(),
-        in_test_context: def.in_test_context,
+        // Placeholders — `apply_parse_facts` below is the single owner of
+        // every parse-derived fact, shared with map's pass and the engine's
+        // update path so the three writers cannot drift.
+        is_associated: false,
+        complexity: 0,
+        is_trivial_wrapper: false,
+        in_test_context: false,
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
         package: None,
-    }
+    };
+    def.apply_parse_facts(&mut node);
+    node
 }
 
 #[cfg(test)]

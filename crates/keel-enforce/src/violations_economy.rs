@@ -138,11 +138,14 @@ impl BodyFingerprints {
 /// in step by hand.
 #[derive(Default)]
 pub struct DuplicateIndex {
-    /// `file_path` → `(line_start, name)` → fingerprints. Neither key is
-    /// unique alone: a name repeats within a file (free fn + method), and two
-    /// definitions can start on one physical line in minified sources — a
-    /// line-only key would hand the first def the last def's fingerprints.
-    per_def: HashMap<String, HashMap<(u32, String), BodyFingerprints>>,
+    /// `file_path` → definition index → fingerprints. The index is the def's
+    /// position in `FileIndex::definitions`, the one key that cannot collide:
+    /// names repeat within a file (free fn + method), lines repeat in
+    /// minified sources, and even `(line, name)` repeats when two impl blocks
+    /// share a line — any content-derived key hands one def another's
+    /// fingerprints. Both walks iterate the same vec, so the index is shared
+    /// by construction.
+    per_def: HashMap<String, HashMap<usize, BodyFingerprints>>,
     /// Type-1 fingerprint → the files defining it on a trait surface.
     trait_t1: HashMap<String, HashSet<String>>,
     /// Type-2 fingerprint → the same, keyed on the other tier's fingerprint.
@@ -166,7 +169,8 @@ impl DuplicateIndex {
         // stored Type-2 fingerprint ever matches. `FileIndex::language` is
         // that one derivation.
         let lang = file.language();
-        for def in &file.definitions {
+        let slot = self.per_def.entry(file.file_path.clone()).or_default();
+        for (idx, def) in file.definitions.iter().enumerate() {
             if def.kind != NodeKind::Function {
                 continue;
             }
@@ -183,16 +187,14 @@ impl DuplicateIndex {
                     }
                 }
             }
-            self.per_def
-                .entry(file.file_path.clone())
-                .or_default()
-                .insert((def.line_start, def.name.clone()), fingerprints);
+            slot.insert(idx, fingerprints);
         }
     }
 
-    /// The fingerprints of the definition named `name` starting at `line`.
-    fn get(&self, file: &str, line: u32, name: &str) -> Option<&BodyFingerprints> {
-        self.per_def.get(file)?.get(&(line, name.to_string()))
+    /// The fingerprints of the definition at position `idx` of its file's
+    /// `definitions` vec.
+    fn get(&self, file: &str, idx: usize) -> Option<&BodyFingerprints> {
+        self.per_def.get(file)?.get(&idx)
     }
 }
 
@@ -462,7 +464,7 @@ pub fn check_duplicate_implementation(
         return violations;
     }
 
-    for def in &file.definitions {
+    for (idx, def) in file.definitions.iter().enumerate() {
         if def.kind != NodeKind::Function {
             continue;
         }
@@ -474,7 +476,7 @@ pub fn check_duplicate_implementation(
         if def.in_test_context {
             continue;
         }
-        let Some(fingerprints) = index.get(&file.file_path, def.line_start, &def.name) else {
+        let Some(fingerprints) = index.get(&file.file_path, idx) else {
             continue;
         };
         // A body under the Type-1 floor is too trivial to judge in EITHER

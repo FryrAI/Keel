@@ -319,3 +319,38 @@ fn test_t2_rename_invariance_holds_for_non_ascii_identifiers() {
         "non-ASCII identifiers must survive as single verbatim tokens"
     );
 }
+
+#[test]
+fn test_t2_raw_string_with_odd_embedded_quotes_keeps_the_tail() {
+    // strip_comments got the raw-string fix first; the tokenizer's own
+    // skip_string still paired quotes generically, so an ODD number of
+    // embedded quotes swallowed everything after the raw string as one
+    // <str> token (round-2 reviewer finding — the earlier regression test
+    // had a coincidentally even count).
+    let prefix = "{ let msg = r#\"Use \" to open a string\"#;\n";
+    let a = format!("{prefix}    finish_one_way(msg, extra, more_args_here) }}");
+    let b = format!("{prefix}    completely_different_tail(msg) }}");
+    assert_ne!(
+        compute_t2_hash(&a, "rust"),
+        compute_t2_hash(&b, "rust"),
+        "different tails after an odd-quote raw string must fingerprint differently"
+    );
+}
+
+#[test]
+fn test_t2_go_backtick_raw_string_is_one_str_token() {
+    let body_a = "{ p := `C:\\`; use(p, second_arg, third_arg, fourth_arg) }";
+    let body_b = "{ p := `D:\\`; use(p, second_arg, third_arg, fourth_arg) }";
+    assert_eq!(
+        normalize_body_t2(body_a, "go"),
+        normalize_body_t2(body_b, "go"),
+        "backtick contents collapse to <str> — literal values never split a T2 match"
+    );
+    // A STRUCTURAL tail change (renamed identifiers rightly collapse).
+    let tail_change = "{ p := `C:\\`; if ok { use(p, second_arg, third_arg, fourth_arg) } }";
+    assert_ne!(
+        normalize_body_t2(body_a, "go"),
+        normalize_body_t2(tail_change, "go"),
+        "code after the raw string stays visible"
+    );
+}

@@ -293,13 +293,13 @@ pub fn check_placement(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violatio
 /// exists — 2 total copies. 3+ copies stay silent here (W006's body-hash
 /// check still catches genuine multi-copy duplication independent of name).
 ///
-/// One more pair is exempt regardless of count: `fn main()` across two Cargo
-/// compilation roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`,
-/// `examples/*.rs`). Cargo compiles each as its own independent crate, so a
-/// `main` in one is invisible to every other — there is no ambiguity to
-/// rename away (issue #62). Gated strictly on `def.name == "main"` so it
-/// cannot mask an accidental duplicate of some other function that happens to
-/// live in one of those roots.
+/// One more pair is exempt regardless of count: two definitions living in
+/// DISTINCT Cargo compilation units (different build scripts, binaries,
+/// examples, benches — see `distinct_compilation_units`). Cargo compiles
+/// each target as its own crate, so a name in one is invisible to the other
+/// and there is no ambiguity to rename away (issue #62; widened from the
+/// original `main`-only gate — the reasoning was never name-specific, and
+/// W006's body tiers still catch real copy-paste between targets).
 ///
 /// Uses indexed SQL query instead of triple-nested loop. O(F) not O(F*M*N).
 pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Violation> {
