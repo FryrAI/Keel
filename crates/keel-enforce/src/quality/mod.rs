@@ -57,7 +57,7 @@ pub const METRICS_VERSION: u32 = 1;
 /// is the reporting order.
 ///
 /// Fields added after version 1 shipped carry `#[serde(default)]` and must be
-/// named in [`trend::METRICS_ADDED_AFTER_V1`], or a blob predating them would
+/// named in `trend::METRICS_ADDED_AFTER_V1`, or a blob predating them would
 /// deserialize as `0.0` and the trend would draw a step out of "not measured".
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct QualityMetrics {
@@ -86,7 +86,7 @@ pub struct QualityMetrics {
     pub cross_module_edge_ratio: f64,
     /// Share of the repo's complexity-weighted mass (`Σ cc·√sloc` over
     /// functions in hand-written source) held by functions above
-    /// [`HIGH_CC_THRESHOLD`]. A rising share means branching is concentrating
+    /// `HIGH_CC_THRESHOLD`. A rising share means branching is concentrating
     /// into a shrinking set of hot functions — the shape erosion takes when
     /// line counts stay flat. Judged: higher is worse.
     #[serde(default)]

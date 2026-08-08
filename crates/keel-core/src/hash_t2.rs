@@ -9,7 +9,7 @@
 //!
 //! Deliberately lexical, not AST-based: the only input available where W006
 //! runs is `Definition::body_text`, raw source. Comment and string boundaries
-//! are delegated to [`crate::hash::strip_comments`] so the Type-1 and Type-2
+//! are delegated to `crate::hash::strip_comments` so the Type-1 and Type-2
 //! normalizers can never disagree about what counts as code — including the
 //! Rust lifetime-vs-char-literal rule, which is repeated here because the tick
 //! survives comment stripping as an ordinary token.

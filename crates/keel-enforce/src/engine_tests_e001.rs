@@ -272,3 +272,67 @@ fn test_e001_partial_batch_skips_only_batch_callers() {
     );
     assert_eq!(v.affected[0].name, "baz");
 }
+
+#[test]
+fn test_e001_refuses_same_file_duplicate_names() {
+    // A free `search_graph` next to a `search_graph` method: the name-keyed
+    // pairing cannot know which stored node matches which fresh def, so E001
+    // must refuse to claim rather than compare the method's signature against
+    // the free fn's stored one (the phantom-signature-change FP).
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let old_hash = keel_core::hash::compute_hash(
+        "fn search_graph(store: &dyn GraphStore, term: &str)",
+        "{ find(term) }",
+        "Docs",
+    );
+    let mut node = make_node(
+        1,
+        &old_hash,
+        "search_graph",
+        "fn search_graph(store: &dyn GraphStore, term: &str)",
+        "src/queries.rs",
+    );
+    node.docstring = Some("Docs".to_string());
+    store.insert_node(&node).unwrap();
+
+    // A caller of the free fn, so E001 would have someone to blame.
+    let caller = make_node(2, "cal22222222", "run_search", "fn run_search()", "src/cli.rs");
+    store.insert_node(&caller).unwrap();
+    let mut store_mut = store;
+    store_mut
+        .update_edges(vec![EdgeChange::Add(make_call_edge(1, 2, 1, "src/cli.rs"))])
+        .unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store_mut));
+
+    // Fresh parse holds BOTH defs; the method's signature differs from the
+    // stored free fn's, which is exactly the coin-flip comparison to refuse.
+    let file = FileIndex {
+        file_path: "src/queries.rs".to_string(),
+        content_hash: 0,
+        definitions: vec![
+            make_definition(
+                "search_graph",
+                "fn search_graph(store: &dyn GraphStore, term: &str)",
+                "{ find(term) }",
+                "src/queries.rs",
+            ),
+            make_definition(
+                "search_graph",
+                "fn search_graph(&self, term: &str)",
+                "{ search_graph(&*self.store, term) }",
+                "src/queries.rs",
+            ),
+        ],
+        references: vec![],
+        imports: vec![],
+        external_endpoints: vec![],
+        parse_duration_us: 0,
+    };
+
+    let result = engine.compile(&[file]);
+    assert!(
+        !result.errors.iter().any(|v| v.code == "E001"),
+        "E001 must refuse same-file duplicate names, got: {:?}",
+        result.errors
+    );
+}

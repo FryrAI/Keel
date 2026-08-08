@@ -206,6 +206,34 @@ jobs:
           path: target/criterion
           key: criterion-baseline-main
 
+  # The documented performance contract (<200ms single-file compile, etc.) is
+  # asserted by tests/benchmarks under #[cfg(not(debug_assertions))] — they
+  # compile to no-ops in the debug-mode `test` job, so this is the only job
+  # where those asserts actually execute (issue #65).
+  perf-contract:
+    name: Perf contract (release asserts)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-relperf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-relperf-
+
+      - name: Run release-mode benchmark asserts
+        run: cargo test --release --test benchmarks
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

@@ -35,7 +35,7 @@ pub struct QualityPoint {
     pub captured_at: String,
     /// The reading.
     pub metrics: QualityMetrics,
-    /// Names from [`METRICS_ADDED_AFTER_V1`] this row's raw blob did not
+    /// Names from `METRICS_ADDED_AFTER_V1` this row's raw blob did not
     /// carry — measured as absent, not as zero.
     pub legacy_missing: HashSet<&'static str>,
 }
@@ -84,7 +84,7 @@ pub struct QualityTrend {
     /// Rows in the window whose blob could not be parsed at all.
     pub unreadable: usize,
     /// Metrics left out of `metrics` because at least one point in the window
-    /// predates them — see [`METRICS_ADDED_AFTER_V1`].
+    /// predates them — see `METRICS_ADDED_AFTER_V1`.
     pub omitted: Vec<String>,
 }
 

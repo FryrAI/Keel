@@ -36,7 +36,37 @@ pub fn check_broken_callers_with_cache(
 ) -> Vec<Violation> {
     let mut violations = Vec::new();
 
+    // A name defined more than once in this file (a free `search_graph` next
+    // to a `search_graph` method) makes the name-keyed pairing below a coin
+    // flip: the method's fresh signature gets compared against the free fn's
+    // stored one and manufactures a phantom "signature changed". Refuse to
+    // claim rather than guess — the same ambiguity rule the E005 resolver
+    // pass applies to same-file binds. Both sides can hold the duplicate:
+    // the fresh parse (both defs still present) or the stored nodes (one of
+    // the pair was just deleted).
+    // Only intra-side repeats are ambiguous — a name in both the parse and
+    // the store is the normal pairing this check exists to compare.
+    let ambiguous_names: HashSet<&str> = {
+        let mut seen = HashSet::new();
+        let mut dup = HashSet::new();
+        for name in file.definitions.iter().map(|d| d.name.as_str()) {
+            if !seen.insert(name) {
+                dup.insert(name);
+            }
+        }
+        seen.clear();
+        for name in existing_nodes.iter().map(|n| n.name.as_str()) {
+            if !seen.insert(name) {
+                dup.insert(name);
+            }
+        }
+        dup
+    };
+
     for def in &file.definitions {
+        if ambiguous_names.contains(def.name.as_str()) {
+            continue;
+        }
         // Find existing node by name in same file
         let existing = existing_nodes.iter().find(|n| n.name == def.name);
 
