@@ -16,7 +16,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license-file = "LICENSE"
 rust-version = "1.75"
@@ -76,19 +76,19 @@ protobuf = "3"
 ignore = "0.4"
 
 # Internal crates — path for local dev, version for crates.io publish
-keel-core = { path = "crates/keel-core", version = "0.5.0" }
-keel-parsers = { path = "crates/keel-parsers", version = "0.5.0" }
-keel-enforce = { path = "crates/keel-enforce", version = "0.5.0" }
-keel-cli = { path = "crates/keel-cli", version = "0.5.0" }
-keel-server = { path = "crates/keel-server", version = "0.5.0" }
-keel-output = { path = "crates/keel-output", version = "0.5.0" }
+keel-core = { path = "crates/keel-core", version = "0.6.0" }
+keel-parsers = { path = "crates/keel-parsers", version = "0.6.0" }
+keel-enforce = { path = "crates/keel-enforce", version = "0.6.0" }
+keel-cli = { path = "crates/keel-cli", version = "0.6.0" }
+keel-server = { path = "crates/keel-server", version = "0.6.0" }
+keel-output = { path = "crates/keel-output", version = "0.6.0" }
 
 [dependencies]
-keel-core = { path = "crates/keel-core", version = "0.5.0" }
-keel-parsers = { path = "crates/keel-parsers", version = "0.5.0" }
-keel-enforce = { path = "crates/keel-enforce", version = "0.5.0" }
-keel-output = { path = "crates/keel-output", version = "0.5.0" }
-keel-server = { path = "crates/keel-server", version = "0.5.0" }
+keel-core = { path = "crates/keel-core", version = "0.6.0" }
+keel-parsers = { path = "crates/keel-parsers", version = "0.6.0" }
+keel-enforce = { path = "crates/keel-enforce", version = "0.6.0" }
+keel-output = { path = "crates/keel-output", version = "0.6.0" }
+keel-server = { path = "crates/keel-server", version = "0.6.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
