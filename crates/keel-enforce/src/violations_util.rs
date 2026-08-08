@@ -102,21 +102,41 @@ pub fn is_stub_file(path: &str) -> bool {
         || path.ends_with(".d.cts")
 }
 
+/// True when `normalized` sits under a `dir/` segment, at the repo root or
+/// under any crate — `examples/a.rs` and `crates/x/examples/a.rs` both match
+/// `under_root(_, "examples")`.
+fn under_root(normalized: &str, dir: &str) -> bool {
+    normalized.starts_with(&format!("{dir}/")) || normalized.contains(&format!("/{dir}/"))
+}
+
 /// True for a Cargo-recognized binary/build-script compilation root:
 /// `build.rs`, `src/main.rs`, any `src/bin/*.rs`, any `examples/*.rs`.
-/// Cargo compiles each as its own independent crate — a `fn main()` in one
-/// is invisible to every other, so two such roots can never actually
-/// collide, no matter how many of them exist.
-pub fn is_cargo_binary_root(path: &str) -> bool {
+fn is_cargo_binary_root(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
     basename == "build.rs"
         || normalized == "src/main.rs"
         || normalized.ends_with("/src/main.rs")
-        || normalized.starts_with("src/bin/")
-        || normalized.contains("/src/bin/")
-        || normalized.starts_with("examples/")
-        || normalized.contains("/examples/")
+        || under_root(&normalized, "src/bin")
+        || under_root(&normalized, "examples")
+}
+
+/// True when two files are compiled as SEPARATE Cargo units — a build script,
+/// a `src/main.rs`, a `src/bin/*.rs`, an `examples/*.rs`.
+///
+/// Cargo builds each as its own independent crate, so a name defined in one is
+/// invisible to the other and the two can never actually collide: there is no
+/// ambiguity for a rename to resolve, and W002's "rename one" fix_hint would
+/// be advice to make the code worse. Structural, not name-based — `main` is
+/// merely the most common shared name between two binary targets, not the only
+/// one, and a real copy-paste between them is still caught by W006's body
+/// tiers, which do not care which crate a body lives in.
+///
+/// A pair involving an ordinary library file is NOT exempt: `src/lib.rs` and
+/// everything below it compile into one unit, where a duplicate name is
+/// exactly the ambiguity W002 exists to report.
+pub fn distinct_compilation_units(a: &str, b: &str) -> bool {
+    a != b && is_cargo_binary_root(a) && is_cargo_binary_root(b)
 }
 
 /// Check if a file path is a test file by language convention.
@@ -580,6 +600,22 @@ mod tests {
                 "{path} must not match on substring"
             );
         }
+    }
+
+    #[test]
+    fn test_distinct_compilation_units_needs_two_binary_roots() {
+        // Two independent targets: invisible to each other, whatever the name.
+        assert!(distinct_compilation_units("src/bin/a.rs", "src/bin/b.rs"));
+        assert!(distinct_compilation_units("build.rs", "src/main.rs"));
+        assert!(distinct_compilation_units(
+            "examples/one.rs",
+            "crates/x/src/bin/two.rs"
+        ));
+        // A library file on either side shares a namespace — not exempt.
+        assert!(!distinct_compilation_units("src/bin/a.rs", "src/lib.rs"));
+        assert!(!distinct_compilation_units("src/lib.rs", "src/util.rs"));
+        // The same file is one unit, not two.
+        assert!(!distinct_compilation_units("src/bin/a.rs", "src/bin/a.rs"));
     }
 
     #[test]

@@ -123,27 +123,67 @@ pub struct QualityMetrics {
 /// trend must not permit.
 const HIGH_CC_THRESHOLD: u32 = 10;
 
+/// How a metric's value reads — and therefore how it must be printed.
+///
+/// A `Fraction` rendered as an integer prints `0.34` as `0` and the series
+/// reads as flat, so this travels WITH the metric rather than living in a
+/// name list a renderer has to remember to update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetricKind {
+    /// A count of named instances — printed as an integer.
+    Count,
+    /// A share in `[0, 1]` — printed to two decimals.
+    Fraction,
+}
+
+/// One metric as reported: what it is called, what it reads, whether a rise is
+/// a judgement, and how to print it.
+#[derive(Debug, Clone, Copy)]
+pub struct MetricRow {
+    /// Metric name, as it appears in the stored blob.
+    pub name: &'static str,
+    /// The reading.
+    pub value: f64,
+    /// Whether keel is willing to call a rise "worse".
+    pub judged: bool,
+    /// Count or fraction.
+    pub kind: MetricKind,
+}
+
 impl QualityMetrics {
-    /// The reportable metrics as `(name, value, judged)`, in reporting order.
+    /// The reportable metrics, in reporting order.
     ///
     /// `judged` is false for `cross_module_edge_ratio`, `propagation_cost` and
     /// `clone_loc_ratio`: a rise in the first two may be decomposition or may
     /// be scatter, and a rise in the third may be copy-paste or may be a
     /// shared idiom. keel does not know which, so each is reported as a
     /// direction and never as "worse".
-    pub fn rows(&self) -> [(&'static str, f64, bool); 7] {
+    pub fn rows(&self) -> [MetricRow; 7] {
+        let count = |name, value| MetricRow {
+            name,
+            value,
+            judged: true,
+            kind: MetricKind::Count,
+        };
+        let fraction = |name, value, judged| MetricRow {
+            name,
+            value,
+            judged,
+            kind: MetricKind::Fraction,
+        };
         [
-            ("files_over_budget", self.files_over_budget as f64, true),
-            ("cycle_count", self.cycle_count as f64, true),
-            ("dead_private_fns", self.dead_private_fns as f64, true),
-            (
+            count("files_over_budget", self.files_over_budget as f64),
+            count("cycle_count", self.cycle_count as f64),
+            count("dead_private_fns", self.dead_private_fns as f64),
+            fraction(
                 "cross_module_edge_ratio",
                 self.cross_module_edge_ratio,
                 false,
             ),
-            ("high_cc_mass_share", self.high_cc_mass_share, true),
-            ("propagation_cost", self.propagation_cost, false),
-            ("clone_loc_ratio", self.clone_loc_ratio, false),
+            fraction("high_cc_mass_share", self.high_cc_mass_share, true),
+            fraction("propagation_cost", self.propagation_cost, false),
+            fraction("clone_loc_ratio", self.clone_loc_ratio, false),
         ]
     }
 

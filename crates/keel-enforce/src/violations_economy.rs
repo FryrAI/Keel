@@ -11,14 +11,12 @@
 //! `enforce.{dead_code, duplication, oversized_files}` in keel.json.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use keel_core::config::EnforceConfig;
 use keel_core::hash_t2;
 use keel_core::store::GraphStore;
 use keel_core::types::{BodyIndexEntry, EdgeDirection, EdgeKind, GraphNode, NodeKind};
 use keel_parsers::resolver::{Definition, FileIndex};
-use keel_parsers::treesitter::detect_language;
 
 use crate::types::Violation;
 use crate::violations_util::{bind_to_node, is_bench_file, is_stub_file, is_test_file};
@@ -164,9 +162,9 @@ impl DuplicateIndex {
     /// second pass over the same file recomputes identical entries.
     fn add_file(&mut self, file: &FileIndex) {
         // Must be the same language string `keel map` indexed under, or no
-        // stored Type-2 fingerprint ever matches — both sides go through
-        // `detect_language`.
-        let lang = detect_language(Path::new(&file.file_path)).unwrap_or("");
+        // stored Type-2 fingerprint ever matches. `FileIndex::language` is
+        // that one derivation.
+        let lang = file.language();
         for def in &file.definitions {
             if def.kind != NodeKind::Function {
                 continue;

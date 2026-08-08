@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use keel_core::sqlite_quality::QualitySnapshotRow;
 
-use super::{QualityMetrics, METRICS_VERSION};
+use super::{MetricKind, QualityMetrics, METRICS_VERSION};
 
 /// Metric names introduced after metrics version 1 shipped (issues #58, #61,
 /// #66).
@@ -68,6 +68,9 @@ pub struct MetricTrend {
     pub direction: String,
     /// Whether `direction` carries a value judgement.
     pub judged: bool,
+    /// Count or fraction — carried so a renderer prints this metric the same
+    /// way the current reading does, without a name list of its own.
+    pub kind: MetricKind,
     /// The largest single-commit move, when the window has more than one point.
     pub largest_step: Option<TrendStep>,
 }
@@ -191,20 +194,21 @@ fn metric_trends(points: &[QualityPoint]) -> (Vec<MetricTrend>, Vec<String>) {
     let mut trends = Vec::new();
     let mut omitted = Vec::new();
 
-    for (i, (name, first, judged)) in first_row.iter().enumerate() {
-        if points.iter().any(|p| p.legacy_missing.contains(name)) {
-            omitted.push((*name).to_string());
+    for (i, row) in first_row.iter().enumerate() {
+        if points.iter().any(|p| p.legacy_missing.contains(row.name)) {
+            omitted.push(row.name.to_string());
             continue;
         }
-        let last = last_row[i].1;
-        let delta = last - first;
+        let last = last_row[i].value;
+        let delta = last - row.value;
         trends.push(MetricTrend {
-            name: (*name).to_string(),
-            first: *first,
+            name: row.name.to_string(),
+            first: row.value,
             last,
             delta,
-            direction: direction(delta, *judged),
-            judged: *judged,
+            direction: direction(delta, row.judged),
+            judged: row.judged,
+            kind: row.kind,
             largest_step: largest_step(points, i),
         });
     }
@@ -238,7 +242,7 @@ fn direction(delta: f64, judged: bool) -> String {
 fn largest_step(points: &[QualityPoint], index: usize) -> Option<TrendStep> {
     let mut best: Option<TrendStep> = None;
     for pair in points.windows(2) {
-        let delta = pair[1].metrics.rows()[index].1 - pair[0].metrics.rows()[index].1;
+        let delta = pair[1].metrics.rows()[index].value - pair[0].metrics.rows()[index].value;
         if delta.abs() < f64::EPSILON {
             continue;
         }

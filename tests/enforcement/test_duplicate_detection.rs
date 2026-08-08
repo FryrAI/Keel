@@ -537,10 +537,12 @@ fn test_w002_genuine_duplicate_main_still_fires() {
 }
 
 #[test]
-fn test_w002_non_main_duplicate_in_build_rs_still_fires() {
-    // The exemption must not leak past `main`: some other same-named,
-    // same-signature free function shared between build.rs and src/main.rs
-    // is still a genuine duplicate.
+fn test_w002_any_shared_name_between_binary_roots_is_exempt() {
+    // The exemption is structural, not `main`-specific: a `helper` shared
+    // between build.rs and src/main.rs is as invisible across those two
+    // crates as `main` is, so there is no ambiguity for a rename to resolve.
+    // A real copy-paste between them is still caught — by W006's body tiers,
+    // which do not care which crate a body compiles into.
     let mut store = in_memory_store();
 
     let mod_a = make_module_node(1, "src/main.rs");
@@ -552,10 +554,49 @@ fn test_w002_non_main_duplicate_in_build_rs_still_fires() {
     let def = make_func_def("helper", "build.rs", 1);
     let file = make_file("build.rs", vec![def]);
 
-    let violations = check_duplicate_names(&file, &store);
+    assert!(
+        check_duplicate_names(&file, &store).is_empty(),
+        "a shared non-main name between two Cargo binary roots must not fire"
+    );
+}
+
+#[test]
+fn test_w002_two_bin_targets_sharing_a_non_main_name_are_exempt() {
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/bin/a.rs");
+    let fn_a = make_func_node(2, "parse_args", "src/bin/a.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("parse_args", "src/bin/b.rs", 1);
+    let file = make_file("src/bin/b.rs", vec![def]);
+
+    assert!(
+        check_duplicate_names(&file, &store).is_empty(),
+        "two independent bin targets share no namespace, whatever the name"
+    );
+}
+
+#[test]
+fn test_w002_binary_root_versus_library_file_still_fires() {
+    // Only a pair of SEPARATE units is exempt. `src/main.rs` and a library
+    // module compile together, so a shared name there is real ambiguity.
+    let mut store = in_memory_store();
+
+    let mod_a = make_module_node(1, "src/util.rs");
+    let fn_a = make_func_node(2, "helper", "src/util.rs", 1);
+    store
+        .update_nodes(vec![NodeChange::Add(mod_a), NodeChange::Add(fn_a)])
+        .unwrap();
+
+    let def = make_func_def("helper", "src/main.rs", 1);
+    let file = make_file("src/main.rs", vec![def]);
+
     assert_eq!(
-        violations.len(),
+        check_duplicate_names(&file, &store).len(),
         1,
-        "a non-main duplicate between build.rs and src/main.rs must still fire"
+        "a binary root sharing a name with a library module must still fire"
     );
 }

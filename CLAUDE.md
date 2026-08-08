@@ -176,6 +176,10 @@ When compile passes with zero errors AND zero warnings: **empty stdout, exit 0**
 
 `quality_snapshots` (schema v7) stores a versioned JSON blob keyed on `commit_sha` (UNIQUE — a second capture at the same commit *updates* in place). Bump `keel_enforce::quality::METRICS_VERSION` whenever a metric's *definition* changes: `--trend` then refuses to compare across versions rather than silently re-baselining. `dead_private_fns` is computed from the graph alone, so it over-counts relative to W005 (no decorator/trait-context/`keel:keep` awareness) — it is a trend line, not a violation count.
 
+`high_cc_mass_share`'s population is **hand-written, non-test-context functions** — the same rule `clone_loc_ratio` uses. Test *files* are dropped by `FileClass`; inline `#[cfg(test)] mod tests` blocks are dropped by the persisted `nodes.in_test_context` flag, which the `complexity_by_fn` query filters on. Rows written before that column existed read back as 0, so the metric under-excludes until the next `keel map`, never over-excludes.
+
+Whether a metric prints as a count or as a two-decimal fraction is carried by `MetricKind` on `QualityMetrics::rows()` and on `MetricTrend`, not by a name list in the renderer — a fraction printed as an integer reads as a flat series.
+
 A metric *added* without a version bump (its field carries `#[serde(default)]`) must also be named in
 `quality::trend::METRICS_ADDED_AFTER_V1`. Otherwise a blob written before the field existed deserializes as
 `0.0` and `--trend` draws a step from "not measured" to a real reading — the same silent re-baselining
@@ -202,7 +206,12 @@ The one exception is **honesty about files keel cannot parse**: compiling a `.sq
 
 `circular_dep` is **disabled for Rust**: intra-crate module cycles are legal, idiomatic Rust and cargo already forbids the illegal inter-crate ones. It still applies to TS/Python/Go, capped at cycles of ≤8 modules. `--strict-cycles` restores the old behavior.
 
+`trivial_wrapper` reads the graph alone — no re-parse. `nodes.is_trivial_wrapper` is written by the map/compile node writers via `Definition::stored_trivial_wrapper`, **already exempted** for the parse-time facts the graph does not persist in a column (decorated definitions, `keel:keep`). The exemptions it *does* persist — `is_associated`, `in_test_context` — are applied by the audit. Each exemption lives at exactly one layer; adding a check at the other layer is the bug to avoid.
+
 Findings are deduplicated on rule+file+symbol before scoring, then ranked by (severity, agent-config over per-file smells, dimension-score impact, count). `--llm` prints the top 20 and states how many it omitted; `--top 0` lifts the cap.
+
+### W002 Exempts Distinct Cargo Compilation Units, Not the Name `main`
+`violations_util::distinct_compilation_units` exempts a duplicate-name pair when BOTH files are Cargo binary/build roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`, `examples/*.rs`) — each compiles as its own crate, so the two names never share a namespace and there is no ambiguity a rename could resolve. Structural, not `main`-specific: two `src/bin` targets sharing `parse_args` are as invisible to each other as two `main`s. A pair involving a library file still fires. Real copy-paste between two binary targets is still caught by W006's body tiers, which do not care which crate a body compiles into.
 
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.

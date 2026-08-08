@@ -366,6 +366,19 @@ impl FileIndex {
             parse_duration_us: 0,
         }
     }
+
+    /// The language name this file's bodies are tokenized under — `""` when
+    /// no grammar claims the path.
+    ///
+    /// Derived from the canonical [`crate::treesitter::detect_language`] table,
+    /// which is also what the walker records as `WalkEntry::language` and what
+    /// [`Definition::body_for_hash`] uses. Consumers ask the index rather than
+    /// re-deriving it, so "map and compile fingerprint under the same language
+    /// string" holds because there is one derivation, not because a comment
+    /// says so.
+    pub fn language(&self) -> &'static str {
+        crate::treesitter::detect_language(Path::new(&self.file_path)).unwrap_or("")
+    }
 }
 
 /// Thread-safe per-file parse cache shared by every language resolver.

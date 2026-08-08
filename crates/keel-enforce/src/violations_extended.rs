@@ -6,7 +6,7 @@ use keel_parsers::resolver::FileIndex;
 
 use crate::types::{AffectedNode, Violation};
 use crate::violations_util::{
-    extract_prefix, is_cargo_binary_root, is_test_file, normalize_signature, parse_signature,
+    distinct_compilation_units, extract_prefix, is_test_file, normalize_signature, parse_signature,
     receiver_is_type_like,
 };
 
@@ -368,14 +368,12 @@ pub fn check_duplicate_names(file: &FileIndex, store: &dyn GraphStore) -> Vec<Vi
         }
         let node = same_shape[0];
 
-        // Cargo-mandated dual `main`: build.rs vs src/main.rs, or two
-        // independent binary targets (src/bin/*.rs, examples/*.rs) — each
-        // compiles as its own crate, so there is no ambiguity to rename away
-        // (issue #62).
-        if def.name == "main"
-            && is_cargo_binary_root(&file.file_path)
-            && is_cargo_binary_root(&node.file_path)
-        {
+        // Two separate Cargo compilation units — build.rs vs src/main.rs, two
+        // src/bin targets, two examples. Each compiles as its own crate, so
+        // there is no ambiguity to rename away (issue #62). Structural, not
+        // `main`-specific: any name two binary targets happen to share is as
+        // invisible across them as `main` is.
+        if distinct_compilation_units(&file.file_path, &node.file_path) {
             continue;
         }
 

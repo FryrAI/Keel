@@ -282,6 +282,31 @@ fn quality_history_round_trips_through_export_import_and_cache() {
     assert!(code.contains("actions/cache/restore@v4") && code.contains("actions/cache/save@v4"));
 }
 
+/// A failed import silently restarts the series, and a one-point series is
+/// indistinguishable from a young repo. It must annotate, not whisper.
+#[test]
+fn a_failed_quality_history_import_is_annotated_not_swallowed() {
+    let code = code_only(&read(".github/actions/keel/action.yml"));
+    let import = code
+        .lines()
+        .position(|l| l.contains("keel quality --import"))
+        .expect("the quality step must import the restored history");
+    let fallback = code
+        .lines()
+        .skip(import)
+        .take(2)
+        .find(|l| l.contains("||"))
+        .expect("the import must have a non-fatal fallback");
+    assert!(
+        fallback.contains("::warning::"),
+        "the import fallback must emit a GitHub warning annotation, got: {fallback}"
+    );
+    assert!(
+        fallback.contains("previous history lost"),
+        "the annotation must say what was lost, got: {fallback}"
+    );
+}
+
 /// Deliberate asymmetry with `the_graph_cache_has_no_prefix_fallback`: a stale
 /// restore here can only be missing the latest point, never wrong about one.
 #[test]

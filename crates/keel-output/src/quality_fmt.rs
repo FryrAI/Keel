@@ -6,34 +6,29 @@
 //! is a ratio, and a series read as "0.34 → 0" because one renderer rounded
 //! differently would be a fabricated regression.
 
-use keel_enforce::quality::{MetricTrend, QualityMetrics, QualityReport, QualityTrend};
+use keel_enforce::quality::{MetricKind, MetricTrend, QualityMetrics, QualityReport, QualityTrend};
 
 /// What to run when the series is empty — named once, printed by both formats.
 const NO_SNAPSHOTS_HINT: &str =
     "no snapshots yet — run `keel quality --snapshot` (CI takes one per merge) to start the series";
 
-/// Metrics that are fractions rather than counts — rendered to two decimals,
-/// or a 0.34 reading would print as `0` and the series would read as flat.
-const FRACTIONAL_METRICS: &[&str] = &[
-    "cross_module_edge_ratio",
-    "high_cc_mass_share",
-    "propagation_cost",
-    "clone_loc_ratio",
-];
-
 /// Render one metric value: counts as integers, fractions to two decimals.
-fn value(name: &str, v: f64) -> String {
-    if FRACTIONAL_METRICS.contains(&name) {
-        format!("{v:.2}")
-    } else {
-        format!("{v:.0}")
+///
+/// The precision rule follows the metric's own [`MetricKind`] rather than a
+/// list of names kept here — a 0.34 reading printed as `0` would make the
+/// series read as flat, and a renderer that has to remember to update its own
+/// list is exactly how that happens.
+fn value(kind: MetricKind, v: f64) -> String {
+    match kind {
+        MetricKind::Fraction => format!("{v:.2}"),
+        MetricKind::Count => format!("{v:.0}"),
     }
 }
 
 /// Render a signed change, using the same precision rule as [`value`].
-fn delta(name: &str, v: f64) -> String {
+fn delta(kind: MetricKind, v: f64) -> String {
     let sign = if v > 0.0 { "+" } else { "" };
-    format!("{sign}{}", value(name, v))
+    format!("{sign}{}", value(kind, v))
 }
 
 /// Abbreviate a commit for display, or `—` when there is none.
@@ -53,8 +48,12 @@ pub(crate) fn human(result: &QualityReport) -> String {
             "keel quality — {}\n",
             short(result.commit.as_ref())
         ));
-        for (name, v, _) in metrics.rows() {
-            out.push_str(&format!("  {:<24} {}\n", name, value(name, v)));
+        for row in metrics.rows() {
+            out.push_str(&format!(
+                "  {:<24} {}\n",
+                row.name,
+                value(row.kind, row.value)
+            ));
         }
         if result.snapshot_saved {
             out.push_str("  (snapshot saved)\n");
@@ -100,9 +99,9 @@ fn human_trend(trend: &QualityTrend) -> String {
             out.push_str(&format!(
                 "  {:<24} {:>7} {:>7} {:>9}  {}{}\n",
                 m.name,
-                value(&m.name, m.first),
-                value(&m.name, m.last),
-                delta(&m.name, m.delta),
+                value(m.kind, m.first),
+                value(m.kind, m.last),
+                delta(m.kind, m.delta),
                 m.direction,
                 attribution(m),
             ));
@@ -117,9 +116,9 @@ fn human_trend(trend: &QualityTrend) -> String {
             .metrics
             .rows()
             .iter()
-            .map(|(name, v, _)| match p.legacy_missing.contains(name) {
-                true => format!("{name}=—"),
-                false => format!("{}={}", name, value(name, *v)),
+            .map(|row| match p.legacy_missing.contains(row.name) {
+                true => format!("{}=—", row.name),
+                false => format!("{}={}", row.name, value(row.kind, row.value)),
             })
             .collect();
         out.push_str(&format!(
@@ -152,7 +151,7 @@ fn attribution(m: &MetricTrend) -> String {
     match &m.largest_step {
         Some(step) => format!(
             " ({} at {})",
-            delta(&m.name, step.delta),
+            delta(m.kind, step.delta),
             short(step.commit.as_ref())
         ),
         None => String::new(),
@@ -177,8 +176,8 @@ pub(crate) fn llm(result: &QualityReport) -> String {
 /// `QUALITY commit=… files_over_budget=… …`
 fn llm_reading(result: &QualityReport, metrics: &QualityMetrics) -> String {
     let mut parts = vec![format!("commit={}", short(result.commit.as_ref()))];
-    for (name, v, _) in metrics.rows() {
-        parts.push(format!("{}={}", name, value(name, v)));
+    for row in metrics.rows() {
+        parts.push(format!("{}={}", row.name, value(row.kind, row.value)));
     }
     if result.snapshot_saved {
         parts.push("snapshot=saved".to_string());
@@ -216,7 +215,7 @@ fn llm_trend(trend: &QualityTrend) -> Vec<String> {
         let step = match &m.largest_step {
             Some(s) => format!(
                 " step={}@{}",
-                delta(&m.name, s.delta),
+                delta(m.kind, s.delta),
                 short(s.commit.as_ref())
             ),
             None => String::new(),
@@ -224,9 +223,9 @@ fn llm_trend(trend: &QualityTrend) -> Vec<String> {
         lines.push(format!(
             "{} {} -> {} ({} {}){}",
             m.name,
-            value(&m.name, m.first),
-            value(&m.name, m.last),
-            delta(&m.name, m.delta),
+            value(m.kind, m.first),
+            value(m.kind, m.last),
+            delta(m.kind, m.delta),
             m.direction,
             step,
         ));
@@ -315,6 +314,7 @@ mod tests {
                 delta: 8.0,
                 direction: "worsening".into(),
                 judged: true,
+                kind: MetricKind::Count,
                 largest_step: Some(TrendStep {
                     commit: Some("bbbbbbb2".into()),
                     captured_at: "2026-08-01 10:00:00".into(),

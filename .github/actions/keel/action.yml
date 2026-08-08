@@ -228,8 +228,15 @@ runs:
           exit 0
         fi
 
+        # A failed import is data loss, not a hiccup: the restored series is
+        # dropped and this run's snapshot becomes point 1 of a new one, which
+        # a reader of `--trend` cannot tell from a genuinely young repo. It
+        # must therefore be an annotation, not an echo buried in the log — the
+        # step still does not fail, because a lost series must not turn a
+        # green merge red, and the engine's import stays strict.
         if [ -f "$HISTORY" ]; then
-          keel quality --import "$HISTORY" || echo "keel: quality history import failed — continuing with a fresh series"
+          keel quality --import "$HISTORY" \
+            || echo "::warning::keel quality history import failed — starting a fresh series (previous history lost)"
         fi
 
         # ~10ms of graph work. `keel quality` never gates, and neither does

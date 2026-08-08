@@ -188,6 +188,8 @@ Multiple symbols share the same name in overlapping scope.
 
 **Fix:** Rename one of the symbols to be more specific. Use `keel name "<description>"` for naming suggestions.
 
+Two files that Cargo compiles as *separate* units — `build.rs`, `src/main.rs`, each `src/bin/*.rs`, each `examples/*.rs` — never collide with each other, so a name shared between them is exempt whatever the name is. A pair involving a library file still fires.
+
 ### W005 — Dead Code
 
 **Severity:** WARNING
