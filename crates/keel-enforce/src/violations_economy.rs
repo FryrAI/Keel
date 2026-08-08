@@ -138,10 +138,11 @@ impl BodyFingerprints {
 /// in step by hand.
 #[derive(Default)]
 pub struct DuplicateIndex {
-    /// `file_path` → `line_start` → fingerprints. Keyed by line rather than by
-    /// name because a name is not unique within a file, and W006 judges one
-    /// definition at a time.
-    per_def: HashMap<String, HashMap<u32, BodyFingerprints>>,
+    /// `file_path` → `(line_start, name)` → fingerprints. Neither key is
+    /// unique alone: a name repeats within a file (free fn + method), and two
+    /// definitions can start on one physical line in minified sources — a
+    /// line-only key would hand the first def the last def's fingerprints.
+    per_def: HashMap<String, HashMap<(u32, String), BodyFingerprints>>,
     /// Type-1 fingerprint → the files defining it on a trait surface.
     trait_t1: HashMap<String, HashSet<String>>,
     /// Type-2 fingerprint → the same, keyed on the other tier's fingerprint.
@@ -185,13 +186,13 @@ impl DuplicateIndex {
             self.per_def
                 .entry(file.file_path.clone())
                 .or_default()
-                .insert(def.line_start, fingerprints);
+                .insert((def.line_start, def.name.clone()), fingerprints);
         }
     }
 
-    /// The fingerprints of the definition starting at `line` in `file`.
-    fn get(&self, file: &str, line: u32) -> Option<&BodyFingerprints> {
-        self.per_def.get(file)?.get(&line)
+    /// The fingerprints of the definition named `name` starting at `line`.
+    fn get(&self, file: &str, line: u32, name: &str) -> Option<&BodyFingerprints> {
+        self.per_def.get(file)?.get(&(line, name.to_string()))
     }
 }
 
@@ -473,7 +474,7 @@ pub fn check_duplicate_implementation(
         if def.in_test_context {
             continue;
         }
-        let Some(fingerprints) = index.get(&file.file_path, def.line_start) else {
+        let Some(fingerprints) = index.get(&file.file_path, def.line_start, &def.name) else {
             continue;
         };
         // A body under the Type-1 floor is too trivial to judge in EITHER

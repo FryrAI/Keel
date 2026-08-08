@@ -358,6 +358,29 @@ fn w006_fires_on_batch_local_duplicate() {
 }
 
 #[test]
+fn w006_judges_each_def_on_a_shared_line_by_its_own_body() {
+    // Minified sources put several functions on one physical line. A
+    // line-only per_def key kept just the last one, so the first def was
+    // judged with the last def's fingerprints — here calc_b's real duplicate
+    // would vanish behind tiny's under-floor body.
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut state = DupState::default();
+    let file_a = file_index("src/a.rs", vec![definition("calc_a", "src/a.rs", true)]);
+
+    let mut dup = definition("calc_b", "src/b.rs", true);
+    dup.line_start = 1;
+    let mut tiny = definition("tiny", "src/b.rs", true);
+    tiny.line_start = 1;
+    tiny.body_text = "{ 1 }".to_string();
+    let file_b = file_index("src/b.rs", vec![dup, tiny]);
+
+    assert!(state.check(&file_a, &store).is_empty());
+    let v = state.check(&file_b, &store);
+    assert_eq!(v.len(), 1, "calc_b must be judged by its own body");
+    assert!(v[0].message.contains("calc_a"));
+}
+
+#[test]
 fn w006_ignores_whitespace_differences() {
     let store = SqliteGraphStore::in_memory().unwrap();
     let mut state = DupState::default();

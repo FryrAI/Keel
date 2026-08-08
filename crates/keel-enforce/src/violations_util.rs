@@ -102,23 +102,47 @@ pub fn is_stub_file(path: &str) -> bool {
         || path.ends_with(".d.cts")
 }
 
-/// True when `normalized` sits under a `dir/` segment, at the repo root or
-/// under any crate — `examples/a.rs` and `crates/x/examples/a.rs` both match
-/// `under_root(_, "examples")`.
-fn under_root(normalized: &str, dir: &str) -> bool {
-    normalized.starts_with(&format!("{dir}/")) || normalized.contains(&format!("/{dir}/"))
+/// True when `normalized` is a Cargo target ROOT under `dir/` (at the repo
+/// root or under any crate): directly `dir/<name>.rs`, or the
+/// `dir/<name>/main.rs` form of a multi-file target. Sibling files of a
+/// multi-file target (`dir/<name>/util.rs`) are modules of that target — they
+/// share its namespace and are NOT roots.
+fn target_root_under(normalized: &str, dir: &str) -> bool {
+    let prefix = format!("{dir}/");
+    let rest = if let Some(r) = normalized.strip_prefix(&prefix) {
+        r
+    } else if let Some(pos) = normalized.find(&format!("/{prefix}")) {
+        &normalized[pos + 1 + prefix.len()..]
+    } else {
+        return false;
+    };
+    match rest.split('/').collect::<Vec<_>>().as_slice() {
+        [file] => file.ends_with(".rs"),
+        [_, main] => *main == "main.rs",
+        _ => false,
+    }
 }
 
 /// True for a Cargo-recognized binary/build-script compilation root:
-/// `build.rs`, `src/main.rs`, any `src/bin/*.rs`, any `examples/*.rs`.
+/// crate-root `build.rs`, `src/main.rs`, a `src/bin` target root, or an
+/// `examples` target root. `.rs` only — the layout conventions are Cargo's,
+/// and a `src/bin/cli.ts` is an ordinary module that can import its siblings.
 fn is_cargo_binary_root(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
-    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
-    basename == "build.rs"
+    if !normalized.ends_with(".rs") {
+        return false;
+    }
+    // `src/build.rs` is a plain module, not a build script: a crate-root
+    // build.rs never sits under src/.
+    let crate_root_build = normalized == "build.rs"
+        || (normalized.ends_with("/build.rs")
+            && !normalized.ends_with("/src/build.rs")
+            && normalized != "src/build.rs");
+    crate_root_build
         || normalized == "src/main.rs"
         || normalized.ends_with("/src/main.rs")
-        || under_root(&normalized, "src/bin")
-        || under_root(&normalized, "examples")
+        || target_root_under(&normalized, "src/bin")
+        || target_root_under(&normalized, "examples")
 }
 
 /// True when two files are compiled as SEPARATE Cargo units — a build script,
@@ -616,6 +640,44 @@ mod tests {
         assert!(!distinct_compilation_units("src/lib.rs", "src/util.rs"));
         // The same file is one unit, not two.
         assert!(!distinct_compilation_units("src/bin/a.rs", "src/bin/a.rs"));
+    }
+
+    #[test]
+    fn test_cargo_binary_root_is_rust_only() {
+        // The layout conventions are Cargo's; same-named dirs in other
+        // languages hold ordinary modules that CAN import each other.
+        for path in ["examples/a.ts", "src/bin/cli.ts", "examples/demo.py"] {
+            assert!(!is_cargo_binary_root(path), "{path} is not a Cargo root");
+        }
+        assert!(!distinct_compilation_units(
+            "examples/a.ts",
+            "examples/b.ts"
+        ));
+    }
+
+    #[test]
+    fn test_cargo_binary_root_multi_file_targets_have_one_root() {
+        // dir/<name>/main.rs is the root; its siblings are modules of it.
+        assert!(is_cargo_binary_root("examples/multi/main.rs"));
+        assert!(is_cargo_binary_root("src/bin/tool/main.rs"));
+        for path in [
+            "examples/multi/util.rs",
+            "src/bin/tool/args.rs",
+            "examples/multi/nested/main.rs",
+        ] {
+            assert!(!is_cargo_binary_root(path), "{path} is not a target root");
+        }
+        assert!(!distinct_compilation_units(
+            "examples/multi/main.rs",
+            "examples/multi/util.rs"
+        ));
+    }
+
+    #[test]
+    fn test_src_build_rs_is_a_module_not_a_build_script() {
+        assert!(!is_cargo_binary_root("src/build.rs"));
+        assert!(!is_cargo_binary_root("crates/x/src/build.rs"));
+        assert!(!distinct_compilation_units("src/build.rs", "src/main.rs"));
     }
 
     #[test]
