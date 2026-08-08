@@ -5,7 +5,7 @@ use serde_json::Value;
 use keel_enforce::fix_generator::generate_fix_plans;
 use keel_enforce::types::FixResult;
 
-use crate::mcp::{internal_err, lock_store, JsonRpcError, SharedEngine, SharedStore};
+use crate::mcp::{internal_err, lock_engine, lock_store, JsonRpcError, SharedEngine, SharedStore};
 use crate::parse_shared::FileParser;
 
 /// Handle the `keel/fix` MCP tool call to compile files and generate fix plans for violations.
@@ -23,10 +23,7 @@ pub(crate) fn handle_fix(
     let mut parser = FileParser::new();
     let file_indexes: Vec<_> = files.iter().filter_map(|p| parser.parse(p)).collect();
 
-    let mut engine = engine.lock().map_err(|_| JsonRpcError {
-        code: -32603,
-        message: "Engine lock poisoned".into(),
-    })?;
+    let mut engine = lock_engine(engine)?;
 
     let compile_result = engine.compile(&file_indexes);
 

@@ -131,7 +131,7 @@ pub fn extract_trait_impls(content: &str, file_path: &str) -> Vec<super::TraitIm
 }
 
 /// Parse a line like `impl Foo for Bar {` and return (trait_name, type_name).
-fn parse_impl_trait_for_line(line: &str) -> Option<(String, String)> {
+pub(super) fn parse_impl_trait_for_line(line: &str) -> Option<(String, String)> {
     let s = line.strip_prefix("impl ")?.trim();
     let for_pos = s.find(" for ")?;
     let trait_part = s[..for_pos].trim();

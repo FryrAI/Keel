@@ -3,8 +3,8 @@
 use serde_json::Value;
 
 use crate::mcp::{
-    internal_err, lock_store, not_found, param_str, param_str_opt, param_u32, JsonRpcError,
-    SharedEngine, SharedStore,
+    engine_lookup, internal_err, lock_engine, lock_store, not_found, param_str, param_str_opt,
+    param_u32, JsonRpcError, SharedEngine, SharedStore,
 };
 use keel_core::store::GraphStore;
 
@@ -13,18 +13,9 @@ pub(crate) fn handle_discover(
     engine: &SharedEngine,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
-    let hash = param_str(&params, "hash")?.to_string();
-    let depth = param_u32(&params, "depth", 1);
-
-    let engine = engine.lock().map_err(|_| JsonRpcError {
-        code: -32603,
-        message: "Engine lock poisoned".into(),
-    })?;
-
-    let result = engine
-        .discover(&hash, depth)
-        .ok_or_else(|| not_found(&hash))?;
-    serde_json::to_value(result).map_err(internal_err)
+    engine_lookup(engine, params, "hash", 1, |e, hash, depth| {
+        e.discover(hash, depth)
+    })
 }
 
 /// Resolve a hash to its file and line range.
@@ -59,10 +50,7 @@ pub(crate) fn handle_explain(
         .to_string();
     let hash = param_str(&params, "hash")?.to_string();
 
-    let engine = engine.lock().map_err(|_| JsonRpcError {
-        code: -32603,
-        message: "Engine lock poisoned".into(),
-    })?;
+    let engine = lock_engine(engine)?;
 
     let result = engine
         .explain(&error_code, &hash)

@@ -623,17 +623,23 @@ impl SqliteGraphStore {
     /// round-trips. This is a single scan, so `build_map_from_store` reads the
     /// graph in two queries (nodes + edges) instead of N+M.
     pub fn all_nodes(&self) -> Vec<GraphNode> {
-        let mut stmt = match self.conn.prepare("SELECT * FROM nodes") {
+        self.select_nodes("SELECT * FROM nodes", "all_nodes")
+    }
+
+    /// Run a parameterless `SELECT * FROM nodes …` and batch-load each row's
+    /// relations — the shared body of `all_nodes` and `get_all_modules`.
+    pub(crate) fn select_nodes(&self, sql: &str, label: &str) -> Vec<GraphNode> {
+        let mut stmt = match self.conn.prepare(sql) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[keel] all_nodes: prepare failed: {e}");
+                eprintln!("[keel] {label}: prepare failed: {e}");
                 return Vec::new();
             }
         };
         let nodes: Vec<GraphNode> = match stmt.query_map([], Self::row_to_node) {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(e) => {
-                eprintln!("[keel] all_nodes: query failed: {e}");
+                eprintln!("[keel] {label}: query failed: {e}");
                 return Vec::new();
             }
         };

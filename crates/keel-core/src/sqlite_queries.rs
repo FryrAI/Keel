@@ -117,25 +117,10 @@ impl GraphStore for SqliteGraphStore {
     }
 
     fn get_all_modules(&self) -> Vec<GraphNode> {
-        let mut stmt = match self
-            .conn
-            .prepare("SELECT * FROM nodes WHERE kind = 'module'")
-        {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[keel] get_all_modules: prepare failed: {e}");
-                return Vec::new();
-            }
-        };
-        let nodes: Vec<GraphNode> = match stmt.query_map([], Self::row_to_node) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
-            Err(e) => {
-                eprintln!("[keel] get_all_modules: query failed: {e}");
-                return Vec::new();
-            }
-        };
-        // Batch-load relations: 2 queries total instead of 2*N
-        self.nodes_with_relations_batch(nodes)
+        self.select_nodes(
+            "SELECT * FROM nodes WHERE kind = 'module'",
+            "get_all_modules",
+        )
     }
 
     fn update_nodes(&mut self, changes: Vec<NodeChange>) -> Result<(), GraphError> {

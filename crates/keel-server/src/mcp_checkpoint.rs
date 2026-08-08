@@ -11,7 +11,8 @@ use serde_json::Value;
 use keel_enforce::checkpoint::{self, CheckpointMode};
 
 use crate::mcp::{
-    internal_err, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine, SharedStore,
+    internal_err, lock_engine, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine,
+    SharedStore,
 };
 use crate::parse_shared::FileParser;
 
@@ -49,10 +50,7 @@ pub(crate) fn handle_checkpoint(
     };
 
     let compile_result = {
-        let mut eng = engine.lock().map_err(|_| JsonRpcError {
-            code: -32603,
-            message: "Engine lock poisoned".into(),
-        })?;
+        let mut eng = lock_engine(engine)?;
         eng.compile(&file_indices)
     };
 
