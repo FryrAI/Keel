@@ -243,9 +243,7 @@ fn wrapper_fixture(store: &mut SqliteGraphStore, file: &str, content: &str) -> V
     {
         id += 1;
         let mut node = function_node(id, &def.name, file, def.line_start);
-        node.is_associated = def.is_associated;
-        node.in_test_context = def.in_test_context;
-        node.is_trivial_wrapper = def.stored_trivial_wrapper();
+        def.apply_parse_facts(&mut node);
         store.insert_node(&node).unwrap();
         ids.push(id);
     }

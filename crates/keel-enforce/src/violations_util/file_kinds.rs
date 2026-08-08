@@ -26,6 +26,13 @@ fn target_identity_under(normalized: &str, dir: &str) -> Option<String> {
     } else {
         normalized.find(&format!("/{prefix}"))? + 1
     };
+    // `src/examples/`, `src/benches/` are ordinary library module dirs, not
+    // Cargo target dirs — Cargo discovers targets only at the crate root.
+    // (`src/bin` is exempt from this guard: its `dir` string carries the
+    // `src/` itself.)
+    if !dir.starts_with("src/") && normalized[..start].ends_with("src/") {
+        return None;
+    }
     let rest = &normalized[start + prefix.len()..];
     let head = rest.split('/').next()?;
     let name = head.strip_suffix(".rs").unwrap_or(head);
@@ -247,6 +254,26 @@ mod tests {
         assert!(distinct_compilation_units(
             "src/bin/tool/args.rs",
             "src/bin/other/args.rs"
+        ));
+    }
+
+    #[test]
+    fn test_src_examples_and_src_benches_are_library_modules() {
+        // Cargo discovers examples/benches only at the crate root; the same
+        // dir names under src/ are ordinary modules sharing one namespace.
+        for path in [
+            "src/examples/foo.rs",
+            "src/benches/foo.rs",
+            "crates/x/src/examples/foo.rs",
+        ] {
+            assert!(
+                cargo_target_identity(path).is_none(),
+                "{path} is a library module, not a target"
+            );
+        }
+        assert!(!distinct_compilation_units(
+            "src/examples/foo.rs",
+            "src/examples/bar.rs"
         ));
     }
 

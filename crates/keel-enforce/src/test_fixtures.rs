@@ -152,11 +152,11 @@ pub(crate) fn node_for_definition(id: u64, def: &Definition) -> GraphNode {
     let (hash, _) = crate::violations_util::definition_hashes(def, &def.file_path);
     let mut node = function_node(id, &hash, &def.name, &def.file_path);
     node.is_public = def.is_public;
-    node.is_associated = def.is_associated;
-    node.complexity = def.complexity;
-    node.is_trivial_wrapper = def.stored_trivial_wrapper();
-    node.in_test_context = def.in_test_context;
     node.line_start = def.line_start;
     node.line_end = def.line_end;
+    // The production fact list, not a hand copy — a fact added to
+    // `apply_parse_facts` must reach the fixtures the checks are asserted
+    // against, or tests keep passing while the real writers drift.
+    def.apply_parse_facts(&mut node);
     node
 }

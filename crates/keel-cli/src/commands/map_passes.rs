@@ -205,9 +205,10 @@ pub fn first_pass(
                 is_public: def.is_public,
                 type_hints_present: def.type_hints_present,
                 has_docstring: def.docstring.is_some(),
-                // Placeholders — `apply_parse_facts` below is the single
-                // owner of every parse-derived fact, shared with
-                // compile-sync's insert and the engine's update path.
+                // Placeholders (and `kind` above, re-written the same way) —
+                // `apply_parse_facts` below is the single owner of every
+                // parse-derived fact, shared with compile-sync's insert and
+                // the engine's update path.
                 is_associated: false,
                 complexity: 0,
                 is_trivial_wrapper: false,

@@ -342,8 +342,7 @@ pub fn tokenize_positioned(body: &str, lang: &str, mode: IdentifierMode) -> Vec<
 
         // Go backtick raw strings: no escapes, end at the next backtick.
         if syntax == BodySyntax::Go && c == b'`' {
-            let close = b[i + 1..].iter().position(|&x| x == b'`');
-            let end = close.map_or(n, |p| i + 2 + p);
+            let end = hash::go_raw_string_end(b, i);
             push!(STR_TOKEN);
             line += b[i..end].iter().filter(|&&x| x == b'\n').count() as u32;
             i = end;

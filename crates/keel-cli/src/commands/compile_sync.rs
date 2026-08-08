@@ -745,7 +745,8 @@ fn definition_node(
         is_public: def.is_public,
         type_hints_present: def.type_hints_present,
         has_docstring: def.docstring.is_some(),
-        // Placeholders — `apply_parse_facts` below is the single owner of
+        // Placeholders (and `kind` above, re-written the same way) —
+        // `apply_parse_facts` below is the single owner of
         // every parse-derived fact, shared with map's pass and the engine's
         // update path so the three writers cannot drift.
         is_associated: false,

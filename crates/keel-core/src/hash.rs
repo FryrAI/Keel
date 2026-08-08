@@ -121,17 +121,18 @@ pub(crate) fn body_syntax(lang: &str) -> BodySyntax {
     }
 }
 
-/// Strip comments from `body`, preserving string-literal contents **verbatim**.
-///
-/// Line comments are dropped up to (but not including) the newline; block
-/// comments are replaced by a single space so they still separate tokens
-/// (`a/*x*/b` → `a b`, never `ab`). String literals — including comment-looking
-/// text inside them — are copied through unchanged, so `"// x"` stays `"// x"`.
-///
-/// This is a deliberately lexical pass (no AST), so it is a *pure, deterministic*
-/// function of its input: `keel map` and `keel compile` always derive the same
-/// normalized body for the same source. Exotic literals (Rust raw strings with
-/// embedded quotes) may be handled imperfectly, but never non-deterministically.
+/// End index (exclusive) of the Go backtick raw string opening at `i` — no
+/// escapes, ends at the next backtick, unterminated consumes to end of input.
+/// Shared by `strip_comments` and the Type-2 tokenizer for the same reason as
+/// [`raw_string_end`]: one owner per literal form, so the lexers cannot
+/// disagree.
+pub(crate) fn go_raw_string_end(b: &[u8], i: usize) -> usize {
+    b[i + 1..]
+        .iter()
+        .position(|&x| x == b'`')
+        .map_or(b.len(), |p| i + 2 + p)
+}
+
 /// End index (exclusive) of the Rust raw string starting at `i`, or `None`
 /// when `i` does not start one (`r"…"`, `r#"…"#`, `br##"…"##`). Raw strings
 /// contain no escapes; the literal ends at the first `"` followed by the
@@ -216,7 +217,8 @@ pub(crate) fn strip_comments(body: &str, syntax: BodySyntax) -> String {
         // node hashes, Type-2 false collisions).
         if syntax == BodySyntax::Rust
             && (c == b'r' || c == b'b')
-            && !(i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
+            && !(i > 0
+                && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] >= 0x80))
         {
             if let Some(end) = raw_string_end(b, i) {
                 out.extend_from_slice(&b[i..end]);
@@ -248,8 +250,7 @@ pub(crate) fn strip_comments(body: &str, syntax: BodySyntax) -> String {
         // String literals — content preserved verbatim.
         // Go backtick raw strings: no escapes, end at the next backtick.
         if syntax == BodySyntax::Go && c == b'`' {
-            let close = b[i + 1..].iter().position(|&x| x == b'`');
-            let end = close.map_or(n, |p| i + 2 + p);
+            let end = go_raw_string_end(b, i);
             out.extend_from_slice(&b[i..end]);
             i = end;
             continue;
