@@ -237,7 +237,7 @@ Low-confidence call edges (trait dispatch, interface methods) produce **WARNING 
 - [Constitution](constitution.md) — non-negotiable articles
 
 <!-- keel:start -->
-<!-- keel:version 0.5.0 -->
+<!-- keel:version 0.6.0 -->
 ## keel — Code Graph Enforcement
 
 This project uses keel (keel.engineer) for code graph enforcement.
@@ -279,7 +279,7 @@ project vault/notes directory is optional and entirely user-side.)
 | W001 | placement — function is in a non-ideal module |
 | W002 | duplicate_name — another function with the same name exists |
 | W005 | dead_code — private function has no callers in the graph |
-| W006 | duplicate_implementation — function body is identical to one elsewhere, or identical apart from renamed identifiers/literals (lower confidence) |
+| W006 | duplicate_implementation — function body is identical to one elsewhere |
 | W007 | oversized_file — file exceeds the configured line budget and grew |
 | W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
