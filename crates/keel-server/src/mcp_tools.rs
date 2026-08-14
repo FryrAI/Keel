@@ -130,14 +130,15 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/name".into(),
-            description: "Suggest name and location for new code based on description".into(),
+            description: "Suggest existing reuse candidates before a name and location for new code".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["description"],
                 "properties": {
                     "description": { "type": "string" },
                     "module": { "type": "string", "description": "Filter to modules matching this path substring" },
-                    "kind": { "type": "string", "enum": ["function", "class"] }
+                    "kind": { "type": "string", "enum": ["function", "class"] },
+                    "semantic": { "type": "boolean", "default": false, "description": "Add deterministic semantic-concept candidates. Candidate-only; never warning or gate." }
                 }
             }),
         },
@@ -216,7 +217,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/review".into(),
-            description: "Two-sided graph diff against a base ref: which contracts moved (signature changed / added / removed / moved), the callers left outside the diff, the violations the diff introduced (base-side findings subtracted), and the changed files keel could not parse".into(),
+            description: "Two-sided graph diff against a base ref: contracts moved, PR sprawl ledger, advisory-only W010 reuse candidates, callers left outside the diff, introduced violations, and changed files keel could not parse".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["base"],
@@ -227,7 +228,7 @@ pub(crate) fn tool_list() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "keel/validate-plan".into(),
-            description: "Validate a plan against the dependency graph before execution: detected actions, callers at risk, risk level, a callers-first suggested order, and P001/P002 plan findings (unknown call target, signature mismatch)".into(),
+            description: "Validate a plan against the dependency graph before execution: actions, callers at risk, callers-first order, P001/P002 checks, and advisory-only P003 reuse candidates".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "required": ["plan"],

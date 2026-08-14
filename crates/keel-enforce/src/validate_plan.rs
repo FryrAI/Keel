@@ -16,6 +16,7 @@ use keel_core::types::{GraphNode, NodeKind};
 
 use crate::checkpoint::{callers_of, CallerRef};
 use crate::validate_plan_findings::{detect_plan_findings, PlanContext};
+use crate::validate_plan_reuse::detect_reuse_findings;
 
 pub use crate::validate_plan_findings::PlanFinding;
 
@@ -47,7 +48,7 @@ pub struct PlanValidationResult {
     pub files_detected: Vec<String>,
     /// True when no graph-relevant actions were detected.
     pub unrecognized: bool,
-    /// Plan-time findings (`P001`/`P002`). Omitted from JSON when empty so a
+    /// Plan-time findings (`P001`/`P002`/advisory-only `P003`). Omitted from JSON when empty so a
     /// clean plan serializes exactly as it did before the `P` namespace
     /// existed — the never-fails report shape is a contract.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -58,7 +59,9 @@ impl PlanValidationResult {
     /// True when at least one finding is still live (not circuit-breaker
     /// downgraded) — i.e. `--strict` should exit 1.
     pub fn has_live_findings(&self) -> bool {
-        self.findings.iter().any(|f| !f.downgraded)
+        self.findings
+            .iter()
+            .any(|f| matches!(f.code.as_str(), "P001" | "P002") && !f.downgraded)
     }
 }
 
@@ -224,7 +227,7 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
         .collect();
 
     // P001/P002 read the resolution work above rather than re-querying.
-    let findings = detect_plan_findings(
+    let mut findings = detect_plan_findings(
         plan,
         &PlanContext {
             symbol_node: &symbol_node,
@@ -233,6 +236,9 @@ pub fn validate_plan(store: &dyn GraphStore, plan: &str) -> PlanValidationResult
             actions: &sym_action,
         },
     );
+    findings.extend(detect_reuse_findings(store, plan));
+    findings.sort_by(|a, b| a.code.cmp(&b.code).then(a.symbol.cmp(&b.symbol)));
+    findings.truncate(20);
 
     PlanValidationResult {
         version: env!("CARGO_PKG_VERSION").to_string(),

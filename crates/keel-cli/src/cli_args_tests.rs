@@ -462,10 +462,12 @@ fn parse_name_basic() {
             description,
             module,
             kind,
+            semantic,
         } => {
             assert_eq!(description, "validate user JWT token");
             assert!(module.is_none());
             assert!(kind.is_none());
+            assert!(!semantic);
         }
         _ => panic!("expected Name"),
     }
@@ -481,16 +483,19 @@ fn parse_name_with_options() {
         "src/auth.rs",
         "--kind",
         "fn",
+        "--semantic",
     ]);
     match cli.command {
         Commands::Name {
             description,
             module,
             kind,
+            semantic,
         } => {
             assert_eq!(description, "handle auth");
             assert_eq!(module.as_deref(), Some("src/auth.rs"));
             assert_eq!(kind.as_deref(), Some("fn"));
+            assert!(semantic);
         }
         _ => panic!("expected Name"),
     }

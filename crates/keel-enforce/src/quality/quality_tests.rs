@@ -142,6 +142,35 @@ fn dead_private_fns_ignores_test_files() {
 }
 
 #[test]
+fn surface_metrics_track_exports_files_and_single_consumer_helpers() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    seed(
+        &mut store,
+        vec![
+            node(1, "mod_a", "src/a.ts", NodeKind::Module, true, 100),
+            node(2, "mod_b", "src/b.ts", NodeKind::Module, true, 100),
+            node(3, "spec", "src/a.spec.ts", NodeKind::Module, true, 900),
+            node(4, "api", "src/a.ts", NodeKind::Function, true, 5),
+            node(5, "helper", "src/a.ts", NodeKind::Function, false, 5),
+            node(6, "caller", "src/b.ts", NodeKind::Function, true, 5),
+            node(7, "other", "src/b.ts", NodeKind::Function, true, 5),
+            node(8, "shared", "src/a.ts", NodeKind::Function, false, 5),
+            node(9, "fixture", "src/a.spec.ts", NodeKind::Function, true, 5),
+        ],
+    );
+    edge(&mut store, 1, 6, 5, EdgeKind::Calls, "src/b.ts");
+    edge(&mut store, 2, 6, 8, EdgeKind::Calls, "src/b.ts");
+    edge(&mut store, 3, 7, 8, EdgeKind::Uses, "src/b.ts");
+
+    let metrics = compute_metrics(&store, BUDGET);
+
+    assert_eq!(metrics.source_file_count, 2);
+    assert_eq!(metrics.exported_symbol_count, 3);
+    assert_eq!(metrics.single_consumer_helper_count, 1);
+    assert_eq!(metrics.exported_symbols_per_kloc, 15.0);
+}
+
+#[test]
 fn cross_module_edge_ratio_counts_edges_that_leave_their_file() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     seed(
@@ -279,6 +308,10 @@ fn empty_graph_measures_zero_rather_than_dividing_by_zero() {
     assert_eq!(m.high_cc_mass_share, 0.0);
     assert_eq!(m.propagation_cost, 0.0);
     assert_eq!(m.clone_loc_ratio, 0.0);
+    assert_eq!(m.source_file_count, 0);
+    assert_eq!(m.exported_symbol_count, 0);
+    assert_eq!(m.single_consumer_helper_count, 0);
+    assert_eq!(m.exported_symbols_per_kloc, 0.0);
 }
 
 /// A file with two stored `module` rows (hash-salt collisions do happen) is one
@@ -317,6 +350,10 @@ fn metrics_blob(over: u32, cycles: u32, dead: u32, ratio: f64) -> String {
         high_cc_mass_share: 0.4,
         propagation_cost: 0.2,
         clone_loc_ratio: 0.1,
+        source_file_count: 10,
+        exported_symbol_count: 20,
+        single_consumer_helper_count: 3,
+        exported_symbols_per_kloc: 2.5,
     }
     .to_json()
 }
@@ -331,7 +368,7 @@ fn trend_reports_direction_and_per_commit_attribution() {
     let trend = build_trend(&rows);
     assert!(trend.refused.is_none());
     assert_eq!(trend.points.len(), 3);
-    assert_eq!(trend.metrics.len(), 7);
+    assert_eq!(trend.metrics.len(), 11);
     assert!(trend.omitted.is_empty());
 
     let over = &trend.metrics[0];
@@ -405,7 +442,15 @@ fn trend_omits_metrics_that_a_point_in_the_window_predates() {
     );
     assert_eq!(
         trend.omitted,
-        vec!["high_cc_mass_share", "propagation_cost", "clone_loc_ratio"]
+        vec![
+            "high_cc_mass_share",
+            "propagation_cost",
+            "clone_loc_ratio",
+            "source_file_count",
+            "exported_symbol_count",
+            "single_consumer_helper_count",
+            "exported_symbols_per_kloc",
+        ]
     );
     assert_eq!(trend.metrics[0].first, 10.0);
     assert_eq!(trend.metrics[0].last, 18.0);

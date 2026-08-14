@@ -89,6 +89,9 @@ fn apply_circuit_breaker(
 
     let mut active: Vec<(String, String)> = Vec::with_capacity(result.findings.len());
     for finding in &mut result.findings {
+        if finding.code == "P003" {
+            continue;
+        }
         let ident = finding_identity(finding);
         let action = breaker.record_failure(&finding.code, &ident, &finding.claimed, PLAN_SCOPE);
         if action == BreakerAction::Downgrade {

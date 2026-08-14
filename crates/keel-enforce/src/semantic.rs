@@ -10,6 +10,37 @@ use serde::{Deserialize, Serialize};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeKind};
 
+/// Split snake/camel/path text into unique lowercase identifier words.
+///
+/// `min_len` is applied after splitting, so `toUnixSeconds` still contributes
+/// `unix` and `seconds` even though the leading `to` is discarded.
+pub(crate) fn identifier_words(text: &str, min_len: usize) -> std::collections::BTreeSet<String> {
+    let mut words = std::collections::BTreeSet::new();
+    let mut current = String::new();
+    let mut previous_lower = false;
+    let flush = |word: &mut String, out: &mut std::collections::BTreeSet<String>| {
+        if word.len() >= min_len {
+            out.insert(std::mem::take(word));
+        } else {
+            word.clear();
+        }
+    };
+    for character in text.chars() {
+        if character.is_alphanumeric() {
+            if character.is_uppercase() && previous_lower {
+                flush(&mut current, &mut words);
+            }
+            current.extend(character.to_lowercase());
+            previous_lower = character.is_lowercase();
+        } else {
+            flush(&mut current, &mut words);
+            previous_lower = false;
+        }
+    }
+    flush(&mut current, &mut words);
+    words
+}
+
 /// A public symbol in a module: name, signature, and content hash.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticSymbol {

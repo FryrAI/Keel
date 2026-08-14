@@ -9,6 +9,7 @@ pub fn run(
     description: String,
     module: Option<String>,
     kind: Option<String>,
+    semantic: bool,
 ) -> i32 {
     // Open graph store from the worktree-aware `.keel` location.
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -22,11 +23,14 @@ pub fn run(
         }
     };
 
-    let result = keel_enforce::naming::suggest_name(
+    let result = keel_enforce::naming::suggest_name_with_options(
         &store,
         &description,
         module.as_deref(),
         kind.as_deref(),
+        keel_enforce::naming::NameOptions {
+            semantic_candidates: semantic,
+        },
     );
 
     let output = formatter.format_name(&result);

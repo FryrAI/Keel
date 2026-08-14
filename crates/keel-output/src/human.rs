@@ -193,25 +193,7 @@ impl OutputFormatter for HumanFormatter {
     }
 
     fn format_name(&self, result: &NameResult) -> String {
-        if result.suggestions.is_empty() {
-            return format!("No naming suggestions for \"{}\".\n", result.description);
-        }
-        let best = &result.suggestions[0];
-        let mut out = format!("Naming suggestion for \"{}\"\n\n", result.description);
-        out.push_str(&format!(
-            "  Location: {} (score: {:.0}%)\n",
-            best.location,
-            best.score * 100.0,
-        ));
-        out.push_str(&format!("  Suggested name: {}\n", best.suggested_name));
-        out.push_str(&format!("  Convention: {}\n", best.convention));
-        if let Some(after) = &best.insert_after {
-            out.push_str(&format!("  Insert after: {}\n", after));
-        }
-        if !best.siblings.is_empty() {
-            out.push_str(&format!("  Siblings: {}\n", best.siblings.join(", ")));
-        }
-        out
+        crate::human_name::render_name(result)
     }
 
     fn format_check(&self, result: &CheckResult) -> String {

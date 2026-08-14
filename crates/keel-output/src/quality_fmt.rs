@@ -20,7 +20,7 @@ const NO_SNAPSHOTS_HINT: &str =
 /// list is exactly how that happens.
 fn value(kind: MetricKind, v: f64) -> String {
     match kind {
-        MetricKind::Fraction => format!("{v:.2}"),
+        MetricKind::Fraction | MetricKind::Rate => format!("{v:.2}"),
         MetricKind::Count => format!("{v:.0}"),
     }
 }
@@ -255,6 +255,10 @@ mod tests {
             high_cc_mass_share: 0.5,
             propagation_cost: 0.12,
             clone_loc_ratio: 0.07,
+            source_file_count: 40,
+            exported_symbol_count: 80,
+            single_consumer_helper_count: 12,
+            exported_symbols_per_kloc: 3.25,
         }
     }
 
@@ -298,6 +302,7 @@ mod tests {
         let out = llm(&report(Some(metrics(0, 0.0)), None));
         assert!(out.contains("files_over_budget=0"));
         assert!(out.contains("cross_module_edge_ratio=0.00"));
+        assert!(out.contains("exported_symbols_per_kloc=3.25"));
     }
 
     #[test]

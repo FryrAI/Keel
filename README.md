@@ -34,7 +34,7 @@ When an LLM coding agent modifies your code, keel immediately validates that the
 - **Backpressure signals** — `PRESSURE=LOW/MED/HIGH` with `BUDGET=` directives for token-aware agents
 - **Cloud sync** — `keel login` + `keel push` uploads graph to keel cloud for team dashboards and cross-repo linking
 - **Fix generation** — `keel fix` produces diff-style fix plans for E001-E005 violations
-- **Naming suggestions** — `keel name` scores modules by keyword overlap and detects naming conventions
+- **Reuse-first naming** — `keel name` surfaces existing symbols before suggesting a new name and location
 - **MCP + HTTP server** — real-time enforcement via `keel serve`
 - **Tool config generation** — `keel init` auto-detects 9 AI coding tools and generates hook configs
 - **Zero runtime dependencies** — single statically-linked 12MB binary
@@ -153,9 +153,9 @@ keel where a7Bx3kM9f2Q
 | `keel explain <code> <hash>` | Resolution chain explanation | <50ms |
 | `keel serve` | MCP/HTTP/file-watch server | ~50-100MB memory |
 | `keel fix [hash...]` | Generate fix plans from violations | <200ms |
-| `keel name <desc>` | Location-aware naming suggestions | <100ms |
+| `keel name <desc> [--semantic]` | Reuse-first candidates, then naming/location suggestions | <100ms |
 | `keel checkpoint [--since <commit>] [--staged] [-o <file>]` | Compact session-state summary for re-injection after context loss | <1s |
-| `keel validate-plan <file\|-> [--strict]` | Validate a plan against the graph before execution (callers at risk + P001/P002) | <100ms |
+| `keel validate-plan <file\|-> [--strict]` | Validate a plan against the graph before execution (callers at risk + P001/P002/P003) | <100ms |
 | `keel quality [--snapshot\|--trend]` | Countable maintainability metrics, persisted per commit, with their trend | <100ms |
 | `keel map --semantic` | Deterministic per-module semantic enrichment (summary, public API, when-to-use) | <5s for 100k LOC |
 | `keel login` | Authenticate with keel cloud | — |
@@ -237,9 +237,9 @@ keel compile --depth 0 src/auth.ts
 keel fix a7Bx3kM9f2Q
 # Output: diff-style fix plan with context lines
 
-# Find the best module for a new function
+# Inspect existing candidates before finding the best module for a new function
 keel name "validate user authentication"
-# Output: scored modules with keyword overlap and convention hints
+# Output: REUSE? candidates, then scored modules and convention hints
 
 # Depth-aware map for context budgeting
 keel map --depth 1
@@ -317,9 +317,11 @@ scripts/
 | W006 | Duplicate implementation | WARNING |
 | W007 | Oversized file | WARNING |
 | W009 | New cross-boundary dependency | WARNING |
+| W010 | Semantic reuse candidate (`keel review`, advisory-only) | WARNING |
 | S001 | Suppressed | INFO |
 | P001 | Unknown symbol (plan-time, `keel validate-plan` only) | WARNING |
 | P002 | Signature mismatch (plan-time, `keel validate-plan` only) | WARNING |
+| P003 | Reuse candidate (plan-time, never strict) | WARNING |
 
 ### Exit Codes
 

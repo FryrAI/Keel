@@ -8,6 +8,7 @@
 - [Commands](commands.md)
 - [Configuration](config.md)
 - [Error Codes](error-codes.md)
+- [Semantic Reuse](reuse-advisories.md)
 
 # Integration
 

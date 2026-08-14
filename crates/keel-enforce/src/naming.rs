@@ -1,6 +1,37 @@
+mod convention;
+mod reuse;
+mod semantic_candidates;
+
 use crate::types::{NameAlternative, NameResult, NameSuggestion};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, NodeKind};
+
+#[cfg(test)]
+use convention::{detect_common_prefix, NamingConvention};
+use convention::{detect_convention, generate_name};
+use reuse::find_reuse_candidates;
+use semantic_candidates::find_semantic_candidates;
+
+/// Optional, candidate-only naming behaviors.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NameOptions {
+    /// Expand domain concepts (for example `unix` ↔ `timestamp`). Results are
+    /// hints only and are never consumed by W010, P003, or a gate.
+    pub semantic_candidates: bool,
+}
+
+/// Existing symbols that may satisfy a requested intent.
+///
+/// This is candidate generation only: callers must not promote a lexical
+/// match into an equivalence claim, violation, or gate.
+pub(crate) fn reuse_candidates(
+    store: &dyn GraphStore,
+    description: &str,
+) -> Vec<crate::types::ReuseCandidate> {
+    let desc_words = extract_keywords(description);
+    let modules = store.get_all_modules();
+    find_reuse_candidates(store, &modules, &desc_words, None, Some("fn"))
+}
 
 /// Suggest a name and location for new code.
 ///
@@ -12,12 +43,50 @@ pub fn suggest_name(
     module_filter: Option<&str>,
     kind_filter: Option<&str>,
 ) -> NameResult {
+    suggest_name_with_options(
+        store,
+        description,
+        module_filter,
+        kind_filter,
+        NameOptions::default(),
+    )
+}
+
+/// Suggest a name and location with explicitly enabled candidate generators.
+pub fn suggest_name_with_options(
+    store: &dyn GraphStore,
+    description: &str,
+    module_filter: Option<&str>,
+    kind_filter: Option<&str>,
+    options: NameOptions,
+) -> NameResult {
     let desc_words = extract_keywords(description);
     let modules = store.get_all_modules();
+    let mut reuse_candidates =
+        find_reuse_candidates(store, &modules, &desc_words, module_filter, kind_filter);
+    if options.semantic_candidates {
+        reuse_candidates.extend(find_semantic_candidates(
+            store,
+            &modules,
+            description,
+            module_filter,
+            kind_filter,
+        ));
+        let mut seen = std::collections::HashSet::new();
+        reuse_candidates.retain(|candidate| seen.insert(candidate.hash.clone()));
+        reuse_candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.file.cmp(&b.file))
+                .then_with(|| a.line.cmp(&b.line))
+        });
+        reuse_candidates.truncate(5);
+    }
 
     // Score each module
     let mut scored: Vec<(f64, keel_core::types::GraphNode)> = modules
-        .into_iter()
+        .iter()
         .filter(|m| {
             if let Some(filter) = module_filter {
                 m.file_path.contains(filter)
@@ -25,6 +94,7 @@ pub fn suggest_name(
                 true
             }
         })
+        .cloned()
         .map(|m| {
             let profile = store.get_module_profile(m.id);
             let keyword_score = if let Some(ref p) = profile {
@@ -51,6 +121,7 @@ pub fn suggest_name(
             version: env!("CARGO_PKG_VERSION").to_string(),
             command: "name".to_string(),
             description: description.to_string(),
+            reuse_candidates,
             suggestions: vec![],
         };
     }
@@ -113,6 +184,7 @@ pub fn suggest_name(
         version: env!("CARGO_PKG_VERSION").to_string(),
         command: "name".to_string(),
         description: description.to_string(),
+        reuse_candidates,
         suggestions: vec![NameSuggestion {
             location: best_module.file_path.clone(),
             score: best_score,
@@ -237,52 +309,6 @@ fn compute_function_name_score(
     }
 }
 
-/// Detect naming convention from sibling function names.
-fn detect_convention(names: &[&str]) -> NamingConvention {
-    if names.is_empty() {
-        return NamingConvention::SnakeCase { prefix: None };
-    }
-
-    let snake_count = names.iter().filter(|n| n.contains('_')).count();
-    let camel_count = names
-        .iter()
-        .filter(|n| !n.contains('_') && n.chars().any(|c| c.is_uppercase()))
-        .count();
-
-    // Detect common prefix
-    let prefix = detect_common_prefix(names);
-
-    if snake_count >= camel_count {
-        NamingConvention::SnakeCase { prefix }
-    } else {
-        NamingConvention::CamelCase { prefix }
-    }
-}
-
-/// Detect common prefix in function names.
-fn detect_common_prefix(names: &[&str]) -> Option<String> {
-    if names.len() < 2 {
-        return None;
-    }
-
-    // For snake_case: find common prefix before first underscore
-    let prefixes: Vec<&str> = names.iter().filter_map(|n| n.split('_').next()).collect();
-
-    if prefixes.is_empty() {
-        return None;
-    }
-
-    let first = prefixes[0];
-    let matching = prefixes.iter().filter(|p| **p == first).count();
-
-    // If majority share a prefix, report it
-    if matching * 2 >= names.len() && !first.is_empty() {
-        Some(format!("{}_", first))
-    } else {
-        None
-    }
-}
-
 /// Find the best insertion point among sibling functions.
 fn find_insertion_point<'a>(
     siblings: &[&'a keel_core::types::GraphNode],
@@ -338,75 +364,6 @@ fn collect_sibling_imports(
         }
     }
     imports.into_iter().take(10).collect()
-}
-
-/// Generate a suggested name from description keywords and convention.
-fn generate_name(desc_words: &[String], convention: &NamingConvention) -> String {
-    let filtered: Vec<&str> = desc_words
-        .iter()
-        .take(4) // Max 4 words in name
-        .map(|s| s.as_str())
-        .collect();
-
-    match convention {
-        NamingConvention::SnakeCase { prefix } => {
-            let base = filtered.join("_");
-            if let Some(p) = prefix {
-                format!("{}{}", p, base)
-            } else {
-                base
-            }
-        }
-        NamingConvention::CamelCase { prefix } => {
-            let base: String = filtered
-                .iter()
-                .enumerate()
-                .map(|(i, w)| {
-                    if i == 0 {
-                        w.to_string()
-                    } else {
-                        let mut c = w.chars();
-                        match c.next() {
-                            None => String::new(),
-                            Some(first) => first.to_uppercase().to_string() + c.as_str(),
-                        }
-                    }
-                })
-                .collect();
-            if let Some(p) = prefix {
-                format!("{}{}", p, base)
-            } else {
-                base
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum NamingConvention {
-    SnakeCase { prefix: Option<String> },
-    CamelCase { prefix: Option<String> },
-}
-
-impl std::fmt::Display for NamingConvention {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NamingConvention::SnakeCase { prefix } => {
-                write!(f, "snake_case")?;
-                if let Some(p) = prefix {
-                    write!(f, ", prefix: {}", p)?;
-                }
-                Ok(())
-            }
-            NamingConvention::CamelCase { prefix } => {
-                write!(f, "camelCase")?;
-                if let Some(p) = prefix {
-                    write!(f, ", prefix: {}", p)?;
-                }
-                Ok(())
-            }
-        }
-    }
 }
 
 #[cfg(test)]

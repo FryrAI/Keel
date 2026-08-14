@@ -10,6 +10,7 @@
 //! - W002: duplicate name (same function name in multiple modules)
 //! - W005-W007: economy checks (dead code, duplicate impls, oversized files)
 //! - W009: new cross-boundary dependency (+ opt-in E006 layer violation)
+//! - W010/P003: advisory-only semantic-reuse candidates
 
 pub mod analyze;
 pub mod audit;
@@ -39,6 +40,7 @@ pub(crate) mod test_fixtures;
 pub mod types;
 pub mod validate_plan;
 pub mod validate_plan_findings;
+mod validate_plan_reuse;
 pub mod violations;
 pub mod violations_boundary;
 pub mod violations_economy;

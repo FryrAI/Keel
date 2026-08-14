@@ -299,9 +299,26 @@ Together those filters keep the detector no wider than the graph it is diffed ag
 
 **Fix:** Go through the target boundary's public surface (the fix_hint names its most-called public symbol), or move the shared code into a boundary both sides already depend on. To make a specific pair a hard error, list it under [`architecture.deny`](#e006--layer-violation).
 
+### W010 — Semantic Reuse Candidate
+
+**Severity:** WARNING (review-time advisory; never gating)
+
+`keel review` found an existing base-graph function whose structural role may
+overlap a function added by the diff. Replacement evidence requires a changed
+caller to replace a compatible base call at the same line (or within three
+lines). Role evidence combines caller-module overlap, callee overlap, signature
+shape, and domain vocabulary.
+
+W010 is intentionally not a compile violation. It is serialized under
+`reuse_advisories`, never under `new_violations`; `review.gate` therefore cannot
+gate it. The fix is to inspect the existing contract and either reuse it or
+state the semantic difference that justifies both symbols.
+
+See [Semantic Reuse](reuse-advisories.md) for scoring, exclusions, and calibration.
+
 ## Plan findings
 
-`P001` and `P002` live in a deliberately separate namespace. They are produced by [`keel validate-plan`](commands.md) only — never by `keel compile` — because they describe claims about code that does not exist yet. They never appear in the compile stream, never affect a compile's exit code, and `keel validate-plan` itself still exits 0 by default: the never-fails contract is intact unless you pass `--strict`.
+`P001`, `P002`, and `P003` live in a deliberately separate namespace. They are produced by [`keel validate-plan`](commands.md) only — never by `keel compile` — because they describe claims about code that does not exist yet. They never appear in the compile stream or affect a compile's exit code. `P003` is always advisory; `--strict` applies only to live P001/P002 findings.
 
 ### P001 — Unknown Symbol
 
@@ -362,6 +379,19 @@ v1 compares **name + arity + return presence only**:
 - **Same-named candidates must agree.** If two nodes share the name and disagree on arity or return presence, the claim cannot be attributed and nothing fires.
 - **A declared intent to change the signature is not a mismatch.** When the plan already says it is renaming, removing, or changing the signature of that symbol, the shape it is changing *to* is not reported.
 
+### P003 — Reuse Candidate
+
+**Severity:** WARNING (advisory; never strict)
+
+An explicit creation claim such as `add parse_time(value)` has a strong lexical
+match in the graph. Keel requires the creation verb to introduce the proposed
+identifier directly and a candidate score of at least 0.55. It reports one real
+hash/signature/location to inspect.
+
+P003 consumes only the lexical reuse generator. Candidates produced by
+`keel name --semantic` are prohibited from reaching P003, so an optional concept
+expansion can never become a warning or gate by itself.
+
 ### Strict mode and the plan hook
 
 `keel validate-plan --strict` exits 1 when a live P001/P002 finding is present. It is opt-in everywhere:
@@ -370,7 +400,7 @@ v1 compares **name + arity + return presence only**:
 - `KEEL_PLAN_STRICT=1` turns the hook blocking (exit 2, stderr shown to the model).
 - `KEEL_PLAN_HOOK=0` is the one-line bypass.
 
-Repeat findings route through the same [circuit breaker](#circuit-breaker) as compile violations, keyed on the P-code plus the symbol and fingerprinted by the claim text. Three genuinely different but still-wrong claims downgrade the finding to INFO, which drops it out of `--strict`'s exit code — a stubborn claim degrades to advice instead of deadlocking a session. A correct plan clears the counter.
+P001/P002 findings route through the same [circuit breaker](#circuit-breaker) as compile violations, keyed on the P-code plus the symbol and fingerprinted by the claim text. Three genuinely different but still-wrong claims downgrade the finding to INFO, which drops it out of `--strict`'s exit code — a stubborn claim degrades to advice instead of deadlocking a session. P003 is already non-strict and does not use the breaker.
 
 ## Info
 

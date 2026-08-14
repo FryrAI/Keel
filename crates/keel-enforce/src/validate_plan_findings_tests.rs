@@ -399,3 +399,63 @@ fn ambiguous_same_named_symbols_are_skipped() {
         result.findings
     );
 }
+
+#[test]
+fn proposed_function_gets_advisory_only_p003_for_a_strong_reuse_candidate() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut module = node(1, "MODULEHASH1", "time", "module", "src/time.rs");
+    module.kind = NodeKind::Module;
+    store.insert_node(&module).unwrap();
+    store
+        .insert_node(&node(
+            2,
+            "TIMEHASH001",
+            "parse_timestamp",
+            "fn parse_timestamp(value: &str) -> i64",
+            "src/time.rs",
+        ))
+        .unwrap();
+
+    let result = validate_plan(&store, "Add a new parse_time(value) helper.");
+
+    let finding = result
+        .findings
+        .iter()
+        .find(|finding| finding.code == "P003")
+        .expect("strong lexical candidate should be surfaced");
+    assert_eq!(finding.category, "reuse_candidate");
+    assert_eq!(
+        finding.actual.as_deref(),
+        Some("fn parse_timestamp(value: &str) -> i64")
+    );
+    assert!(finding.fix_hint.contains("TIMEHASH001"));
+    assert!(
+        !result.has_live_findings(),
+        "P003 must never participate in --strict"
+    );
+}
+
+#[test]
+fn semantic_only_similarity_cannot_create_p003() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut module = node(1, "MODULEHASH1", "time", "module", "src/time.rs");
+    module.kind = NodeKind::Module;
+    store.insert_node(&module).unwrap();
+    let mut existing = node(
+        2,
+        "TIMEHASH001",
+        "parse_timestamp",
+        "fn parse_timestamp(value: &str) -> i64",
+        "src/time.rs",
+    );
+    existing.docstring = None;
+    store.insert_node(&existing).unwrap();
+
+    let result = validate_plan(&store, "Add a new convert_unix_seconds(value) helper.");
+
+    assert!(
+        result.findings.iter().all(|finding| finding.code != "P003"),
+        "semantic candidate generation is opt-in display only: {:?}",
+        result.findings
+    );
+}

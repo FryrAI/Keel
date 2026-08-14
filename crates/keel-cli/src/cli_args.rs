@@ -209,6 +209,10 @@ pub(crate) enum Commands {
         /// Kind of entity: fn, class, method
         #[arg(long)]
         kind: Option<String>,
+        /// Add deterministic semantic-concept candidates. Candidate-only:
+        /// never emits W010/P003 and never gates.
+        #[arg(long)]
+        semantic: bool,
     },
 
     /// Analyze a file for structure, smells, and refactoring opportunities

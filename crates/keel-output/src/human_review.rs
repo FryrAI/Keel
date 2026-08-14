@@ -5,7 +5,7 @@
 //! with the shared `keel_enforce::review::render` headline — that is what keeps
 //! the interfaces from disagreeing about which change a reviewer meets first.
 
-use keel_enforce::review::{render, ReviewResult};
+use keel_enforce::review::{render, reuse::ReuseEvidenceKind, ReviewResult};
 
 /// Render a review for a terminal reader.
 ///
@@ -26,6 +26,34 @@ pub fn format_review_human(result: &ReviewResult) -> String {
         result.base,
         result.resolution,
     ));
+    if let Some(line) = render::sprawl_line(result) {
+        out.push_str(&format!("Surface growth: {line}\n"));
+    }
+
+    if !result.reuse_advisories.is_empty() {
+        out.push_str("\nReuse advisories (never gating):\n");
+        for advisory in &result.reuse_advisories {
+            let kind = match advisory.kind {
+                ReuseEvidenceKind::Replacement => "replacement",
+                ReuseEvidenceKind::RoleOverlap => "role overlap",
+            };
+            out.push_str(&format!(
+                "  [{}] {} at {}:{} may overlap {} at {}:{} ({kind}, {:.2})\n",
+                advisory.code,
+                advisory.new_symbol,
+                advisory.new_file,
+                advisory.new_line,
+                advisory.existing_symbol,
+                advisory.existing_file,
+                advisory.existing_line,
+                advisory.confidence,
+            ));
+            for evidence in &advisory.evidence {
+                out.push_str(&format!("    evidence: {evidence}\n"));
+            }
+            out.push_str(&format!("    fix: {}\n", advisory.fix_hint));
+        }
+    }
 
     let mut listed = false;
     for change in render::contract_changes(result) {

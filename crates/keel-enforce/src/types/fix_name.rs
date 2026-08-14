@@ -59,7 +59,48 @@ pub struct NameResult {
     pub version: String,
     pub command: String,
     pub description: String,
+    /// Existing symbols that may already satisfy the requested intent.
+    ///
+    /// Reuse candidates lead the result because avoiding a redundant symbol is
+    /// cheaper than finding the perfect name and location for one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reuse_candidates: Vec<ReuseCandidate>,
     pub suggestions: Vec<NameSuggestion>,
+}
+
+/// One existing symbol whose name, documentation and module responsibility
+/// overlap the requested intent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReuseCandidate {
+    pub name: String,
+    pub hash: String,
+    /// `lexical` candidates may feed P003; `semantic` candidates are display
+    /// hints only and can never produce a finding or gate.
+    pub source: ReuseCandidateSource,
+    pub signature: String,
+    pub file: String,
+    pub line: u32,
+    pub score: f64,
+    pub callers: u32,
+    pub callees: u32,
+    pub evidence: Vec<String>,
+}
+
+/// Which deterministic candidate generator nominated a symbol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReuseCandidateSource {
+    Lexical,
+    Semantic,
+}
+
+impl std::fmt::Display for ReuseCandidateSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Lexical => "lexical",
+            Self::Semantic => "semantic",
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

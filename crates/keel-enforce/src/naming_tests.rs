@@ -1,4 +1,31 @@
 use super::*;
+use keel_core::sqlite::SqliteGraphStore;
+use keel_core::types::GraphNode;
+
+fn stored_node(id: u64, name: &str, kind: NodeKind, file: &str, module_id: u64) -> GraphNode {
+    GraphNode {
+        id,
+        hash: format!("hash{id:07}"),
+        kind,
+        name: name.into(),
+        signature: format!("fn {name}(value: &str) -> i64"),
+        file_path: file.into(),
+        line_start: id as u32,
+        line_end: id as u32 + 4,
+        docstring: Some("Parse a timestamp into Unix seconds.".into()),
+        is_public: true,
+        type_hints_present: true,
+        has_docstring: true,
+        is_associated: false,
+        complexity: 1,
+        is_trivial_wrapper: false,
+        in_test_context: false,
+        external_endpoints: vec![],
+        previous_hashes: vec![],
+        module_id,
+        package: None,
+    }
+}
 
 #[test]
 fn test_extract_keywords() {
@@ -155,4 +182,108 @@ fn test_majority_prefix_detection() {
     ];
     let prefix2 = detect_common_prefix(&names2);
     assert!(prefix2.is_none(), "non-majority prefix should be None");
+}
+
+#[test]
+fn reuse_candidates_lead_create_suggestions() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&stored_node(1, "time", NodeKind::Module, "src/time.rs", 1))
+        .unwrap();
+    store
+        .insert_node(&stored_node(
+            2,
+            "parse_timestamp",
+            NodeKind::Function,
+            "src/time.rs",
+            1,
+        ))
+        .unwrap();
+
+    let result = suggest_name(&store, "time timestamp", None, Some("function"));
+
+    assert_eq!(result.reuse_candidates.len(), 1);
+    assert_eq!(result.reuse_candidates[0].name, "parse_timestamp");
+    assert_eq!(
+        result.reuse_candidates[0].source,
+        crate::types::ReuseCandidateSource::Lexical
+    );
+    assert!(result.reuse_candidates[0].score >= 0.4);
+    assert!(!result.reuse_candidates[0].evidence.is_empty());
+    assert!(!result.suggestions.is_empty());
+}
+
+#[test]
+fn reuse_candidates_exclude_test_files() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&stored_node(
+            1,
+            "time_test",
+            NodeKind::Module,
+            "tests/time_test.rs",
+            1,
+        ))
+        .unwrap();
+    store
+        .insert_node(&stored_node(
+            2,
+            "parse_timestamp",
+            NodeKind::Function,
+            "tests/time_test.rs",
+            1,
+        ))
+        .unwrap();
+
+    let result = suggest_name(&store, "parse timestamp", None, None);
+    assert!(result.reuse_candidates.is_empty());
+}
+
+#[test]
+fn semantic_candidates_are_opt_in_and_labeled_candidate_only() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    store
+        .insert_node(&stored_node(1, "time", NodeKind::Module, "src/time.rs", 1))
+        .unwrap();
+    let mut existing = stored_node(2, "parse_timestamp", NodeKind::Function, "src/time.rs", 1);
+    existing.docstring = None;
+    store.insert_node(&existing).unwrap();
+
+    let lexical = suggest_name(&store, "convert unix seconds", None, Some("function"));
+    assert!(lexical.reuse_candidates.is_empty());
+
+    let semantic = suggest_name_with_options(
+        &store,
+        "convert unix seconds",
+        None,
+        Some("function"),
+        NameOptions {
+            semantic_candidates: true,
+        },
+    );
+    let candidate = semantic
+        .reuse_candidates
+        .iter()
+        .find(|candidate| candidate.name == "parse_timestamp")
+        .expect("concept expansion should nominate the timestamp parser");
+    assert_eq!(
+        candidate.source,
+        crate::types::ReuseCandidateSource::Semantic
+    );
+    assert!(candidate.evidence[0].contains("never warning/gate"));
+
+    let both = suggest_name_with_options(
+        &store,
+        "parse timestamp",
+        None,
+        Some("function"),
+        NameOptions {
+            semantic_candidates: true,
+        },
+    );
+    assert_eq!(
+        both.reuse_candidates[0].source,
+        crate::types::ReuseCandidateSource::Lexical,
+        "lexical evidence must win when both generators nominate the same hash"
+    );
 }

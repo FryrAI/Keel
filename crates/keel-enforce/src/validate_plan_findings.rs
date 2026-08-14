@@ -35,11 +35,11 @@ const MAX_FINDINGS: usize = 20;
 /// A plan-time finding in the `P` namespace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanFinding {
-    /// `P001` or `P002`.
+    /// `P001`, `P002`, or advisory-only `P003`.
     pub code: String,
     /// `WARNING`, or `INFO` once the circuit breaker has downgraded it.
     pub severity: String,
-    /// `unknown_symbol` or `signature_mismatch`.
+    /// `unknown_symbol`, `signature_mismatch`, or `reuse_candidate`.
     pub category: String,
     /// The symbol the plan named.
     pub symbol: String,

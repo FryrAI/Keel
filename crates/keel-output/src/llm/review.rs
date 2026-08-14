@@ -5,7 +5,9 @@
 //! they exist in the payload as counts so the report can say "12 functions
 //! changed, only 3 changed their contract" and then stop.
 
-use keel_enforce::review::{render, ChangeKind, ContractChange, ReviewResult};
+use keel_enforce::review::{
+    render, reuse::ReuseEvidenceKind, ChangeKind, ContractChange, ReviewResult,
+};
 
 /// Maximum contract changes listed before collapsing into a `+N more` line.
 const MAX_CHANGES: usize = 25;
@@ -79,6 +81,31 @@ pub fn format_review(result: &ReviewResult) -> String {
         result.body_only_count,
         result.doc_only_count,
     ));
+    if let Some(line) = render::sprawl_line(result) {
+        out.push_str(&format!("SPRAWL {line}\n"));
+    }
+    for advisory in &result.reuse_advisories {
+        let kind = match advisory.kind {
+            ReuseEvidenceKind::Replacement => "replacement",
+            ReuseEvidenceKind::RoleOverlap => "role_overlap",
+        };
+        out.push_str(&format!(
+            "REUSE {} {} {} {}:{} -> {} {}:{} confidence={:.2} advisory_only=true\n",
+            advisory.code,
+            kind,
+            advisory.new_symbol,
+            advisory.new_file,
+            advisory.new_line,
+            advisory.existing_symbol,
+            advisory.existing_file,
+            advisory.existing_line,
+            advisory.confidence,
+        ));
+        for evidence in &advisory.evidence {
+            out.push_str(&format!("  evidence: {evidence}\n"));
+        }
+        out.push_str(&format!("  fix: {}\n", advisory.fix_hint));
+    }
 
     for change in render::contract_changes(result).take(MAX_CHANGES) {
         out.push_str(&change_block(change));
@@ -160,6 +187,8 @@ mod tests {
             contract_change_count,
             body_only_count: 9,
             doc_only_count: 0,
+            sprawl: Default::default(),
+            reuse_advisories: Vec::new(),
             changes,
             unanalyzed: Vec::new(),
             new_violations: Vec::new(),
@@ -184,6 +213,25 @@ mod tests {
             affected: vec![],
             suggested_module: None,
             existing: None,
+        }
+    }
+
+    fn reuse_advisory() -> keel_enforce::review::reuse::ReuseAdvisory {
+        keel_enforce::review::reuse::ReuseAdvisory {
+            code: "W010".into(),
+            severity: "WARNING".into(),
+            kind: keel_enforce::review::reuse::ReuseEvidenceKind::Replacement,
+            new_symbol: "to_unix_seconds".into(),
+            new_signature: "fn to_unix_seconds(value: &str) -> i64".into(),
+            new_file: "src/new_time.rs".into(),
+            new_line: 12,
+            existing_symbol: "parse_timestamp".into(),
+            existing_signature: "fn parse_timestamp(value: &str) -> i64".into(),
+            existing_file: "src/time.rs".into(),
+            existing_line: 8,
+            confidence: 0.92,
+            evidence: vec!["same caller and call site".into()],
+            fix_hint: "Reuse parse_timestamp or document the difference".into(),
         }
     }
 
@@ -253,6 +301,21 @@ mod tests {
         r.new_violations = vec![new_violation("E003", "src/lib.rs", 9)];
         assert!(!format_review(&r).is_empty());
         assert!(!HumanFormatter.format_review(&r).is_empty());
+    }
+
+    #[test]
+    fn reuse_advisory_is_visible_but_structurally_unable_to_gate() {
+        let mut r = result(Vec::new());
+        r.reuse_advisories = vec![reuse_advisory()];
+
+        let llm = format_review(&r);
+        assert!(llm.contains("REUSE W010 replacement"), "{llm}");
+        assert!(HumanFormatter.format_review(&r).contains("never gating"));
+        assert!(r.new_violations.is_empty());
+        assert!(
+            keel_enforce::review::baseline::gate_hits(&r.new_violations, &["W010".into()])
+                .is_empty()
+        );
     }
 
     #[test]

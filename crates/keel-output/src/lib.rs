@@ -12,6 +12,7 @@
 pub mod github;
 pub mod human;
 pub(crate) mod human_helpers;
+pub(crate) mod human_name;
 pub(crate) mod human_review;
 pub mod json;
 pub mod llm;

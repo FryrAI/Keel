@@ -9,7 +9,7 @@
 //!
 //! Three rules shape everything here:
 //!
-//! 1. **Countable, never a score.** Seven metrics, each of which resolves to
+//! 1. **Countable, never a score.** Each metric resolves to
 //!    named instances a reader can go look at. No composite "quality score", no
 //!    judgement about whether an abstraction is right.
 //! 2. **Report, never a gate.** `keel quality` always exits 0. A ratio in the
@@ -23,10 +23,9 @@
 //! graph on demand, so a `map --cached` (which rebuilds nothing) cannot inject
 //! a duplicate point and the series stays smooth.
 
+mod calculation;
 pub mod history;
 pub mod trend;
-
-use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +35,8 @@ use keel_core::types::QualityInputs;
 use crate::audit::navigation::{find_cycles, is_reportable_cycle};
 use crate::file_class::FileClass;
 use crate::violations_economy::is_exempt_dead_name;
+
+use calculation::{module_dependency_graph, propagation_cost, rate_per_kloc, ratio};
 
 pub use trend::{MetricTrend, QualityPoint, QualityTrend, TrendStep};
 
@@ -51,7 +52,7 @@ pub use trend::{MetricTrend, QualityPoint, QualityTrend, TrendStep};
 /// what version 1 *means*, since no released keel has written a snapshot yet.
 pub const METRICS_VERSION: u32 = 1;
 
-/// The seven countable readings taken from one graph state.
+/// The countable readings taken from one graph state.
 ///
 /// Serialized as the `metrics` blob of a `quality_snapshots` row. Field order
 /// is the reporting order.
@@ -113,6 +114,24 @@ pub struct QualityMetrics {
     /// its direction is readable.
     #[serde(default)]
     pub clone_loc_ratio: f64,
+    /// Number of mapped hand-written source files. Trend-only context for
+    /// interpreting surface growth; a rise is not inherently worse.
+    #[serde(default)]
+    pub source_file_count: u32,
+    /// Public/exported non-module symbols in hand-written source. Trend-only:
+    /// feature growth can legitimately increase the public surface.
+    #[serde(default)]
+    pub exported_symbol_count: u32,
+    /// Private functions in hand-written source with exactly one distinct
+    /// external caller or value consumer. Trend-only candidate pressure, not a
+    /// smell: small focused helpers can be the right design.
+    #[serde(default)]
+    pub single_consumer_helper_count: u32,
+    /// Public/exported symbols per thousand mapped source lines. This controls
+    /// raw export growth for repository growth without pretending density has
+    /// a universally good direction.
+    #[serde(default)]
+    pub exported_symbols_per_kloc: f64,
 }
 
 /// Cyclomatic complexity above which a function's mass counts as "hot" for
@@ -135,6 +154,8 @@ pub enum MetricKind {
     Count,
     /// A share in `[0, 1]` — printed to two decimals.
     Fraction,
+    /// A non-integral rate — printed to two decimals without a `[0, 1]` claim.
+    Rate,
 }
 
 /// One metric as reported: what it is called, what it reads, whether a rise is
@@ -147,23 +168,20 @@ pub struct MetricRow {
     pub value: f64,
     /// Whether keel is willing to call a rise "worse".
     pub judged: bool,
-    /// Count or fraction.
+    /// Count, fraction, or rate.
     pub kind: MetricKind,
 }
 
 impl QualityMetrics {
     /// The reportable metrics, in reporting order.
     ///
-    /// `judged` is false for `cross_module_edge_ratio`, `propagation_cost` and
-    /// `clone_loc_ratio`: a rise in the first two may be decomposition or may
-    /// be scatter, and a rise in the third may be copy-paste or may be a
-    /// shared idiom. keel does not know which, so each is reported as a
-    /// direction and never as "worse".
-    pub fn rows(&self) -> [MetricRow; 7] {
-        let count = |name, value| MetricRow {
+    /// Coupling/clone ratios and all surface-growth context metrics are
+    /// unjudged: keel reports their direction but does not call a rise worse.
+    pub fn rows(&self) -> [MetricRow; 11] {
+        let count = |name, value, judged| MetricRow {
             name,
             value,
-            judged: true,
+            judged,
             kind: MetricKind::Count,
         };
         let fraction = |name, value, judged| MetricRow {
@@ -172,10 +190,16 @@ impl QualityMetrics {
             judged,
             kind: MetricKind::Fraction,
         };
+        let rate = |name, value| MetricRow {
+            name,
+            value,
+            judged: false,
+            kind: MetricKind::Rate,
+        };
         [
-            count("files_over_budget", self.files_over_budget as f64),
-            count("cycle_count", self.cycle_count as f64),
-            count("dead_private_fns", self.dead_private_fns as f64),
+            count("files_over_budget", self.files_over_budget as f64, true),
+            count("cycle_count", self.cycle_count as f64, true),
+            count("dead_private_fns", self.dead_private_fns as f64, true),
             fraction(
                 "cross_module_edge_ratio",
                 self.cross_module_edge_ratio,
@@ -184,6 +208,18 @@ impl QualityMetrics {
             fraction("high_cc_mass_share", self.high_cc_mass_share, true),
             fraction("propagation_cost", self.propagation_cost, false),
             fraction("clone_loc_ratio", self.clone_loc_ratio, false),
+            count("source_file_count", self.source_file_count as f64, false),
+            count(
+                "exported_symbol_count",
+                self.exported_symbol_count as f64,
+                false,
+            ),
+            count(
+                "single_consumer_helper_count",
+                self.single_consumer_helper_count as f64,
+                false,
+            ),
+            rate("exported_symbols_per_kloc", self.exported_symbols_per_kloc),
         ]
     }
 
@@ -228,9 +264,9 @@ impl QualityReport {
     }
 }
 
-/// Measure the seven metrics against the persisted graph.
+/// Measure the metrics against the persisted graph.
 ///
-/// The store answers the whole measurement in five aggregate queries (see
+/// The store answers the whole measurement in aggregate queries (see
 /// [`keel_core::types::QualityInputs`]); this function applies the exemption
 /// rules keel-enforce owns — file class, entrypoint names, reportable cycles —
 /// and does no graph traversal of its own. That split is what keeps a full
@@ -246,6 +282,26 @@ pub fn compute_metrics(store: &dyn GraphStore, max_file_lines: u32) -> QualityMe
 
 /// The pure half of [`compute_metrics`]: raw graph facts in, metrics out.
 pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetrics {
+    let (source_file_count, source_lines) = inputs
+        .file_lines
+        .iter()
+        .filter(|(path, _)| FileClass::classify(path).grades_size_and_naming())
+        .fold((0u32, 0u64), |(files, total_lines), (_, lines)| {
+            (files + 1, total_lines + u64::from(*lines))
+        });
+    let exported_symbol_count = inputs
+        .public_symbols_by_file
+        .iter()
+        .filter(|(path, _)| FileClass::classify(path).grades_size_and_naming())
+        .map(|(_, count)| *count)
+        .sum();
+    let single_consumer_helper_count = inputs
+        .single_consumer_private_fns
+        .iter()
+        .filter(|(path, name)| {
+            FileClass::classify(path).grades_size_and_naming() && !is_exempt_dead_name(name)
+        })
+        .count() as u32;
     let files_over_budget = inputs
         .file_lines
         .iter()
@@ -317,71 +373,11 @@ pub fn metrics_from(inputs: &QualityInputs, max_file_lines: u32) -> QualityMetri
         high_cc_mass_share,
         propagation_cost: propagation_cost(&graph),
         clone_loc_ratio: ratio(cloned_lines, code_lines),
+        source_file_count,
+        exported_symbol_count,
+        single_consumer_helper_count,
+        exported_symbols_per_kloc: rate_per_kloc(exported_symbol_count, source_lines),
     }
-}
-
-/// `part / whole` rounded to two decimals; 0 when `whole` is 0.
-///
-/// Two decimals because the series is read as a direction, and more precision
-/// manufactures movement out of a single re-resolved edge.
-fn ratio(part: f64, whole: f64) -> f64 {
-    if whole == 0.0 {
-        return 0.0;
-    }
-    (part / whole * 100.0).round() / 100.0
-}
-
-/// `reachable_pairs / n²`: for every module, how many *other* modules it can
-/// transitively reach via calls/imports, summed over modules.
-///
-/// Self-pairs are excluded from the numerator — a module trivially "reaches"
-/// itself, and that is not propagation. Unjudged: a rise may be legitimate
-/// shared infrastructure or spreading coupling, the same stance
-/// `cross_module_edge_ratio` takes.
-///
-/// O(n·(V+E)): a DFS per module. Fine at the hundreds-to-low-thousands of
-/// files `keel quality`'s budget targets.
-fn propagation_cost(graph: &HashMap<String, HashSet<String>>) -> f64 {
-    let n = graph.len();
-    if n == 0 {
-        return 0.0;
-    }
-    let reachable_pairs: usize = graph
-        .keys()
-        .map(|start| {
-            let mut seen: HashSet<&str> = HashSet::new();
-            let mut stack: Vec<&str> = vec![start.as_str()];
-            while let Some(module) = stack.pop() {
-                for next in graph.get(module).into_iter().flatten() {
-                    if next != start && seen.insert(next.as_str()) {
-                        stack.push(next.as_str());
-                    }
-                }
-            }
-            seen.len()
-        })
-        .sum();
-    ratio(reachable_pairs as f64, (n * n) as f64)
-}
-
-/// The module dependency graph, in the shape Tarjan's SCC wants.
-///
-/// Both endpoints of every dependency get a key: `find_cycles` skips neighbors
-/// that are not keys, so a target file with no entry would hide the cycle it
-/// closes.
-fn module_dependency_graph(inputs: &QualityInputs) -> HashMap<String, HashSet<String>> {
-    let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
-    for (path, _) in &inputs.file_lines {
-        graph.entry(path.clone()).or_default();
-    }
-    for (source, target) in &inputs.module_deps {
-        graph.entry(target.clone()).or_default();
-        graph
-            .entry(source.clone())
-            .or_default()
-            .insert(target.clone());
-    }
-    graph
 }
 
 #[cfg(test)]
