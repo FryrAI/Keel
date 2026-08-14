@@ -253,25 +253,36 @@ keel fix --apply
 
 ## keel name
 
-Suggest names and file locations for new code based on graph analysis.
+Find existing symbols that may satisfy an intent before suggesting names and
+file locations for new code.
 
 ```bash
-keel name "<description>" [--module <path>] [--kind <type>]
+keel name "<description>" [--module <path>] [--kind <type>] [--semantic]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--module <path>` | (none) | Constrain suggestions to a specific module or file |
 | `--kind <type>` | (none) | Kind of entity: `fn`, `class`, `method` |
+| `--semantic` | off | Add deterministic domain-concept candidates. These are display-only and can never emit W010/P003 or gate. |
 
-Analyzes the existing codebase graph to suggest names that match conventions, and modules where the new code should live based on keyword overlap and structural affinity.
+Analyzes symbol names, signatures, documentation, module responsibility and
+graph fan-in/fan-out. Existing candidates are printed as `REUSE?` blocks before
+any create-new suggestion. Candidate scores are advisory: inspect the stored
+contract and reuse it when the behavior fits.
+
+Without `--semantic`, candidates require lexical overlap in the symbol contract.
+With it, Keel also expands a small, deterministic concept vocabulary (for example
+`unix`/`epoch`/`timestamp`). Every candidate says whether its source is `lexical`
+or `semantic`. Semantic candidates are deliberately quarantined from all warning
+and gate paths.
 
 **Performance:** <100ms.
 
 **Examples:**
 
 ```bash
-# Where should I put a new user authentication function?
+# Can an existing function validate user authentication, and where should new code go if not?
 keel name "validate user authentication"
 
 # Suggest a class name in a specific module
@@ -279,6 +290,9 @@ keel name "database connection pool" --module src/db --kind class
 
 # JSON output for programmatic use
 keel name "parse configuration file" --json
+
+# Broaden discovery without enabling another warning
+keel name "convert unix seconds" --semantic --llm
 ```
 
 ---
@@ -304,6 +318,17 @@ checkout, no worktree — and diffs it against the working tree. For every symbo
 reports whether the **contract** moved (signature changed, added, removed, moved) or
 only the body or docstring did, so the report can say "12 functions changed, only 3
 changed their contract".
+
+The cover letter also includes two non-gating views of semantic sprawl:
+
+- `SPRAWL` is a factual ledger of added source files/functions/exports,
+  modifications to existing functions, one-consumer helpers/modules, and the
+  diff's creation bias.
+- `W010` reuse advisories compare a new function with the base graph. The
+  high-confidence path sees a caller replace an existing call at the same
+  location; the broader path requires compatible signature shape plus overlap
+  in both caller modules and callees. W010 is stored outside `new_violations`,
+  so `--gate` cannot gate it even if `review.gate` contains `W010`.
 
 Each contract change carries the stored callers that live in files this diff does
 **not** touch — literally the call sites the change did not update. Changed files keel
@@ -340,6 +365,28 @@ for the counts anyway). Requires full git history in CI (`fetch-depth: 0`).
 
 ---
 
+## keel quality
+
+Report countable maintainability facts from the stored graph, or persist and
+compare them across commits.
+
+```bash
+keel quality
+keel quality --snapshot
+keel quality --trend --last 20
+```
+
+The series includes size, cycles, dead private functions, cross-module edges,
+complexity concentration, propagation cost, token-clone LOC, and four
+semantic-sprawl context metrics: `source_file_count`, `exported_symbol_count`,
+`single_consumer_helper_count`, and `exported_symbols_per_kloc`.
+
+The four surface metrics are unjudged: growth can be required by feature
+growth. Their value is the time axis and their relationship to one another, not
+an absolute target. `keel quality` always exits 0 and never gates.
+
+---
+
 ## keel validate-plan
 
 Check a plan against the graph **before** any code exists. Resteering a plan is cheap;
@@ -364,8 +411,9 @@ Two outputs from one free-text scan:
 2. **Plan findings**: [`P001 unknown_symbol`](error-codes.md#p001--unknown-symbol) — the
    plan calls something the graph does not have — and
    [`P002 signature_mismatch`](error-codes.md#p002--signature-mismatch) — the plan's call
-   does not match the stored signature. Each carries the real hash, `file:line`, the
-   stored signature, and a `fix_hint`.
+   does not match the stored signature. [`P003 reuse_candidate`](error-codes.md#p003--reuse-candidate)
+   points an explicitly proposed function at a strong lexical candidate. P003 is
+   advisory-only and never participates in `--strict`.
 
 **The report never fails.** Exit is 0 whatever it finds, unless `--strict` is passed.
 That contract is what lets the [`ExitPlanMode` hook](agent-integration.md#pretooluse-exitplanmode-plan-check)

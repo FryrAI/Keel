@@ -164,7 +164,7 @@ pub trait GraphStore {
     ///
     /// Additive with an empty default: a backend that cannot answer reports no
     /// metrics rather than wrong ones. The SQLite implementation answers the
-    /// whole bundle in four aggregate queries, which is what keeps a
+    /// whole bundle in aggregate queries, which is what keeps a
     /// measurement off the "walk every node's edges" path and inside the CI
     /// step's budget.
     fn quality_inputs(&self) -> QualityInputs {

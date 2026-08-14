@@ -377,7 +377,7 @@ impl ModuleBoundaryInfo {
 
 /// Raw graph facts the `keel quality` metrics are computed from.
 ///
-/// One bundle rather than four store methods, because they are always read
+/// One bundle rather than separate store methods, because they are always read
 /// together and a partial read would produce a snapshot whose metrics describe
 /// different graph states. Everything here is deduplicated by the store: a file
 /// with two stored module rows (hash-salt collisions do happen) contributes one
@@ -390,6 +390,12 @@ pub struct QualityInputs {
     /// `(file_path, name)`. Naming and file-class exemptions are applied by the
     /// caller, which owns those rules.
     pub uncalled_private_fns: Vec<(String, String)>,
+    /// Public non-module symbols grouped by file: `(file_path, count)`.
+    /// File-class exemptions are applied by the caller.
+    pub public_symbols_by_file: Vec<(String, u32)>,
+    /// Private, non-associated functions with exactly one distinct external
+    /// `calls`/`uses` consumer: `(file_path, name)`.
+    pub single_consumer_private_fns: Vec<(String, String)>,
     /// Distinct cross-file module dependencies: `(source_file, target_file)`.
     pub module_deps: Vec<(String, String)>,
     /// Stored dependency edges (`calls` + `uses`) with a resolvable target.

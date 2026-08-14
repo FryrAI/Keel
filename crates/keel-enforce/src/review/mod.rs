@@ -27,7 +27,9 @@
 pub mod baseline;
 pub mod diff;
 pub mod render;
+pub mod reuse;
 pub mod risk;
+pub mod sprawl;
 
 use std::path::Path;
 
@@ -158,6 +160,13 @@ pub struct ReviewResult {
     pub body_only_count: usize,
     /// Symbols where only the docstring changed.
     pub doc_only_count: usize,
+    /// Baseline-relative code-surface growth. Factual and never gating.
+    #[serde(default)]
+    pub sprawl: sprawl::SprawlLedger,
+    /// Existing base-graph functions whose role overlaps a newly added one.
+    /// Advisory only: these never participate in `review.gate`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reuse_advisories: Vec<reuse::ReuseAdvisory>,
     /// Every touched symbol, ranked callers-outside-the-diff first.
     pub changes: Vec<ContractChange>,
     /// Changed files keel does not parse.
@@ -191,6 +200,8 @@ pub fn review(
 ) -> Result<ReviewResult, String> {
     let paths = gitdiff::changed_paths(dir, base)?;
     let scan = diff::scan_paths(dir, base, &paths);
+    let sprawl = sprawl::measure(&paths, &scan);
+    let reuse_advisories = reuse::detect(store, &scan);
 
     let baseline = baseline::diff(store, &scan, enforce);
 
@@ -222,6 +233,8 @@ pub fn review(
         contract_change_count,
         body_only_count,
         doc_only_count,
+        sprawl,
+        reuse_advisories,
         changes,
         unanalyzed: scan.unanalyzed,
         new_violations: baseline.new_violations,

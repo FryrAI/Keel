@@ -2,6 +2,18 @@ use super::*;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::types::GraphNode;
 
+#[test]
+fn identifier_words_split_before_applying_the_length_floor() {
+    assert_eq!(
+        identifier_words("toUnix_seconds/path", 3),
+        std::collections::BTreeSet::from([
+            "path".to_string(),
+            "seconds".to_string(),
+            "unix".to_string(),
+        ])
+    );
+}
+
 fn node(
     id: u64,
     hash: &str,

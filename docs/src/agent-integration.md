@@ -139,7 +139,7 @@ Useful commands:
 - keel discover <hash> -- look up callers and callees
 - keel explain <code> <hash> -- understand why a violation fires
 - keel fix <hash> -- generate a fix plan
-- keel name "<description>" -- find the right module for new code
+- keel name "<intent>" -- inspect REUSE? candidates before creating code
 ```
 
 ## Aider
@@ -232,12 +232,13 @@ Runs `keel map --llm --depth 1` once at the start of the session. This gives the
 
 The script reads `tool_input.plan` from the hook payload, pipes it into
 `keel validate-plan --llm -`, and prints any
-[`P001`/`P002`](error-codes.md#plan-findings) findings to stderr, where Claude Code shows
+[`P001`/`P002`/`P003`](error-codes.md#plan-findings) findings to stderr, where Claude Code shows
 them to the model. This is the one hook that fires **before any code exists**.
 
 - **Advisory by default** — it always exits 0. No session is ever blocked by the default
   config.
-- `KEEL_PLAN_STRICT=1` makes it blocking (exit 2 on a live finding).
+- `KEEL_PLAN_STRICT=1` makes it blocking for live P001/P002 findings. P003
+  remains advisory.
 - `KEEL_PLAN_HOOK=0` is the one-line bypass.
 - Repeat findings route through keel's circuit breaker: after three genuinely different
   but still-wrong claims on the same P-code and symbol, the finding auto-downgrades to

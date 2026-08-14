@@ -2,12 +2,33 @@ use keel_enforce::types::NameResult;
 
 /// Formats naming suggestions showing location, convention, imports, and sibling functions.
 pub fn format_name(result: &NameResult) -> String {
-    if result.suggestions.is_empty() {
+    if result.suggestions.is_empty() && result.reuse_candidates.is_empty() {
         return format!("NAME no suggestions for \"{}\"\n", result.description,);
     }
 
-    let best = &result.suggestions[0];
     let mut out = format!("NAME suggestion for \"{}\"\n", result.description,);
+
+    for candidate in &result.reuse_candidates {
+        out.push_str(&format!(
+            "REUSE? {} {}:{} hash={} source={} score={:.2} callers={} callees={}\n",
+            candidate.name,
+            candidate.file,
+            candidate.line,
+            candidate.hash,
+            candidate.source,
+            candidate.score,
+            candidate.callers,
+            candidate.callees,
+        ));
+        out.push_str(&format!("  signature: {}\n", candidate.signature));
+        if !candidate.evidence.is_empty() {
+            out.push_str(&format!("  evidence: {}\n", candidate.evidence.join("; ")));
+        }
+    }
+
+    let Some(best) = result.suggestions.first() else {
+        return out;
+    };
 
     out.push_str(&format!(
         "\nLOCATION {} (best match: [{}] score={:.2})\n",
@@ -63,6 +84,7 @@ mod tests {
             version: env!("CARGO_PKG_VERSION").into(),
             command: "name".into(),
             description: "validate JWT token".into(),
+            reuse_candidates: vec![],
             suggestions: vec![],
         };
         assert!(format_name(&result).contains("no suggestions"));
@@ -74,6 +96,18 @@ mod tests {
             version: env!("CARGO_PKG_VERSION").into(),
             command: "name".into(),
             description: "validate JWT token and check expiry".into(),
+            reuse_candidates: vec![ReuseCandidate {
+                name: "validate_token".into(),
+                hash: "abc12345678".into(),
+                source: ReuseCandidateSource::Lexical,
+                signature: "fn validate_token(token: &str) -> bool".into(),
+                file: "src/auth/validation.rs".into(),
+                line: 12,
+                score: 0.88,
+                callers: 3,
+                callees: 1,
+                evidence: vec!["name overlap: validate, token".into()],
+            }],
             suggestions: vec![NameSuggestion {
                 location: "src/auth/validation.rs".into(),
                 score: 0.92,
@@ -99,5 +133,7 @@ mod tests {
         assert!(out.contains("SUGGESTED validate_jwt_expiry"));
         assert!(out.contains("IMPORTS likely:"));
         assert!(out.contains("SIBLINGS"));
+        assert!(out.contains("REUSE? validate_token"));
+        assert!(out.find("REUSE?").unwrap() < out.find("SUGGESTED").unwrap());
     }
 }

@@ -28,11 +28,11 @@ const EXPECTED_COMMANDS: &[&str] = &[
     "keel validate-plan <file|->",
 ];
 
-/// The v0.5 "economy" error codes that must appear in the shared Error codes
-/// table — the specific regression T1.6 fixes: pre-v0.5 docs only listed
-/// E001-E005/W001-W002 and agents had no way to know W005-W007 existed.
+/// Every additive enforcement/advisory code that must appear in the shared
+/// Error codes table.
 const EXPECTED_ERROR_CODES: &[&str] = &[
-    "E001", "E002", "E003", "E004", "E005", "W005", "W006", "W007",
+    "E001", "E002", "E003", "E004", "E005", "E006", "W005", "W006", "W007", "W009", "W010", "P001",
+    "P002", "P003",
 ];
 
 /// Every instruction template composed from `templates/shared/core.md` (see the
@@ -198,12 +198,13 @@ fn the_github_actions_scaffold_calls_the_maintained_action() {
 /// validate-plan --llm` output with. Only the lines it matches ever reach the
 /// model, so these prefixes are a contract between the hook and the LLM
 /// formatter — not a formatting detail.
-const PLAN_HOOK_GREP: &str = r"'^(P00[12] |  at: |  fix: )'";
+const PLAN_HOOK_GREP: &str = r"'^(P00[123] |  at: |  fix: )'";
 
 /// The hook's pattern, transcribed to Rust.
 fn plan_hook_matches(line: &str) -> bool {
     line.starts_with("P001 ")
         || line.starts_with("P002 ")
+        || line.starts_with("P003 ")
         || line.starts_with("  at: ")
         || line.starts_with("  fix: ")
 }
@@ -230,7 +231,7 @@ fn plan_finding(code: &str, symbol: &str, hash: &str, line: u32) -> PlanFinding 
     }
 }
 
-/// Renders a P001 and a P002 finding through the real LLM formatter and asserts
+/// Renders P001/P002/P003 findings through the real LLM formatter and asserts
 /// the hook's grep still selects exactly the finding lines. Without this, a
 /// formatter reflow would silently empty the plan hook (no findings shown reads
 /// as a clean plan — the worst possible failure mode).
@@ -251,6 +252,7 @@ fn plan_check_hook_grep_matches_the_llm_formatters_finding_lines() {
         findings: vec![
             plan_finding("P001", "make_widget", "", 0),
             plan_finding("P002", "execute", "abc12345678", 42),
+            plan_finding("P003", "parse_time", "def12345678", 64),
         ],
     };
 
@@ -270,12 +272,18 @@ fn plan_check_hook_grep_matches_the_llm_formatters_finding_lines() {
         "hook must still see the P002 line: {rendered}"
     );
     assert!(
+        matched
+            .iter()
+            .any(|l| l.starts_with("P003 WARNING parse_time")),
+        "hook must still see the P003 line: {rendered}"
+    );
+    assert!(
         matched.iter().any(|l| l.starts_with("  at: src/lib.rs:42")),
         "hook must still see the location line: {rendered}"
     );
     assert_eq!(
         matched.iter().filter(|l| l.starts_with("  fix: ")).count(),
-        2,
+        3,
         "hook must still see one fix line per finding: {rendered}"
     );
     assert!(

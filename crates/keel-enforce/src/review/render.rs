@@ -21,6 +21,26 @@ pub fn is_silent(result: &ReviewResult) -> bool {
     result.contract_change_count == 0
         && result.unanalyzed.is_empty()
         && result.new_violations.is_empty()
+        && result.sprawl.is_empty()
+        && result.reuse_advisories.is_empty()
+}
+
+/// Compact factual summary of additive production surface.
+pub fn sprawl_line(result: &ReviewResult) -> Option<String> {
+    let ledger = &result.sprawl;
+    if ledger.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "files=+{} functions=+{} public=+{} existing_modified={} single_consumer_helpers={} single_consumer_modules={} creation_bias={:.2}",
+        ledger.source_files_added,
+        ledger.functions_added,
+        ledger.public_symbols_added,
+        ledger.existing_functions_modified,
+        ledger.single_consumer_helpers,
+        ledger.single_consumer_modules,
+        ledger.creation_bias,
+    ))
 }
 
 /// `"3 new violation(s) (41 pre-existing)"`, or `None` when the diff
@@ -107,6 +127,8 @@ mod tests {
             contract_change_count,
             body_only_count: 0,
             doc_only_count: 0,
+            sprawl: Default::default(),
+            reuse_advisories: Vec::new(),
             changes,
             unanalyzed: Vec::new(),
             new_violations: Vec::new(),

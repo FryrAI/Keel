@@ -14,8 +14,7 @@ use keel_core::sqlite_quality::QualitySnapshotRow;
 
 use super::{MetricKind, QualityMetrics, METRICS_VERSION};
 
-/// Metric names introduced after metrics version 1 shipped (issues #58, #61,
-/// #66).
+/// Metric names introduced after metrics version 1 shipped.
 ///
 /// A blob written before a name existed has no such JSON key at all, and its
 /// `#[serde(default)]` field reads back as `0.0` — indistinguishable from a
@@ -23,8 +22,15 @@ use super::{MetricKind, QualityMetrics, METRICS_VERSION};
 /// [`metric_trends`] can omit the metric instead of drawing a step out of "not
 /// measured". Append here — never remove — whenever a future metric is added
 /// without a version bump.
-pub(crate) const METRICS_ADDED_AFTER_V1: &[&str] =
-    &["high_cc_mass_share", "propagation_cost", "clone_loc_ratio"];
+pub(crate) const METRICS_ADDED_AFTER_V1: &[&str] = &[
+    "high_cc_mass_share",
+    "propagation_cost",
+    "clone_loc_ratio",
+    "source_file_count",
+    "exported_symbol_count",
+    "single_consumer_helper_count",
+    "exported_symbols_per_kloc",
+];
 
 /// One point of the series: a measurement and the commit it belongs to.
 #[derive(Debug, Clone, Serialize)]
@@ -68,7 +74,7 @@ pub struct MetricTrend {
     pub direction: String,
     /// Whether `direction` carries a value judgement.
     pub judged: bool,
-    /// Count or fraction — carried so a renderer prints this metric the same
+    /// Count, fraction, or rate — carried so a renderer prints this metric the same
     /// way the current reading does, without a name list of its own.
     pub kind: MetricKind,
     /// The largest single-commit move, when the window has more than one point.

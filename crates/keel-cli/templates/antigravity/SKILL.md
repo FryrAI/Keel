@@ -13,11 +13,12 @@ description: Use this skill when editing code, creating new functions, or refact
 5. Fix any errors before continuing
 
 ## When creating new functions:
-1. Run `keel map --llm` and check if a similar function exists
-2. Place in the module with the best semantic fit
-3. Add type hints on all parameters and return type
-4. Add docstring if the function is public
-5. Run `keel compile <file> --json` to validate placement
+1. Run `keel name "<intent>" --llm` and inspect every `REUSE?` candidate (`--semantic` is optional candidate-only expansion)
+2. Reuse a compatible symbol; only create code when the behavior is materially distinct
+3. Place new code in the suggested module
+4. Add type hints on all parameters and return type
+5. Add docstring if the function is public
+6. Run `keel compile <file> --json` to validate placement
 
 ## Commands:
 - `keel discover <hash>` — show callers, callees, and module context
@@ -25,3 +26,4 @@ description: Use this skill when editing code, creating new functions, or refact
 - `keel explain <error-code> <hash>` — inspect resolution reasoning
 - `keel where <hash>` — resolve hash to file:line
 - `keel map --llm` — token-optimized codebase map
+- `keel name "<intent>" [--semantic] --llm` — reuse candidates before create-new suggestions; semantic candidates never warn or gate

@@ -149,8 +149,16 @@ fn main() {
             description,
             module,
             kind,
+            semantic,
         } => (
-            commands::name::run(&*formatter, cli.verbose, description, module, kind),
+            commands::name::run(
+                &*formatter,
+                cli.verbose,
+                description,
+                module,
+                kind,
+                semantic,
+            ),
             Default::default(),
         ),
         Commands::Analyze { file } => (

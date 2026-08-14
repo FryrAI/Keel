@@ -165,7 +165,7 @@ impl SqliteGraphStore {
         )
     }
 
-    /// Everything the `keel quality` metrics need, in five aggregate queries.
+    /// Everything the `keel quality` metrics need, in aggregate queries.
     ///
     /// All five are answered from existing indexes (`nodes.id` and
     /// `edges.target_id` primary/secondary keys drive the joins), so a full
@@ -200,6 +200,36 @@ impl SqliteGraphStore {
                        AND NOT EXISTS (
                          SELECT 1 FROM edges e
                          WHERE e.target_id = n.id AND e.kind IN ({symbol_dep_kinds})
+                       )"
+                ),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .unwrap_or_default();
+
+        let public_symbols_by_file = self
+            .collect(
+                "SELECT file_path, COUNT(*) FROM nodes
+                 WHERE kind <> 'module' AND is_public = 1 AND in_test_context = 0
+                 GROUP BY file_path",
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u32,
+                    ))
+                },
+            )
+            .unwrap_or_default();
+
+        let single_consumer_private_fns = self
+            .collect(
+                &format!(
+                    "SELECT n.file_path, n.name FROM nodes n
+                     WHERE n.kind = 'function' AND n.is_public = 0
+                       AND n.is_associated = 0 AND n.in_test_context = 0
+                       AND 1 = (
+                         SELECT COUNT(DISTINCT e.source_id) FROM edges e
+                         WHERE e.target_id = n.id AND e.source_id <> n.id
+                           AND e.kind IN ({symbol_dep_kinds})
                        )"
                 ),
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
@@ -279,6 +309,8 @@ impl SqliteGraphStore {
         QualityInputs {
             file_lines,
             uncalled_private_fns,
+            public_symbols_by_file,
+            single_consumer_private_fns,
             module_deps,
             dependency_edges,
             cross_file_dependency_edges,
