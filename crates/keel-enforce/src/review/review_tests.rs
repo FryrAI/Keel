@@ -305,7 +305,7 @@ fn a_renamed_file_whose_symbol_also_changed_still_finds_its_callers() {
 }
 
 #[test]
-fn unparsed_structural_files_are_named_not_omitted() {
+fn unparsed_boundaries_are_named_while_parsed_sql_is_analyzed() {
     let dir = repo(&[("src/lib.rs", "pub fn a() -> u8 {\n    1\n}\n")]);
     write(
         dir.path(),
@@ -322,9 +322,8 @@ fn unparsed_structural_files_are_named_not_omitted() {
 
     let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
     let paths: Vec<&str> = result.unanalyzed.iter().map(|u| u.path.as_str()).collect();
-    assert_eq!(paths, vec!["baml_src/main.baml", "migrations/001_init.sql"]);
+    assert_eq!(paths, vec!["baml_src/main.baml"]);
     assert_eq!(result.unanalyzed[0].class, "boundary");
-    assert_eq!(result.unanalyzed[1].class, "data");
     // Unanalyzed files alone are enough to break the clean-output silence.
     assert!(!render::is_silent(&result));
 }

@@ -18,15 +18,14 @@ use keel_parsers::treesitter::detect_language;
 use crate::violations_util::is_test_file;
 
 /// Extensions keel has no grammar for but which still carry structural weight:
-/// a `.sql` migration, a `.baml` LLM contract, a `.proto`/`.graphql` schema all
-/// have call sites in tracked code. Editing one and getting exit 0 with empty
-/// output is a false all-clear, so `keel compile` names them explicitly (see
-/// [`untracked_language_notice`]).
+/// `.baml`, `.proto`, and `.graphql` contracts have call sites in tracked code.
+/// Editing one and getting exit 0 with empty output is a false all-clear, so
+/// `keel compile` names them explicitly (see [`untracked_language_notice`]).
 ///
 /// Deliberately short: extensions that are *documentation* or *config*
 /// (`.md`, `.json`, `.lock`, `.toml`, …) must never appear here, or the
 /// post-edit hook gets noisier on exactly the edits that matter least.
-pub const UNTRACKED_SIGNIFICANT: &[&str] = &["baml", "graphql", "proto", "sql"];
+pub const UNTRACKED_SIGNIFICANT: &[&str] = &["baml", "graphql", "proto"];
 
 /// What kind of file a path is.
 ///
@@ -68,11 +67,20 @@ impl FileClass {
         if is_test_file(&normalized) {
             return FileClass::Test;
         }
+        // SQL is parsed into schema/query graph nodes, but remains declarative
+        // data for audit purposes: function-size/public-ratio rules are not
+        // meaningful for migrations.
+        if Path::new(&normalized)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            == Some("sql")
+        {
+            return FileClass::Data;
+        }
         if detect_language(Path::new(&normalized)).is_some() {
             return FileClass::Source;
         }
         match untracked_significant_ext(&normalized) {
-            Some("sql") => FileClass::Data,
             Some(_) => FileClass::Boundary,
             // Anything else keel cannot parse (docs, config, assets). It never
             // reaches the audit — only parsed files have graph nodes — so the
@@ -152,6 +160,9 @@ mod tests {
             "src/app.tsx",
             "src/app.js",
             "src/App.svelte",
+            "src/Page.astro",
+            "templates/form.typ",
+            "scripts/build.sh",
             "app/models.py",
             "cmd/server/main.go",
         ] {
@@ -234,10 +245,10 @@ mod tests {
 
     #[test]
     fn notice_fires_only_for_significant_extensions() {
-        let notice = untracked_language_notice(&["migrations/001_init.sql".into()]);
+        let notice = untracked_language_notice(&["baml_src/main.baml".into()]);
         assert_eq!(
             notice.as_deref(),
-            Some("keel: .sql is not a tracked language — no checks ran")
+            Some("keel: .baml is not a tracked language — no checks ran")
         );
 
         // Docs, config and lockfiles must never produce a notice.
@@ -247,6 +258,7 @@ mod tests {
                 "package.json".into(),
                 "Cargo.lock".into(),
                 "src/main.rs".into(),
+                "migrations/001_init.sql".into(),
             ]),
             None
         );
@@ -254,16 +266,13 @@ mod tests {
 
     #[test]
     fn notice_is_one_line_for_several_extensions() {
-        let notice = untracked_language_notice(&[
-            "migrations/001.sql".into(),
-            "migrations/002.sql".into(),
-            "baml_src/main.baml".into(),
-        ])
-        .expect("expected a notice");
+        let notice =
+            untracked_language_notice(&["baml_src/main.baml".into(), "api/schema.proto".into()])
+                .expect("expected a notice");
         assert_eq!(notice.lines().count(), 1);
         assert_eq!(
             notice,
-            "keel: .baml, .sql are not tracked languages — no checks ran"
+            "keel: .baml, .proto are not tracked languages — no checks ran"
         );
     }
 }

@@ -475,11 +475,7 @@ fn test_bare_compile_without_git_falls_back_to_full_scan() {
 }
 
 #[test]
-/// T1.5: compiling a structurally significant file keel has no grammar for
-/// (`.sql`) must say so on stderr rather than report a silent all-clear — a
-/// hook that reads exit 0 as verification would otherwise mark 27 unchecked
-/// migrations as verified. The exit code stays 0: nothing failed.
-fn test_compile_untracked_language_notice() {
+fn test_compile_parses_sql_without_an_untracked_notice() {
     let dir = init_and_map_project(&[(
         "src/db.ts",
         "export function query(sql: string): string { return sql; }\n",
@@ -502,17 +498,21 @@ fn test_compile_untracked_language_notice() {
     assert_eq!(
         output.status.code(),
         Some(0),
-        "unparsed file is not a failure; stderr: {stderr}"
+        "SQL compile should pass; stderr: {stderr}"
     );
-    assert!(
-        stderr.contains(".sql is not a tracked language"),
-        "expected the untracked-language notice, got: {stderr}"
-    );
-    assert_eq!(
-        stderr.matches("not a tracked language").count(),
-        1,
-        "the notice must be exactly one line, got: {stderr}"
-    );
+    assert!(stderr.trim().is_empty(), "unexpected notice: {stderr}");
+
+    let discovered = Command::new(&keel)
+        .args(["discover", "migrations/001_init.sql", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to discover compiled SQL");
+    let json: serde_json::Value = serde_json::from_slice(&discovered.stdout).unwrap();
+    assert!(json["symbols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|symbol| symbol["name"] == "users"));
 }
 
 #[test]
@@ -542,10 +542,8 @@ fn test_compile_no_notice_for_docs_and_config() {
 }
 
 #[test]
-/// T1.5: a `.sql` file reached via `--changed` gets the same notice as one
-/// named explicitly — the migration edit is exactly the case that must not
-/// pass silently.
-fn test_compile_changed_reports_untracked_sql() {
+/// A `.sql` file reached via `--changed` is parsed without an unsupported-file notice.
+fn test_compile_changed_parses_sql() {
     let dir = init_and_map_project(&[(
         "src/a.py",
         "def a(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
@@ -568,8 +566,5 @@ fn test_compile_changed_reports_untracked_sql() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
-    assert!(
-        stderr.contains(".sql is not a tracked language"),
-        "expected the untracked-language notice under --changed, got: {stderr}"
-    );
+    assert!(stderr.trim().is_empty(), "unexpected notice: {stderr}");
 }

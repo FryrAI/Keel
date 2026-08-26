@@ -8,6 +8,8 @@ use std::path::Path;
 use keel_core::hash::compute_hash;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::resolver::LanguageResolver;
+use keel_parsers::treesitter::SupplementalResolver;
+use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::WalkEntry;
 
 use super::call_resolve::{edge_for_reference, resolve_call_reference, CallSiteCtx};
@@ -31,7 +33,7 @@ pub fn first_pass(
     entries: &[WalkEntry],
     cwd: &Path,
     verbose: bool,
-    ts: &dyn LanguageResolver,
+    ts: &TsResolver,
     py: &dyn LanguageResolver,
     go_resolver: &dyn LanguageResolver,
     rs: &dyn LanguageResolver,
@@ -47,6 +49,7 @@ pub fn first_pass(
     fragments: &mut keel_core::fragments::FragmentScan,
 ) -> Vec<FileParseData> {
     let mut all_file_data: Vec<FileParseData> = Vec::new();
+    let supplemental = SupplementalResolver::new();
 
     for entry in entries {
         let content = match fs::read_to_string(&entry.path) {
@@ -59,15 +62,17 @@ pub fn first_pass(
             }
         };
 
-        let resolver: &dyn LanguageResolver = match entry.language.as_str() {
-            l if keel_parsers::treesitter::is_typescript_family(l) => ts,
-            "python" => py,
-            "go" => go_resolver,
-            "rust" => rs,
+        let result = match entry.language.as_str() {
+            l if keel_parsers::treesitter::is_typescript_family(l) => {
+                ts.parse_file(&entry.path, &content)
+            }
+            "python" => py.parse_file(&entry.path, &content),
+            "go" => go_resolver.parse_file(&entry.path, &content),
+            "rust" => rs.parse_file(&entry.path, &content),
+            "astro" => supplemental.parse_astro_with(ts, &entry.path, &content),
+            "typst" | "bash" | "sql" => supplemental.parse_file(&entry.path, &content),
             _ => continue,
         };
-
-        let result = resolver.parse_file(&entry.path, &content);
         let file_path = make_relative(cwd, &entry.path);
         // A property of the path, so it is answered once per file rather than
         // once per definition.

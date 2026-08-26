@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use keel_parsers::resolver::{FileIndex, LanguageResolver};
+use keel_parsers::treesitter::SupplementalResolver;
 use keel_parsers::typescript::TsResolver;
 
 /// Map a path to the resolver family that parses it.
@@ -32,6 +33,7 @@ pub(crate) struct FileParser {
     py: Option<keel_parsers::python::PyResolver>,
     go: Option<keel_parsers::go::GoResolver>,
     rust: Option<keel_parsers::rust_lang::RustLangResolver>,
+    supplemental: Option<SupplementalResolver>,
 }
 
 impl FileParser {
@@ -44,6 +46,7 @@ impl FileParser {
             py: None,
             go: None,
             rust: None,
+            supplemental: None,
         }
     }
 
@@ -63,6 +66,9 @@ impl FileParser {
             "rust" => self
                 .rust
                 .get_or_insert_with(keel_parsers::rust_lang::RustLangResolver::new),
+            "typst" | "astro" | "bash" | "sql" => self
+                .supplemental
+                .get_or_insert_with(|| SupplementalResolver::with_project_root(&self.root)),
             _ => return None,
         };
 

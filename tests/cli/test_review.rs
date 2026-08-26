@@ -143,7 +143,7 @@ fn renamed_file_with_no_content_change_reports_moved() {
 }
 
 #[test]
-fn baml_and_sql_land_under_unanalyzed() {
+fn only_unparsed_structural_files_land_under_unanalyzed() {
     let dir = fixture();
     let root = dir.path();
     write(root, "migrations/001_init.sql", "CREATE TABLE t(x INT);\n");
@@ -156,7 +156,8 @@ fn baml_and_sql_land_under_unanalyzed() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("UNANALYZED baml_src/main.baml [boundary]"));
-    assert!(stdout.contains("UNANALYZED migrations/001_init.sql [data]"));
+    assert!(stdout.contains("CONTRACT added t migrations/001_init.sql"));
+    assert!(!stdout.contains("UNANALYZED migrations/001_init.sql"));
     assert!(stdout.contains("UNANALYZED tests/fixtures/eval_01.json [fixture]"));
     assert!(
         !stdout.contains("README.md"),

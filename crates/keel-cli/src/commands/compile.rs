@@ -9,7 +9,7 @@ use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{FileIndex, LanguageResolver};
 use keel_parsers::rust_lang::RustLangResolver;
-use keel_parsers::treesitter::detect_language;
+use keel_parsers::treesitter::{detect_language, SupplementalResolver};
 use keel_parsers::typescript::TsResolver;
 
 use super::compile_lock::acquire_compile_lock;
@@ -18,10 +18,6 @@ use crate::telemetry_recorder::EventMetrics;
 use keel_core::paths::make_relative;
 
 /// Everything `keel compile` was asked to do, straight off the command line.
-///
-/// A struct rather than a thirteenth positional parameter: every flag here is
-/// a `bool` or an `Option<String>`, and at that arity the compiler stops being
-/// able to tell them apart.
 pub struct CompileArgs {
     /// Files to compile; empty means "whatever git says changed".
     pub files: Vec<String>,
@@ -210,13 +206,10 @@ pub fn run(
     let mut py: Option<PyResolver> = None;
     let mut go_resolver: Option<GoResolver> = None;
     let mut rs: Option<RustLangResolver> = None;
+    let mut supplemental: Option<SupplementalResolver> = None;
 
-    // A full-repo compile (a bare compile that could not be scoped to git
-    // changes) is close to a `keel map`; the incremental graph sync below is
-    // skipped for it to avoid degrading the map-built edge graph with weaker
-    // single-file resolution. This must NOT fire merely because a git-scoped
-    // diff (explicit or default) happened to return zero files — that means
-    // "nothing to do", not "scan everything".
+    // Only a non-git bare compile is full-repo; an empty git diff is no work.
+    // Skip incremental sync there rather than weaken the map-built edge graph.
     let full_repo_compile = bare_compile && !default_to_changed;
 
     let target_files = if full_repo_compile {
@@ -298,6 +291,10 @@ pub fn run(
             "go" => go_resolver.get_or_insert_with(GoResolver::new),
             "rust" => rs.get_or_insert_with(|| {
                 RustLangResolver::new().with_boundary_literals(literal_keys.clone())
+            }),
+            "typst" | "astro" | "bash" | "sql" => supplemental.get_or_insert_with(|| {
+                SupplementalResolver::with_project_root(&cwd)
+                    .with_boundary_literals(literal_keys.clone())
             }),
             _ => continue,
         };

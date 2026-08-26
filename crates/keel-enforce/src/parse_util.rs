@@ -19,7 +19,7 @@ use keel_parsers::go::GoResolver;
 use keel_parsers::python::PyResolver;
 use keel_parsers::resolver::{FileIndex, LanguageResolver};
 use keel_parsers::rust_lang::RustLangResolver;
-use keel_parsers::treesitter::{detect_language, is_typescript_family};
+use keel_parsers::treesitter::{detect_language, is_typescript_family, SupplementalResolver};
 use keel_parsers::typescript::TsResolver;
 
 /// The resolution tier every index produced by this module carries.
@@ -38,6 +38,7 @@ pub struct BlobParser {
     py: Option<PyResolver>,
     go: Option<GoResolver>,
     rust: Option<RustLangResolver>,
+    supplemental: Option<SupplementalResolver>,
 }
 
 impl BlobParser {
@@ -61,6 +62,9 @@ impl BlobParser {
                 "python" => self.py.get_or_insert_with(PyResolver::new),
                 "go" => self.go.get_or_insert_with(GoResolver::new),
                 "rust" => self.rust.get_or_insert_with(RustLangResolver::new),
+                "typst" | "astro" | "bash" | "sql" => self
+                    .supplemental
+                    .get_or_insert_with(SupplementalResolver::new),
                 _ => return None,
             }
         };
@@ -87,6 +91,9 @@ mod tests {
                 "cmd/m.go",
                 "package main\n\nfunc d(x int) int {\n\treturn x\n}\n",
             ),
+            ("forms/a.typ", "#let e(x) = x\n"),
+            ("scripts/a.sh", "f() { echo ok; }\n"),
+            ("db/a.sql", "CREATE TABLE records(id bigint);\n"),
         ];
         // One parser for the batch: each resolver is built at most once.
         let mut parser = BlobParser::new();
@@ -105,7 +112,6 @@ mod tests {
     #[test]
     fn skips_paths_with_no_grammar() {
         let mut parser = BlobParser::new();
-        assert!(parser.parse("migrations/001.sql", "SELECT 1;").is_none());
         assert!(parser.parse("README.md", "# hi").is_none());
     }
 

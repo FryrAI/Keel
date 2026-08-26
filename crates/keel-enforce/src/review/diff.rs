@@ -269,6 +269,7 @@ mod tests {
         assert_eq!(unanalyzed_class("notes.txt"), None);
         // Parsed languages are never "unanalyzed".
         assert_eq!(unanalyzed_class("src/main.rs"), None);
+        assert_eq!(unanalyzed_class("migrations/001.sql"), None);
         // No extension at all: not worth a line.
         assert_eq!(unanalyzed_class("LICENSE"), None);
     }
@@ -276,7 +277,6 @@ mod tests {
     #[test]
     fn structural_non_source_is_named() {
         assert_eq!(unanalyzed_class("baml_src/main.baml"), Some("boundary"));
-        assert_eq!(unanalyzed_class("migrations/001.sql"), Some("data"));
         assert_eq!(
             unanalyzed_class("tests/fixtures/eval_01.json"),
             Some("fixture")

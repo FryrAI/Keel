@@ -1,7 +1,12 @@
 mod body_shape;
 mod complexity;
+mod contexts;
 mod docstrings;
 mod imports;
+#[path = "../supplemental.rs"]
+mod supplemental;
+
+pub use supplemental::SupplementalResolver;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -12,7 +17,13 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 use crate::queries;
 use crate::resolver::{Definition, ParseResult, Reference, ReferenceKind};
+use contexts::{definition_contexts, has_keep_marker};
 use keel_core::types::NodeKind;
+
+const BASH_QUERY: &str = r#"
+(function_definition name: (word) @def.func.name body: (_) @def.func.body) @def.func
+(command name: (command_name (word) @ref.call.name)) @ref.call
+"#;
 
 pub struct TreeSitterParser {
     parser: Parser,
@@ -64,7 +75,14 @@ impl TreeSitterParser {
         source: &str,
     ) -> Result<ParseResult, ParseError> {
         let lang = language_for_name(lang_name)?;
-        let query = queries::query_for_language(&lang, lang_name).map_err(ParseError::Query)?;
+        let bash_query;
+        let query = if lang_name == "bash" {
+            bash_query = Query::new(&lang, BASH_QUERY)
+                .map_err(|e| ParseError::Query(format!("query compilation error: {e}")))?;
+            &bash_query
+        } else {
+            queries::query_for_language(&lang, lang_name).map_err(ParseError::Query)?
+        };
         self.parser
             .set_language(&lang)
             .map_err(|e| ParseError::Language(format!("{e}")))?;
@@ -124,272 +142,13 @@ fn language_for_name(name: &str) -> Result<Language, ParseError> {
         "python" => Ok(tree_sitter_python::LANGUAGE.into()),
         "go" => Ok(tree_sitter_go::LANGUAGE.into()),
         "rust" => Ok(tree_sitter_rust::LANGUAGE.into()),
+        "bash" => Ok(tree_sitter_bash::LANGUAGE.into()),
         other => Err(ParseError::UnsupportedLanguage(other.to_string())),
     }
 }
 
 fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
-}
-
-/// The four ancestry-derived flags a definition carries.
-#[derive(Default)]
-struct DefContexts {
-    /// Inside a test context, marked per-grammar: a Rust `#[cfg(test)]` module
-    /// or `#[test]` fn; a Python `test_*` fn or a `unittest.TestCase` subclass;
-    /// a TS symbol nested in a `describe`/`it`/`test` block. Go's test marking
-    /// (`Test*`/`Benchmark*`) is applied in its Tier-2 pass, not here.
-    in_test: bool,
-    /// On a trait/interface contract surface (Rust trait or trait impl, TS
-    /// interface or `implements` class).
-    in_trait: bool,
-    /// An associated item — addressed through its type, so bare-name
-    /// collisions across unrelated types are idiomatic and W002 skips it.
-    is_associated: bool,
-    /// Directly wrapped in a Python `decorated_definition` — see
-    /// `Definition::is_decorated`.
-    is_decorated: bool,
-}
-
-/// Node kinds that introduce a new function scope, per supported grammar.
-///
-/// Used to BOUND the associated-item walk: a `fn` nested inside an `impl`
-/// method is a local helper, not an associated item, and must not inherit the
-/// enclosing `impl`'s associated-ness.
-fn is_function_scope(kind: &str) -> bool {
-    matches!(
-        kind,
-        // rust
-        "function_item"
-            // typescript / javascript
-            | "function_declaration"
-            | "method_definition"
-            | "arrow_function"
-            | "function_expression"
-            // python
-            | "function_definition"
-            // go (`function_declaration` shared with TS above)
-            | "method_declaration"
-    )
-}
-
-/// Compute all three ancestry flags for a definition in ONE walk up the tree.
-///
-/// These were three separate full walks over the same ancestor chain. They stop
-/// on different things, but nothing stops them from sharing the traversal.
-///
-/// Note the deliberate asymmetry: only the associated-item flag stops at a
-/// function scope. A nested helper inside a `#[cfg(test)] mod` is still test
-/// code, and one inside a trait impl is still (transitively) trait-context
-/// code — but it is emphatically not itself an associated item.
-fn definition_contexts(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -> DefContexts {
-    let mut ctx = DefContexts::default();
-    let mut trait_decided = false;
-    let mut assoc_decided = false;
-    let mut decorator_decided = false;
-    let is_ts = is_typescript_family(lang);
-
-    let mut current = Some(node);
-    let mut is_self = true;
-    while let Some(n) = current {
-        let kind = n.kind();
-
-        // Test context — starts at the node ITSELF (a `#[test]` attribute, a
-        // `test_*` name, or a `TestCase` base annotates the very definition
-        // being classified), and is monotonic: once set, later ancestors leave
-        // it. NOT bounded by function scope, so a helper nested inside a test fn
-        // or block is still test code (the deliberate asymmetry above).
-        if !ctx.in_test {
-            match lang {
-                // Rust: `#[cfg(test)] mod` / `#[test]` / `#[tokio::test]` fn.
-                "rust"
-                    if matches!(kind, "function_item" | "mod_item")
-                        && preceding_attrs_mark_test(n, source) =>
-                {
-                    ctx.in_test = true;
-                }
-                // Python: pytest `def test_*`, or any method whose enclosing
-                // `class` derives from a `*TestCase` base (unittest ancestry).
-                "python" if python_marks_test(n, source) => {
-                    ctx.in_test = true;
-                }
-                // TypeScript: a `describe`/`it`/`test` call in the ancestry —
-                // marks NAMED helpers/consts declared inside such a block. The
-                // anonymous arrow callback itself is never captured as its own
-                // `Definition` by typescript.scm, so it cannot be marked here.
-                _ if is_ts && kind == "call_expression" && ts_call_is_test_block(n, source) => {
-                    ctx.in_test = true;
-                }
-                _ => {}
-            }
-        }
-
-        // The remaining two flags are about ANCESTRY, so skip the node itself.
-        if !is_self {
-            if !trait_decided {
-                match (lang, kind) {
-                    ("rust", "trait_item") => {
-                        ctx.in_trait = true;
-                        trait_decided = true;
-                    }
-                    // Both Rust impl forms are `impl_item`; only `impl T for S`
-                    // carries a `trait` field. Verified against the grammar.
-                    ("rust", "impl_item") => {
-                        ctx.in_trait = n.child_by_field_name("trait").is_some();
-                        trait_decided = true;
-                    }
-                    _ if is_ts && kind == "interface_declaration" => {
-                        ctx.in_trait = true;
-                        trait_decided = true;
-                    }
-                    // A bare class, or one that only `extends`, is ordinary
-                    // owned code; only `implements` is a contract surface.
-                    _ if is_ts && matches!(kind, "class_declaration" | "class") => {
-                        ctx.in_trait = has_implements_clause(n);
-                        trait_decided = true;
-                    }
-                    _ => {}
-                }
-            }
-
-            if !assoc_decided {
-                if is_function_scope(kind) {
-                    // A function scope encloses us before any type body does:
-                    // we are a local helper, not an associated item.
-                    assoc_decided = true;
-                } else if matches!(
-                    (lang, kind),
-                    ("rust", "impl_item") | ("rust", "trait_item") | ("python", "class_definition")
-                ) || matches!(kind, "class_body" | "class_declaration" | "class")
-                {
-                    ctx.is_associated = true;
-                    assoc_decided = true;
-                }
-            }
-
-            // Bounded exactly like `is_associated`: a function scope between
-            // us and any `decorated_definition` means the decorator wraps an
-            // OUTER function we merely happen to be nested inside, not this
-            // definition — a helper defined in a decorated function's body is
-            // not itself decorator-registered.
-            if !decorator_decided {
-                if is_function_scope(kind) {
-                    decorator_decided = true;
-                } else if lang == "python" && kind == "decorated_definition" {
-                    ctx.is_decorated = true;
-                    decorator_decided = true;
-                }
-            }
-        }
-
-        is_self = false;
-        current = n.parent();
-    }
-    ctx
-}
-
-/// True when a TS class node carries an `implements` clause.
-///
-/// tree-sitter-typescript hangs `implements Y` off the `class_heritage` child
-/// as an `implements_clause`, while `extends D` yields a `class_heritage` with
-/// no such clause.
-fn has_implements_clause(class: tree_sitter::Node<'_>) -> bool {
-    (0..class.child_count())
-        .filter_map(|i| class.child(i))
-        .filter(|c| c.kind() == "class_heritage")
-        .any(|heritage| {
-            (0..heritage.child_count()).any(|i| {
-                heritage
-                    .child(i)
-                    .is_some_and(|c| c.kind() == "implements_clause")
-            })
-        })
-}
-
-/// True when a Python node marks a test context on its own.
-///
-/// - `function_definition` whose `name` starts with `test_` — the pytest
-///   collection convention (a bare module-level test function).
-/// - `class_definition` whose `superclasses` list names a `*TestCase` base —
-///   covers both `unittest.TestCase` and a bare `TestCase` import; every method
-///   of such a class is harness-invoked.
-fn python_marks_test(n: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    match n.kind() {
-        "function_definition" => n
-            .child_by_field_name("name")
-            .is_some_and(|name| node_text(name, source).starts_with("test_")),
-        "class_definition" => n
-            .child_by_field_name("superclasses")
-            .is_some_and(|bases| node_text(bases, source).contains("TestCase")),
-        _ => false,
-    }
-}
-
-/// True when a TS `call_expression` is a `describe`/`it`/`test` block.
-///
-/// The callee is read from the `function` field: a bare `identifier` uses its
-/// own text; a `member_expression` (e.g. `it.only`, `test.skip`, `describe.each`)
-/// uses its `object` text. Only these two forms are handled — the `.each(...)()`
-/// chained-call form is rare and deliberately not special-cased.
-fn ts_call_is_test_block(n: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let Some(func) = n.child_by_field_name("function") else {
-        return false;
-    };
-    let callee = match func.kind() {
-        "identifier" => node_text(func, source),
-        "member_expression" => func
-            .child_by_field_name("object")
-            .map(|o| node_text(o, source))
-            .unwrap_or(""),
-        _ => return false,
-    };
-    matches!(callee, "describe" | "it" | "test")
-}
-
-/// Scans the `attribute_item` siblings immediately preceding `item` for a
-/// `#[cfg(test)]`, `#[test]`, or `#[<path>::test]` marker. In tree-sitter-rust,
-/// outer attributes are preceding siblings of the item they annotate, not
-/// children of it.
-fn preceding_attrs_mark_test(item: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let mut sib = item.prev_sibling();
-    while let Some(s) = sib {
-        match s.kind() {
-            "attribute_item" => {
-                let compact: String = node_text(s, source)
-                    .chars()
-                    .filter(|c| !c.is_whitespace())
-                    .collect();
-                if compact.contains("cfg(test")
-                    || compact == "#[test]"
-                    || compact.starts_with("#[test(")
-                    || compact.ends_with("::test]")
-                    || compact.contains("::test(")
-                {
-                    return true;
-                }
-            }
-            // Comments may sit between an attribute and its item — skip them
-            // and keep scanning upward; anything else ends the attribute run.
-            "line_comment" | "block_comment" => {}
-            _ => break,
-        }
-        sib = s.prev_sibling();
-    }
-    false
-}
-
-/// True when `keel:keep` appears on the definition's own 1-based source line
-/// (`line_start`) or the line immediately above it. Dumb substring scan —
-/// deliberately not comment-aware, so `# keel:keep`, `// keel:keep`, and
-/// `/* keel:keep */` all match with no per-language comment syntax to track.
-fn has_keep_marker(lines: &[&str], line_start: u32) -> bool {
-    let own = line_start
-        .checked_sub(1)
-        .and_then(|i| lines.get(i as usize));
-    let above = line_start
-        .checked_sub(2)
-        .and_then(|i| lines.get(i as usize));
-    own.is_some_and(|l| l.contains("keel:keep")) || above.is_some_and(|l| l.contains("keel:keep"))
 }
 
 fn extract_definitions(
@@ -755,6 +514,10 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
         "py" | "pyi" => Some("python"),
         "go" => Some("go"),
         "rs" => Some("rust"),
+        "typ" => Some("typst"),
+        "astro" => Some("astro"),
+        "sh" | "bash" | "bats" => Some("bash"),
+        "sql" => Some("sql"),
         _ => None,
     }
 }
