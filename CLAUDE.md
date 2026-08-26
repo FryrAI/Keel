@@ -237,7 +237,7 @@ Low-confidence call edges (trait dispatch, interface methods) produce **WARNING 
 - [Constitution](constitution.md) — non-negotiable articles
 
 <!-- keel:start -->
-<!-- keel:version 0.6.0 -->
+<!-- keel:version 0.6.1 -->
 ## keel — Code Graph Enforcement
 
 This project uses keel (keel.engineer) for code graph enforcement.
@@ -282,9 +282,11 @@ project vault/notes directory is optional and entirely user-side.)
 | W006 | duplicate_implementation — function body is identical to one elsewhere |
 | W007 | oversized_file — file exceeds the configured line budget and grew |
 | W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
+| W010 | semantic_reuse — review-time advisory only; an added function may overlap an existing graph role |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
 | P001 | unknown_symbol — plan-time only: the plan calls a symbol the graph does not have |
 | P002 | signature_mismatch — plan-time only: the plan's call does not match the stored signature |
+| P003 | reuse_candidate — plan-time advisory only; never participates in `--strict` |
 
 ### If compile keeps failing (circuit breaker):
 1. **First failure:** Fix using the `fix_hint` provided
@@ -292,9 +294,9 @@ project vault/notes directory is optional and entirely user-side.)
 3. **Third failure (same error):** keel auto-downgrades to WARNING. Run `keel explain <error-code> <hash>` to inspect the resolution chain.
 
 ### Before creating a new function:
-1. Check the keel map to see if a similar function already exists
-2. Place the function in the module where it logically belongs
-3. If keel warns about placement, move the function to the suggested module
+1. Run `keel name "<intent>" --llm` and inspect every `REUSE?` candidate before writing code (`--semantic` broadens candidate-only discovery)
+2. Reuse an existing symbol when its contract fits; create a new one only when the behavior is materially distinct
+3. Place new code in the suggested module; if keel warns about placement, move it there
 
 ### When scaffolding (creating multiple new files at once):
 1. Run `keel compile --batch-start` before creating files
@@ -317,16 +319,16 @@ project vault/notes directory is optional and entirely user-side.)
 - `keel watch` — auto-compile on file changes
 - `keel check <hash>` — pre-edit risk assessment (callers, risk level)
 - `keel fix [--apply]` — generate and optionally apply fix plans
-- `keel name <description>` — suggest names for new code
+- `keel name <description> [--semantic]` — find reuse candidates first, then suggest a name and location only if new code is needed; semantic candidates never warn or gate
 - `keel analyze <file>` — architectural analysis of a file
 - `keel audit [--dimension <name>] [--top N] [--strict-cycles]` — AI-readiness scorecard (structure, discoverability, navigation, config); ranked worst-first, top 20 by default, `--top 0` for all
 - `keel context <file>` — minimal structural context for safely editing a file
 - `keel skeleton <file>` — compressed signature-only view (`--docs`, `--private`, `--budget <tokens>`)
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
-- `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution (callers at risk, risk level, callers-first order) plus P001/P002 plan findings; always exits 0 unless `--strict` is passed
-- `keel review --base <ref>` — two-sided graph diff vs a base ref: which contracts moved, which callers were left outside the diff, and which violations the diff *introduced* (`--format github` for CI annotations, `--gate` to fail on the codes listed in `review.gate`)
-- `keel quality [--trend]` — countable maintainability metrics from the stored graph (`files_over_budget`, `cycle_count`, `dead_private_fns`, `cross_module_edge_ratio`, `high_cc_mass_share`, `propagation_cost`, `clone_loc_ratio`); `--snapshot` records one point per commit, `--trend [--since <sha>|--last N]` reports the direction. Never gates (always exits 0)
+- `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution plus P001/P002 and advisory-only P003; `--strict` applies only to P001/P002
+- `keel review --base <ref>` — two-sided graph diff, PR sprawl ledger, advisory W010 reuse candidates, callers left outside the diff, and violations the diff introduced (`--gate` never sees W010)
+- `keel quality [--trend]` — stored-graph maintainability trends, including source files, exported symbols, single-consumer helpers, and exports/KLOC; never gates
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.
 
