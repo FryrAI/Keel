@@ -43,13 +43,20 @@ pub fn ensure_repo(name: &str, url: &str, tag: &str) -> Option<PathBuf> {
     let dest = corpus_dir().join(name);
 
     if dest.exists() {
-        // Already cloned — make sure the right tag is checked out.
-        let status = Command::new("git")
-            .args(["checkout", tag])
+        // Cached clones retain keel init's tracked and untracked files. Restore
+        // the pinned revision and remove generated artifacts so every corpus
+        // run exercises a genuinely fresh initialization.
+        let reset = Command::new("git")
+            .args(["reset", "--hard", tag])
             .current_dir(&dest)
             .status()
             .ok()?;
-        if status.success() {
+        let clean = Command::new("git")
+            .args(["clean", "-fdx"])
+            .current_dir(&dest)
+            .status()
+            .ok()?;
+        if reset.success() && clean.success() {
             return Some(dest);
         }
     }
