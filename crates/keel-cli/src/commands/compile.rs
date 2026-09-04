@@ -233,17 +233,13 @@ pub fn run(
             .collect::<Vec<_>>()
     };
 
-    // An explicitly-named target that does not exist is a hard error, not a
-    // silent exit 0: the agent asked us to validate a specific file and we
-    // could not. (Git-deleted paths under --changed/--since are excluded above.)
-    if explicit_targets {
-        for path in &target_files {
-            if !Path::new(path).exists() {
-                eprintln!("keel compile: file not found: {}", path);
-                return (2, EventMetrics::default());
-            }
-        }
-    }
+    // Named targets must exist, and targets outside the repository are dropped
+    // rather than enforced against a graph that cannot contain them.
+    let target_files =
+        match super::compile_scope::screen_targets(&cwd, target_files, explicit_targets) {
+            Ok(t) => t,
+            Err(code) => return (code, EventMetrics::default()),
+        };
 
     // Exit 0 on a file keel never parsed is a false all-clear for any hook that
     // reads the exit code as verification. One line, for structurally

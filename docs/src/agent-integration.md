@@ -255,7 +255,13 @@ Runs after every file edit. The `scripts/post-edit.sh` hook:
 1. Receives the changed file path as `$FILE`
 2. Runs `keel compile "$FILE" --llm --depth 1`
 3. If exit 0 (clean compile): outputs nothing
-4. If exit 1 (violations): outputs the violations in LLM format
+4. If exit 1 (violations): outputs the violations in LLM format and exits 2, the
+   blocking code — the agent fixes them before proceeding
+5. If keel could not check the file at all (internal error, timeout): prints the
+   reason and exits 1, which surfaces to the user without blocking the agent
+
+A file outside the repository is skipped without running keel. Every non-zero exit
+carries a reason on stderr.
 
 This keeps the agent in a tight validate-fix loop without wasting tokens on clean compiles.
 

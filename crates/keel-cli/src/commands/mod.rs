@@ -6,6 +6,7 @@ pub mod checkpoint;
 pub mod compile;
 pub mod compile_lock;
 pub mod compile_metrics;
+pub mod compile_scope;
 pub mod compile_sync;
 pub mod completion;
 pub mod config;

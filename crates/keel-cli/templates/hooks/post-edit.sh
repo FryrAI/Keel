@@ -8,7 +8,14 @@ set -euo pipefail
 # generators.rs's inject_on_edit_hook) rather than relying on env-var
 # detection (CLAUDECODE etc.), which does not reliably survive into this
 # script's subprocess.
-# Exit code 2 = blocking (stderr shown to LLM, must fix before proceeding).
+#
+# Exit codes (as the Tier 1 tools read them):
+#   0 = nothing to report.
+#   2 = blocking: keel found violations; stderr is shown to the LLM to fix.
+#   1 = non-blocking error: keel could not check the file (internal error,
+#       timeout). Surfaced to the user, not as "fix before proceeding" — no
+#       edit to this file can resolve a stale graph or a timeout.
+# A non-zero exit ALWAYS carries a reason on stderr; a silent block is a bug.
 CLIENT="${1:-}"
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
@@ -20,16 +27,44 @@ if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
   exit 2
 fi
 
+# Skip files outside this repository. The editor fires this hook for every
+# write it makes, including ones far from the project (agent memory files, a
+# config in $HOME); keel's graph cannot know them, so checking them can only
+# produce noise. Relative paths are always in-tree.
+if [[ "$FILE_PATH" == /* ]]; then
+  ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=""
+  [ -n "$ROOT" ] || ROOT="$PWD"
+  ROOT=$(cd "$ROOT" && pwd -P) || exit 0
+  FILE_DIR=$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd -P) || FILE_DIR=""
+  if [ -n "$FILE_DIR" ]; then
+    case "$FILE_DIR" in
+      "$ROOT" | "$ROOT"/*) ;;
+      *) exit 0 ;;
+    esac
+  fi
+fi
+
 ARGS=(compile --delta --llm)
 if [ -n "$CLIENT" ]; then
   ARGS+=(--client "$CLIENT")
 fi
 
-RESULT=$(timeout 5 keel "${ARGS[@]}" -- "$FILE_PATH" 2>&1)
-EXIT_CODE=$?
+# `RESULT=$(...)` on its own would abort the script under `set -e` before the
+# status could be read, throwing the diagnostic away — that is what made every
+# failure a content-free block. In an `&&`/`||` list `set -e` stands down.
+RESULT=$(timeout 5 keel "${ARGS[@]}" -- "$FILE_PATH" 2>&1) && EXIT_CODE=0 || EXIT_CODE=$?
+[ "$EXIT_CODE" -eq 0 ] && exit 0
 
-if [ $EXIT_CODE -ne 0 ]; then
-  echo "$RESULT" >&2
-  exit 2  # Blocking: stderr shown to LLM, must fix before proceeding
+if [ -z "$RESULT" ]; then
+  if [ "$EXIT_CODE" -eq 124 ]; then
+    RESULT="keel: compile timed out after 5s for $FILE_PATH"
+  else
+    RESULT="keel: compile exited $EXIT_CODE with no output for $FILE_PATH"
+  fi
 fi
-exit 0
+echo "$RESULT" >&2
+
+# keel exit 1 = violations, which the agent fixes by editing. Anything else
+# (2 = internal error, 124 = timeout) is not the agent's to fix.
+[ "$EXIT_CODE" -eq 1 ] && exit 2
+exit 1

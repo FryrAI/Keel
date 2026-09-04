@@ -100,3 +100,7 @@ pub fn install_git_hook(root: &Path, verbose: bool, hooks: &HookSelection) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "hook_script_tests.rs"]
+mod tests;
