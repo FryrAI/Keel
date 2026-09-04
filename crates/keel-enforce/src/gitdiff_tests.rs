@@ -57,6 +57,26 @@ fn supported_filter_drops_unparseable_files() {
     assert!(unfiltered.contains(&"notes.txt".to_string()));
 }
 
+/// Issue #70: git lists a tracked-but-ignored file in its diff, the walker
+/// never does. Every git-diff-driven command (compile, audit, checkpoint) must
+/// see the same scope the graph has, or a vendored tree raises violations
+/// against third-party source in the pre-commit hook.
+#[test]
+fn keelignore_drops_ignored_paths() {
+    let dir = init_repo();
+    std::fs::write(dir.path().join(".keelignore"), "vendor/\n").unwrap();
+    std::fs::create_dir(dir.path().join("vendor")).unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("vendor/lib.rs"), "fn v() {}\n").unwrap();
+    std::fs::write(dir.path().join("src/app.rs"), "fn a() {}\n").unwrap();
+    // `-f`: git itself would skip the ignored path, and the bug only shows on
+    // a tracked one.
+    git(&["add", "-f", "."], dir.path());
+
+    let files = changed_files(dir.path(), &DiffMode::Since(None), true);
+    assert_eq!(files, vec!["src/app.rs".to_string()]);
+}
+
 /// Working-tree edits to a committed file show up under `Since(None)`.
 #[test]
 fn since_head_reports_working_tree_edits() {

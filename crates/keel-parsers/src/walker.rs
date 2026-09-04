@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::WalkBuilder;
 
 use crate::monorepo::MonorepoLayout;
@@ -68,6 +69,57 @@ impl FileWalker {
     }
 }
 
+/// The repository's ignore rules, applied to paths that did NOT come from a
+/// directory walk — a `git diff --name-only` list, for instance.
+///
+/// [`FileWalker::walk`] gets `.keelignore` and `.gitignore` handling for free
+/// from the `ignore` crate's walker, so the graph never contains an ignored
+/// file. Commands whose file list comes from git need the same rules applied
+/// after the fact, or they check files the map deliberately skipped (issue #70:
+/// a vendored tree listed in `.keelignore` raised violations against
+/// third-party source in the pre-commit hook).
+///
+/// Only the **root-level** `<root>/.keelignore` and `<root>/.gitignore` are
+/// consulted. Nested ignore files are the walker's business, and git's own diff
+/// already omits the untracked files a nested `.gitignore` excludes. A missing
+/// ignore file simply contributes no patterns.
+pub struct KeelIgnore {
+    root: PathBuf,
+    matcher: Gitignore,
+}
+
+impl KeelIgnore {
+    /// Compiles the root-level ignore files under `root` into one matcher.
+    ///
+    /// Unreadable or malformed ignore files contribute nothing rather than
+    /// failing: not ignoring a file is a false positive, refusing to run at all
+    /// is worse.
+    pub fn new(root: &Path) -> Self {
+        let mut builder = GitignoreBuilder::new(root);
+        let _ = builder.add(root.join(".keelignore"));
+        let _ = builder.add(root.join(".gitignore"));
+        Self {
+            root: root.to_path_buf(),
+            matcher: builder.build().unwrap_or_else(|_| Gitignore::empty()),
+        }
+    }
+
+    /// Whether `path` — relative to the root, or absolute beneath it — is
+    /// excluded, either directly or through an ignored parent directory.
+    pub fn is_ignored(&self, path: &Path) -> bool {
+        let relative = match path.strip_prefix(&self.root) {
+            Ok(rel) => rel,
+            // An absolute path outside the root is not governed by these rules;
+            // anything else is already root-relative.
+            Err(_) if path.is_absolute() => return false,
+            Err(_) => path,
+        };
+        self.matcher
+            .matched_path_or_any_parents(relative, false)
+            .is_ignore()
+    }
+}
+
 /// Find which package a file belongs to using longest-prefix match.
 fn find_package_for_path(file_path: &Path, layout: &MonorepoLayout) -> Option<String> {
     let mut best_match: Option<&str> = None;
@@ -129,6 +181,46 @@ mod tests {
         assert!(entries[0].path.to_str().unwrap().contains("app.ts"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The matcher must agree with the walker: a `.keelignore` directory
+    /// pattern excludes everything beneath it, at any depth, and nothing else.
+    #[test]
+    fn test_keelignore_matcher_excludes_ignored_subtrees() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join(".keelignore"), "vendor/\n").unwrap();
+
+        let ignore = KeelIgnore::new(root);
+        assert!(ignore.is_ignored(Path::new("vendor/lib.ts")));
+        assert!(ignore.is_ignored(Path::new("vendor/deep/x.rs")));
+        assert!(!ignore.is_ignored(Path::new("src/app.ts")));
+        // Absolute paths beneath the root resolve the same way.
+        assert!(ignore.is_ignored(&root.join("vendor/lib.ts")));
+        assert!(!ignore.is_ignored(&root.join("src/app.ts")));
+    }
+
+    /// `.gitignore` counts too — the walker honors both files, so a git-derived
+    /// file list must not check something the map skipped for gitignore alone.
+    #[test]
+    fn test_keelignore_matcher_honors_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join(".gitignore"), "generated/\n").unwrap();
+
+        let ignore = KeelIgnore::new(root);
+        assert!(ignore.is_ignored(Path::new("generated/api.ts")));
+        assert!(!ignore.is_ignored(Path::new("src/app.ts")));
+    }
+
+    /// No ignore files at all: nothing is ignored (and the matcher is empty, so
+    /// the check short-circuits).
+    #[test]
+    fn test_keelignore_matcher_without_ignore_files_ignores_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ignore = KeelIgnore::new(dir.path());
+        assert!(!ignore.is_ignored(Path::new("vendor/lib.ts")));
+        assert!(!ignore.is_ignored(Path::new("src/app.ts")));
     }
 
     #[test]
