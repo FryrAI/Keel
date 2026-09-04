@@ -13,19 +13,14 @@ set -euo pipefail
 #   0 = nothing to report.
 #   2 = blocking: keel found violations; stderr is shown to the LLM to fix.
 #   1 = non-blocking error: keel could not check the file (internal error,
-#       timeout). Surfaced to the user, not as "fix before proceeding" — no
-#       edit to this file can resolve a stale graph or a timeout.
+#       timeout, a path this script will not pass along). Surfaced to the
+#       user, not as "fix before proceeding" — no edit to this file can
+#       resolve a stale graph or a timeout.
 # A non-zero exit ALWAYS carries a reason on stderr; a silent block is a bug.
 CLIENT="${1:-}"
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$FILE_PATH" ] && exit 0
-
-# Validate file path — reject metacharacters that could enable argument injection
-if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
-  echo "keel: rejected file path with unexpected characters: $FILE_PATH" >&2
-  exit 2
-fi
 
 # Skip files outside this repository. The editor fires this hook for every
 # write it makes, including ones far from the project (agent memory files, a
@@ -42,6 +37,15 @@ if [[ "$FILE_PATH" == /* ]]; then
       *) exit 0 ;;
     esac
   fi
+fi
+
+# Validate the path only once it is known to be in scope — the scope check
+# above quotes every use of $FILE_PATH, so it is safe on any spelling, and an
+# out-of-tree path must be skipped, not rejected. A rejection is "keel could
+# not check this file", not a violation: exit 1, non-blocking, with the reason.
+if [[ "$FILE_PATH" =~ [^a-zA-Z0-9_./-] ]]; then
+  echo "keel: rejected file path with unexpected characters: $FILE_PATH" >&2
+  exit 1
 fi
 
 ARGS=(compile --delta --llm)

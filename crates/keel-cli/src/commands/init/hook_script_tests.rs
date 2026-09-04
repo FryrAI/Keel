@@ -188,3 +188,58 @@ fn test_paths_outside_the_repository_are_skipped() {
         "keel must not be invoked for a file outside the repo"
     );
 }
+
+/// The scope check must run before the character whitelist: an external path
+/// with a space used to be *rejected* (blocking) before it could be skipped.
+#[test]
+fn test_outside_paths_with_spaces_are_skipped_not_rejected() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = fixture(1, "SHOULD NOT RUN");
+    let elsewhere = TempDir::new().unwrap();
+    let notes = elsewhere
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("Outside Notes");
+    fs::create_dir_all(&notes).unwrap();
+    let outside = notes.join("example.ts");
+    fs::write(&outside, "export {}\n").unwrap();
+
+    let out = run_hook(dir.path(), &outside);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "an out-of-tree path with a space must be skipped: {}",
+        stderr_of(&out)
+    );
+    assert!(!dir.path().join("keel-ran").exists());
+}
+
+/// An in-tree path keel refuses to pass along is a file it could not check —
+/// surfaced with its reason, never a block the agent is told to fix.
+#[test]
+fn test_rejected_in_tree_path_surfaces_without_blocking() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = fixture(1, "SHOULD NOT RUN");
+    let spaced = dir.path().canonicalize().unwrap().join("src/my file.ts");
+    fs::write(&spaced, "export {}\n").unwrap();
+
+    let out = run_hook(dir.path(), &spaced);
+    let stderr = stderr_of(&out);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a rejection must not block: {stderr}"
+    );
+    assert!(
+        stderr.contains("unexpected characters"),
+        "the rejection must say why: {stderr}"
+    );
+    assert!(!dir.path().join("keel-ran").exists());
+}
