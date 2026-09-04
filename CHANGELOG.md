@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-04
+
+Agent-hook reliability: every silent failure mode found while running keel
+under parallel Claude Code and Codex agents, fixed at the root.
+
+### Fixed
+- **The post-edit hook never blocks with empty stderr (#73).** The installed
+  `.keel/hooks/post-edit.sh` captured keel's output with a bare assignment
+  under `set -e`, so every non-zero keel exit terminated the script before
+  the diagnostic could be written — the "hook blocking error … No stderr
+  output" reports. The hook now maps keel exit 1 (violations) to a blocking
+  exit 2, keel exit 2/124 (internal error, timeout) to a non-blocking exit 1
+  with the reason, always prints something on failure, and skips absolute
+  paths outside the working tree before any other check. `keel compile`
+  itself drops explicitly named targets outside the working tree with one
+  stderr line (`compile_scope::screen_targets`, rooted at the new
+  `keel_core::paths::worktree_root`).
+- **`keel map` no longer fails with `UNIQUE constraint failed: nodes.id`
+  (#69).** Not an upgrade-path bug: map cleared the graph and restarted ids
+  at 1 without holding `.keel/compile.lock`, so a hook-triggered compile in
+  between allocated the same ids. Map now holds the shared lock from before
+  `clear_all` through its last write (waits up to 10 s, exits 2 naming the
+  lock rather than skipping), prints a recovery recipe if the write still
+  fails, and the PID-lockfile protocol is theft-proof (unparseable locks are
+  held not stale, stale locks are claimed by atomic rename, release is
+  ownership-checked). OS-level locking and the server/watch writers are
+  tracked in #78.
+- **Git-diff-driven commands honor `.keelignore` (#70).** `keel compile
+  --changed/--since`, a bare compile in a git repo, `keel audit --changed`,
+  `keel checkpoint` and `keel review` take their file list from git, which
+  lists tracked-but-ignored files the walker never visits — so a vendored
+  tree excluded by `.keelignore` raised violations in the pre-commit hook.
+  One matcher (`keel_parsers::walker::KeelIgnore`) is applied inside
+  `keel_enforce::gitdiff`, rooted at the repository top level, with the
+  walker's semantics: `.keelignore` outranks `.gitignore`, a negation cannot
+  re-include a file under an ignored directory, and a rename across the
+  ignored boundary is reported as an addition or a deletion.
+- **`keel init --update-docs` no longer creates an unwired
+  `.keel/hooks/post-edit.sh` (#72).** It refreshes the hook only where one is
+  already installed, checked at the path the installer writes, so the honest
+  compile note in the refreshed docs can never flip to "runs automatically"
+  in a project that wired no hook.
+- **An empty directory named `.git` no longer counts as a repository root
+  (#79).** `keel_dir`/`worktree_root` accept a `.git` entry only if it is a
+  directory holding `HEAD` or a linked-worktree pointer file; a sandbox
+  marker or stray `mkdir .git` in an ancestor used to hijack every project
+  beneath it.
+
+## [0.6.1] - 2026-08-26
+
+### Added
+- Parsers for Typst, Astro, Bash and SQL (`SupplementalResolver`).
+- Semantic sprawl advisories and reuse candidates: W010 in `keel review`,
+  P003 in `keel validate-plan`, `keel name --semantic` (#71).
+
 ## [0.6.0] - 2026-08-08
 
 Slop-free keel: the SlopCodeBench-motivated release (arxiv.org/abs/2603.24755).
