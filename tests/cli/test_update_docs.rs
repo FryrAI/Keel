@@ -165,6 +165,12 @@ fn update_docs_rewrites_the_block_and_syncs_the_version() {
 #[test]
 fn update_docs_hook_file_contains_client_and_5s_timeout() {
     let dir = setup_initialized_project();
+    // `init --yes` leaves the on-edit hook uninstalled by default; install a
+    // stale placeholder so this run exercises the refresh path rather than
+    // the (issue #72) no-create-when-absent guard.
+    let hooks_dir = dir.path().join(".keel/hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    fs::write(hooks_dir.join("post-edit.sh"), "#!/bin/sh\necho stale\n").unwrap();
 
     let out = Command::new(keel_bin())
         .args(["init", "--update-docs"])
@@ -173,13 +179,35 @@ fn update_docs_hook_file_contains_client_and_5s_timeout() {
         .unwrap();
     assert!(out.status.success());
 
-    let hook = fs::read_to_string(dir.path().join(".keel/hooks/post-edit.sh")).unwrap();
+    let hook = fs::read_to_string(hooks_dir.join("post-edit.sh")).unwrap();
     assert!(hook.contains("--client"), "hook must pass --client: {hook}");
     assert!(
         hook.contains("timeout 5 "),
         "hook must use the 5s timeout: {hook}"
     );
     assert!(!hook.contains("timeout 15"), "old 15s timeout must be gone");
+}
+
+#[test]
+fn update_docs_never_creates_the_hook_when_it_was_never_installed() {
+    // Regression test for #72: `init --yes` does not install the on-edit
+    // hook, so `--update-docs` must not create one either — an unwired
+    // `post-edit.sh` would falsely flip the honest compile note on the
+    // *next* `--update-docs` run.
+    let dir = setup_initialized_project();
+    assert!(!dir.path().join(".keel/hooks/post-edit.sh").exists());
+
+    let out = Command::new(keel_bin())
+        .args(["init", "--update-docs"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    assert!(
+        !dir.path().join(".keel/hooks/post-edit.sh").exists(),
+        "--update-docs must not create a post-edit hook that was never installed"
+    );
 }
 
 #[test]

@@ -2,9 +2,10 @@
 //! drift `map`/`compile` detect (see `commands::version_drift`).
 //!
 //! Rewrites the keel-managed `<!-- keel:start -->`/`<!-- keel:end -->` block
-//! in every agent doc file already present, regenerates
-//! `.keel/hooks/post-edit.sh`, and syncs `.keel/keel.json`'s pinned version
-//! to this binary. Deliberately narrower than a full `keel init --merge`:
+//! in every agent doc file already present, refreshes
+//! `.keel/hooks/post-edit.sh` only if it is already installed, and syncs
+//! `.keel/keel.json`'s pinned version to this binary. Deliberately narrower
+//! than a full `keel init --merge`:
 //! non-interactive, no tool (re)detection, no config merge, no database
 //! reset, and it never creates a doc file for a tool that wasn't already
 //! integrated — only refreshes what `keel init` previously wrote.
@@ -48,9 +49,14 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
         }
     }
 
-    hook_script::install_post_edit_hook(cwd, verbose);
-    // Refresh, never create: an ExitPlanMode hook the user never installed has
-    // nothing in `.claude/settings.json` pointing at it.
+    // Refresh, never create: a post-edit or ExitPlanMode hook the user never
+    // installed has nothing in `.claude/settings.json` pointing at it, so
+    // creating one here would leave a stray, unwired script AND corrupt the
+    // honest compile note on the next run (`on_edit` would then read true
+    // even though nothing invokes the hook). See issue #72.
+    if on_edit {
+        hook_script::install_post_edit_hook(cwd, verbose);
+    }
     if keel_dir.join("hooks/plan-check.sh").exists() {
         hook_script::install_plan_check_hook(cwd, verbose);
     }
@@ -60,8 +66,9 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
         eprintln!("keel init --update-docs: warning: failed to sync keel.json version: {e}");
     }
 
+    let hook_note = if on_edit { ", post-edit.sh," } else { "" };
     eprintln!(
-        "keel init --update-docs: refreshed {file_count} doc file(s), post-edit.sh, \
+        "keel init --update-docs: refreshed {file_count} doc file(s){hook_note} \
          and keel.json version -> {binary_version}"
     );
     0
