@@ -14,6 +14,8 @@ mod test_checkpoint;
 mod test_compile;
 #[path = "cli/test_compile_batch.rs"]
 mod test_compile_batch;
+#[path = "cli/test_compile_keelignore.rs"]
+mod test_compile_keelignore;
 #[path = "cli/test_context.rs"]
 mod test_context;
 #[path = "cli/test_deinit.rs"]

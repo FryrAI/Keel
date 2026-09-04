@@ -57,6 +57,95 @@ fn supported_filter_drops_unparseable_files() {
     assert!(unfiltered.contains(&"notes.txt".to_string()));
 }
 
+/// Issue #70: git lists a tracked-but-ignored file in its diff, the walker
+/// never does. Every git-diff-driven command (compile, audit, checkpoint) must
+/// see the same scope the graph has, or a vendored tree raises violations
+/// against third-party source in the pre-commit hook.
+#[test]
+fn keelignore_drops_ignored_paths() {
+    let dir = init_repo();
+    std::fs::write(dir.path().join(".keelignore"), "vendor/\n").unwrap();
+    std::fs::create_dir(dir.path().join("vendor")).unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("vendor/lib.rs"), "fn v() {}\n").unwrap();
+    std::fs::write(dir.path().join("src/app.rs"), "fn a() {}\n").unwrap();
+    // `-f`: git itself would skip the ignored path, and the bug only shows on
+    // a tracked one.
+    git(&["add", "-f", "."], dir.path());
+
+    let files = changed_files(dir.path(), &DiffMode::Since(None), true);
+    assert_eq!(files, vec!["src/app.rs".to_string()]);
+}
+
+/// `git diff` prints repository-root-relative paths whatever directory it is
+/// run from, so the ignore rules must be read from the repo root — not from the
+/// caller's cwd, where a nested invocation (a hook run in a subdirectory) would
+/// find no `.keelignore` at all and check the vendored tree anyway.
+#[test]
+fn keelignore_is_read_from_the_repo_root_not_the_cwd() {
+    let dir = init_repo();
+    std::fs::write(dir.path().join(".keelignore"), "vendor/\n").unwrap();
+    std::fs::create_dir(dir.path().join("vendor")).unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("vendor/lib.rs"), "fn v() {}\n").unwrap();
+    std::fs::write(dir.path().join("src/app.rs"), "fn a() {}\n").unwrap();
+    git(&["add", "-f", "."], dir.path());
+
+    let files = changed_files(&dir.path().join("src"), &DiffMode::Since(None), true);
+    assert_eq!(files, vec!["src/app.rs".to_string()]);
+}
+
+/// A rename out of an ignored tree is an ADDITION: the base side is not in the
+/// graph, so `keel review` must score the arriving symbols as new rather than
+/// parse the ignored blob and call them relocated.
+#[test]
+fn a_rename_out_of_an_ignored_tree_becomes_an_addition() {
+    let dir = renamed_repo("vendor/old.py", "src/new.py");
+
+    let paths = changed_paths(dir.path(), "HEAD").unwrap();
+    assert_eq!(
+        paths,
+        vec![ChangedPath {
+            path: "src/new.py".to_string(),
+            status: ChangeStatus::Added,
+        }]
+    );
+}
+
+/// A rename into an ignored tree is a DELETION at the old path: dropping the
+/// record whole would hide the contracts the move removed from the graph.
+#[test]
+fn a_rename_into_an_ignored_tree_becomes_a_deletion() {
+    let dir = renamed_repo("src/old.py", "vendor/new.py");
+
+    let paths = changed_paths(dir.path(), "HEAD").unwrap();
+    assert_eq!(
+        paths,
+        vec![ChangedPath {
+            path: "src/old.py".to_string(),
+            status: ChangeStatus::Deleted,
+        }]
+    );
+}
+
+/// A repo ignoring `vendor/` where `from` has been committed and then `git mv`d
+/// to `to`, staged so `git diff -M HEAD` sees both sides of the rename.
+fn renamed_repo(from: &str, to: &str) -> TempDir {
+    let dir = init_repo();
+    std::fs::write(dir.path().join(".keelignore"), "vendor/\n").unwrap();
+    std::fs::create_dir(dir.path().join("vendor")).unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    std::fs::write(
+        dir.path().join(from),
+        "def moved(value):\n    return value\n",
+    )
+    .unwrap();
+    git(&["add", "-f", "."], dir.path());
+    git(&["commit", "-m", "init"], dir.path());
+    git(&["mv", from, to], dir.path());
+    dir
+}
+
 /// Working-tree edits to a committed file show up under `Since(None)`.
 #[test]
 fn since_head_reports_working_tree_edits() {
