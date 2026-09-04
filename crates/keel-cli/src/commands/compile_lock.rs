@@ -1,8 +1,12 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
-/// Advisory lock guard for compile serialization.
+const COMPILE_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
+const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Advisory graph lock guard shared by `keel compile` and `keel map`.
 /// Dropped automatically when the guard goes out of scope.
 pub struct CompileLock {
     path: std::path::PathBuf,
@@ -14,11 +18,22 @@ impl Drop for CompileLock {
     }
 }
 
-/// Try to acquire a compile lock. Returns None if another compile holds the lock.
-/// Uses a PID-based lockfile with atomic creation to avoid TOCTOU races.
+/// Try to acquire the graph lock, waiting up to two seconds for its holder.
+/// Returns `None` if another keel process still holds the lock.
 pub fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLock> {
+    acquire_compile_lock_with_timeout(keel_dir, verbose, COMPILE_LOCK_TIMEOUT)
+}
+
+/// Try to acquire the shared graph lock within `timeout`.
+/// Uses a PID-based lockfile with atomic creation to avoid TOCTOU races.
+pub(super) fn acquire_compile_lock_with_timeout(
+    keel_dir: &Path,
+    verbose: bool,
+    timeout: Duration,
+) -> Option<CompileLock> {
     let lock_path = keel_dir.join("compile.lock");
     let pid = std::process::id();
+    let deadline = Instant::now() + timeout;
 
     // Try atomic create — fails if file already exists
     match OpenOptions::new()
@@ -43,9 +58,13 @@ pub fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLoc
 
     if let Some(existing_pid) = existing_pid {
         if is_process_alive(existing_pid) {
-            // Wait up to 2s for the lock to release, then retry once
-            for _ in 0..20 {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+            // Wait for the lock to release, bounded by the caller's timeout.
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return None;
+                }
+                std::thread::sleep(LOCK_POLL_INTERVAL.min(remaining));
                 match OpenOptions::new()
                     .write(true)
                     .create_new(true)
@@ -59,14 +78,10 @@ pub fn acquire_compile_lock(keel_dir: &Path, verbose: bool) -> Option<CompileLoc
                     Err(_) => return None,
                 }
             }
-            return None; // Still locked after 2s
         }
         // Stale lock — process is dead
         if verbose {
-            eprintln!(
-                "keel compile: removing stale lock from PID {}",
-                existing_pid
-            );
+            eprintln!("keel: removing stale graph lock from PID {}", existing_pid);
         }
     }
 
@@ -96,8 +111,31 @@ fn is_process_alive(pid: u32) -> bool {
     #[cfg(not(unix))]
     {
         // Conservative fallback for Windows/other: assume the process is alive.
-        // The 2-second wait loop will handle the timeout regardless.
+        // The caller's bounded wait loop will handle the timeout regardless.
         let _ = pid;
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::{acquire_compile_lock, acquire_compile_lock_with_timeout};
+
+    /// The wait is bounded by the caller's timeout, and the lock is free again
+    /// as soon as the holder drops it — `keel map` relies on both (#69).
+    #[test]
+    fn lock_wait_is_bounded_then_refused_while_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = acquire_compile_lock(dir.path(), false).unwrap();
+        let timeout = Duration::from_millis(25);
+        let start = Instant::now();
+
+        assert!(acquire_compile_lock_with_timeout(dir.path(), false, timeout).is_none());
+        assert!(start.elapsed() >= timeout);
+
+        drop(held);
+        assert!(acquire_compile_lock_with_timeout(dir.path(), false, Duration::ZERO).is_some());
     }
 }
