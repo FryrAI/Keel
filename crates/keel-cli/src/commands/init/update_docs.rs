@@ -26,7 +26,13 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     // Whether the on-edit hook is currently installed, read BEFORE it is
     // regenerated below — determines whether the refreshed docs may honestly
     // claim automatic post-edit compilation (see `apply_honest_compile_note`).
-    let on_edit = keel_dir.join("hooks/post-edit.sh").exists();
+    // Checked at the path the installer writes and the tool configs reference
+    // (`<cwd>/.keel/hooks`), NOT `keel_dir`: in a linked worktree `keel_dir`
+    // resolves to the main checkout, and a hook installed there says nothing
+    // about this worktree — inspecting one path and writing another would
+    // create the very stray hook this guard exists to prevent.
+    let hooks_dir = cwd.join(".keel/hooks");
+    let on_edit = hooks_dir.join("post-edit.sh").exists();
 
     // `generators::MANAGED_DOCS` is the shared table: whatever `keel init`
     // can create, this refreshes. settings.json/hooks.json files are not on
@@ -57,7 +63,7 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     if on_edit {
         hook_script::install_post_edit_hook(cwd, verbose);
     }
-    if keel_dir.join("hooks/plan-check.sh").exists() {
+    if hooks_dir.join("plan-check.sh").exists() {
         hook_script::install_plan_check_hook(cwd, verbose);
     }
 

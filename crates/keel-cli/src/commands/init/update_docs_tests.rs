@@ -172,6 +172,64 @@ fn keeps_the_automatic_compile_claim_when_the_hook_is_already_installed() {
     );
 }
 
+/// Run `git` in `dir`, panicking on failure.
+fn git(args: &[&str], dir: &std::path::Path) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git not available");
+    assert!(out.status.success(), "git {args:?} failed: {out:?}");
+}
+
+#[test]
+fn linked_worktree_does_not_inherit_the_main_checkouts_hook() {
+    // Regression test for the #72 review finding: `keel_dir` resolves a
+    // linked worktree to the MAIN checkout, but the hook is written under
+    // `<cwd>/.keel/hooks`. The guard must look where the installer writes,
+    // or a hook installed in main would be materialised in a worktree that
+    // never wired one — and its docs would claim automatic compilation.
+    let dir = TempDir::new().unwrap();
+    let main = dir.path().join("main");
+    fs::create_dir_all(main.join(".keel/hooks")).unwrap();
+    git(&["init", "-q"], &main);
+    git(&["config", "user.email", "test@test.com"], &main);
+    git(&["config", "user.name", "Test"], &main);
+    fs::write(main.join("f.txt"), "hi").unwrap();
+    git(&["add", "."], &main);
+    git(&["commit", "-q", "-m", "init"], &main);
+    fs::write(
+        main.join(".keel/keel.json"),
+        r#"{"version": "0.1.0", "languages": ["rust"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        main.join(".keel/hooks/post-edit.sh"),
+        "#!/bin/sh\necho main hook\n",
+    )
+    .unwrap();
+
+    let wt = dir.path().join("wt");
+    git(&["worktree", "add", "-q", wt.to_str().unwrap()], &main);
+    fs::write(
+        wt.join("CLAUDE.md"),
+        "<!-- keel:start -->\nstale content, no version stamp\n<!-- keel:end -->\n",
+    )
+    .unwrap();
+
+    assert_eq!(run(&wt, false), 0);
+
+    assert!(
+        !wt.join(".keel/hooks/post-edit.sh").exists(),
+        "a worktree must not inherit the main checkout's hook"
+    );
+    let claude_md = fs::read_to_string(wt.join("CLAUDE.md")).unwrap();
+    assert!(
+        !claude_md.contains(AUTO_COMPILE_CLAIM),
+        "no hook is wired in this worktree, so the docs must not claim one: {claude_md}"
+    );
+}
+
 #[test]
 fn never_creates_a_doc_file_that_was_not_already_present() {
     let dir = setup_stale_project();
