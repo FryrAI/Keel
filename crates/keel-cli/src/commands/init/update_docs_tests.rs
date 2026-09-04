@@ -3,8 +3,14 @@ use std::fs;
 use tempfile::TempDir;
 
 use super::*;
+use crate::commands::init::templates;
 
 const BINARY_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The exact claim `apply_honest_compile_note` rewrites when the on-edit
+/// hook is not installed (Claude Code / Letta Code phrasing).
+const AUTO_COMPILE_CLAIM: &str =
+    "`keel compile` runs automatically via hooks after every Edit/Write/MultiEdit.";
 
 /// A minimal initialized project: `.keel/keel.json` pinned at a stale
 /// version plus a stale `AGENTS.md` (no version stamp at all, as pre-T1.6
@@ -20,6 +26,26 @@ fn setup_stale_project() -> TempDir {
     .unwrap();
     fs::write(
         dir.path().join("AGENTS.md"),
+        "<!-- keel:start -->\nstale content, no version stamp\n<!-- keel:end -->\n",
+    )
+    .unwrap();
+    dir
+}
+
+/// A minimal initialized project integrated with `CLAUDE.md` (whose template
+/// carries the automatic-compile claim `apply_honest_compile_note` toggles),
+/// with no `.keel/hooks/post-edit.sh` installed.
+fn setup_stale_claude_project() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let keel_dir = dir.path().join(".keel");
+    fs::create_dir_all(&keel_dir).unwrap();
+    fs::write(
+        keel_dir.join("keel.json"),
+        r#"{"version": "0.1.0", "languages": ["rust"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("CLAUDE.md"),
         "<!-- keel:start -->\nstale content, no version stamp\n<!-- keel:end -->\n",
     )
     .unwrap();
@@ -56,12 +82,21 @@ fn rewrites_the_block_and_syncs_the_version() {
 }
 
 #[test]
-fn regenerates_the_hook_with_client_flag_and_5s_timeout() {
+fn refreshes_an_already_installed_hook_with_client_flag_and_5s_timeout() {
     let dir = setup_stale_project();
+    // The hook was already installed (e.g. by a prior `keel init` that chose
+    // the on-edit option) — --update-docs must refresh it, not skip it.
+    let hooks_dir = dir.path().join(".keel/hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    fs::write(
+        hooks_dir.join("post-edit.sh"),
+        "#!/bin/sh\necho stale hook\n",
+    )
+    .unwrap();
 
     run(dir.path(), false);
 
-    let hook = fs::read_to_string(dir.path().join(".keel/hooks/post-edit.sh")).unwrap();
+    let hook = fs::read_to_string(hooks_dir.join("post-edit.sh")).unwrap();
     assert!(hook.contains("--client"), "hook must pass --client: {hook}");
     assert!(
         hook.contains("timeout 5 "),
@@ -70,6 +105,128 @@ fn regenerates_the_hook_with_client_flag_and_5s_timeout() {
     assert!(
         !hook.contains("timeout 15"),
         "hook must not still use the old 15s timeout: {hook}"
+    );
+}
+
+#[test]
+fn does_not_install_the_hook_when_it_was_never_present() {
+    // Regression test for #72: `--update-docs` must never create
+    // `.keel/hooks/post-edit.sh` — doing so leaves a stray, unwired script
+    // (nothing in `.claude/settings.json` points at it) and would falsely
+    // flip `on_edit` to true on the *next* run, corrupting the honest
+    // compile note in the refreshed docs.
+    let dir = setup_stale_project();
+    assert!(!dir.path().join(".keel/hooks/post-edit.sh").exists());
+
+    assert_eq!(run(dir.path(), false), 0);
+
+    assert!(
+        !dir.path().join(".keel/hooks/post-edit.sh").exists(),
+        "--update-docs must not create a post-edit hook that was never installed"
+    );
+}
+
+#[test]
+fn stays_honest_about_automatic_compile_across_repeated_runs_without_a_hook() {
+    // Regression test for #72: before the fix, run 1 created an unwired
+    // post-edit.sh (docs stayed honest that run, since `on_edit` was read
+    // before the create); run 2 then saw the hook `on_edit.exists() ==
+    // true` and falsely claimed automatic compilation. The hook must never
+    // be created here, so both runs must stay honest.
+    let dir = setup_stale_claude_project();
+
+    assert_eq!(run(dir.path(), false), 0);
+    assert_eq!(run(dir.path(), false), 0);
+
+    assert!(!dir.path().join(".keel/hooks/post-edit.sh").exists());
+    let claude_md = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
+    assert!(
+        !claude_md.contains(AUTO_COMPILE_CLAIM),
+        "must not claim automatic compilation when no hook is installed: {claude_md}"
+    );
+}
+
+#[test]
+fn keeps_the_automatic_compile_claim_when_the_hook_is_already_installed() {
+    let dir = setup_stale_claude_project();
+    let hooks_dir = dir.path().join(".keel/hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    fs::write(
+        hooks_dir.join("post-edit.sh"),
+        "#!/bin/sh\necho stale hook\n",
+    )
+    .unwrap();
+
+    assert_eq!(run(dir.path(), false), 0);
+
+    let hook = fs::read_to_string(hooks_dir.join("post-edit.sh")).unwrap();
+    assert_eq!(
+        hook,
+        templates::POST_EDIT_HOOK,
+        "an already-installed hook must be refreshed to the current template"
+    );
+    let claude_md = fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
+    assert!(
+        claude_md.contains(AUTO_COMPILE_CLAIM),
+        "an installed hook makes the automatic-compile claim honest: {claude_md}"
+    );
+}
+
+/// Run `git` in `dir`, panicking on failure.
+fn git(args: &[&str], dir: &std::path::Path) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git not available");
+    assert!(out.status.success(), "git {args:?} failed: {out:?}");
+}
+
+#[test]
+fn linked_worktree_does_not_inherit_the_main_checkouts_hook() {
+    // Regression test for the #72 review finding: `keel_dir` resolves a
+    // linked worktree to the MAIN checkout, but the hook is written under
+    // `<cwd>/.keel/hooks`. The guard must look where the installer writes,
+    // or a hook installed in main would be materialised in a worktree that
+    // never wired one — and its docs would claim automatic compilation.
+    let dir = TempDir::new().unwrap();
+    let main = dir.path().join("main");
+    fs::create_dir_all(main.join(".keel/hooks")).unwrap();
+    git(&["init", "-q"], &main);
+    git(&["config", "user.email", "test@test.com"], &main);
+    git(&["config", "user.name", "Test"], &main);
+    fs::write(main.join("f.txt"), "hi").unwrap();
+    git(&["add", "."], &main);
+    git(&["commit", "-q", "-m", "init"], &main);
+    fs::write(
+        main.join(".keel/keel.json"),
+        r#"{"version": "0.1.0", "languages": ["rust"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        main.join(".keel/hooks/post-edit.sh"),
+        "#!/bin/sh\necho main hook\n",
+    )
+    .unwrap();
+
+    let wt = dir.path().join("wt");
+    git(&["worktree", "add", "-q", wt.to_str().unwrap()], &main);
+    fs::write(
+        wt.join("CLAUDE.md"),
+        "<!-- keel:start -->\nstale content, no version stamp\n<!-- keel:end -->\n",
+    )
+    .unwrap();
+
+    assert_eq!(run(&wt, false), 0);
+
+    assert!(
+        !wt.join(".keel/hooks/post-edit.sh").exists(),
+        "a worktree must not inherit the main checkout's hook"
+    );
+    let claude_md = fs::read_to_string(wt.join("CLAUDE.md")).unwrap();
+    assert!(
+        !claude_md.contains(AUTO_COMPILE_CLAIM),
+        "no hook is wired in this worktree, so the docs must not claim one: {claude_md}"
     );
 }
 
