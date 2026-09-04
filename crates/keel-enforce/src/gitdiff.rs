@@ -19,7 +19,7 @@
 //!   (issue #70). Git lists a tracked-but-ignored file in a diff; the walker
 //!   never does.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use keel_parsers::treesitter::detect_language;
@@ -52,6 +52,18 @@ fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<String>, String> 
     Ok(Some(String::from_utf8_lossy(&out.stdout).to_string()))
 }
 
+/// The repository root, which is what git prints its diff paths relative to —
+/// so it, not the caller's `dir`, is where the ignore rules live. Falls back to
+/// `dir` when git cannot say (no repository, no git).
+fn repo_root(dir: &Path) -> PathBuf {
+    run_git_checked(dir, &["rev-parse", "--show-toplevel"])
+        .ok()
+        .flatten()
+        .map(|out| PathBuf::from(out.trim()))
+        .filter(|root| !root.as_os_str().is_empty())
+        .unwrap_or_else(|| dir.to_path_buf())
+}
+
 /// Keep non-empty lines; drop paths the repository's ignore rules exclude, and
 /// when `only_supported`, paths keel cannot parse (per the canonical
 /// `detect_language` extension table).
@@ -66,8 +78,9 @@ fn collect_lines(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<S
 
 /// List repo-relative paths of files changed for `mode`, evaluated in `dir`.
 ///
-/// Paths excluded by `dir`'s `.keelignore`/`.gitignore` are dropped, so a
-/// git-diff-driven command never checks a file `keel map` refused to graph.
+/// Paths excluded by the repository root's `.keelignore`/`.gitignore` are
+/// dropped, so a git-diff-driven command never checks a file `keel map` refused
+/// to graph — `dir` may be any directory inside the repo.
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
@@ -110,7 +123,7 @@ pub fn changed_files_checked(
         }
     };
     Ok(raw
-        .map(|t| collect_lines(&t, only_supported, &KeelIgnore::new(dir)))
+        .map(|t| collect_lines(&t, only_supported, &KeelIgnore::new(&repo_root(dir))))
         .unwrap_or_default())
 }
 
@@ -246,12 +259,48 @@ fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
     let raw = run_git_checked(dir, &["diff", "--name-status", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
-    let ignore = KeelIgnore::new(dir);
+    let ignore = KeelIgnore::new(&repo_root(dir));
     Ok(raw
         .lines()
         .filter_map(parse_name_status_line)
-        .filter(|c| !ignore.is_ignored(Path::new(&c.path)))
+        .filter_map(|entry| apply_ignore(entry, &ignore))
         .collect())
+}
+
+/// Re-frame one changed path against the ignore rules, or drop it.
+///
+/// A rename that crosses the ignore boundary is not a move to keel: the ignored
+/// side is not in the graph, so only one endpoint is visible. Left as a rename,
+/// a file moved *out of* an ignored tree would have its base blob parsed and its
+/// symbols scored as merely relocated (cancelling their violations as
+/// pre-existing), and a file moved *into* one would be dropped whole, hiding the
+/// contracts it removed.
+fn apply_ignore(entry: ChangedPath, ignore: &KeelIgnore) -> Option<ChangedPath> {
+    let head_ignored = ignore.is_ignored(Path::new(&entry.path));
+    match entry.status {
+        ChangeStatus::Renamed { from } => match (ignore.is_ignored(Path::new(&from)), head_ignored)
+        {
+            (true, true) => None,
+            // Arrived from outside the graph: new code at the new path.
+            (true, false) => Some(ChangedPath {
+                path: entry.path,
+                status: ChangeStatus::Added,
+            }),
+            // Left the graph: its contracts are gone from the old path.
+            (false, true) => Some(ChangedPath {
+                path: from,
+                status: ChangeStatus::Deleted,
+            }),
+            (false, false) => Some(ChangedPath {
+                path: entry.path,
+                status: ChangeStatus::Renamed { from },
+            }),
+        },
+        status => (!head_ignored).then_some(ChangedPath {
+            path: entry.path,
+            status,
+        }),
+    }
 }
 
 /// Read the contents of `path` as of revision `rev` (`git show <rev>:<path>`).

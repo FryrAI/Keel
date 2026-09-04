@@ -91,13 +91,18 @@ pub struct KeelIgnore {
 impl KeelIgnore {
     /// Compiles the root-level ignore files under `root` into one matcher.
     ///
+    /// `.gitignore` is added first and `.keelignore` second: `GitignoreBuilder`
+    /// is last-match-wins, which reproduces the walker's precedence, where a
+    /// custom ignore file outranks `.gitignore`. So `!vendor/gen.rs` in
+    /// `.keelignore` re-includes a file `.gitignore` excluded, not the reverse.
+    ///
     /// Unreadable or malformed ignore files contribute nothing rather than
     /// failing: not ignoring a file is a false positive, refusing to run at all
     /// is worse.
     pub fn new(root: &Path) -> Self {
         let mut builder = GitignoreBuilder::new(root);
-        let _ = builder.add(root.join(".keelignore"));
         let _ = builder.add(root.join(".gitignore"));
+        let _ = builder.add(root.join(".keelignore"));
         Self {
             root: root.to_path_buf(),
             matcher: builder.build().unwrap_or_else(|_| Gitignore::empty()),
@@ -114,9 +119,22 @@ impl KeelIgnore {
             Err(_) if path.is_absolute() => return false,
             Err(_) => path,
         };
-        self.matcher
-            .matched_path_or_any_parents(relative, false)
-            .is_ignore()
+        // Excluded ancestors first. Git's rule is that a file under an excluded
+        // directory cannot be re-included, and the walker enforces it by never
+        // descending into one — but `matched_path_or_any_parents` answers a
+        // direct whitelist match before it ever looks at the parents, so
+        // `vendor/` plus `!vendor/keep.rs` would read as "keep" here alone.
+        let mut ancestor = relative.parent();
+        while let Some(dir) = ancestor {
+            if dir.as_os_str().is_empty() {
+                break;
+            }
+            if self.matcher.matched(dir, true).is_ignore() {
+                return true;
+            }
+            ancestor = dir.parent();
+        }
+        self.matcher.matched(relative, false).is_ignore()
     }
 }
 
@@ -211,6 +229,44 @@ mod tests {
         let ignore = KeelIgnore::new(root);
         assert!(ignore.is_ignored(Path::new("generated/api.ts")));
         assert!(!ignore.is_ignored(Path::new("src/app.ts")));
+    }
+
+    /// `.keelignore` outranks `.gitignore`, exactly as the walker's custom
+    /// ignore file outranks `.gitignore` — a negation in `.keelignore` must be
+    /// able to re-include a gitignored file, which the reverse order got wrong.
+    #[test]
+    fn test_keelignore_matcher_lets_keelignore_override_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join(".gitignore"), "generated.rs\n").unwrap();
+        fs::write(root.join(".keelignore"), "!generated.rs\n").unwrap();
+        fs::write(root.join("generated.rs"), "fn g() {}").unwrap();
+
+        assert!(!KeelIgnore::new(root).is_ignored(Path::new("generated.rs")));
+        let walked = FileWalker::new(root).walk();
+        assert_eq!(
+            walked.len(),
+            1,
+            "the matcher must agree with the walker, which visits the file"
+        );
+    }
+
+    /// A negation cannot climb out of an excluded directory: git never
+    /// re-includes a file under an ignored parent, and the walker prunes the
+    /// directory without ever seeing the child.
+    #[test]
+    fn test_keelignore_matcher_ignores_children_of_ignored_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("vendor")).unwrap();
+        fs::write(root.join(".keelignore"), "vendor/\n!vendor/keep.rs\n").unwrap();
+        fs::write(root.join("vendor/keep.rs"), "fn k() {}").unwrap();
+        fs::write(root.join("app.rs"), "fn a() {}").unwrap();
+
+        assert!(KeelIgnore::new(root).is_ignored(Path::new("vendor/keep.rs")));
+        let walked = FileWalker::new(root).walk();
+        assert_eq!(walked.len(), 1, "the walker never descends into vendor/");
+        assert!(walked[0].path.ends_with("app.rs"));
     }
 
     /// No ignore files at all: nothing is ignored (and the matcher is empty, so
