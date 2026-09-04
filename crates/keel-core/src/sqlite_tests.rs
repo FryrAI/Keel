@@ -138,6 +138,36 @@ fn test_readd_same_node_no_unique_constraint_error() {
 }
 
 #[test]
+fn concurrent_insert_after_clear_collides_with_map_node_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("graph.db");
+    let db_path = db_path.to_str().unwrap();
+    let mut map_store = SqliteGraphStore::open(db_path).unwrap();
+    let compile_store = SqliteGraphStore::open(db_path).unwrap();
+
+    map_store.clear_all().unwrap();
+    let compile_id = compile_store.max_id() + 1;
+    assert_eq!(compile_id, 1);
+    compile_store
+        .insert_node(&test_node(compile_id, "compile_hash", "compile_node"))
+        .unwrap();
+
+    let error = map_store
+        .update_nodes(vec![NodeChange::Add(test_node(
+            1,
+            "different_map_hash",
+            "map_node",
+        ))])
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("UNIQUE constraint failed: nodes.id"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
 fn test_readd_same_edge_no_unique_constraint_error() {
     let mut store = SqliteGraphStore::in_memory().unwrap();
     let n1 = test_node(1, "aaa12345678", "caller");

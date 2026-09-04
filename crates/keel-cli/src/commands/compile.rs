@@ -80,11 +80,11 @@ pub fn run(
     // At most one line, emitted once per invocation.
     super::version_drift::warn(&cwd, &config);
 
-    // Acquire compile lock to prevent concurrent corruption
+    // Acquire the shared graph lock to prevent concurrent map/compile writes.
     let _lock = match acquire_compile_lock(&keel_dir, verbose) {
         Some(lock) => lock,
         None => {
-            eprintln!("keel compile: another compile is running, skipping");
+            eprintln!("keel compile: another keel process holds the graph lock, skipping");
             return (0, EventMetrics::default());
         }
     };
