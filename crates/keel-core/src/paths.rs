@@ -65,15 +65,43 @@ fn resolve_repo_root(start: &Path) -> Option<PathBuf> {
 }
 
 /// Walk up from `start`, returning the first `(dir, dir/.git)` where `.git`
-/// exists (as either a directory or a file).
+/// is an actual repository entry (see [`is_git_entry`]), not merely a path
+/// that happens to exist under that name.
 fn find_dot_git(start: &Path) -> Option<(PathBuf, PathBuf)> {
     for dir in start.ancestors() {
         let git = dir.join(".git");
-        if git.exists() {
+        if is_git_entry(&git) {
             return Some((dir.to_path_buf(), git));
         }
     }
     None
+}
+
+/// Whether `path` (a candidate `.git` entry) is a real repository marker.
+///
+/// A directory named `.git` only counts if it holds a `HEAD` file, which
+/// every real git directory (normal checkout or a linked worktree's own
+/// `.git/worktrees/<name>` target) has — an *empty* directory named `.git`
+/// does not. This matters because such a directory can appear by accident: a
+/// sandbox marker under `/tmp`, or a stray `mkdir .git`. Without this check
+/// it would be indistinguishable from a real repo root and would hijack
+/// resolution for every path beneath it (see issue: empty `/tmp/.git`
+/// breaking `keel_dir`/`worktree_root` for every tempdir-based test on the
+/// box). A file named `.git` only counts if it is a linked worktree pointer —
+/// its content has a line starting with `gitdir:` (mirrors the parsing in
+/// [`main_root_from_worktree`]). Anything else (missing path, empty dir,
+/// unrelated file) is not a repository entry, and the caller keeps walking up
+/// to the next ancestor.
+fn is_git_entry(path: &Path) -> bool {
+    if path.is_dir() {
+        path.join("HEAD").is_file()
+    } else if path.is_file() {
+        fs::read_to_string(path)
+            .map(|content| content.lines().any(|l| l.starts_with("gitdir:")))
+            .unwrap_or(false)
+    } else {
+        false
+    }
 }
 
 /// Given a worktree's `.git` file, resolve the main checkout root via its

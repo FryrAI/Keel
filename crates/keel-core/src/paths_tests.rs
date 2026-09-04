@@ -106,6 +106,36 @@ fn worktree_root_is_the_nearest_dot_git_ancestor() {
     assert_eq!(worktree_root(dir.path()), None);
 }
 
+/// An empty directory named `.git` (e.g. a sandbox marker, or a stray
+/// `mkdir .git`) is not a repository and must not hijack root resolution for
+/// a project living beneath it: `keel_dir` falls back to the no-git default
+/// and `worktree_root` is `None`.
+#[test]
+fn empty_dot_git_directory_is_not_a_repository() {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    assert_eq!(keel_dir(&project), project.join(".keel"));
+    assert_eq!(worktree_root(&project), None);
+}
+
+/// A real repo nested below a fake (empty-directory) `.git` still resolves to
+/// its own root — the walk must skip the fake entry and keep going up... but
+/// stop at the first REAL one, not fall through past it too.
+#[test]
+fn nested_project_below_a_fake_dot_git_still_finds_its_own_repo() {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&["init"], &project);
+
+    assert_eq!(worktree_root(&project.join("src")), Some(project.clone()));
+    assert_eq!(keel_dir(&project), project.join(".keel"));
+}
+
 // --- confine: path confinement for server-side surfaces ---
 // (moved here from keel-server::http_confine, which was a pure delegate)
 
