@@ -1,6 +1,6 @@
 //! Tests for `.keel` directory resolution (issue #29 — worktree-aware graph).
 
-use super::{confine, keel_dir, make_relative};
+use super::{confine, keel_dir, make_relative, worktree_root};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
@@ -82,6 +82,28 @@ fn linked_worktree_resolves_to_main_checkout_keel() {
         main.canonicalize().unwrap(),
         "worktree must share the main checkout's .keel",
     );
+}
+
+/// `worktree_root` is the nearest `.git`-holding ancestor: the repo root for a
+/// normal checkout, the worktree itself for a linked worktree, `None` outside
+/// any repository — never the main checkout `keel_dir` resolves to.
+#[test]
+fn worktree_root_is_the_nearest_dot_git_ancestor() {
+    let dir = TempDir::new().unwrap();
+    let main = dir.path().join("main");
+    std::fs::create_dir_all(main.join("sub")).unwrap();
+    git(&["init"], &main);
+    git(&["config", "user.email", "test@test.com"], &main);
+    git(&["config", "user.name", "Test"], &main);
+    std::fs::write(main.join("f.txt"), "hi").unwrap();
+    git(&["add", "."], &main);
+    git(&["commit", "-m", "init"], &main);
+    let wt = dir.path().join("wt");
+    git(&["worktree", "add", wt.to_str().unwrap()], &main);
+
+    assert_eq!(worktree_root(&main.join("sub")), Some(main.clone()));
+    assert_eq!(worktree_root(&wt), Some(wt.clone()));
+    assert_eq!(worktree_root(dir.path()), None);
 }
 
 // --- confine: path confinement for server-side surfaces ---

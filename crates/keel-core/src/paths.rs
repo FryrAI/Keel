@@ -40,6 +40,17 @@ pub fn make_relative(root: &Path, path: &Path) -> String {
         .to_string()
 }
 
+/// The working-tree root containing `start`: the nearest ancestor holding a
+/// `.git` entry (a directory for a normal checkout, a file for a linked
+/// worktree), or `None` outside any repository.
+///
+/// This is `git rev-parse --show-toplevel`, not [`keel_dir`]'s main-checkout
+/// root: a linked worktree's files live under the worktree, so "is this path
+/// inside the repository" must be answered against the worktree itself.
+pub fn worktree_root(start: &Path) -> Option<PathBuf> {
+    find_dot_git(start).map(|(root, _)| root)
+}
+
 /// Find the main checkout root of the repo containing `start`, or `None` if
 /// `start` is not inside a git repo or a worktree link cannot be resolved.
 fn resolve_repo_root(start: &Path) -> Option<PathBuf> {

@@ -301,6 +301,41 @@ fn test_compile_missing_explicit_file_errors() {
     );
 }
 
+/// Issue #73: an explicitly-named target outside the repository is skipped with
+/// one honest stderr line and a clean exit — the graph cannot contain it, so
+/// anything keel reported about it would be a phantom.
+#[test]
+fn test_compile_outside_repository_is_skipped() {
+    let dir = init_and_map_project(&[(
+        "src/index.ts",
+        "export function hello(name: string): string { return name; }\n",
+    )]);
+    let elsewhere = TempDir::new().unwrap();
+    let outside = elsewhere.path().join("stray.ts");
+    fs::write(&outside, "export function stray(): number { return 1; }\n").unwrap();
+
+    let out = Command::new(keel_bin())
+        .args(["compile", outside.to_str().unwrap()])
+        .current_dir(dir.path())
+        .output()
+        .expect("Failed to run keel compile");
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "an out-of-tree target must not fail the run: {stderr}"
+    );
+    assert!(
+        stderr.contains("skipped (outside repository)"),
+        "keel must say why nothing was checked: {stderr}"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+        "a skipped target must keep stdout empty"
+    );
+}
+
 /// ITEM 4 (counterpart): a git-deleted path under --changed must still be
 /// skipped silently — the exit-2 rule is only for the explicit-user-list branch.
 #[test]
