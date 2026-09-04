@@ -94,7 +94,10 @@ fn find_dot_git(start: &Path) -> Option<(PathBuf, PathBuf)> {
 /// to the next ancestor.
 fn is_git_entry(path: &Path) -> bool {
     if path.is_dir() {
-        path.join("HEAD").is_file()
+        // `symlink_metadata`, not `is_file`: a legacy `HEAD -> refs/heads/x`
+        // symlink to an unborn branch is a valid git dir, and following it
+        // would reject the inner repository in favour of an outer one.
+        path.join("HEAD").symlink_metadata().is_ok()
     } else if path.is_file() {
         fs::read_to_string(path)
             .map(|content| content.lines().any(|l| l.starts_with("gitdir:")))

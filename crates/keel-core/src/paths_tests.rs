@@ -136,6 +136,23 @@ fn nested_project_below_a_fake_dot_git_still_finds_its_own_repo() {
     assert_eq!(keel_dir(&project), project.join(".keel"));
 }
 
+/// A `.git` whose `HEAD` is a dangling symlink (legacy symlink-refs layout on
+/// an unborn branch) is still a repository: the inner checkout must win over
+/// a real outer one.
+#[cfg(unix)]
+#[test]
+fn dangling_head_symlink_still_marks_the_inner_repository() {
+    let dir = TempDir::new().unwrap();
+    let outer = dir.path().join("outer");
+    let inner = outer.join("inner");
+    std::fs::create_dir_all(inner.join(".git")).unwrap();
+    git(&["init", "-q"], &outer);
+    std::os::unix::fs::symlink("refs/heads/main", inner.join(".git/HEAD")).unwrap();
+
+    assert_eq!(worktree_root(&inner.join("src")), Some(inner.clone()));
+    assert_eq!(keel_dir(&inner), inner.join(".keel"));
+}
+
 // --- confine: path confinement for server-side surfaces ---
 // (moved here from keel-server::http_confine, which was a pure delegate)
 
