@@ -269,17 +269,19 @@ pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String>
     let raw = run_git_checked(dir, &["diff", "--name-status", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
     let entries: Vec<ChangedPath> = raw.lines().filter_map(parse_name_status_line).collect();
-    let listed: Vec<PathBuf> = entries
+    // Head-side paths take the walker's verdict; base-side ones (a deletion's
+    // path, a rename's source) are judged by the model, whatever occupies them
+    // now.
+    let head: Vec<PathBuf> = entries
         .iter()
-        .flat_map(|e| match &e.status {
-            ChangeStatus::Renamed { from } => vec![PathBuf::from(&e.path), PathBuf::from(from)],
-            _ => vec![PathBuf::from(&e.path)],
-        })
+        .filter(|e| e.status != ChangeStatus::Deleted)
+        .map(|e| PathBuf::from(&e.path))
         .collect();
-    let ignored = KeelIgnore::new(&repo_root(dir)).ignored_paths(&listed);
+    let ignore = KeelIgnore::new(&repo_root(dir));
+    let head_ignored = ignore.ignored_paths(&head);
     Ok(entries
         .into_iter()
-        .filter_map(|entry| apply_ignore(entry, &ignored))
+        .filter_map(|entry| apply_ignore(entry, &ignore, &head_ignored))
         .collect())
 }
 
@@ -291,11 +293,21 @@ pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String>
 /// symbols scored as merely relocated (cancelling their violations as
 /// pre-existing), and a file moved *into* one would be dropped whole, hiding the
 /// contracts it removed.
-fn apply_ignore(entry: ChangedPath, ignored: &HashSet<PathBuf>) -> Option<ChangedPath> {
-    let head_ignored = ignored.contains(Path::new(&entry.path));
+fn apply_ignore(
+    entry: ChangedPath,
+    ignore: &KeelIgnore,
+    head_ignored: &HashSet<PathBuf>,
+) -> Option<ChangedPath> {
+    let head_ignored = head_ignored.contains(Path::new(&entry.path));
     match entry.status {
+        ChangeStatus::Deleted => {
+            (!ignore.is_ignored(Path::new(&entry.path))).then_some(ChangedPath {
+                path: entry.path,
+                status: ChangeStatus::Deleted,
+            })
+        }
         ChangeStatus::Renamed { from } => {
-            match (ignored.contains(Path::new(&from)), head_ignored) {
+            match (ignore.is_ignored(Path::new(&from)), head_ignored) {
                 (true, true) => None,
                 // Arrived from outside the graph: new code at the new path.
                 (true, false) => Some(ChangedPath {

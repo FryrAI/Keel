@@ -188,3 +188,33 @@ fn compile_changed_skips_hidden_paths() {
         "only the non-hidden file is reported: {stdout}"
     );
 }
+
+/// Issue #90 round 3: a `.proto` keel cannot parse is never indexed wherever it
+/// sits, so the hidden rule must not hide it from the honesty notice.
+#[test]
+fn compile_changed_names_an_unparsed_file_in_a_hidden_directory() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write(root, ".buf/y.proto", "syntax = \"proto3\";\n");
+    write(
+        root,
+        "src/app.py",
+        "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+    );
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    git(root, &["add", "-f", "-A"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    write(root, ".buf/y.proto", "syntax = \"proto3\";\nmessage M {}\n");
+    let out = keel(root, &["compile", "--changed"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stdout.trim().is_empty(), "stdout must stay empty: {stdout}");
+    assert!(
+        stderr.contains(".proto is not a tracked language"),
+        "the notice must fire: {stderr}"
+    );
+}

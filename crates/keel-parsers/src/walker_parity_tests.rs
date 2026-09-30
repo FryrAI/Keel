@@ -168,6 +168,18 @@ fn assert_parity(files: &[(&str, &str)], visited: &[&str]) {
     assert_eq!(walked, want, "fixture no longer exercises the case");
 }
 
+/// Like [`assert_walk_parity`], and the hand model must agree with the walker
+/// too (for behaviours production resolves by walking but base-side paths
+/// need modelled).
+fn assert_both_parity(files: &[(&str, &str)], visited: &[&str]) {
+    let (model, _, _) = compare_at(files, "", true);
+    assert!(
+        model.is_empty(),
+        "hand model disagrees with walker on {model:?}"
+    );
+    assert_walk_parity(files, "", true, visited);
+}
+
 /// Asserts only the batch filter (existing paths) agrees with the walker, for
 /// behaviours the hand model deliberately omits, and that the walker visits
 /// exactly `visited`.
@@ -338,25 +350,21 @@ fn pruned_walk_enters_only_ancestor_directories() {
 /// whitelists them. Base and df040e5 include the hidden ones.
 #[test]
 fn parity_hidden_entries() {
-    assert_walk_parity(
+    assert_both_parity(
         &[
             (".github/scripts/h.py", "def h(): pass"),
             (".hid.py", "def h(): pass"),
             ("ok.py", "def o(): pass"),
         ],
-        "",
-        true,
         &["ok.py"],
     );
-    assert_walk_parity(
+    assert_both_parity(
         &[
             (".keelignore", "!.github/\n!.hid.py\n"),
             (".github/scripts/h.py", "def h(): pass"),
             (".hid.py", "def h(): pass"),
             (".other/o.py", "def o(): pass"),
         ],
-        "",
-        true,
         &[".github/scripts/h.py", ".hid.py"],
     );
 }
@@ -365,14 +373,12 @@ fn parity_hidden_entries() {
 /// git still lists it as tracked. Base and df040e5 check it.
 #[test]
 fn parity_git_info_exclude() {
-    assert_walk_parity(
+    assert_both_parity(
         &[
             (".git/info/exclude", "tracked.rs\n"),
             ("tracked.rs", "fn t() {}"),
             ("ok.rs", "fn o() {}"),
         ],
-        "",
-        true,
         &["ok.rs"],
     );
 }
@@ -436,16 +442,21 @@ fn parity_symlink_is_not_a_regular_file() {
     assert!(!ignored.contains(Path::new("real.py")));
 }
 
-/// A path reached through a directory that became a symlink is, to git, a
-/// deleted file: it must fall back to the hand model, not be dropped because
-/// the walker never descends into the alias.
+/// A HEAD-side path through a directory that became a symlink is judged as the
+/// file it resolves to inside the root: map indexes the target, never the alias
+/// spelling. A target under an excluded directory is ignored.
 #[cfg(unix)]
 #[test]
-fn path_through_a_symlinked_directory_is_treated_as_absent() {
+fn path_through_a_symlinked_directory_is_judged_by_its_target() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     write(root, "real/lib.rs", "fn l() {}");
+    write(root, "hid/lib.rs", "fn l() {}");
+    write(root, ".keelignore", "hid/\n");
     std::os::unix::fs::symlink("real", root.join("pkg")).unwrap();
-    let ignored = KeelIgnore::new(root).ignored_paths(&[PathBuf::from("pkg/lib.rs")]);
-    assert!(ignored.is_empty());
+    std::os::unix::fs::symlink("hid", root.join("alias")).unwrap();
+    let listed = [PathBuf::from("pkg/lib.rs"), PathBuf::from("alias/lib.rs")];
+    let ignored = KeelIgnore::new(root).ignored_paths(&listed);
+    assert!(!ignored.contains(Path::new("pkg/lib.rs")));
+    assert!(ignored.contains(Path::new("alias/lib.rs")));
 }

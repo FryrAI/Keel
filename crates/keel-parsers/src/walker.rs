@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use ignore::gitignore::Gitignore;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::Match;
 use ignore::{DirEntry, WalkBuilder};
 
@@ -103,19 +103,34 @@ fn is_walked_file(entry: &DirEntry) -> bool {
 /// holds a `.git` entry (a nested repository). A file under an excluded
 /// directory stays excluded whatever a deeper file says. Per-directory state is
 /// built lazily and cached, so the tree is never walked. A missing ignore file
-/// contributes no patterns. `.git/info/exclude`, the global gitignore and
-/// hidden-file rules are not applied by the hand model below, and an explicitly
-/// named compile target is never filtered.
+/// contributes no patterns. A fourth kind, `<dir>/.git/info/exclude` (only for
+/// a `.git` that is a directory), ranks after `.gitignore` with its climb. The
+/// walker's hidden rule is modelled too: an entry whose name starts with `.` is
+/// ignored when no rule matched it (a `!` whitelist un-hides), but only for
+/// paths `detect_language` recognises, since map never indexes the rest
+/// whatever their location. The global gitignore is not applied, and an
+/// explicitly named compile target is never filtered.
 ///
-/// [`KeelIgnore::ignored_paths`] is the filter callers use. For every listed
-/// path that exists on disk its verdict is the walker's own: a walk built from
-/// the same configuration as `keel map`, pruned to the listed paths' ancestor
-/// directories, must yield the path as a regular file. Hidden entries,
-/// `.git/info/exclude`, ignore files above the root, `require_git` and
-/// non-regular files follow by construction. Only paths that do not exist
-/// (deleted files, rename sources, a review's base side) fall back to the
+/// [`KeelIgnore::ignored_paths`] is the filter for HEAD-side paths. A source
+/// path it is given gets the walker's own verdict: a walk built from the same
+/// configuration as `keel map`, pruned to the listed paths' ancestor
+/// directories, must yield it as a regular file, else it is ignored if it still
+/// exists (a path through a symlinked directory exists and is never yielded,
+/// exactly as in `keel map`) and judged by the hand model if it vanished. A
+/// path through a symlinked directory is judged as the file it resolves to
+/// inside the root, since that is what map indexes.
+/// Hidden entries, `.git/info/exclude`, ignore files above the root,
+/// `require_git` and non-regular files follow by construction. Non-source
+/// paths, and every BASE-side path (a deletion's path, a rename's source, which
+/// must never be judged by what occupies the path now) go through the
 /// hand-built kind-first model in [`KeelIgnore::is_ignored`], an approximation
-/// of the walker for absent paths.
+/// of the walker.
+///
+/// Residuals: ignore files above the root and `require_git` are not modelled
+/// for base-side paths; an external `GIT_DIR`/`GIT_WORK_TREE` can root git's
+/// list elsewhere than keel's root; a path whose git spelling differs from its
+/// on-disk spelling (case-insensitive or Unicode-normalising filesystems) is
+/// not yielded by the walk and is therefore ignored (#98).
 pub struct KeelIgnore {
     root: PathBuf,
     dirs: Mutex<HashMap<PathBuf, Arc<DirState>>>,
@@ -129,11 +144,17 @@ struct DirState {
     keelignore: Gitignore,
     ignore: Gitignore,
     gitignore: Gitignore,
+    /// `<dir>/.git/info/exclude`, rooted at this directory.
+    exclude: Gitignore,
     /// Whether a `.git` entry sits here, ending `.gitignore` inheritance.
     has_git: bool,
     parent: Option<Arc<DirState>>,
-    /// This directory is excluded, directly or through an ancestor.
+    /// This directory is excluded by an ignore rule, directly or through an
+    /// ancestor.
     excluded: bool,
+    /// Like `excluded`, plus the walker's hidden rule (a `.`-named directory no
+    /// rule spoke for): what map does to a recognised source file below it.
+    excluded_hidden: bool,
 }
 
 /// The first non-`None` opinion on `rel` among one kind of ignore file, from
@@ -164,12 +185,22 @@ fn kind_match(
     Match::None
 }
 
-/// The walker's verdict on the entry `rel` whose parent directory is `parent`.
-fn entry_ignored(parent: &Arc<DirState>, rel: &Path, is_dir: bool) -> bool {
+/// The merged opinion of the ignore-file kinds on the entry `rel` whose parent
+/// directory is `parent`, in the walker's rank order.
+fn entry_match(parent: &Arc<DirState>, rel: &Path, is_dir: bool) -> Match<()> {
     kind_match(parent, rel, is_dir, |s| &s.keelignore, false)
         .or(kind_match(parent, rel, is_dir, |s| &s.ignore, false))
         .or(kind_match(parent, rel, is_dir, |s| &s.gitignore, true))
-        .is_ignore()
+        .or(kind_match(parent, rel, is_dir, |s| &s.exclude, true))
+}
+
+/// The walker's hidden rule: it skips a `.`-named entry only when no ignore
+/// rule matched it.
+fn hidden_unmatched(rel: &Path, m: &Match<()>) -> bool {
+    m.is_none()
+        && rel
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with('.'))
 }
 
 impl KeelIgnore {
@@ -192,10 +223,26 @@ impl KeelIgnore {
             .parent()
             .filter(|_| !dir.as_os_str().is_empty())
             .map(|up| self.state(up));
-        let excluded = parent
-            .as_ref()
-            .is_some_and(|p| p.excluded || entry_ignored(p, dir, true));
+        let (excluded, excluded_hidden) = match parent.as_ref() {
+            None => (false, false),
+            Some(p) => {
+                let m = entry_match(p, dir, true);
+                let explicit = p.excluded || m.is_ignore();
+                (
+                    explicit,
+                    explicit || p.excluded_hidden || hidden_unmatched(dir, &m),
+                )
+            }
+        };
         let abs = self.root.join(dir);
+        let git_dir = abs.join(".git");
+        let exclude = if git_dir.is_dir() {
+            let mut builder = GitignoreBuilder::new(&abs);
+            let _ = builder.add(git_dir.join("info/exclude"));
+            builder.build().unwrap_or_else(|_| Gitignore::empty())
+        } else {
+            Gitignore::empty()
+        };
         // Unreadable or malformed ignore files contribute nothing rather than
         // failing: not ignoring a file is a false positive, refusing to run at
         // all is worse.
@@ -204,9 +251,11 @@ impl KeelIgnore {
             keelignore: Gitignore::new(abs.join(".keelignore")).0,
             ignore: Gitignore::new(abs.join(".ignore")).0,
             gitignore: Gitignore::new(abs.join(".gitignore")).0,
-            has_git: abs.join(".git").exists() || abs.join(".jj").exists(),
+            exclude,
+            has_git: git_dir.exists() || abs.join(".jj").exists(),
             parent,
             excluded,
+            excluded_hidden,
         });
         let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
         Arc::clone(dirs.entry(dir.to_path_buf()).or_insert(state))
@@ -228,30 +277,48 @@ impl KeelIgnore {
         }
     }
 
-    /// The subset of `paths` (root-relative, or absolute beneath the root) the
-    /// walker would not index. Existing paths get the walker's own verdict;
-    /// absent ones the hand model of [`KeelIgnore::is_ignored`]. Paths outside
-    /// the root are never reported. Language support is not part of the
-    /// verdict.
+    /// The subset of HEAD-side `paths` (root-relative, or absolute beneath the
+    /// root) the walker would not index. Source paths get the walker's own
+    /// verdict, decided after the walk; everything else goes through the hand
+    /// model of [`KeelIgnore::is_ignored`]. Base-side paths must NOT be passed
+    /// here: call `is_ignored` for them. Paths outside the root are never
+    /// reported.
     pub fn ignored_paths(&self, paths: &[PathBuf]) -> HashSet<PathBuf> {
         let mut ignored = HashSet::new();
-        let mut existing = Vec::new();
-        let mut alias_free = HashMap::new();
+        let mut sources = Vec::new();
         for path in paths {
             let Some(rel) = self.relative(path) else {
                 continue;
             };
-            if self.exists_without_aliases(rel, &mut alias_free) {
-                existing.push((path, rel.to_path_buf()));
+            if detect_language(rel).is_some() {
+                sources.push((path, rel.to_path_buf()));
             } else if self.is_ignored(path) {
                 ignored.insert(path.clone());
             }
         }
-        if !existing.is_empty() {
-            let rels: HashSet<PathBuf> = existing.iter().map(|(_, r)| r.clone()).collect();
+        if !sources.is_empty() {
+            let canonical_root = self.root.canonicalize().ok();
+            let mut parents: HashMap<PathBuf, PathBuf> = HashMap::new();
+            // The path map indexes: a path through a symlinked directory is
+            // the same file as its target inside the root.
+            let sources: Vec<(&PathBuf, PathBuf, PathBuf)> = sources
+                .into_iter()
+                .map(|(path, rel)| {
+                    let effective =
+                        self.through_aliases(&rel, canonical_root.as_deref(), &mut parents);
+                    (path, rel, effective)
+                })
+                .collect();
+            let rels: HashSet<PathBuf> = sources.iter().map(|(_, _, e)| e.clone()).collect();
             let (walked, _) = self.walk_listed(rels);
-            for (path, rel) in existing {
-                if !walked.contains(&rel) {
+            for (path, rel, effective) in sources {
+                if walked.contains(&effective) {
+                    continue;
+                }
+                // Not yielded: ignored if it is still there (map would skip
+                // it), the hand model if it vanished since the diff.
+                let exists = self.root.join(&rel).symlink_metadata().is_ok();
+                if exists || self.is_ignored(path) {
                     ignored.insert(path.clone());
                 }
             }
@@ -259,35 +326,30 @@ impl KeelIgnore {
         ignored
     }
 
-    /// Whether `rel` exists on disk without passing through a symlinked
-    /// directory. Git reports the files of a directory that became a symlink as
-    /// deleted, and the walker never descends into it, so such a path is
-    /// treated as absent (hand model) rather than handed to the walk.
-    /// `alias_free` memoises the per-directory answer.
-    fn exists_without_aliases(&self, rel: &Path, alias_free: &mut HashMap<PathBuf, bool>) -> bool {
-        let parent_clean = match rel.parent().filter(|p| !p.as_os_str().is_empty()) {
-            None => true,
-            Some(dir) => self.dir_alias_free(dir, alias_free),
+    /// `rel` with its parent directory resolved through symlinks to where it
+    /// really is inside the root (the leaf is never resolved: a symlinked file
+    /// is not a regular file). Falls back to `rel` when the directory is gone
+    /// or resolves outside the root. `parents` memoises per directory.
+    fn through_aliases(
+        &self,
+        rel: &Path,
+        canonical_root: Option<&Path>,
+        parents: &mut HashMap<PathBuf, PathBuf>,
+    ) -> PathBuf {
+        let (Some(parent), Some(name), Some(croot)) =
+            (rel.parent(), rel.file_name(), canonical_root)
+        else {
+            return rel.to_path_buf();
         };
-        parent_clean && self.root.join(rel).symlink_metadata().is_ok()
-    }
-
-    fn dir_alias_free(&self, dir: &Path, memo: &mut HashMap<PathBuf, bool>) -> bool {
-        if let Some(&known) = memo.get(dir) {
-            return known;
-        }
-        let parent_clean = match dir.parent().filter(|p| !p.as_os_str().is_empty()) {
-            None => true,
-            Some(up) => self.dir_alias_free(up, memo),
-        };
-        let clean = parent_clean
-            && self
-                .root
-                .join(dir)
-                .symlink_metadata()
-                .is_ok_and(|md| !md.file_type().is_symlink());
-        memo.insert(dir.to_path_buf(), clean);
-        clean
+        let resolved = parents.entry(parent.to_path_buf()).or_insert_with(|| {
+            self.root
+                .join(parent)
+                .canonicalize()
+                .ok()
+                .and_then(|real| real.strip_prefix(croot).ok().map(Path::to_path_buf))
+                .unwrap_or_else(|| parent.to_path_buf())
+        });
+        resolved.join(name)
     }
 
     /// Runs the shared walk pruned to the ancestors of `listed`, returning the
@@ -333,13 +395,21 @@ impl KeelIgnore {
 
     /// Whether `path` — relative to the root, or absolute beneath it — is
     /// excluded, either directly or through an ignored parent directory, by
-    /// the hand model of the walker's ignore-file rules.
+    /// the hand model of the walker's rules. The hidden rule applies only to
+    /// paths `detect_language` recognises. This is the verdict for base-side
+    /// paths and the fallback for vanished ones; it never reads the path.
     pub fn is_ignored(&self, path: &Path) -> bool {
         let Some(relative) = self.relative(path) else {
             return false;
         };
+        let hidden_rule = detect_language(relative).is_some();
         let parent = self.state(relative.parent().unwrap_or(Path::new("")));
-        parent.excluded || entry_ignored(&parent, relative, false)
+        let m = entry_match(&parent, relative, false);
+        if hidden_rule {
+            parent.excluded_hidden || m.is_ignore() || hidden_unmatched(relative, &m)
+        } else {
+            parent.excluded || m.is_ignore()
+        }
     }
 }
 
