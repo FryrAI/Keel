@@ -13,6 +13,9 @@ mod previous_hashes;
 #[path = "sqlite_resolution_cache_tests.rs"]
 mod resolution_cache;
 
+#[path = "sqlite_node_removal_tests.rs"]
+mod node_removal;
+
 fn test_node(id: u64, hash: &str, name: &str) -> GraphNode {
     GraphNode {
         complexity: 0,

@@ -1,6 +1,7 @@
 [package]
 name = "keel-cli"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "CLI entry point and command routing for keel"
 license-file.workspace = true
@@ -28,9 +29,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 xxhash-rust = { workspace = true }
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 [features]
 default = ["tier3"]

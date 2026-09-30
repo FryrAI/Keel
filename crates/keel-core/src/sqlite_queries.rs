@@ -245,6 +245,12 @@ impl GraphStore for SqliteGraphStore {
                     Self::append_previous_hashes(&tx, node.id, &node.previous_hashes)?;
                 }
                 NodeChange::Remove(id) => {
+                    // Unlike edges, previous hashes, endpoints and profiles,
+                    // this node-id cache has no ON DELETE CASCADE action.
+                    tx.execute(
+                        "DELETE FROM resolution_cache WHERE resolved_node_id = ?1",
+                        params![id],
+                    )?;
                     tx.execute("DELETE FROM nodes WHERE id = ?1", params![id])?;
                 }
             }

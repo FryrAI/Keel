@@ -1,6 +1,7 @@
 [package]
 name = "keel-parsers"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "Tree-sitter parsing and per-language resolution for keel"
 license-file.workspace = true

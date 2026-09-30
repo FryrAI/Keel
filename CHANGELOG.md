@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Every disk-backed graph writer now shares a kernel-backed graph lock (#78),
+  released automatically after a crashed holder on Unix and Windows. CLI writers,
+  HTTP/MCP compile/fix/checkpoint, and watcher prune/compile cannot interleave with
+  a map. Watchers retain busy batches without blocking the async runtime, and
+  lock I/O errors are reported separately from contention.
+
+### Changed
+- Minimum supported Rust version is now 1.89 for the standard file-locking API.
+
 ## [0.6.2] - 2026-09-04
 
 Agent-hook reliability: every silent failure mode found while running keel

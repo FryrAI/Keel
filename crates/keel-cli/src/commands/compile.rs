@@ -12,7 +12,6 @@ use keel_parsers::rust_lang::RustLangResolver;
 use keel_parsers::treesitter::{detect_language, SupplementalResolver};
 use keel_parsers::typescript::TsResolver;
 
-use super::compile_lock::acquire_compile_lock;
 use super::compile_metrics::build_compile_metrics;
 use crate::telemetry_recorder::EventMetrics;
 use keel_core::paths::make_relative;
@@ -81,12 +80,9 @@ pub fn run(
     super::version_drift::warn(&cwd, &config);
 
     // Acquire the shared graph lock to prevent concurrent map/compile writes.
-    let _lock = match acquire_compile_lock(&keel_dir, verbose) {
-        Some(lock) => lock,
-        None => {
-            eprintln!("keel compile: another keel process holds the graph lock, skipping");
-            return (0, EventMetrics::default());
-        }
+    let _lock = match super::writer_lock::acquire("compile", &keel_dir) {
+        Ok(lock) => lock,
+        Err(code) => return (code, EventMetrics::default()),
     };
 
     let db_path = keel_dir.join("graph.db");

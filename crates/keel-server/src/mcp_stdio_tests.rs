@@ -29,7 +29,7 @@ fn test_store() -> SharedStore {
 /// event that was recorded.
 fn run_and_collect_events(keel_dir: &Path, lines: &[&str]) -> Vec<TelemetryEvent> {
     let store = test_store();
-    let engine = mcp::create_shared_engine(None);
+    let engine = mcp::create_shared_engine(None).unwrap();
     let session = McpSession::new(Some(keel_dir), false);
 
     let input = lines.join("\n");
@@ -239,7 +239,7 @@ fn test_session_summary_counts_tools_call() {
 fn test_no_telemetry_flag_suppresses_tools_call_events() {
     let dir = test_dir();
     let store = test_store();
-    let engine = mcp::create_shared_engine(None);
+    let engine = mcp::create_shared_engine(None).unwrap();
     let session = McpSession::new(Some(dir.path()), true);
 
     let input = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"keel/compile","arguments":{"files":[]}}}"#;
@@ -265,7 +265,7 @@ fn test_no_telemetry_flag_suppresses_tools_call_events() {
 fn test_loop_writes_one_response_per_request() {
     let dir = test_dir();
     let store = test_store();
-    let engine = mcp::create_shared_engine(None);
+    let engine = mcp::create_shared_engine(None).unwrap();
     let session = McpSession::new(Some(dir.path()), true);
 
     let input = [

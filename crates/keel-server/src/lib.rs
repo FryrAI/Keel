@@ -25,12 +25,13 @@ pub mod mcp_stdio;
 mod mcp_tools;
 mod mcp_validate_plan;
 mod parse_shared;
+mod watch_retry;
 pub mod watcher;
+pub mod writer;
 
 pub use mcp_tools::registered_tool_names;
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use keel_core::sqlite::SqliteGraphStore;
 use keel_enforce::engine::EnforcementEngine;
@@ -39,7 +40,7 @@ use crate::http::SharedEngine;
 
 /// Shared server state wrapping the enforcement engine.
 ///
-/// Uses `std::sync::Mutex` because `rusqlite::Connection` is `!Send`.
+/// Uses `std::sync::Mutex` to serialize access to the SQLite connection.
 /// All DB access goes through `engine.lock()` — keep critical sections short.
 pub struct KeelServer {
     pub engine: SharedEngine,
@@ -49,12 +50,14 @@ pub struct KeelServer {
 impl KeelServer {
     /// Create a new server instance from an existing database path.
     pub fn open(db_path: &str, root_dir: PathBuf) -> Result<Self, keel_core::types::GraphError> {
+        let keel_dir = crate::writer::disk_lock_dir(db_path);
+        // Like nominal readers, startup relies on SQLite to serialize schema DDL.
+        // Each write request acquires the graph lock separately.
         let store = SqliteGraphStore::open(db_path)?;
-        let keel_dir = keel_core::paths::keel_dir(&root_dir);
-        let config = keel_core::config::KeelConfig::load(&keel_dir);
+        let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(&root_dir));
         let engine = EnforcementEngine::with_config(Box::new(store), &config);
         Ok(Self {
-            engine: Arc::new(Mutex::new(engine)),
+            engine: SharedEngine::new(engine, keel_dir),
             root_dir,
         })
     }
@@ -64,8 +67,17 @@ impl KeelServer {
         let store = SqliteGraphStore::in_memory()?;
         let engine = EnforcementEngine::new(Box::new(store));
         Ok(Self {
-            engine: Arc::new(Mutex::new(engine)),
+            engine: SharedEngine::new(engine, None),
             root_dir,
         })
     }
 }
+
+#[cfg(test)]
+mod writer_tests;
+
+#[cfg(test)]
+mod writer_test_support;
+
+#[cfg(test)]
+mod checkpoint_writer_tests;
