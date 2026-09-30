@@ -5,12 +5,12 @@ fn second_handle_is_busy_and_drop_releases_without_deleting() {
     let dir = tempfile::tempdir().unwrap();
     let held = try_acquire(dir.path()).unwrap();
     assert!(matches!(try_acquire(dir.path()), Err(GraphLockError::Busy)));
+    drop(held);
     // Contention never truncates the holder's diagnostics.
     assert_eq!(
         std::fs::read_to_string(dir.path().join("compile.lock")).unwrap(),
         std::process::id().to_string()
     );
-    drop(held);
     assert!(dir.path().join("compile.lock").exists());
     assert!(try_acquire(dir.path()).is_ok());
 }
@@ -21,11 +21,11 @@ fn nonexistent_pid_and_garbage_are_acquired_immediately() {
     for contents in ["4294967294", "garbage", ""] {
         std::fs::write(dir.path().join("compile.lock"), contents).unwrap();
         let held = acquire(dir.path(), Duration::ZERO).unwrap();
+        drop(held);
         assert_eq!(
             std::fs::read_to_string(dir.path().join("compile.lock")).unwrap(),
             std::process::id().to_string()
         );
-        drop(held);
     }
 }
 
@@ -56,7 +56,6 @@ fn missing_directory_and_non_directory_surface_io_errors() {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn child_lock_holder() {
     let Some(dir) = std::env::var_os("KEEL_GRAPH_LOCK_CHILD") else {
@@ -70,7 +69,6 @@ fn child_lock_holder() {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn killed_holder_releases_kernel_lock() {
     let dir = tempfile::tempdir().unwrap();
@@ -86,7 +84,7 @@ fn killed_holder_releases_kernel_lock() {
     }
     let ready = dir.path().join("ready").exists();
     let blocked = matches!(try_acquire(dir.path()), Err(GraphLockError::Busy));
-    child.kill().unwrap(); // SIGKILL on Unix, no Rust destructors run.
+    child.kill().unwrap(); // SIGKILL on Unix, TerminateProcess on Windows; no destructors run.
     child.wait().unwrap();
     assert!(ready && blocked, "child must actually hold the lock");
     assert!(acquire(dir.path(), Duration::from_secs(1)).is_ok());

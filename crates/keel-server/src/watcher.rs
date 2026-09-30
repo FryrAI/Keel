@@ -207,28 +207,26 @@ pub fn apply_batch(
     // retry loop, and must never partially prune before failing to compile.
     let mut engine = engine.try_writer()?;
     let mut outcome = BatchOutcome::default();
-    for path in &batch.removed {
-        if let Ok(n) = engine.prune_file(&relative_path(root, path)) {
+    // Events can be stale after waiting for map, including delete/recreate
+    // pairs whose recreation event is still in the debounce window. Revalidate
+    // every path under the graph lock before choosing compile versus prune.
+    let mut parser = FileParser::new();
+    let mut indices = Vec::new();
+    for path in batch.changed.iter().chain(&batch.removed) {
+        if path.exists() {
+            if let Some(mut index) = parser.parse(&path.to_string_lossy()) {
+                index.file_path = relative_path(root, path);
+                indices.push(index);
+            }
+        } else if let Ok(n) = engine.prune_file(&relative_path(root, path)) {
             outcome.pruned += n;
         }
     }
-    if !batch.changed.is_empty() {
-        let mut parser = FileParser::new();
-        let indices: Vec<_> = batch
-            .changed
-            .iter()
-            .filter_map(|path| {
-                let mut index = parser.parse(&path.to_string_lossy())?;
-                index.file_path = relative_path(root, path);
-                Some(index)
-            })
-            .collect();
-        if !indices.is_empty() {
-            outcome.compiled = indices.len();
-            let result = engine.compile(&indices);
-            outcome.errors = result.errors.len();
-            outcome.warnings = result.warnings.len();
-        }
+    if !indices.is_empty() {
+        outcome.compiled = indices.len();
+        let result = engine.compile(&indices);
+        outcome.errors = result.errors.len();
+        outcome.warnings = result.warnings.len();
     }
     Ok(outcome)
 }

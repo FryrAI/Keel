@@ -6,7 +6,7 @@ Thank you for your interest in contributing to keel! This document provides guid
 
 ### Prerequisites
 
-- **Rust 1.75+** — install via [rustup](https://rustup.rs/)
+- **Rust 1.89+** — install via [rustup](https://rustup.rs/)
 - **Git** — for version control
 
 ### Development Setup

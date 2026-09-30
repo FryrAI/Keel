@@ -35,12 +35,18 @@ pub(crate) fn handle_checkpoint(
         CheckpointMode::Since(since)
     };
 
-    // Parse changed files. Git returns repo-relative paths and the server runs
-    // at the repo root, so pass them straight through — that keeps the parsed
-    // `file_path` relative and matching the stored graph.
+    // Git returns repo-relative paths. Read from the authoritative root, then
+    // preserve the relative graph path even when the process cwd differs.
     let changed = checkpoint::changed_files(root, &mode);
     let mut parser = FileParser::new();
-    let file_indices: Vec<_> = changed.iter().filter_map(|f| parser.parse(f)).collect();
+    let file_indices: Vec<_> = changed
+        .iter()
+        .filter_map(|f| {
+            let mut index = parser.parse(&root.join(f).to_string_lossy())?;
+            index.file_path = f.clone();
+            Some(index)
+        })
+        .collect();
 
     // Diff against the PRE-edit graph BEFORE compiling: `engine.compile`
     // persists re-baselined hashes, which would erase the reported change.

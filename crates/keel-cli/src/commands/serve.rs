@@ -71,7 +71,12 @@ pub fn run(
     }
 
     let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let db_path = keel_core::paths::keel_dir(&root_dir).join("graph.db");
+    let keel_dir = keel_core::paths::keel_dir(&root_dir);
+    if !keel_dir.exists() {
+        eprintln!("keel serve: not initialized. Run `keel init` first.");
+        return 2;
+    }
+    let db_path = keel_dir.join("graph.db");
 
     // Fast path: MCP alone is a synchronous stdio loop — no tokio needed.
     if plan.is_stdio_only() {
@@ -105,8 +110,7 @@ async fn run_async(
     verbose: bool,
     no_telemetry: bool,
 ) -> i32 {
-    // Startup opens/migrates SQLite under the graph lock; its bounded wait
-    // belongs on a blocking thread just like MCP stdio's synchronous loop.
+    // SQLite schema opening belongs on a blocking thread, like MCP stdio.
     let open_root = root_dir.clone();
     let open_db = db_path.clone();
     let opened = tokio::task::spawn_blocking(move || {
@@ -188,10 +192,6 @@ async fn run_async(
 
 /// Open the store and run the synchronous MCP stdio loop. Returns an exit code.
 fn run_mcp_stdio(root_dir: &Path, db_path: &Path, no_telemetry: bool) -> i32 {
-    let graph = match super::writer_lock::acquire("serve", &keel_core::paths::keel_dir(root_dir)) {
-        Ok(lock) => lock,
-        Err(code) => return code,
-    };
     let store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
         Ok(s) => s,
         Err(e) => {
@@ -199,7 +199,6 @@ fn run_mcp_stdio(root_dir: &Path, db_path: &Path, no_telemetry: bool) -> i32 {
             return 2;
         }
     };
-    drop(graph);
     let shared_store = Arc::new(Mutex::new(store));
     let db_str = db_path.to_string_lossy().to_string();
     let keel_dir = keel_core::paths::keel_dir(root_dir);

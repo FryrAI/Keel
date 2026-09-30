@@ -15,6 +15,7 @@ use crate::http::router;
 use crate::mcp::{create_shared_engine, process_line_with_root};
 use crate::watcher::{apply_batch, WatchBatch};
 use crate::writer::SharedEngine;
+use crate::writer_test_support::state;
 
 /// Seed a real disk graph whose function hash must change on compilation.
 pub(super) fn disk_fixture(
@@ -23,6 +24,7 @@ pub(super) fn disk_fixture(
     let dir = tempfile::tempdir().unwrap();
     let keel_dir = dir.path().join(".keel");
     std::fs::create_dir(&keel_dir).unwrap();
+    std::fs::write(keel_dir.join("compile.lock"), "fixture").unwrap();
     let source = dir.path().join("hello.rs");
     std::fs::write(&source, "fn hello() -> i32 { 42 }\n").unwrap();
     let path = keel_dir.join("graph.db");
@@ -71,6 +73,7 @@ fn compile_request(source: &std::path::Path) -> Request<Body> {
 #[tokio::test(flavor = "current_thread")]
 async fn http_disk_compile_busy_then_writes_after_release_without_stalling_runtime() {
     let (dir, store, engine, source) = disk_fixture(false);
+    let before = state(dir.path());
     let app = router(engine, dir.path().to_path_buf());
     let held = graph_lock::try_acquire(&dir.path().join(".keel")).unwrap();
     let start = Instant::now();
@@ -98,7 +101,7 @@ async fn http_disk_compile_busy_then_writes_after_release_without_stalling_runti
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = to_bytes(response.into_body(), 1024).await.unwrap();
     assert!(String::from_utf8_lossy(&body).contains("graph busy"));
-    assert!(store.get_node("seed_hash").is_some());
+    assert_eq!(state(dir.path()), before);
     drop(held);
     let response = app.oneshot(compile_request(&source)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -110,7 +113,8 @@ async fn http_disk_compile_busy_then_writes_after_release_without_stalling_runti
 
 #[tokio::test]
 async fn http_disk_lock_io_returns_500_without_writing() {
-    let (dir, store, engine, source) = disk_fixture(false);
+    let (dir, _store, engine, source) = disk_fixture(false);
+    let before = state(dir.path());
     std::fs::remove_file(dir.path().join(".keel/compile.lock")).unwrap();
     std::fs::create_dir(dir.path().join(".keel/compile.lock")).unwrap();
     let response = router(engine, dir.path().to_path_buf())
@@ -118,7 +122,7 @@ async fn http_disk_lock_io_returns_500_without_writing() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(store.get_node("seed_hash").is_some());
+    assert_eq!(state(dir.path()), before);
 }
 
 fn mcp_busy_then_release(tool: &str) {
@@ -126,6 +130,7 @@ fn mcp_busy_then_release(tool: &str) {
     let shared = Arc::new(Mutex::new(
         SqliteGraphStore::open(dir.path().join(".keel/graph.db").to_str().unwrap()).unwrap(),
     ));
+    let before = state(dir.path());
     let held = graph_lock::try_acquire(&dir.path().join(".keel")).unwrap();
     let request = json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":tool,"arguments":{"files":[source]}}}).to_string();
     let response: Value = serde_json::from_str(&process_line_with_root(
@@ -137,7 +142,7 @@ fn mcp_busy_then_release(tool: &str) {
     .unwrap();
     assert_eq!(response["result"]["isError"], true, "{response}");
     assert!(response.to_string().contains("graph busy"));
-    assert!(store.get_node("seed_hash").is_some());
+    assert_eq!(state(dir.path()), before);
     drop(held);
     let response: Value = serde_json::from_str(&process_line_with_root(
         &shared,
@@ -148,9 +153,7 @@ fn mcp_busy_then_release(tool: &str) {
     .unwrap();
     assert_ne!(response["result"]["isError"], true, "{response}");
     assert!(response.get("error").is_none(), "{response}");
-    if tool != "keel/checkpoint" {
-        assert!(store.get_node("seed_hash").unwrap().hash != "seed_hash");
-    }
+    assert!(store.get_node_by_id(1).unwrap().hash != "seed_hash");
 }
 
 #[test]
@@ -164,16 +167,12 @@ fn mcp_disk_fix_busy_then_writes_after_release() {
 }
 
 #[test]
-fn mcp_disk_checkpoint_busy_then_succeeds_after_release() {
-    mcp_busy_then_release("keel/checkpoint");
-}
-
-#[test]
 fn mcp_disk_lock_io_is_tool_error_without_writing() {
-    let (dir, store, engine, source) = disk_fixture(false);
+    let (dir, _store, engine, source) = disk_fixture(false);
     let shared = Arc::new(Mutex::new(
         SqliteGraphStore::open(dir.path().join(".keel/graph.db").to_str().unwrap()).unwrap(),
     ));
+    let before = state(dir.path());
     std::fs::remove_file(dir.path().join(".keel/compile.lock")).unwrap();
     std::fs::create_dir(dir.path().join(".keel/compile.lock")).unwrap();
     for tool in ["keel/compile", "keel/fix", "keel/checkpoint"] {
@@ -181,8 +180,8 @@ fn mcp_disk_lock_io_is_tool_error_without_writing() {
             .to_string();
         let response = process_line_with_root(&shared, &engine, dir.path(), &request);
         assert!(response.contains("graph lock I/O error"), "{response}");
+        assert_eq!(state(dir.path()), before);
     }
-    assert!(store.get_node("seed_hash").is_some());
 }
 
 #[test]
@@ -191,6 +190,9 @@ fn watcher_disk_prune_and_compile_busy_then_apply_after_release() {
     // Both branches are exercised independently, and neither can write while busy.
     for prune in [false, true] {
         let held = graph_lock::try_acquire(&dir.path().join(".keel")).unwrap();
+        if prune {
+            std::fs::remove_file(&source).unwrap();
+        }
         let batch = if prune {
             WatchBatch {
                 changed: vec![],
@@ -202,12 +204,12 @@ fn watcher_disk_prune_and_compile_busy_then_apply_after_release() {
                 removed: vec![],
             }
         };
-        let before = store.get_nodes_in_file("hello.rs");
+        let before = state(dir.path());
         assert!(matches!(
             apply_batch(&engine, dir.path(), &batch),
             Err(GraphLockError::Busy)
         ));
-        assert_eq!(store.get_nodes_in_file("hello.rs")[0].hash, before[0].hash);
+        assert_eq!(state(dir.path()), before);
         drop(held);
         let outcome = apply_batch(&engine, dir.path(), &batch).unwrap();
         if prune {
@@ -220,30 +222,56 @@ fn watcher_disk_prune_and_compile_busy_then_apply_after_release() {
     }
 }
 
-#[test]
-fn disk_startup_refuses_busy_and_io_before_schema_open() {
+#[tokio::test]
+async fn disk_startup_succeeds_while_busy_then_first_write_refuses() {
     let dir = tempfile::tempdir().unwrap();
     let keel_dir = dir.path().join(".keel");
     std::fs::create_dir(&keel_dir).unwrap();
     let db = keel_dir.join("graph.db");
     let held = graph_lock::try_acquire(&keel_dir).unwrap();
-    assert!(
-        crate::KeelServer::open(db.to_str().unwrap(), dir.path().into())
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("graph busy")
-    );
-    assert!(!db.exists());
+    let server = crate::KeelServer::open(db.to_str().unwrap(), dir.path().into()).unwrap();
+    let mcp = create_shared_engine(Some(db.to_str().unwrap())).unwrap();
+    assert!(db.exists());
+    let before = state(dir.path());
+    let response = router(server.engine, dir.path().into())
+        .oneshot(compile_request(&dir.path().join("hello.rs")))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(matches!(mcp.writer(), Err(GraphLockError::Busy)));
+    assert_eq!(state(dir.path()), before);
     drop(held);
-    std::fs::remove_file(keel_dir.join("compile.lock")).unwrap();
-    std::fs::create_dir(keel_dir.join("compile.lock")).unwrap();
-    assert!(create_shared_engine(Some(db.to_str().unwrap()))
-        .err()
-        .unwrap()
-        .to_string()
-        .contains("I/O"));
-    assert!(!db.exists());
+    assert!(mcp.try_writer().is_ok());
+}
+
+#[tokio::test]
+async fn external_database_and_memory_use_project_docstring_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".keel")).unwrap();
+    let mut config = keel_core::config::KeelConfig::default();
+    config.enforce.docstrings = false;
+    std::fs::write(
+        dir.path().join(".keel/keel.json"),
+        serde_json::to_string(&config).unwrap(),
+    )
+    .unwrap();
+    let source = dir.path().join("hello.rs");
+    std::fs::write(&source, "pub fn hello() -> i32 { 42 }\n").unwrap();
+    let external = cache.path().join("graph.db");
+    for db in [external.to_str().unwrap(), ":memory:"] {
+        let server = crate::KeelServer::open(db, dir.path().into()).unwrap();
+        // The lock follows the database, while config follows the project.
+        let project_lock = graph_lock::try_acquire(&dir.path().join(".keel")).unwrap();
+        let response = router(server.engine, dir.path().into())
+            .oneshot(compile_request(&source))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("E003"), "{body:?}");
+        drop(project_lock);
+    }
 }
 
 #[test]

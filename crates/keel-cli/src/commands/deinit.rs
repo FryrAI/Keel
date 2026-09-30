@@ -18,9 +18,16 @@ pub fn run(_formatter: &dyn OutputFormatter, _verbose: bool) -> i32 {
         return 0;
     }
 
-    let _lock = match super::writer_lock::acquire("deinit", &keel_dir) {
-        Ok(lock) => lock,
-        Err(code) => return code,
+    let _lock = match keel_core::graph_lock::acquire(&keel_dir, std::time::Duration::from_secs(2)) {
+        Ok(lock) => Some(lock),
+        Err(keel_core::graph_lock::GraphLockError::Busy) => {
+            eprintln!("keel deinit: another keel process holds the graph lock, refusing");
+            return 2;
+        }
+        Err(error) => {
+            eprintln!("keel deinit: {error}; proceeding with cleanup");
+            None
+        }
     };
 
     match fs::remove_dir_all(&keel_dir) {

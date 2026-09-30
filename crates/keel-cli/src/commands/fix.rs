@@ -21,7 +21,7 @@ pub fn run(
         }
     };
 
-    let _lock = match super::writer_lock::acquire("fix", &keel_core::paths::keel_dir(&cwd)) {
+    let _lock = match super::writer_lock::for_command("fix") {
         Ok(lock) => lock,
         Err(code) => return code,
     };

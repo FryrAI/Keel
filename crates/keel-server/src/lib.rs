@@ -51,16 +51,10 @@ impl KeelServer {
     /// Create a new server instance from an existing database path.
     pub fn open(db_path: &str, root_dir: PathBuf) -> Result<Self, keel_core::types::GraphError> {
         let keel_dir = crate::writer::disk_lock_dir(db_path);
-        let _graph = keel_dir
-            .as_deref()
-            .map(|dir| keel_core::graph_lock::acquire(dir, std::time::Duration::from_secs(2)))
-            .transpose()
-            .map_err(|e| keel_core::types::GraphError::Internal(e.to_string()))?;
+        // Like nominal readers, startup relies on SQLite to serialize schema DDL.
+        // Each write request acquires the graph lock separately.
         let store = SqliteGraphStore::open(db_path)?;
-        let config = keel_dir
-            .as_deref()
-            .map(keel_core::config::KeelConfig::load)
-            .unwrap_or_default();
+        let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(&root_dir));
         let engine = EnforcementEngine::with_config(Box::new(store), &config);
         Ok(Self {
             engine: SharedEngine::new(engine, keel_dir),
@@ -81,3 +75,9 @@ impl KeelServer {
 
 #[cfg(test)]
 mod writer_tests;
+
+#[cfg(test)]
+mod writer_test_support;
+
+#[cfg(test)]
+mod checkpoint_writer_tests;

@@ -196,7 +196,6 @@ fn cli_lock_io_is_error_for_every_writer() {
         vec!["quality", "--snapshot"],
         vec!["quality", "--import", "history.jsonl"],
         vec!["init", "--merge", "--yes"],
-        vec!["deinit"],
     ] {
         let out = run(dir.path(), &args);
         assert_eq!(out.status.code(), Some(2), "{args:?}");
@@ -221,4 +220,48 @@ fn cli_map_locks_before_opening_and_migrating_store() {
     drop(held);
     assert!(run(dir.path(), &["map"]).status.success());
     assert!(dir.path().join(".keel/graph.db").exists());
+}
+
+#[test]
+fn cli_deinit_lock_io_reports_error_and_proceeds_with_cleanup() {
+    let dir = fixture();
+    std::fs::remove_file(dir.path().join(".keel/compile.lock")).unwrap();
+    std::fs::create_dir(dir.path().join(".keel/compile.lock")).unwrap();
+    let out = run(dir.path(), &["deinit"]);
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("graph lock I/O error"), "{stderr}");
+    assert!(stderr.contains("proceeding with cleanup"), "{stderr}");
+    assert!(!dir.path().join(".keel").exists());
+}
+
+#[test]
+fn cli_uninitialized_writers_keep_init_hint_before_lock_access() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("plan.md"), "1. Call `hello()`.\n").unwrap();
+    for args in [
+        vec!["compile", "hello.rs"],
+        vec!["map"],
+        vec!["fix"],
+        vec!["checkpoint"],
+        vec!["validate-plan", "plan.md"],
+        vec!["quality", "--snapshot"],
+        vec!["quality", "--import", "missing.jsonl"],
+        vec!["serve", "--mcp"],
+        vec!["serve", "--http"],
+        vec!["watch"],
+    ] {
+        let out = run(dir.path(), &args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("Run `keel init` first"),
+            "{args:?}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("graph lock I/O error"),
+            "{args:?}: {stderr}"
+        );
+        assert!(!dir.path().join(".keel").exists());
+    }
 }

@@ -288,7 +288,7 @@ pub(crate) fn lock_engine(
 
 /// Create a shared enforcement engine backed by a disk store with project config.
 /// Falls back to memory if `db_path` is absent or SQLite opening fails.
-/// Lock contention and lock I/O errors are returned before opening the store.
+/// Startup relies on SQLite to serialize schema DDL; write requests take the graph lock.
 /// Circuit breaker and batch state persist across MCP calls within a session.
 pub fn create_shared_engine(
     db_path: Option<&str>,
@@ -296,11 +296,6 @@ pub fn create_shared_engine(
     // A supplied path is not proof of a disk backend: opening may fall back
     // to memory. Record only the backend we actually built.
     let candidate_dir = db_path.and_then(crate::writer::disk_lock_dir);
-    let _graph = candidate_dir
-        .as_deref()
-        .map(|dir| keel_core::graph_lock::acquire(dir, std::time::Duration::from_secs(2)))
-        .transpose()
-        .map_err(|e| keel_core::types::GraphError::Internal(e.to_string()))?;
     let config = candidate_dir
         .as_deref()
         .map(keel_core::config::KeelConfig::load)
