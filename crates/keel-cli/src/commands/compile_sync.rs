@@ -85,9 +85,6 @@ struct GraphIndexBase<'a> {
     boundary_index: HashMap<String, (u64, f64)>,
     // Facts come from candidate rows, shared across files in this pass.
     associated_targets: RefCell<HashMap<u64, (String, u32)>>,
-    /// The monorepo layout, detected once per sync and only when
-    /// `monorepo.enabled` — the same gate `keel map` uses to annotate nodes.
-    layout: Option<MonorepoLayout>,
 }
 
 impl<'a> GraphIndexBase<'a> {
@@ -112,26 +109,13 @@ impl<'a> GraphIndexBase<'a> {
         } else {
             HashMap::new()
         };
-        let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(cwd));
-        let layout = config
-            .monorepo
-            .enabled
-            .then(|| keel_parsers::monorepo::detect_monorepo(cwd));
         Self {
             store,
             module_files,
             package_node_index,
             boundary_index,
             associated_targets: RefCell::new(HashMap::new()),
-            layout,
         }
-    }
-
-    /// The package `keel map` would store for `rel_path` (`None` without a
-    /// monorepo layout). Map walks absolute paths, so the lookup joins `cwd`.
-    fn package_for(&self, cwd: &Path, rel_path: &str) -> Option<String> {
-        let layout = self.layout.as_ref()?;
-        keel_parsers::walker::package_for_path(&cwd.join(rel_path), layout)
     }
 }
 
@@ -453,8 +437,12 @@ pub fn sync_compiled_files(
     cwd: &Path,
     files: &[FileIndex],
     resolvers: &ResolverSet,
+    monorepo_enabled: bool,
     verbose: bool,
 ) {
+    // Detected once per sync, only when `monorepo.enabled` (the caller's
+    // already-loaded config) — the same gate `keel map` uses to annotate nodes.
+    let layout = monorepo_enabled.then(|| keel_parsers::monorepo::detect_monorepo(cwd));
     let mut next_id = store.max_id() + 1;
     let mut node_changes: Vec<NodeChange> = Vec::new();
     let mut edge_changes: Vec<EdgeChange> = Vec::new();
@@ -485,6 +473,7 @@ pub fn sync_compiled_files(
             sync_one_file(
                 &base,
                 cwd,
+                layout.as_ref(),
                 file,
                 resolvers,
                 &batch_files,
@@ -536,6 +525,7 @@ pub fn sync_compiled_files(
 fn sync_one_file(
     base: &GraphIndexBase,
     cwd: &Path,
+    layout: Option<&MonorepoLayout>,
     file: &FileIndex,
     resolvers: &ResolverSet,
     batch_files: &HashSet<&str>,
@@ -583,7 +573,18 @@ fn sync_one_file(
 
     // Compile-added nodes carry the package map would give this file (W009's
     // boundary depends on it), whether the module is new or already stored.
-    let package = base.package_for(cwd, rel_path);
+    let package =
+        layout.and_then(|l| keel_parsers::walker::package_for_path(&cwd.join(rel_path), l));
+
+    // Heal stored nodes of THIS file whose package differs from the layout's
+    // (NULL written by an older binary): one update each, never other files.
+    if layout.is_some() {
+        for node in existing.iter().filter(|n| n.package != package) {
+            let mut healed = node.clone();
+            healed.package = package.clone();
+            node_changes.push(NodeChange::Update(healed));
+        }
+    }
 
     // Insert nodes for definitions new since the last graph write.
     for def in &file.definitions {

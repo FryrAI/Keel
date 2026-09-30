@@ -328,8 +328,8 @@ impl SqliteGraphStore {
     /// Insert a node into the database, or update it on hash conflict (upsert).
     pub fn insert_node(&self, node: &GraphNode) -> Result<(), GraphError> {
         self.conn.execute(
-            "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, complexity, is_trivial_wrapper, in_test_context, module_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            "INSERT INTO nodes (id, hash, kind, name, signature, file_path, line_start, line_end, docstring, is_public, type_hints_present, has_docstring, is_associated, complexity, is_trivial_wrapper, in_test_context, module_id, package)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
              ON CONFLICT(hash) DO UPDATE SET
                 kind = excluded.kind,
                 name = excluded.name,
@@ -346,6 +346,7 @@ impl SqliteGraphStore {
                 is_trivial_wrapper = excluded.is_trivial_wrapper,
                 in_test_context = excluded.in_test_context,
                 module_id = excluded.module_id,
+                package = excluded.package,
                 updated_at = datetime('now')",
             params![
                 node.id,
@@ -365,6 +366,7 @@ impl SqliteGraphStore {
                 node.is_trivial_wrapper as i32,
                 node.in_test_context as i32,
                 if node.module_id == 0 { None } else { Some(node.module_id) },
+                node.package,
             ],
         )?;
 
