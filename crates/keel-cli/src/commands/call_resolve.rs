@@ -115,6 +115,16 @@ pub fn resolve_call_reference(
     ctx: &CallSiteCtx,
     reference: &Reference,
 ) -> Option<ResolvedCall> {
+    resolve_call_reference_with_rejection(idx, ctx, reference, &mut false)
+}
+
+/// Run the shared ladder, recording a member rejection for Tier-3 admission.
+pub(crate) fn resolve_call_reference_with_rejection(
+    idx: &dyn CallIndex,
+    ctx: &CallSiteCtx,
+    reference: &Reference,
+    rejected: &mut bool,
+) -> Option<ResolvedCall> {
     // A dispatch literal is not a name in the caller's scope — it is a key into
     // a boundary surface, and the only evidence it carries is that exact text.
     // So it takes the boundary rung ALONE: none of the import / same-directory /
@@ -217,7 +227,11 @@ pub fn resolve_call_reference(
         definitions: ctx.definitions,
     };
     target_id
-        .filter(|id| binding.allows(*id))
+        .filter(|id| {
+            let allowed = binding.allows(*id);
+            *rejected = !allowed;
+            allowed
+        })
         .map(|id| ResolvedCall {
             target_id: id,
             confidence,

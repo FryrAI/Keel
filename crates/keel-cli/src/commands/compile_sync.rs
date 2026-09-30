@@ -136,8 +136,8 @@ struct GraphIndex<'a> {
     /// set cannot change mid-pass (nothing writes to the store until the sync
     /// commits), so one query per distinct name is sufficient.
     candidate_memo: RefCell<HashMap<String, Vec<(String, u64)>>>,
-    local_associated: super::call_binding::AssociationFacts,
-    duplicate_names: HashSet<String>,
+    local_associated: RefCell<super::call_binding::AssociationFacts>,
+    conflicting_names: HashSet<String>,
     local_siblings: RefCell<HashMap<String, Vec<(String, u64)>>>,
 }
 
@@ -152,7 +152,7 @@ impl<'a> GraphIndex<'a> {
             .iter()
             .map(|(name, id)| ((file_path.to_string(), name.clone()), *id))
             .collect();
-        let (local_associated, duplicate_names) =
+        let (local_associated, conflicting_names) =
             super::call_binding::local_association_facts(local, file_path, definitions);
         Self {
             base,
@@ -160,8 +160,8 @@ impl<'a> GraphIndex<'a> {
             file_path,
             name_to_id,
             candidate_memo: RefCell::new(HashMap::new()),
-            local_associated,
-            duplicate_names,
+            local_associated: RefCell::new(local_associated),
+            conflicting_names,
             local_siblings: RefCell::new(HashMap::new()),
         }
     }
@@ -175,6 +175,15 @@ impl<'a> GraphIndex<'a> {
             .into_iter()
             .filter(|n| n.kind != NodeKind::Module)
             .map(|n| {
+                // Duplicate fresh definitions share the first inserted id.
+                // When that id is stored, use its own fact for mixed siblings;
+                // unanimous parsed facts (notably all-free variants) win.
+                if self.conflicting_names.contains(name) && self.local.get(name) == Some(&n.id) {
+                    self.local_associated.borrow_mut().insert(
+                        n.id,
+                        n.is_associated.then(|| (n.file_path.clone(), n.line_start)),
+                    );
+                }
                 if n.is_associated {
                     self.base
                         .associated_targets
@@ -184,9 +193,9 @@ impl<'a> GraphIndex<'a> {
                 (n.file_path, n.id)
             })
             .collect();
-        // Keep live siblings only for the permitted local free/member
-        // replacement. The shared ladder still sees exactly the base set.
-        if self.duplicate_names.contains(name) && self.local.contains_key(name) {
+        // Stored ids are needed only to locate the permitted local replacement;
+        // its eligibility and uniqueness are decided from the current parse.
+        if self.conflicting_names.contains(name) && self.local.contains_key(name) {
             self.local_siblings.borrow_mut().insert(
                 name.to_string(),
                 out.iter()
@@ -206,6 +215,7 @@ impl<'a> GraphIndex<'a> {
 impl CallIndex for GraphIndex<'_> {
     fn associated_target(&self, id: u64) -> Option<(String, u32)> {
         self.local_associated
+            .borrow()
             .get(&id)
             .cloned()
             .unwrap_or_else(|| self.base.associated_targets.borrow().get(&id).cloned())
@@ -372,31 +382,42 @@ fn resolve_reference(
     reference: &Reference,
 ) -> Option<ResolvedCall> {
     if let Some(&target_id) = local.get(&reference.name) {
+        // Populate stored association facts without changing the base pick.
         let candidates = idx.candidates(&reference.name);
-        let siblings = idx.local_siblings.borrow();
-        let candidates = siblings
-            .get(&reference.name)
-            .map_or(candidates.as_ref(), Vec::as_slice);
         let binding = super::call_binding::BindingIndex {
             inner: idx,
             reference,
             caller_file: ctx.file_path,
             definitions: ctx.definitions,
         };
-        let target_id = super::call_binding::select_local_target(
+        let target_id = if super::call_binding::has_local_replacement(
             reference,
-            target_id,
-            candidates
-                .iter()
-                .filter(|(f, _)| f == ctx.file_path)
-                .map(|(_, id)| {
-                    (
-                        *id,
-                        binding.allows(*id),
-                        idx.associated_target(*id).is_some(),
-                    )
-                }),
-        )?;
+            ctx.file_path,
+            &reference.name,
+            ctx.definitions,
+        ) {
+            let siblings = idx.local_siblings.borrow();
+            let candidates = siblings
+                .get(&reference.name)
+                .filter(|siblings| !siblings.is_empty())
+                .map_or(candidates.as_ref(), Vec::as_slice);
+            super::call_binding::select_local_target(
+                reference,
+                target_id,
+                candidates
+                    .iter()
+                    .filter(|(f, _)| f == ctx.file_path)
+                    .map(|(_, id)| {
+                        (
+                            *id,
+                            binding.allows(*id),
+                            idx.associated_target(*id).is_some(),
+                        )
+                    }),
+            )?
+        } else {
+            binding.allows(target_id).then_some(target_id)?
+        };
         let (_, same_file_confidence) = edge_for_reference(&reference.kind)?;
         return Some(ResolvedCall {
             target_id,

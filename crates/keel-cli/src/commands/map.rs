@@ -149,7 +149,7 @@ pub fn run(
         rs.set_boundary_literals(literal_keys);
     }
 
-    // === First pass: create nodes ===
+    // === First pass: create nodes and same-file reference edges ===
     let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
     let mut fragments = keel_core::fragments::FragmentScan::new();
     let all_file_data = map_passes::first_pass(
@@ -227,7 +227,7 @@ pub fn run(
         })
         .collect();
 
-    // === Second pass: all call edges and import edges ===
+    // === Second pass: cross-file reference edges and import edges ===
     // `node_tiers` records which resolution tier resolved each caller node's
     // outgoing edges, persisted to `nodes.resolution_tier` after the nodes land.
     let resolver_set = super::map_lang_resolve::ResolverSet {
@@ -237,6 +237,7 @@ pub fn run(
         rs: Some(&rs),
     };
     let mut node_tiers: HashMap<u64, (String, f64)> = HashMap::new();
+    let mut rejected_calls = HashSet::new();
     map_passes::second_pass(
         &all_file_data,
         &cwd,
@@ -250,6 +251,7 @@ pub fn run(
         &mut edge_changes,
         &mut next_id,
         &mut node_tiers,
+        &mut rejected_calls,
     );
 
     // === Third pass: Tier 3 resolution for still-unresolved references ===
@@ -273,6 +275,7 @@ pub fn run(
             &name_to_id,
             &global_name_index,
             &associated_targets,
+            &rejected_calls,
             &mut edge_changes,
             &mut next_id,
             resolution_cache_seed,

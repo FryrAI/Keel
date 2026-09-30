@@ -24,10 +24,10 @@ pub(crate) fn allows_associated(
     }
     // SQL also uses is_associated as an enforcement exemption, not membership.
     let language = keel_parsers::treesitter::detect_language(std::path::Path::new(target_file));
-    if !matches!(
-        language,
-        Some("rust" | "go" | "typescript" | "javascript" | "python")
-    ) {
+    if !language.is_some_and(|l| {
+        matches!(l, "rust" | "go" | "python" | "astro")
+            || keel_parsers::treesitter::is_typescript_family(l)
+    }) {
         return true;
     }
     if keel_parsers::treesitter::detect_language(std::path::Path::new(caller_file))
@@ -146,32 +146,32 @@ pub(crate) fn select_parsed_local_target(
 /// Association facts keyed by graph id; `None` records a fresh free definition.
 pub(crate) type AssociationFacts = HashMap<u64, Option<(String, u32)>>;
 
-/// Fresh association facts keyed by local id, leaving duplicate names to stored rows.
+/// Fresh facts keyed by local id, plus names whose facts need stored-row selection.
 pub(crate) fn local_association_facts(
     local: &HashMap<String, u64>,
     file_path: &str,
     definitions: &[Definition],
 ) -> (AssociationFacts, HashSet<String>) {
     let mut local_associated = HashMap::new();
-    let mut duplicate_names = HashSet::new();
+    let mut conflicting_names = HashSet::new();
     for def in definitions {
         if let Some(&id) = local.get(&def.name) {
-            if local_associated
-                .insert(
-                    id,
-                    def.is_associated
-                        .then(|| (file_path.to_string(), def.line_start)),
-                )
-                .is_some()
-            {
-                duplicate_names.insert(def.name.clone());
+            let fact = def
+                .is_associated
+                .then(|| (file_path.to_string(), def.line_start));
+            match local_associated.entry(id) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(fact);
+                }
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    if entry.get() != &fact {
+                        conflicting_names.insert(def.name.clone());
+                    }
+                }
             }
         }
     }
-    for name in &duplicate_names {
-        local_associated.remove(&local[name]);
-    }
-    (local_associated, duplicate_names)
+    (local_associated, conflicting_names)
 }
 
 /// Whether a bare same-file collision permits the one free-definition replacement.

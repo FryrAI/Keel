@@ -219,10 +219,15 @@ Map's first pass and compile's local binding preserve base selection order; the 
 `commands/call_binding.rs`. Binding is subtractive: keep the base target or remove a bare-call-to-member
 binding. The only replacement is a same-file bare name with exactly one eligible definition beside members.
 Uniqueness in later rungs is judged over the unfiltered candidates; qualified calls and value references
-keep base behaviour. Membership applies only to Rust, Go, TS/JS and Python, not SQL's exemption flag.
-Python class-body calls can name an already-defined class-local function; method bodies cannot. Default
+keep base behaviour. Membership applies only to Rust, Go, the TypeScript family, Astro scripts and Python,
+not SQL's exemption flag.
+The TypeScript family includes TSX, JSX and Svelte script blocks. A member rejected by an earlier pass
+cannot be rebound by Tier 3. Python class-body calls can name an already-defined class-local function;
+method bodies cannot. Default
 expressions in method headers remain a rare limitation: references have lines but no body/header scope.
 Parse paths may be absolute while graph paths are repo-relative; use the canonical caller path.
+
+Tier-3 full-map test fixtures must put calls on lines separate from declarations — admission treats ANY edge on the call's line (a `contains` edge included) as prior resolution — and include an ordinary unresolved call SCIP does resolve as a positive control, so a skipped pass cannot read green.
 
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.

@@ -12,7 +12,7 @@ use keel_parsers::treesitter::SupplementalResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::WalkEntry;
 
-use super::call_resolve::{edge_for_reference, resolve_call_reference, CallSiteCtx};
+use super::call_resolve::{edge_for_reference, resolve_call_reference_with_rejection, CallSiteCtx};
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::{find_containing_def, resolve_import_to_module, CallIndex};
 use keel_core::paths::make_relative;
@@ -318,6 +318,7 @@ pub fn second_pass(
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
     node_tiers: &mut HashMap<u64, (String, f64)>,
+    rejected_calls: &mut HashSet<(String, u32, String)>,
 ) {
     // The map backs the shared call-resolution ladder with its in-memory
     // indices (built during the first pass); the compile sync backs the same
@@ -378,7 +379,13 @@ pub fn second_pass(
                 continue;
             }
 
-            let Some(resolved) = resolve_call_reference(&idx, &ctx, reference) else {
+            let mut rejected = false;
+            let resolved =
+                resolve_call_reference_with_rejection(&idx, &ctx, reference, &mut rejected);
+            if rejected {
+                rejected_calls.insert((file_path.clone(), reference.line, reference.name.clone()));
+            }
+            let Some(resolved) = resolved else {
                 continue;
             };
 

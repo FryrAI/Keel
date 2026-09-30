@@ -232,3 +232,37 @@ fn local_replacement_requires_exactly_one_free_definition_among_members() {
         );
     }
 }
+
+#[test]
+fn fresh_mixed_siblings_keep_or_reject_the_first_inserted_definition() {
+    let free = "fn run(x: i32) {}\n";
+    let member = "struct Guard;\nimpl Guard { fn run() {} }\n";
+    let resolvers = ResolverSet {
+        ts: None,
+        py: None,
+        go: None,
+        rs: None,
+    };
+    for (first, second, expected) in [(free, member, 1), (member, free, 0)] {
+        let file = parsed(
+            "rust",
+            "src/lib.rs",
+            &format!("{first}{second}fn wire() {{ run(1); }}\n"),
+        );
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        sync_compiled_files(&mut store, Path::new("/repo"), &[file], &resolvers, false);
+        let target = store
+            .get_nodes_in_file("src/lib.rs")
+            .into_iter()
+            .find(|n| n.name == "run")
+            .unwrap();
+        assert_eq!(
+            store
+                .get_edges(target.id, EdgeDirection::Incoming)
+                .iter()
+                .filter(|e| e.kind == EdgeKind::Calls)
+                .count(),
+            expected
+        );
+    }
+}

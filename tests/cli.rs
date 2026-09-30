@@ -67,3 +67,5 @@ mod test_where;
 
 #[path = "cli/test_bare_call_regressions.rs"]
 mod test_bare_call_regressions;
+#[path = "cli/test_bare_call_round2.rs"]
+mod test_bare_call_round2;

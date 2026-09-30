@@ -38,6 +38,7 @@ pub(crate) fn run_tier3_pass(
     name_to_id: &HashMap<(String, String), u64>,
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     associated_targets: &HashMap<u64, (String, u32)>,
+    rejected_calls: &HashSet<(String, u32, String)>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
     seed: Vec<keel_core::types::ResolutionCacheEntry>,
@@ -77,6 +78,15 @@ pub(crate) fn run_tier3_pass(
             }
             // Skip if already resolved (same-file or cross-file)
             if name_to_id.contains_key(&(fd.file_path.to_string(), reference.name.clone())) {
+                continue;
+            }
+            // An earlier member rejection is a resolved base pick, not a miss
+            // that Tier 3 may replace with a different cross-file definition.
+            if rejected_calls.contains(&(
+                fd.file_path.to_string(),
+                reference.line,
+                reference.name.clone(),
+            )) {
                 continue;
             }
             // Check if earlier passes already created an edge at this location
