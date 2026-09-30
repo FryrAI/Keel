@@ -1,6 +1,7 @@
 [package]
 name = "keel-server"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "MCP and HTTP server with file watching for keel"
 license-file.workspace = true

@@ -32,6 +32,8 @@ mod test_fix;
 mod test_focus;
 #[path = "cli/test_format_github.rs"]
 mod test_format_github;
+#[path = "cli/test_graph_lock.rs"]
+mod test_graph_lock;
 #[path = "cli/test_graph_staleness.rs"]
 mod test_graph_staleness;
 #[path = "cli/test_init.rs"]

@@ -38,6 +38,14 @@ pub struct QualityArgs {
 /// series to/from a JSON Lines file so CI can accumulate history across a
 /// per-commit graph cache that never carries a prior commit's row on its own.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, args: QualityArgs) -> i32 {
+    let _lock = if args.snapshot || args.import.is_some() {
+        match super::writer_lock::for_command("quality") {
+            Ok(lock) => Some(lock),
+            Err(code) => return code,
+        }
+    } else {
+        None
+    };
     let ctx = match super::open_repo("quality") {
         Ok(x) => x,
         Err(code) => return code,

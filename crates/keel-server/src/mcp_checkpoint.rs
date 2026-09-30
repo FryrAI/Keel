@@ -11,8 +11,7 @@ use serde_json::Value;
 use keel_enforce::checkpoint::{self, CheckpointMode};
 
 use crate::mcp::{
-    internal_err, lock_engine, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine,
-    SharedStore,
+    internal_err, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine, SharedStore,
 };
 use crate::parse_shared::FileParser;
 
@@ -26,6 +25,7 @@ pub(crate) fn handle_checkpoint(
     root: &Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
+    let mut engine = engine.writer().map_err(internal_err)?;
     let since = param_str_opt(&params, "since").map(String::from);
     let staged = param_bool(&params, "staged", false);
 
@@ -49,10 +49,7 @@ pub(crate) fn handle_checkpoint(
         checkpoint::diff_changed_files(&*store, &file_indices)
     };
 
-    let compile_result = {
-        let mut eng = lock_engine(engine)?;
-        eng.compile(&file_indices)
-    };
+    let compile_result = engine.compile(&file_indices);
 
     let commits = checkpoint::commit_subjects(root, &mode);
     let range = checkpoint::range_label(&mode);

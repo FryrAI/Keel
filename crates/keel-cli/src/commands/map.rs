@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
 
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, NodeChange, NodeKind};
@@ -15,16 +14,10 @@ use keel_enforce::map::{
     build_map_result, build_module_profiles, populate_functions, populate_hotspots,
 };
 
-use super::compile_lock::acquire_compile_lock_with_timeout;
 use super::map_passes;
 use super::map_resolve::build_package_node_index;
 use crate::telemetry_recorder::EventMetrics;
 use keel_core::paths::make_relative;
-
-/// How long a map waits for a running compile to release the graph lock.
-/// Longer than compile's own wait: a map is a deliberate, rarer action, and
-/// silently skipping it would be far worse than a compile skipping.
-const MAP_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Run `keel map` — full re-parse of the codebase.
 #[allow(clippy::too_many_arguments)]
@@ -36,6 +29,15 @@ pub fn run(
     cached: bool,
     semantic: bool,
 ) -> (i32, EventMetrics) {
+    // Acquire before schema initialization and all baseline-dependent reads.
+    let _lock = if cached {
+        None
+    } else {
+        match super::writer_lock::for_command("map") {
+            Ok(lock) => Some(lock),
+            Err(code) => return (code, EventMetrics::default()),
+        }
+    };
     let (cwd, mut store) = match super::open_store("map") {
         Ok(x) => x,
         Err(code) => return (code, EventMetrics::default()),
@@ -53,20 +55,6 @@ pub fn run(
     if cached {
         return super::map_cached::run_cached(&store, formatter, verbose, _depth);
     }
-
-    // A map clears the graph before assigning fresh ids from 1. Hold the same
-    // lock as incremental compile through every subsequent write so compile
-    // cannot observe the empty graph and claim those ids first.
-    let _lock = match acquire_compile_lock_with_timeout(&keel_dir, verbose, MAP_LOCK_TIMEOUT) {
-        Some(lock) => lock,
-        None => {
-            eprintln!(
-                "keel map: failed to acquire graph lock within 10s: {}",
-                keel_dir.join("compile.lock").display()
-            );
-            return (2, EventMetrics::default());
-        }
-    };
 
     // Walk all source files (with optional monorepo package annotation)
     let walker = FileWalker::new(&cwd);

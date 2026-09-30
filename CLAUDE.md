@@ -144,6 +144,36 @@ cargo test                    # All unit tests
 
 ## Common Gotchas
 
+### Every Disk-Backed Graph Writer Shares the Graph Lock
+`keel-core::graph_lock` holds an OS lock on an open `.keel/compile.lock` handle
+(`File::try_lock`: flock on Unix, LockFileEx on Windows). The kernel releases it
+on drop or process death. The persistent file's PID is diagnostic only; never
+interpret it as ownership or delete the file during normal graph operations.
+
+Acquire once at the operation boundary, BEFORE opening a writer store (schema
+initialization/migration writes) or reading a baseline that will inform a write;
+hold through the last write. Map waits 10 s, then exits 2. Compile waits 2 s,
+then skips with exit 0. Fix (including plan-only compilation and verification),
+checkpoint (including diff), validate-plan (breaker load/restore), quality
+snapshot/import, init, and deinit wait 2 s, then refuse with exit 2. Lock I/O
+errors always exit 2, never masquerade as successful skips.
+
+HTTP and watcher share a writer context; MCP constructs its own context and
+records whether its store actually opened on disk or fell back to memory.
+Always take the graph lock BEFORE the engine mutex. Acquisition is not reentrant,
+even within one process: helpers called under a guard must not acquire again.
+HTTP polls asynchronously for 2 s (Busy = 503, I/O = 500). MCP stdio polls
+synchronously for 2 s on its blocking thread (Busy/I/O = tool error). Watcher
+tries once, retains and merges busy batches, and retries after asynchronous
+sleep; I/O errors log to stderr and drop the batch. Never block the async runtime
+waiting for the graph lock. Server startup also locks before schema opening.
+
+Nominal readers (including cached map and quality readings/exports) are exempt:
+their idempotent DDL on open is serialized by SQLite itself. Mixed old PID-lock
+and new OS-lock binaries do not exclude one another; upgrade every writer.
+Network-filesystem lock semantics are not guaranteed. Deinit deletes the lock
+with `.keel`; an already-open waiter can acquire an orphaned inode after deletion.
+
 ### Compile Sync Never Deletes on Failed Re-Resolution
 `sync_compiled_files` (keel-cli `compile_sync.rs`) deletes a stored `calls`/`uses` edge only on positive
 evidence: this pass re-added the same `(source_id, target_id, kind)`, or the target lives inside the

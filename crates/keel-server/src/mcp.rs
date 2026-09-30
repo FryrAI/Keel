@@ -11,7 +11,7 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_enforce::engine::EnforcementEngine;
 
 pub(crate) type SharedStore = Arc<Mutex<SqliteGraphStore>>;
-pub type SharedEngine = Arc<Mutex<EnforcementEngine>>;
+pub use crate::writer::SharedEngine;
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
@@ -287,36 +287,36 @@ pub(crate) fn lock_engine(
 }
 
 /// Create a shared enforcement engine backed by a disk store with project config.
-/// Falls back to in-memory store if db_path is None.
+/// Falls back to memory if `db_path` is absent or SQLite opening fails.
+/// Lock contention and lock I/O errors are returned before opening the store.
 /// Circuit breaker and batch state persist across MCP calls within a session.
-pub fn create_shared_engine(db_path: Option<&str>) -> SharedEngine {
-    let engine_store: Box<dyn keel_core::store::GraphStore + Send> = match db_path {
-        Some(path) => match SqliteGraphStore::open(path) {
-            Ok(s) => Box::new(s),
-            Err(_) => Box::new(
-                SqliteGraphStore::in_memory()
-                    .expect("Failed to create in-memory store for enforcement engine"),
-            ),
-        },
-        None => Box::new(
-            SqliteGraphStore::in_memory()
-                .expect("Failed to create in-memory store for enforcement engine"),
-        ),
+pub fn create_shared_engine(
+    db_path: Option<&str>,
+) -> Result<SharedEngine, keel_core::types::GraphError> {
+    // A supplied path is not proof of a disk backend: opening may fall back
+    // to memory. Record only the backend we actually built.
+    let candidate_dir = db_path.and_then(crate::writer::disk_lock_dir);
+    let _graph = candidate_dir
+        .as_deref()
+        .map(|dir| keel_core::graph_lock::acquire(dir, std::time::Duration::from_secs(2)))
+        .transpose()
+        .map_err(|e| keel_core::types::GraphError::Internal(e.to_string()))?;
+    let config = candidate_dir
+        .as_deref()
+        .map(keel_core::config::KeelConfig::load)
+        .unwrap_or_default();
+    let (engine_store, disk_dir): (Box<dyn keel_core::store::GraphStore + Send>, _) = match db_path
+        .filter(|_| candidate_dir.is_some())
+        .and_then(|path| SqliteGraphStore::open(path).ok())
+    {
+        Some(store) => (Box::new(store), candidate_dir),
+        None => (Box::new(SqliteGraphStore::in_memory()?), None),
     };
 
-    // Load project config for enforce settings
-    let config = db_path
-        .and_then(|p| {
-            std::path::Path::new(p)
-                .parent() // .keel/
-                .map(keel_core::config::KeelConfig::load)
-        })
-        .unwrap_or_default();
-
-    Arc::new(Mutex::new(EnforcementEngine::with_config(
-        engine_store,
-        &config,
-    )))
+    Ok(SharedEngine::new(
+        EnforcementEngine::with_config(engine_store, &config),
+        disk_dir,
+    ))
 }
 
 /// Run the MCP server loop, reading JSON-RPC from stdin and writing to stdout.

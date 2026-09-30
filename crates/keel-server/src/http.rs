@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::extract::{FromRef, Path as AxumPath, Query, State};
 use axum::http::{header, StatusCode};
@@ -16,7 +16,7 @@ use keel_output::llm::LlmFormatter;
 use keel_output::OutputFormatter;
 use keel_parsers::resolver::FileIndex;
 
-pub type SharedEngine = Arc<Mutex<EnforcementEngine>>;
+pub use crate::writer::SharedEngine;
 
 /// Router state: the shared engine plus the project root that compile targets
 /// are confined to. `SharedEngine` is extractable on its own via [`FromRef`],
@@ -149,16 +149,23 @@ async fn compile(State(state): State<AppState>, Json(req): Json<CompileRequest>)
         Err(code) => return code.into_response(),
     };
 
+    let mut engine = match state.engine.writer_async().await {
+        Ok(g) => g,
+        Err(error) => {
+            let status = match error {
+                keel_core::graph_lock::GraphLockError::Busy => StatusCode::SERVICE_UNAVAILABLE,
+                keel_core::graph_lock::GraphLockError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            return (status, error.to_string()).into_response();
+        }
+    };
+
     let mut parser = FileParser::new();
     let file_indexes: Vec<FileIndex> = targets
         .iter()
         .filter_map(|path| parser.parse(path))
         .collect();
 
-    let mut engine = match lock_engine(&state.engine) {
-        Ok(g) => g,
-        Err(code) => return code.into_response(),
-    };
     Json(engine.compile(&file_indexes)).into_response()
 }
 
@@ -338,12 +345,13 @@ mod tests {
     use keel_core::sqlite::SqliteGraphStore;
     use keel_core::types::GraphNode;
     use keel_enforce::types::CompileResult;
+    use std::sync::Mutex;
     use tower::ServiceExt;
 
     fn test_engine() -> SharedEngine {
         let store = SqliteGraphStore::in_memory().unwrap();
         let engine = EnforcementEngine::new(Box::new(store));
-        Arc::new(Mutex::new(engine))
+        Arc::new(Mutex::new(engine)).into()
     }
 
     /// A canonicalized existing directory to use as a confinement root.
@@ -380,7 +388,7 @@ mod tests {
             })
             .unwrap();
         let engine = EnforcementEngine::new(Box::new(store));
-        Arc::new(Mutex::new(engine))
+        Arc::new(Mutex::new(engine)).into()
     }
 
     #[tokio::test]

@@ -10,7 +10,7 @@ use keel_server::mcp::{create_shared_engine, process_line, SharedEngine};
 type SharedStore = Arc<Mutex<SqliteGraphStore>>;
 
 fn test_engine() -> SharedEngine {
-    create_shared_engine(None)
+    create_shared_engine(None).unwrap()
 }
 
 fn test_store() -> SharedStore {
@@ -57,6 +57,7 @@ fn engine_with_node() -> SharedEngine {
     Arc::new(Mutex::new(EnforcementEngine::new(Box::new(
         populated_node_store(),
     ))))
+    .into()
 }
 
 fn store_with_graph() -> SharedStore {
@@ -184,7 +185,7 @@ fn engine_with_graph() -> SharedEngine {
             line: 3,
         })])
         .unwrap();
-    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store))))
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store)))).into()
 }
 
 fn rpc(method: &str, params: Option<serde_json::Value>) -> String {

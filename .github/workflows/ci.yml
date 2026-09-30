@@ -11,6 +11,15 @@ env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
+  windows-graph-lock:
+    name: Windows graph lock
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Kernel lock lifecycle and stale diagnostic PID
+        run: cargo test -p keel-core graph_lock::tests
+
   check:
     name: Check
     runs-on: ubuntu-latest

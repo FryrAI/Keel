@@ -110,7 +110,7 @@ fn contract_engine() -> SharedEngine {
     ];
     store.update_edges(edges).unwrap();
 
-    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store))))
+    Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store)))).into()
 }
 
 async fn get(uri: &str) -> (StatusCode, Vec<u8>, Option<String>) {

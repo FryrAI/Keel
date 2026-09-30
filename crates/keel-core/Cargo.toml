@@ -1,6 +1,7 @@
 [package]
 name = "keel-core"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "Core graph schema, hashing, and SQLite storage for keel"
 license-file.workspace = true

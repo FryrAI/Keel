@@ -18,6 +18,11 @@ pub fn run(_formatter: &dyn OutputFormatter, _verbose: bool) -> i32 {
         return 0;
     }
 
+    let _lock = match super::writer_lock::acquire("deinit", &keel_dir) {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
+
     match fs::remove_dir_all(&keel_dir) {
         Ok(_) => {
             eprintln!("keel deinit: removed {}", keel_dir.display());

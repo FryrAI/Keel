@@ -1252,7 +1252,6 @@ dependencies = [
  "keel-output",
  "keel-parsers",
  "keel-server",
- "libc",
  "serde",
  "serde_json",
  "tempfile",

@@ -20,6 +20,10 @@ pub fn run(
     staged: bool,
     output: Option<String>,
 ) -> i32 {
+    let _lock = match super::writer_lock::for_command("checkpoint") {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
     // Read handle for the diff/caller lookups, plus the resolved `.keel` dir.
     let repo = match super::open_repo("checkpoint") {
         Ok(x) => x,

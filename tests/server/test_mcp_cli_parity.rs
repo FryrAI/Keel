@@ -106,7 +106,7 @@ fn test_mcp_map_summary_matches_cli() {
     let db_path = dir.path().join(".keel/graph.db");
     let store = SqliteGraphStore::open(db_path.to_str().unwrap()).expect("open graph.db");
     let store = Arc::new(Mutex::new(store));
-    let engine = create_shared_engine(None);
+    let engine = create_shared_engine(None).unwrap();
     let resp: serde_json::Value =
         serde_json::from_str(&process_line(&store, &engine, &rpc("keel/map", None)))
             .expect("keel/map response is JSON");

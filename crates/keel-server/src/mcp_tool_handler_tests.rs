@@ -520,7 +520,7 @@ fn test_focus_returns_context_for_node() {
             confidence: 1.0,
         })])
         .unwrap();
-    let engine: SharedEngine = Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store))));
+    let engine: SharedEngine = Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store)))).into();
 
     let params = serde_json::json!({ "target": "targethashh", "depth": 2 });
     let resp = parse_response(&process_line(

@@ -21,6 +21,11 @@ pub fn run(
         }
     };
 
+    let _lock = match super::writer_lock::acquire("fix", &keel_core::paths::keel_dir(&cwd)) {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
+
     let db_path = keel_core::paths::keel_dir(&cwd).join("graph.db");
     let store = match keel_core::sqlite::SqliteGraphStore::open(&db_path.to_string_lossy()) {
         Ok(s) => s,

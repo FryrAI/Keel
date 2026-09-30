@@ -198,45 +198,43 @@ fn relative_path(root: &Path, path: &Path) -> String {
 
 /// Apply a batch to the shared graph: prune deleted files, recompile changed
 /// ones. Shared by `keel serve --watch` and `keel watch`.
-pub fn apply_batch(engine: &SharedEngine, root: &Path, batch: &WatchBatch) -> BatchOutcome {
+pub fn apply_batch(
+    engine: &SharedEngine,
+    root: &Path,
+    batch: &WatchBatch,
+) -> Result<BatchOutcome, keel_core::graph_lock::GraphLockError> {
+    // Try once before any read or write. Busy batches belong to the async
+    // retry loop, and must never partially prune before failing to compile.
+    let mut engine = engine.try_writer()?;
     let mut outcome = BatchOutcome::default();
-
-    // Prune deleted files so their nodes/edges stop accreting in the graph.
-    if !batch.removed.is_empty() {
-        if let Ok(mut engine) = engine.lock() {
-            for path in &batch.removed {
-                if let Ok(n) = engine.prune_file(&relative_path(root, path)) {
-                    outcome.pruned += n;
-                }
-            }
+    for path in &batch.removed {
+        if let Ok(n) = engine.prune_file(&relative_path(root, path)) {
+            outcome.pruned += n;
         }
     }
-
-    // Recompile changed files incrementally (parse relative to root, matching
-    // how the graph stores paths).
     if !batch.changed.is_empty() {
         let mut parser = FileParser::new();
         let indices: Vec<_> = batch
             .changed
             .iter()
-            .map(|p| relative_path(root, p))
-            .filter_map(|rel| parser.parse(&rel))
+            .filter_map(|path| {
+                let mut index = parser.parse(&path.to_string_lossy())?;
+                index.file_path = relative_path(root, path);
+                Some(index)
+            })
             .collect();
         if !indices.is_empty() {
             outcome.compiled = indices.len();
-            if let Ok(mut engine) = engine.lock() {
-                let result = engine.compile(&indices);
-                outcome.errors = result.errors.len();
-                outcome.warnings = result.warnings.len();
-            }
+            let result = engine.compile(&indices);
+            outcome.errors = result.errors.len();
+            outcome.warnings = result.warnings.len();
         }
     }
-
-    outcome
+    Ok(outcome)
 }
 
 /// Log one batch's outcome to stderr. Silent when nothing was applied.
-fn log_outcome(batch: &WatchBatch, outcome: &BatchOutcome) {
+pub(crate) fn log_outcome(batch: &WatchBatch, outcome: &BatchOutcome) {
     let mut parts = Vec::new();
     if outcome.compiled > 0 {
         parts.push(format!("{} recompiled", outcome.compiled));
@@ -272,14 +270,11 @@ pub async fn watch(
     verbose: bool,
 ) -> Result<(), notify::Error> {
     // `_watcher` must outlive the loop — dropping it ends the watch.
-    let (_watcher, mut rx) = start_watching(&root)?;
+    let (_watcher, rx) = start_watching(&root)?;
     if verbose {
         eprintln!("[keel watch] watching {}", root.display());
     }
-    while let Some(batch) = rx.recv().await {
-        let outcome = apply_batch(&engine, &root, &batch);
-        log_outcome(&batch, &outcome);
-    }
+    crate::watch_retry::run_batches(engine, root, rx).await;
     Ok(())
 }
 
@@ -391,7 +386,8 @@ mod tests {
         let store = SqliteGraphStore::in_memory().unwrap();
         store.insert_node(&node(1, "foo", "src/gone.rs")).unwrap();
         store.insert_node(&node(2, "keep", "src/keep.rs")).unwrap();
-        let engine: SharedEngine = Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store))));
+        let engine: SharedEngine =
+            Arc::new(Mutex::new(EnforcementEngine::new(Box::new(store)))).into();
 
         // A deletion arrives as an absolute path (as notify emits); apply_batch
         // makes it relative and prunes it from the graph.
@@ -399,18 +395,18 @@ mod tests {
             changed: vec![],
             removed: vec![root.join("src/gone.rs")],
         };
-        let outcome = apply_batch(&engine, &root, &batch);
+        let outcome = apply_batch(&engine, &root, &batch).unwrap();
         assert_eq!(outcome.pruned, 1, "the deleted file's node is pruned");
 
         // Re-pruning the same file finds nothing left; the other file's node,
         // never named in a batch, is untouched.
-        let outcome2 = apply_batch(&engine, &root, &batch);
+        let outcome2 = apply_batch(&engine, &root, &batch).unwrap();
         assert_eq!(outcome2.pruned, 0);
         let keep_batch = WatchBatch {
             changed: vec![],
             removed: vec![root.join("src/keep.rs")],
         };
-        assert_eq!(apply_batch(&engine, &root, &keep_batch).pruned, 1);
+        assert_eq!(apply_batch(&engine, &root, &keep_batch).unwrap().pruned, 1);
     }
 
     #[test]

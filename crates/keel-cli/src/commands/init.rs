@@ -79,6 +79,11 @@ pub fn run(
         return 2;
     }
 
+    let _lock = match super::writer_lock::acquire("init", &keel_dir) {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
+
     // Detect languages present in the repo
     let languages = detect_languages(&cwd);
 

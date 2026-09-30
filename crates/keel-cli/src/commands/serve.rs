@@ -105,13 +105,19 @@ async fn run_async(
     verbose: bool,
     no_telemetry: bool,
 ) -> i32 {
-    let server = match keel_server::KeelServer::open(
-        db_path.to_str().unwrap_or(".keel/graph.db"),
-        root_dir.clone(),
-    ) {
-        Ok(s) => s,
+    // Startup opens/migrates SQLite under the graph lock; its bounded wait
+    // belongs on a blocking thread just like MCP stdio's synchronous loop.
+    let open_root = root_dir.clone();
+    let open_db = db_path.clone();
+    let opened = tokio::task::spawn_blocking(move || {
+        keel_server::KeelServer::open(open_db.to_str().unwrap_or(".keel/graph.db"), open_root)
+    })
+    .await
+    .unwrap_or_else(|e| Err(keel_core::types::GraphError::Internal(e.to_string())));
+    let server = match opened {
+        Ok(server) => server,
         Err(e) => {
-            eprintln!("keel serve: failed to open store: {}", e);
+            eprintln!("keel serve: failed to open store: {e}");
             return 2;
         }
     };
@@ -182,6 +188,10 @@ async fn run_async(
 
 /// Open the store and run the synchronous MCP stdio loop. Returns an exit code.
 fn run_mcp_stdio(root_dir: &Path, db_path: &Path, no_telemetry: bool) -> i32 {
+    let graph = match super::writer_lock::acquire("serve", &keel_core::paths::keel_dir(root_dir)) {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
     let store = match SqliteGraphStore::open(db_path.to_str().unwrap_or(".keel/graph.db")) {
         Ok(s) => s,
         Err(e) => {
@@ -189,6 +199,7 @@ fn run_mcp_stdio(root_dir: &Path, db_path: &Path, no_telemetry: bool) -> i32 {
             return 2;
         }
     };
+    drop(graph);
     let shared_store = Arc::new(Mutex::new(store));
     let db_str = db_path.to_string_lossy().to_string();
     let keel_dir = keel_core::paths::keel_dir(root_dir);
