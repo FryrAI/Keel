@@ -206,8 +206,9 @@ runs collapse for multiset subtraction, but other line edits re-evaluate the occ
 use current-worktree paths and eligibility is checked independently on both sides of a rename.
 Glob components drop leading `/`, empty parts and `.`; `..` rejects the rule with a named
 warning. Root scope is allowed, root home is rejected. Symlinks are skipped; a target is checked
-when selected under its own path. Removed occurrences cancel matching additions across the
-checked file set (all diffed files for review, selected files for compile); compiling only a move's
+when selected under its own path. Base symlink link text contributes no occurrences, so replacing
+a symlink with a regular source file cannot grandfather its expressions. Removed occurrences cancel
+matching additions across the checked file set (all diffed files for review, selected files for compile); compiling only a move's
 destination still fires. Deduplicate normalized paths before subtracting baselines or pooling.
 Read base blobs only for eligible base paths. Eligibility follows the canonical
 `detect_language` table (including SQL), not just the four core parser languages.

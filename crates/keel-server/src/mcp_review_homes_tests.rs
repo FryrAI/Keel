@@ -9,6 +9,8 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_enforce::engine::EnforcementEngine;
 use serde_json::json;
 
+use crate::writer::SharedEngine;
+
 fn git(root: &std::path::Path, args: &[&str]) {
     let out = Command::new("git")
         .args([
@@ -67,10 +69,10 @@ fn homes_mcp_review_loads_rules_and_escalation_from_project_config() {
     assert!(hits[0]["message"].as_str().unwrap().contains("civil-day"));
 
     let config = KeelConfig::load(&root.join(".keel"));
-    let engine = Arc::new(Mutex::new(EnforcementEngine::with_config(
-        Box::new(SqliteGraphStore::in_memory().unwrap()),
-        &config,
-    )));
+    let engine = SharedEngine::new(
+        EnforcementEngine::with_config(Box::new(SqliteGraphStore::in_memory().unwrap()), &config),
+        None,
+    );
     let file = root.join("src/lib.rs").to_string_lossy().to_string();
     let result =
         crate::mcp_compile::handle_compile(&engine, Some(json!({"files": [file]}))).unwrap();

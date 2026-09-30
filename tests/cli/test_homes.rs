@@ -451,3 +451,7 @@ fn homes_committed_source_symlink_is_skipped_and_target_checked_once() {
 
 #[path = "test_homes_fold.rs"]
 mod fold;
+
+#[cfg(unix)]
+#[path = "test_homes_base_symlink.rs"]
+mod base_symlink;

@@ -331,6 +331,7 @@ pub fn resolve_commit(dir: &Path, rev: &str) -> Result<String, String> {
 }
 
 /// Read a UTF-8 blob, distinguishing a missing path from Git or decoding failures.
+/// Symlink entries return `None`: their link text is not base-side source.
 /// `rev` should be a resolved commit id, so all reads use the same snapshot.
 pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<String>, String> {
     let listing = Command::new("git")
@@ -352,7 +353,9 @@ pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<Strin
         .unwrap_or_default();
     let header = std::str::from_utf8(header).map_err(|e| e.to_string())?;
     let mut fields = header.split_whitespace();
-    let _mode = fields.next();
+    if fields.next() == Some("120000") {
+        return Ok(None);
+    }
     if fields.next() != Some("blob") {
         return Err("base path is not a blob".into());
     }
