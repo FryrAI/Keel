@@ -28,7 +28,8 @@ pub fn run(
     };
 
     // Normalize to relative path (matching how nodes are stored).
-    let rel_path = keel_core::paths::make_relative(&cwd, std::path::Path::new(&file));
+    let rel_path =
+        keel_core::paths::make_relative(&keel_core::paths::project_root(&cwd), &cwd.join(&file));
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {

@@ -24,7 +24,9 @@ pub fn run(
 
     // The path-resolve → read → parse preamble lives in keel_enforce so the CLI
     // and the `keel/skeleton` MCP tool share one implementation.
-    match keel_enforce::skeleton::build_skeleton_from_path(&cwd, &file, private, docs) {
+    let root = keel_core::paths::project_root(&cwd);
+    let file = keel_core::paths::make_relative(&root, &cwd.join(file));
+    match keel_enforce::skeleton::build_skeleton_from_path(&root, &file, private, docs) {
         Ok(result) => {
             if verbose {
                 eprintln!(

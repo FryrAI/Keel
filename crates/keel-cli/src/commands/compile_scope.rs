@@ -64,5 +64,5 @@ fn in_repo(root: &Path, path: &Path) -> bool {
 /// Canonicalize `path`'s parent directory — `path` itself may be a file that
 /// was just deleted, and the directory is what decides in-tree membership.
 fn canonical_parent(path: &Path) -> Option<PathBuf> {
-    path.parent()?.canonicalize().ok()
+    keel_core::paths::canonicalize_portable(path.parent()?).ok()
 }

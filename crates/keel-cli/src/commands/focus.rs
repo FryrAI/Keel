@@ -13,9 +13,12 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, target: String, depth
         Err(code) => return code,
     };
 
-    // Normalize a file target to the relative path the graph stores. A hash or
-    // already-relative path passes through unchanged (strip_prefix is a no-op).
-    let query = keel_core::paths::make_relative(&cwd, std::path::Path::new(&target));
+    // Resolve file arguments from the cwd; hashes keep their graph identity.
+    let query = if !super::input_detect::looks_like_hash(&target) {
+        keel_core::paths::make_relative(&keel_core::paths::project_root(&cwd), &cwd.join(&target))
+    } else {
+        target.clone()
+    };
 
     let engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
     match engine.focus(&query, depth) {

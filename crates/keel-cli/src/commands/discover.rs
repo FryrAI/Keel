@@ -36,7 +36,7 @@ pub fn run(
             // Add body context if --context was requested
             if let Some(max_lines) = context_lines {
                 result.body_context = read_body_context(
-                    &cwd,
+                    &keel_core::paths::project_root(&cwd),
                     &result.target.file,
                     result.target.line_start,
                     result.target.line_end,
@@ -119,7 +119,8 @@ fn discover_file(
     verbose: bool,
 ) -> i32 {
     // Normalize the file path to be relative (matching how nodes are stored).
-    let rel_path = keel_core::paths::make_relative(cwd, std::path::Path::new(query));
+    let rel_path =
+        keel_core::paths::make_relative(&keel_core::paths::project_root(cwd), &cwd.join(query));
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {

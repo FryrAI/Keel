@@ -79,7 +79,7 @@ fn linked_worktree_resolves_to_main_checkout_keel() {
     assert_eq!(resolved.file_name().unwrap(), ".keel");
     assert_eq!(
         resolved.parent().unwrap(),
-        main.canonicalize().unwrap(),
+        super::canonicalize_portable(&main).unwrap(),
         "worktree must share the main checkout's .keel",
     );
 }
@@ -222,7 +222,7 @@ fn project_paths_normalize_subdirectories_and_deleted_parents() {
     git(&["init", "-q"], root);
     assert_eq!(
         super::project_root(&root.join("src")),
-        root.canonicalize().unwrap()
+        super::canonicalize_portable(root).unwrap()
     );
     for file in ["src/./a.rs", "src/deep/../a.rs", "src/gone/deeper/a.rs"] {
         let expected = if file.contains("gone") {
@@ -244,7 +244,10 @@ fn project_root_without_git_preserves_start() {
     let dir = TempDir::new().unwrap();
     std::fs::create_dir(dir.path().join("src")).unwrap();
     let start = dir.path().join("src");
-    assert_eq!(super::project_root(&start), start.canonicalize().unwrap());
+    assert_eq!(
+        super::project_root(&start),
+        super::canonicalize_portable(&start).unwrap()
+    );
 }
 
 #[cfg(unix)]
@@ -257,4 +260,75 @@ fn project_paths_preserve_source_symlink_leaf() {
         super::project_relative(dir.path(), Path::new("alias.rs")).as_deref(),
         Some("alias.rs")
     );
+}
+
+#[test]
+fn plain_project_paths_need_no_existing_filesystem_root() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("never-created");
+    let root = missing.as_path();
+    assert_eq!(
+        super::project_relative(root, &root.join("src/missing.rs")).as_deref(),
+        Some("src/missing.rs")
+    );
+    assert_eq!(
+        super::project_relative(root, &root.join("src/missing/../a.rs")).as_deref(),
+        Some("src/a.rs")
+    );
+    assert_eq!(
+        super::project_relative(root, &root.join("src/missing/..")).as_deref(),
+        Some("src")
+    );
+}
+
+#[test]
+fn verbatim_disk_prefix_stripping_is_portable() {
+    for (input, expected) in [
+        (r"\\?\C:\repo\src", r"C:\repo\src"),
+        (r"\\?\z:\repo", r"z:\repo"),
+        (r"C:\repo", r"C:\repo"),
+        (r"\\?\UNC\host\share", r"\\?\UNC\host\share"),
+        (r"\\?\Volume{abc}\repo", r"\\?\Volume{abc}\repo"),
+        (r"\\?\C:relative", r"\\?\C:relative"),
+        ("/repo/src", "/repo/src"),
+    ] {
+        assert_eq!(super::strip_verbatim_disk_prefix(input), expected);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn root_discovery_resolves_subdirectory_alias_before_ancestors() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().join("real");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    git(&["init", "-q"], &root);
+    let alias = dir.path().join("subalias");
+    std::os::unix::fs::symlink(root.join("src"), &alias).unwrap();
+    assert_eq!(super::project_root(&alias), root.canonicalize().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn confinement_accepts_checkout_alias_and_rejects_symlink_escape() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().join("real");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
+    let root = root.canonicalize().unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+    assert_eq!(
+        confine(&root, alias.join("src/a.rs").to_str().unwrap()),
+        Some(root.join("src/a.rs"))
+    );
+    assert_eq!(
+        confine(&root, alias.join("src/deleted.rs").to_str().unwrap()),
+        Some(root.join("src/deleted.rs"))
+    );
+    assert_eq!(confine(&root, alias.to_str().unwrap()), Some(root.clone()));
+    let outside = dir.path().join("outside.rs");
+    std::fs::write(&outside, "secret").unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("src/escape.rs")).unwrap();
+    assert!(confine(&root, alias.join("src/escape.rs").to_str().unwrap()).is_none());
 }

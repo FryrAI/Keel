@@ -105,7 +105,10 @@ fn linked_worktree_mcp_reads_its_checkpoint_skeleton_and_compile() {
     let server =
         keel_server::KeelServer::open(main.join(".keel/graph.db").to_str().unwrap(), subdir)
             .unwrap();
-    assert_eq!(server.root_dir, worktree.canonicalize().unwrap());
+    assert_eq!(
+        server.root_dir,
+        keel_core::paths::canonicalize_portable(&worktree).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -167,4 +170,100 @@ async fn linked_worktree_http_and_watcher_use_root_relative_graph_paths() {
         .get_nodes_in_file("src/a.rs")
         .iter()
         .any(|node| node.name == "main_only"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn aliased_checkout_http_compile_and_mcp_skeleton_are_confined() {
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    let (dir, main, worktree) = linked_fixture();
+    let alias = dir.path().join("alias");
+    let subalias = dir.path().join("subalias");
+    std::os::unix::fs::symlink(&worktree, &alias).unwrap();
+    std::os::unix::fs::symlink(worktree.join("src"), &subalias).unwrap();
+    let db = main.join(".keel/graph.db");
+    for start in [&alias, &subalias] {
+        let server = keel_server::KeelServer::open(db.to_str().unwrap(), start.clone()).unwrap();
+        assert_eq!(
+            server.root_dir,
+            keel_core::paths::canonicalize_portable(&worktree).unwrap()
+        );
+        let app = keel_server::http::router(server.engine.clone(), start.clone());
+        for file in [
+            "src/b.rs".to_string(),
+            alias.join("src/b.rs").to_string_lossy().to_string(),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/compile")
+                        .header("content-type", "application/json")
+                        .body(Body::from(json!({"files":[file]}).to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let result: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(result["files_analyzed"], json!(["src/b.rs"]));
+            assert!(
+                result["errors"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["code"] == "E003"),
+                "{result}"
+            );
+        }
+        let directory_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/compile")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"path":alias}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(directory_response.status(), StatusCode::OK);
+        let bytes = to_bytes(directory_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let directory_result: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            directory_result["files_analyzed"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("src/b.rs")),
+            "{directory_result}"
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/compile")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"files":[main.join("src/a.rs")]}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    let skeleton = mcp(
+        &subalias,
+        "keel/skeleton",
+        json!({"file":alias.join("src/b.rs")}),
+    );
+    assert!(skeleton.to_string().contains("worktree_only"), "{skeleton}");
 }

@@ -29,7 +29,8 @@ pub fn run(
         Ok(x) => x,
         Err(code) => return code,
     };
-    let cwd = &repo.cwd;
+    let root = keel_core::paths::project_root(&repo.cwd);
+    let cwd = &root;
     let keel_dir = &repo.keel_dir;
     let store = &repo.store;
 

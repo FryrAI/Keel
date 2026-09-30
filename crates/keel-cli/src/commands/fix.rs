@@ -36,6 +36,8 @@ pub fn run(
         }
     };
 
+    let root = keel_core::paths::project_root(&cwd);
+
     // Gather files to check
     let file_paths: Vec<PathBuf> = if let Some(ref f) = file {
         vec![cwd.join(f)]
@@ -46,7 +48,7 @@ pub fn run(
 
     // Parse files (resolving call targets against the pre-edit graph) before
     // the engine takes ownership of the store, then compile to get violations.
-    let file_indices = super::parse_util::parse_files_to_indices(&file_paths, &cwd, &store);
+    let file_indices = super::parse_util::parse_files_to_indices(&file_paths, &root, &store);
     let mut engine = keel_enforce::engine::EnforcementEngine::new(Box::new(store));
     let compile_result = engine.compile(&file_indices);
 
@@ -102,7 +104,7 @@ pub fn run(
     }
 
     // --apply mode: write fixes to disk, then re-compile
-    let apply_result = apply_fix_plans(&result, &cwd, verbose);
+    let apply_result = apply_fix_plans(&result, &root, verbose);
     let exit_code = if apply_result.actions_failed > 0 || !apply_result.recompile_clean {
         1
     } else {

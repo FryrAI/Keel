@@ -8,7 +8,8 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, file: String) -> i32 
     };
 
     // Normalize file path to relative (matching how nodes are stored).
-    let rel_path = keel_core::paths::make_relative(&cwd, std::path::Path::new(&file));
+    let rel_path =
+        keel_core::paths::make_relative(&keel_core::paths::project_root(&cwd), &cwd.join(&file));
 
     match keel_enforce::analyze::analyze_file(&store, &rel_path) {
         Some(result) => {

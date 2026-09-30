@@ -246,6 +246,7 @@ pub fn run(
         };
 
     // Read the same normalized root-relative paths that map and graph sync use.
+    let mut seen_targets = std::collections::HashSet::new();
     let target_files = target_files
         .iter()
         .map(|path| {
@@ -253,8 +254,7 @@ pub fn run(
                 .to_string_lossy()
                 .to_string()
         })
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
+        .filter(|path| seen_targets.insert(path.clone()))
         .collect::<Vec<_>>();
 
     // Exit 0 on a file keel never parsed is a false all-clear for any hook that

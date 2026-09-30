@@ -44,7 +44,7 @@ pub fn run(
             eprintln!("keel review: review.gate names {unavailable}, but enforce.homes can only emit {emitted}; {unavailable} gates nothing");
         }
     }
-    let (cwd, store) = (ctx.cwd, ctx.store);
+    let (cwd, store) = (keel_core::paths::project_root(&ctx.cwd), ctx.store);
 
     // Detect (never rewrite — Principle 7) a binary/docs version mismatch, as
     // `map` and `compile` do. Review is the only keel command a CI run makes
