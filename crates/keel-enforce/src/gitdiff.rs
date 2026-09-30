@@ -25,6 +25,10 @@ use std::process::Command;
 use keel_parsers::treesitter::detect_language;
 use keel_parsers::walker::KeelIgnore;
 
+#[path = "gitdiff_paths.rs"]
+mod paths;
+use paths::decode_path;
+
 /// Which git diff to compute.
 #[derive(Debug, Clone)]
 pub enum DiffMode {
@@ -72,28 +76,11 @@ fn collect_paths(bytes: &[u8], only_supported: bool, ignore: &KeelIgnore) -> Vec
     bytes
         .split(|b| *b == b'\0')
         .filter(|l| !l.is_empty())
-        .filter_map(decode_path)
+        .filter_map(|bytes| decode_path(bytes, ignore))
         .filter(|l| !only_supported || detect_language(Path::new(l)).is_some())
         .filter(|l| !ignore.is_ignored(Path::new(l)))
         .map(|s| s.to_string())
         .collect()
-}
-
-/// Reject an unrepresentable path without aliasing a real replacement-character
-/// filename. Escape the original bytes so the warning identifies the skipped path.
-fn decode_path(bytes: &[u8]) -> Option<&str> {
-    match std::str::from_utf8(bytes) {
-        Ok(path) => Some(path),
-        Err(_) => {
-            let escaped: String = bytes
-                .iter()
-                .flat_map(|b| std::ascii::escape_default(*b))
-                .map(char::from)
-                .collect();
-            eprintln!("keel: skipping a changed path that is not valid UTF-8: {escaped}");
-            None
-        }
-    }
 }
 
 /// List repo-relative paths of files changed for `mode`, evaluated in `dir`.
@@ -101,7 +88,8 @@ fn decode_path(bytes: &[u8]) -> Option<&str> {
 /// Paths excluded by the repository root's `.keelignore`/`.gitignore` are
 /// dropped, so a git-diff-driven command never checks a file `keel map` refused
 /// to graph — `dir` may be any directory inside the repo.
-/// Non-UTF-8 paths are skipped with an escaped-byte warning on stderr.
+/// Non-UTF-8 paths are skipped; eligible source paths warn once per process
+/// on stderr, with their original bytes escaped.
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
@@ -237,7 +225,7 @@ impl ChangedPath {
 /// Status and paths are NUL-separated; rename/copy records carry two paths,
 /// every other status carries one. Unknown status letters are treated as
 /// modifications, which is the safe direction — the file still gets diffed.
-fn parse_name_status(bytes: &[u8]) -> Vec<ChangedPath> {
+fn parse_name_status(bytes: &[u8], ignore: &KeelIgnore) -> Vec<ChangedPath> {
     let mut parts = bytes.split(|b| *b == b'\0');
     let mut paths = Vec::new();
     while let Some(code) = parts.next() {
@@ -247,20 +235,23 @@ fn parse_name_status(bytes: &[u8]) -> Vec<ChangedPath> {
         let (path, status) = match code.first() {
             Some(b'R' | b'C') => {
                 let Some(new_path) = parts.next() else { break };
-                let from = decode_path(first);
-                let path = decode_path(new_path);
-                let (Some(from), Some(path)) = (from, path) else {
-                    continue;
-                };
-                (
-                    path,
-                    ChangeStatus::Renamed {
-                        from: from.to_string(),
-                    },
-                )
+                match (decode_path(first, ignore), decode_path(new_path, ignore)) {
+                    (Some(from), Some(path)) => (
+                        path,
+                        ChangeStatus::Renamed {
+                            from: from.to_string(),
+                        },
+                    ),
+                    (None, Some(path)) => (path, ChangeStatus::Added),
+                    (Some(from), None) if code.first() == Some(&b'R') => {
+                        (from, ChangeStatus::Deleted)
+                    }
+                    // An unreadable copy destination leaves its source unchanged.
+                    _ => continue,
+                }
             }
             code => {
-                let Some(path) = decode_path(first) else {
+                let Some(path) = decode_path(first, ignore) else {
                     continue;
                 };
                 let status = match code {
@@ -288,12 +279,15 @@ fn parse_name_status(bytes: &[u8]) -> Vec<ChangedPath> {
 /// what to parse and what to list as unanalyzed. Ignored paths are dropped as
 /// they are everywhere else — a review is measured against the graph, and the
 /// graph has no ignored files to compare against.
-/// Records with a non-UTF-8 endpoint are skipped, warning once per invalid field.
+/// A non-UTF-8 endpoint leaves the valid side as an addition or deletion;
+/// an unreadable copy destination leaves its source unchanged and is dropped.
+/// Invalid source paths warn at most once per process, excluding ignored and
+/// unsupported paths on Unix, where their raw bytes can be filtered.
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
     let raw = run_git_checked(dir, &["diff", "--name-status", "-z", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
     let ignore = KeelIgnore::new(&repo_root(dir));
-    Ok(parse_name_status(&raw)
+    Ok(parse_name_status(&raw, &ignore)
         .into_iter()
         .filter_map(|entry| apply_ignore(entry, &ignore))
         .collect())

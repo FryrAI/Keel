@@ -351,3 +351,29 @@ fn nul_name_status_rename_consumes_two_paths_and_keeps_adjacent_records() {
         ]
     );
 }
+
+#[test]
+fn non_utf8_rename_and_copy_records_preserve_only_changed_valid_endpoints() {
+    let bytes = b"R100\0old\xff.rs\0added.rs\0R100\0deleted.rs\0new\xff.rs\0C100\0old\xff.rs\0copied.rs\0C100\0unchanged.rs\0new\xff.rs\0R100\0old\xff.rs\0new\xff.rs\0C100\0old\xff.rs\0new\xff.rs\0A\0ok.rs\0";
+    assert_eq!(
+        parse_name_status(bytes, &KeelIgnore::new(Path::new("."))),
+        vec![
+            ChangedPath {
+                path: "added.rs".into(),
+                status: ChangeStatus::Added,
+            },
+            ChangedPath {
+                path: "deleted.rs".into(),
+                status: ChangeStatus::Deleted,
+            },
+            ChangedPath {
+                path: "copied.rs".into(),
+                status: ChangeStatus::Added,
+            },
+            ChangedPath {
+                path: "ok.rs".into(),
+                status: ChangeStatus::Added,
+            },
+        ]
+    );
+}
