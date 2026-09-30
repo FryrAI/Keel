@@ -39,7 +39,7 @@ pub enum DiffMode {
 /// Run `git -C dir <args>`, distinguishing "git could not run at all" (`Err`)
 /// from "git ran and exited non-zero" (`Ok(None)`), so callers that must not
 /// silently treat a missing git as "no changes" can surface it.
-fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<String>, String> {
+fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<Vec<u8>>, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -49,7 +49,7 @@ fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<String>, String> 
     if !out.status.success() {
         return Ok(None);
     }
-    Ok(Some(String::from_utf8_lossy(&out.stdout).to_string()))
+    Ok(Some(out.stdout))
 }
 
 /// The repository root, which is what git prints its diff paths relative to —
@@ -59,6 +59,7 @@ fn repo_root(dir: &Path) -> PathBuf {
     run_git_checked(dir, &["rev-parse", "--show-toplevel"])
         .ok()
         .flatten()
+        .and_then(|out| String::from_utf8(out).ok())
         .map(|out| PathBuf::from(out.trim()))
         .filter(|root| !root.as_os_str().is_empty())
         .unwrap_or_else(|| dir.to_path_buf())
@@ -67,13 +68,32 @@ fn repo_root(dir: &Path) -> PathBuf {
 /// Keep non-empty NUL-delimited paths; drop paths the ignore rules exclude, and
 /// when `only_supported`, paths keel cannot parse (per the canonical
 /// `detect_language` extension table).
-fn collect_paths(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
-    text.split('\0')
+fn collect_paths(bytes: &[u8], only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
+    bytes
+        .split(|b| *b == b'\0')
         .filter(|l| !l.is_empty())
+        .filter_map(decode_path)
         .filter(|l| !only_supported || detect_language(Path::new(l)).is_some())
         .filter(|l| !ignore.is_ignored(Path::new(l)))
         .map(|s| s.to_string())
         .collect()
+}
+
+/// Reject an unrepresentable path without aliasing a real replacement-character
+/// filename. Escape the original bytes so the warning identifies the skipped path.
+fn decode_path(bytes: &[u8]) -> Option<&str> {
+    match std::str::from_utf8(bytes) {
+        Ok(path) => Some(path),
+        Err(_) => {
+            let escaped: String = bytes
+                .iter()
+                .flat_map(|b| std::ascii::escape_default(*b))
+                .map(char::from)
+                .collect();
+            eprintln!("keel: skipping a changed path that is not valid UTF-8: {escaped}");
+            None
+        }
+    }
 }
 
 /// List repo-relative paths of files changed for `mode`, evaluated in `dir`.
@@ -81,6 +101,7 @@ fn collect_paths(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<S
 /// Paths excluded by the repository root's `.keelignore`/`.gitignore` are
 /// dropped, so a git-diff-driven command never checks a file `keel map` refused
 /// to graph — `dir` may be any directory inside the repo.
+/// Non-UTF-8 paths are skipped with an escaped-byte warning on stderr.
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
@@ -172,10 +193,8 @@ pub fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Ancestry {
 /// no git, no repository, or a repository whose first commit does not exist
 /// yet (`git init` with nothing committed).
 pub fn head_commit(dir: &Path) -> Option<String> {
-    let sha = run_git_checked(dir, &["rev-parse", "HEAD"])
-        .ok()??
-        .trim()
-        .to_string();
+    let raw = run_git_checked(dir, &["rev-parse", "HEAD"]).ok()??;
+    let sha = String::from_utf8(raw).ok()?.trim().to_string();
     (!sha.is_empty()).then_some(sha)
 }
 
@@ -218,24 +237,39 @@ impl ChangedPath {
 /// Status and paths are NUL-separated; rename/copy records carry two paths,
 /// every other status carries one. Unknown status letters are treated as
 /// modifications, which is the safe direction — the file still gets diffed.
-fn parse_name_status(text: &str) -> Vec<ChangedPath> {
-    let mut parts = text.split_terminator('\0');
+fn parse_name_status(bytes: &[u8]) -> Vec<ChangedPath> {
+    let mut parts = bytes.split(|b| *b == b'\0');
     let mut paths = Vec::new();
     while let Some(code) = parts.next() {
         let Some(first) = parts.next() else { break };
-        let (path, status) = match code.chars().next() {
-            Some('A') => (first, ChangeStatus::Added),
-            Some('D') => (first, ChangeStatus::Deleted),
-            Some('R' | 'C') => {
+        // Consume both rename endpoints even if either fails decoding, so the
+        // next record cannot be mistaken for this record's destination.
+        let (path, status) = match code.first() {
+            Some(b'R' | b'C') => {
                 let Some(new_path) = parts.next() else { break };
+                let from = decode_path(first);
+                let path = decode_path(new_path);
+                let (Some(from), Some(path)) = (from, path) else {
+                    continue;
+                };
                 (
-                    new_path,
+                    path,
                     ChangeStatus::Renamed {
-                        from: first.to_string(),
+                        from: from.to_string(),
                     },
                 )
             }
-            _ => (first, ChangeStatus::Modified),
+            code => {
+                let Some(path) = decode_path(first) else {
+                    continue;
+                };
+                let status = match code {
+                    Some(b'A') => ChangeStatus::Added,
+                    Some(b'D') => ChangeStatus::Deleted,
+                    _ => ChangeStatus::Modified,
+                };
+                (path, status)
+            }
         };
         paths.push(ChangedPath {
             path: path.to_string(),
@@ -254,6 +288,7 @@ fn parse_name_status(text: &str) -> Vec<ChangedPath> {
 /// what to parse and what to list as unanalyzed. Ignored paths are dropped as
 /// they are everywhere else — a review is measured against the graph, and the
 /// graph has no ignored files to compare against.
+/// Records with a non-UTF-8 endpoint are skipped, warning once per invalid field.
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
     let raw = run_git_checked(dir, &["diff", "--name-status", "-z", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
@@ -324,7 +359,9 @@ pub fn resolve_commit(dir: &Path, rev: &str) -> Result<String, String> {
     let spec = format!("{}^{{commit}}", rev);
     let out = run_git_checked(dir, &["rev-parse", "--verify", "--end-of-options", &spec])?
         .ok_or_else(|| format!("cannot resolve base ref {rev:?}"))?;
-    Ok(out.trim().to_string())
+    String::from_utf8(out)
+        .map(|out| out.trim().to_string())
+        .map_err(|e| format!("base commit is not UTF-8: {e}"))
 }
 
 /// Read a UTF-8 blob, distinguishing a missing path from Git or decoding failures.
