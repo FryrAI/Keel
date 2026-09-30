@@ -47,6 +47,7 @@ pub fn first_pass(
     valid_node_ids: &mut HashSet<u64>,
     body_index: &mut Vec<keel_core::types::BodyIndexEntry>,
     fragments: &mut keel_core::fragments::FragmentScan,
+    rejected_calls: &mut HashSet<(String, u32, String)>,
 ) -> Vec<FileParseData> {
     let mut all_file_data: Vec<FileParseData> = Vec::new();
     let supplemental = SupplementalResolver::new();
@@ -258,6 +259,11 @@ pub fn first_pass(
                     &result.definitions,
                     &local_definitions[&reference.name],
                 ) else {
+                    rejected_calls.insert((
+                        file_path.clone(),
+                        reference.line,
+                        reference.name.clone(),
+                    ));
                     continue;
                 };
                 let source_id = find_containing_def(

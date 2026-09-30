@@ -295,8 +295,16 @@ cannot be rebound by Tier 3. Python class-body calls can name an already-defined
 method bodies cannot. Default
 expressions in method headers remain a rare limitation: references have lines but no body/header scope.
 Parse paths may be absolute while graph paths are repo-relative; use the canonical caller path.
+Compile's E005 ambiguity guard bypasses refusal only when the unique-free replacement actually fired;
+a parsed replacement opportunity alone is insufficient while stored siblings lag an edit.
 
 Tier-3 full-map test fixtures must put calls on lines separate from declarations — admission treats ANY edge on the call's line (a `contains` edge included) as prior resolution — and include an ordinary unresolved call SCIP does resolve as a positive control, so a skipped pass cannot read green.
+Earlier member rejections retain that line occupancy: another unresolved call on the same line stays
+unbound, preserving base admission even though the rejected member edge is no longer stored.
+Graph-diff probes must set their working directory to the scratch tree. In zsh copy loops, use
+`file_path`, not the special variable `path`, which rewrites `PATH`.
+Compare semantic graph rows without run timestamps or storage ids; retain resolution-tier changes
+in the report, since removing a call edge can clear its caller's tier.
 
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.

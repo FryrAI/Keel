@@ -61,6 +61,12 @@ pub(crate) fn run_tier3_pass(
     }
 
     let mut tier3_resolved = 0u32;
+    // Base admission treats any edge on a line as prior resolution. Preserve
+    // that occupancy after removing a member edge, including for other callees.
+    let rejected_lines: HashSet<(&str, u32)> = rejected_calls
+        .iter()
+        .map(|(file, line, _)| (file.as_str(), *line))
+        .collect();
     // Cache-key hashes of every call site processed this pass. Passed to
     // `live_resolution_cache_entries` below so it carries forward exactly the
     // still-live persisted rows and prunes the rest. Liveness bookkeeping lives
@@ -80,13 +86,8 @@ pub(crate) fn run_tier3_pass(
             if name_to_id.contains_key(&(fd.file_path.to_string(), reference.name.clone())) {
                 continue;
             }
-            // An earlier member rejection is a resolved base pick, not a miss
-            // that Tier 3 may replace with a different cross-file definition.
-            if rejected_calls.contains(&(
-                fd.file_path.to_string(),
-                reference.line,
-                reference.name.clone(),
-            )) {
+            // A rejected member occupies the line just as its base edge did.
+            if rejected_lines.contains(&(fd.file_path, reference.line)) {
                 continue;
             }
             // Check if earlier passes already created an edge at this location

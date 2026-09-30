@@ -92,11 +92,12 @@ impl BindingIndex<'_> {
 }
 
 /// Preserve the base local pick, except for one eligible local beside members.
+/// The boolean reports that the unique-free replacement branch actually fired.
 pub(crate) fn select_local_target(
     reference: &Reference,
     selected: u64,
     candidates: impl Iterator<Item = (u64, bool, bool)>,
-) -> Option<u64> {
+) -> Option<(u64, bool)> {
     let mut selected_allowed = false;
     let mut eligible = None;
     let mut eligible_count = 0;
@@ -115,9 +116,9 @@ pub(crate) fn select_local_target(
         }
     }
     if is_bare_call(reference) && rejected && eligible_count == 1 && eligible_is_free {
-        eligible
+        eligible.map(|id| (id, true))
     } else {
-        selected_allowed.then_some(selected)
+        selected_allowed.then_some((selected, false))
     }
 }
 
@@ -141,6 +142,7 @@ pub(crate) fn select_parsed_local_target(
             )
         }),
     )
+    .map(|(id, _)| id)
 }
 
 /// Association facts keyed by graph id; `None` records a fresh free definition.

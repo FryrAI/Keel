@@ -215,3 +215,139 @@ fn tier3_full_map_does_not_replace_rejected_member_with_cross_file_free_function
         .iter()
         .any(|e| e.kind == EdgeKind::Calls));
 }
+
+#[test]
+fn tier3_rejected_member_keeps_same_line_helper_unresolved() {
+    for same_file_member in [false, true] {
+        let member =
+            "/// Guard.\npub struct Guard;\nimpl Guard {\n /// Member.\n pub fn run(&self) {}\n}\n";
+        let caller = "/// Caller.\npub fn wire() {\n run(1); helper(2);\n}\n";
+        let caller = if same_file_member {
+            format!("{member}{caller}")
+        } else {
+            caller.to_string()
+        };
+        let dir = fixture(&[
+            ("src/caller.rs", &caller),
+            ("src/guard.rs", if same_file_member { "" } else { member }),
+            (
+                "src/x/h.rs",
+                "/// First helper.\npub fn helper(x: i32) {}\n",
+            ),
+            (
+                "src/y/h.rs",
+                "/// Second helper.\npub fn helper(x: i32, y: i32) {}\n",
+            ),
+            (
+                "src/nested/other.rs",
+                "/// Positive control.\npub fn other() {\n helper(2);\n}\n",
+            ),
+        ]);
+        let mut index = Index::new();
+        let mut target = Document::new();
+        target.relative_path = "src/x/h.rs".into();
+        let symbol = "scip-rust cargo fixture 0.1.0 helper().";
+        let mut definition = Occurrence::new();
+        definition.range = vec![1, 0, 6];
+        definition.symbol = symbol.into();
+        definition.symbol_roles = 1;
+        target.occurrences.push(definition);
+        index.documents.push(target);
+        let call_line = caller
+            .lines()
+            .position(|l| l.contains("helper(2)"))
+            .unwrap() as i32;
+        for (file, line, column) in [
+            ("src/caller.rs", call_line, 9),
+            ("src/nested/other.rs", 2, 1),
+        ] {
+            let mut document = Document::new();
+            document.relative_path = file.into();
+            let mut reference = Occurrence::new();
+            reference.range = vec![line, column, column + 6];
+            reference.symbol = symbol.into();
+            document.occurrences.push(reference);
+            index.documents.push(document);
+        }
+        fs::write(
+            dir.path().join("index.scip"),
+            index.write_to_bytes().unwrap(),
+        )
+        .unwrap();
+        let config_path = dir.path().join(".keel/keel.json");
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["tier3"]["enabled"] = true.into();
+        config["tier3"]["scip_paths"]["rust"] = "index.scip".into();
+        fs::write(config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let out = keel(dir.path(), &["map", "--verbose"]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("tier3 resolved 1 additional references"),
+            "same_file_member={same_file_member}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        use keel_core::store::GraphStore;
+        use keel_core::types::{EdgeDirection, EdgeKind};
+        let store = keel_core::sqlite::SqliteGraphStore::open(
+            dir.path().join(".keel/graph.db").to_str().unwrap(),
+        )
+        .unwrap();
+        let wire = store
+            .get_nodes_in_file("src/caller.rs")
+            .into_iter()
+            .find(|n| n.name == "wire")
+            .unwrap();
+        assert!(!store
+            .get_edges(wire.id, EdgeDirection::Outgoing)
+            .iter()
+            .any(|e| e.kind == EdgeKind::Calls));
+        assert_eq!(incoming_calls(dir.path(), "src/x/h.rs", "helper", false), 1);
+        assert_eq!(incoming_calls(dir.path(), "src/y/h.rs", "helper", false), 0);
+        let member_file = if same_file_member {
+            "src/caller.rs"
+        } else {
+            "src/guard.rs"
+        };
+        assert_eq!(incoming_calls(dir.path(), member_file, "run", true), 0);
+    }
+}
+
+#[test]
+fn deleted_free_sibling_at_new_member_line_keeps_first_compile_clean() {
+    let prefix = "/// Free.\npub fn run(a: i32) { let _ = a; }\n";
+    let rest = "/// Guard.\npub struct G;\nimpl G {\n // Padding 1.\n // Padding 2.\n // Padding 3.\n // Padding 4.\n /// Member.\n pub fn run(&self) {}\n}\n/// Caller.\npub fn wire() {\n run(1);\n}\n";
+    let padding = "// Padding.\n".repeat(5);
+    let inner = "/// Inner.\npub mod inner {\n pub fn run(a: i32, b: i32) { let _ = (a, b); }\n}\n";
+    let source = format!("{prefix}{rest}{padding}{inner}");
+    assert_eq!(
+        source.lines().nth(10).unwrap().trim(),
+        "pub fn run(&self) {}"
+    );
+    assert!(source
+        .lines()
+        .nth(23)
+        .unwrap()
+        .contains("pub fn run(a: i32, b: i32)"));
+    let dir = fixture(&[("src/lib.rs", &source)]);
+    let edited = format!("{prefix}{}{rest}", "// Shift member.\n".repeat(13));
+    assert_eq!(
+        edited.lines().nth(23).unwrap().trim(),
+        "pub fn run(&self) {}"
+    );
+    fs::write(dir.path().join("src/lib.rs"), edited).unwrap();
+    let out = keel(dir.path(), &["compile", "src/lib.rs", "--json"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "first compile: {}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let result = compile_json(dir.path(), "src/lib.rs");
+    assert_no_violation(&result, "E005");
+}

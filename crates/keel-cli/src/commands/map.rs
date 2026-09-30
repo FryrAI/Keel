@@ -140,6 +140,7 @@ pub fn run(
     // === First pass: create nodes and same-file reference edges ===
     let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
     let mut fragments = keel_core::fragments::FragmentScan::new();
+    let mut rejected_calls = HashSet::new();
     let all_file_data = map_passes::first_pass(
         &entries,
         &cwd,
@@ -158,6 +159,7 @@ pub fn run(
         &mut valid_node_ids,
         &mut body_index,
         &mut fragments,
+        &mut rejected_calls,
     );
 
     // === Boundary providers: materialise the declarations scanned above (from
@@ -225,7 +227,6 @@ pub fn run(
         rs: Some(&rs),
     };
     let mut node_tiers: HashMap<u64, (String, f64)> = HashMap::new();
-    let mut rejected_calls = HashSet::new();
     map_passes::second_pass(
         &all_file_data,
         &cwd,

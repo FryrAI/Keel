@@ -331,7 +331,8 @@ pub fn resolve_call_targets(
             if !countable_call(reference) {
                 continue;
             }
-            let Some(resolved) = resolve_reference(&local, &idx, &ctx, reference) else {
+            let Some((resolved, replaced)) = resolve_reference(&local, &idx, &ctx, reference)
+            else {
                 continue;
             };
             // Refuse only a SAME-FILE bind on an ambiguous name — that is the
@@ -349,12 +350,7 @@ pub fn resolve_call_targets(
                     .candidates(callee)
                     .iter()
                     .any(|(f, id)| f == file_path && *id == resolved.target_id)
-                && !super::call_binding::has_local_replacement(
-                    reference,
-                    file_path,
-                    callee,
-                    definitions,
-                )
+                && !replaced
             {
                 continue;
             }
@@ -375,12 +371,14 @@ pub fn resolve_call_targets(
 /// kind's same-file confidence, exactly as the map's first pass), everything
 /// else runs the shared ladder. Two mirrored copies of this sequence is the
 /// documented failure mode this module exists to prevent.
+/// The boolean records an actual unique-free local replacement, not merely
+/// whether the current parse permits one while stored siblings may disagree.
 fn resolve_reference(
     local: &HashMap<String, u64>,
     idx: &GraphIndex,
     ctx: &CallSiteCtx,
     reference: &Reference,
-) -> Option<ResolvedCall> {
+) -> Option<(ResolvedCall, bool)> {
     if let Some(&target_id) = local.get(&reference.name) {
         // Populate stored association facts without changing the base pick.
         let candidates = idx.candidates(&reference.name);
@@ -390,7 +388,7 @@ fn resolve_reference(
             caller_file: ctx.file_path,
             definitions: ctx.definitions,
         };
-        let target_id = if super::call_binding::has_local_replacement(
+        let (target_id, replaced) = if super::call_binding::has_local_replacement(
             reference,
             ctx.file_path,
             &reference.name,
@@ -416,16 +414,19 @@ fn resolve_reference(
                     }),
             )?
         } else {
-            binding.allows(target_id).then_some(target_id)?
+            (binding.allows(target_id).then_some(target_id)?, false)
         };
         let (_, same_file_confidence) = edge_for_reference(&reference.kind)?;
-        return Some(ResolvedCall {
-            target_id,
-            confidence: same_file_confidence,
-            tier: tier_for_reference(&reference.kind).to_string(),
-        });
+        return Some((
+            ResolvedCall {
+                target_id,
+                confidence: same_file_confidence,
+                tier: tier_for_reference(&reference.kind).to_string(),
+            },
+            replaced,
+        ));
     }
-    resolve_call_reference(idx, ctx, reference)
+    resolve_call_reference(idx, ctx, reference).map(|resolved| (resolved, false))
 }
 
 /// Refresh the graph for the compiled files. Best-effort: a failure is logged
@@ -684,7 +685,7 @@ fn resolve_outgoing_edges(
         let Some((kind, _)) = edge_for_reference(&reference.kind) else {
             continue;
         };
-        if let Some(resolved) = resolve_reference(local, &idx, &ctx, reference) {
+        if let Some((resolved, _)) = resolve_reference(local, &idx, &ctx, reference) {
             push_reference_edge(
                 file,
                 local,
