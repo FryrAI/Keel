@@ -114,6 +114,13 @@ impl TreeSitterParser {
     }
 }
 
+/// Whether a syntax node sits in a language-specific inline test context.
+/// Also accepts literals and module items, so non-definition scans share the
+/// exact test exclusions used by definition extraction.
+pub fn in_test_context(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -> bool {
+    definition_contexts(node, lang, source).in_test
+}
+
 impl Default for TreeSitterParser {
     fn default() -> Self {
         Self::new()

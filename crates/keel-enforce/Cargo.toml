@@ -18,6 +18,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 ignore = { workspace = true }
 globset = "0.4"
+tree-sitter = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

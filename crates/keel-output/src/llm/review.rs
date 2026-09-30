@@ -189,6 +189,7 @@ mod tests {
             doc_only_count: 0,
             sprawl: Default::default(),
             reuse_advisories: Vec::new(),
+            template_study: Default::default(),
             changes,
             unanalyzed: Vec::new(),
             new_violations: Vec::new(),

@@ -17,6 +17,20 @@ use crate::types::{
 /// file is what that guarantee looks like as a test; a new default belongs
 /// there too.
 pub trait GraphStore {
+    /// Replace the map-derived template homes; unsupported backends stay silent.
+    fn replace_template_homes(
+        &mut self,
+        homes: Vec<crate::template_homes::TemplateHome>,
+    ) -> Result<(), GraphError> {
+        let _ = homes;
+        Ok(())
+    }
+
+    /// Read template homes, fresh as of the last full map.
+    fn template_homes(&self) -> Vec<crate::template_homes::TemplateHome> {
+        Vec::new()
+    }
+
     /// Look up a node by its content hash.
     fn get_node(&self, hash: &str) -> Option<GraphNode>;
 
@@ -247,6 +261,13 @@ mod tests {
             store.find_t2_body_matches("t").is_empty(),
             "nor any near-duplicates"
         );
+    }
+
+    #[test]
+    fn test_template_home_defaults_are_silent() {
+        let mut store = MinimalStore;
+        store.replace_template_homes(Vec::new()).unwrap();
+        assert!(store.template_homes().is_empty());
     }
 
     #[test]

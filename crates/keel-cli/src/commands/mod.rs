@@ -29,6 +29,7 @@ pub mod map_cached;
 pub mod map_lang_resolve;
 pub(crate) mod map_passes;
 pub mod map_resolve;
+mod map_templates;
 pub mod map_tier3;
 pub mod name;
 pub mod parse_util;
