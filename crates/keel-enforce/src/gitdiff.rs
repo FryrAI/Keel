@@ -19,6 +19,7 @@
 //!   (issue #70). Git lists a tracked-but-ignored file in a diff; the walker
 //!   never does.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -68,11 +69,17 @@ fn repo_root(dir: &Path) -> PathBuf {
 /// when `only_supported`, paths keel cannot parse (per the canonical
 /// `detect_language` extension table).
 fn collect_lines(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
-    text.lines()
+    let lines: Vec<PathBuf> = text
+        .lines()
         .filter(|l| !l.is_empty())
         .filter(|l| !only_supported || detect_language(Path::new(l)).is_some())
-        .filter(|l| !ignore.is_ignored(Path::new(l)))
-        .map(|s| s.to_string())
+        .map(PathBuf::from)
+        .collect();
+    let ignored = ignore.ignored_paths(&lines);
+    lines
+        .into_iter()
+        .filter(|p| !ignored.contains(p))
+        .map(|p| p.to_string_lossy().into_owned())
         .collect()
 }
 
@@ -80,7 +87,9 @@ fn collect_lines(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<S
 ///
 /// Paths excluded by the repository's `.keelignore`/`.ignore`/`.gitignore`
 /// files (nested ones included, as `keel map` applies them) are dropped, so a
-/// git-diff-driven command never checks a file `keel map` refused to graph — `dir` may be any directory inside the repo.
+/// git-diff-driven command never checks a file `keel map` refused to graph. An
+/// existing path gets the walker's own verdict (hidden entries, `.git/info/exclude`
+/// and non-regular files included); `dir` may be any directory inside the repo.
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
@@ -259,11 +268,18 @@ fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
     let raw = run_git_checked(dir, &["diff", "--name-status", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
-    let ignore = KeelIgnore::new(&repo_root(dir));
-    Ok(raw
-        .lines()
-        .filter_map(parse_name_status_line)
-        .filter_map(|entry| apply_ignore(entry, &ignore))
+    let entries: Vec<ChangedPath> = raw.lines().filter_map(parse_name_status_line).collect();
+    let listed: Vec<PathBuf> = entries
+        .iter()
+        .flat_map(|e| match &e.status {
+            ChangeStatus::Renamed { from } => vec![PathBuf::from(&e.path), PathBuf::from(from)],
+            _ => vec![PathBuf::from(&e.path)],
+        })
+        .collect();
+    let ignored = KeelIgnore::new(&repo_root(dir)).ignored_paths(&listed);
+    Ok(entries
+        .into_iter()
+        .filter_map(|entry| apply_ignore(entry, &ignored))
         .collect())
 }
 
@@ -275,27 +291,28 @@ pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String>
 /// symbols scored as merely relocated (cancelling their violations as
 /// pre-existing), and a file moved *into* one would be dropped whole, hiding the
 /// contracts it removed.
-fn apply_ignore(entry: ChangedPath, ignore: &KeelIgnore) -> Option<ChangedPath> {
-    let head_ignored = ignore.is_ignored(Path::new(&entry.path));
+fn apply_ignore(entry: ChangedPath, ignored: &HashSet<PathBuf>) -> Option<ChangedPath> {
+    let head_ignored = ignored.contains(Path::new(&entry.path));
     match entry.status {
-        ChangeStatus::Renamed { from } => match (ignore.is_ignored(Path::new(&from)), head_ignored)
-        {
-            (true, true) => None,
-            // Arrived from outside the graph: new code at the new path.
-            (true, false) => Some(ChangedPath {
-                path: entry.path,
-                status: ChangeStatus::Added,
-            }),
-            // Left the graph: its contracts are gone from the old path.
-            (false, true) => Some(ChangedPath {
-                path: from,
-                status: ChangeStatus::Deleted,
-            }),
-            (false, false) => Some(ChangedPath {
-                path: entry.path,
-                status: ChangeStatus::Renamed { from },
-            }),
-        },
+        ChangeStatus::Renamed { from } => {
+            match (ignored.contains(Path::new(&from)), head_ignored) {
+                (true, true) => None,
+                // Arrived from outside the graph: new code at the new path.
+                (true, false) => Some(ChangedPath {
+                    path: entry.path,
+                    status: ChangeStatus::Added,
+                }),
+                // Left the graph: its contracts are gone from the old path.
+                (false, true) => Some(ChangedPath {
+                    path: from,
+                    status: ChangeStatus::Deleted,
+                }),
+                (false, false) => Some(ChangedPath {
+                    path: entry.path,
+                    status: ChangeStatus::Renamed { from },
+                }),
+            }
+        }
         status => (!head_ignored).then_some(ChangedPath {
             path: entry.path,
             status,

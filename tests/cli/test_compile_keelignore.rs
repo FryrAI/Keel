@@ -147,3 +147,44 @@ fn compile_changed_honors_nested_keelignore() {
         );
     }
 }
+
+/// Issue #90 round 2: `keel map` never indexes hidden paths such as
+/// `.github/scripts/`, so a changed tracked file there must not be checked
+/// either — while a violation in ordinary source still is.
+#[test]
+fn compile_changed_skips_hidden_paths() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let clean = "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n";
+    write(root, ".github/scripts/h.py", clean);
+    write(root, "src/app.py", clean);
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    let violation = "def compute(value):\n    return value\n";
+    write(root, ".github/scripts/h.py", violation);
+    let out = keel(root, &["compile", "--changed"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a hidden path map never indexes must not be checked; stdout: {stdout}"
+    );
+
+    // Positive control: the same violation in ordinary source is reported.
+    write(root, "src/app.py", violation);
+    let out = keel(root, &["compile", "--changed"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "src violation must fire: {stdout}"
+    );
+    assert!(
+        stdout.contains("src/app.py") && !stdout.contains(".github"),
+        "only the non-hidden file is reported: {stdout}"
+    );
+}

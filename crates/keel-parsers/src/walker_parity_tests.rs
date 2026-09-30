@@ -49,6 +49,7 @@ fn keelignore_matcher_agrees_with_walker_on_nested_ignore_files() {
         .map(|e| e.path.strip_prefix(root).unwrap().to_path_buf())
         .collect();
     let ignore = KeelIgnore::new(root);
+    let batch = KeelIgnore::new(root);
 
     let mut sources = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -66,7 +67,15 @@ fn keelignore_matcher_agrees_with_walker_on_nested_ignore_files() {
         }
     }
     assert_eq!(sources.len(), 12, "fixture drifted: {sources:?}");
+    let listed: Vec<PathBuf> = sources.clone();
+    let batch_ignored = batch.ignored_paths(&listed);
     for rel in &sources {
+        assert_eq!(
+            batch_ignored.contains(rel),
+            !walked.contains(rel),
+            "ignored_paths and walker disagree on {}",
+            rel.display()
+        );
         assert_eq!(
             ignore.is_ignored(rel),
             !walked.contains(rel),
@@ -81,44 +90,93 @@ fn keelignore_matcher_agrees_with_walker_on_nested_ignore_files() {
     assert!(!walked.contains(&PathBuf::from("pkg/vendor/v.rs")));
 }
 
-/// Builds `files` under a fresh git-like root (a `.git` directory, without which
-/// the walker ignores `.gitignore`) and returns `(disagreements, walked)`: the
-/// source files on which `KeelIgnore` and `FileWalker` differ, and the files
-/// the walker visits.
-fn compare(files: &[(&str, &str)]) -> (Vec<String>, Vec<String>) {
+/// Builds `files` (paths relative to a temp dir) and returns
+/// `(model_disagreements, walk_disagreements, walked)` for the repo rooted at
+/// `temp/repo` (`repo` empty = the temp dir itself): the source files on which
+/// the hand model [`KeelIgnore::is_ignored`], respectively the batch filter
+/// [`KeelIgnore::ignored_paths`], differs from `FileWalker`, and the files the
+/// walker visits. `git` creates a `.git` directory (without a repository
+/// marker the walker ignores `.gitignore`).
+fn compare_at(
+    files: &[(&str, &str)],
+    repo: &str,
+    git: bool,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    fs::create_dir(root.join(".git")).unwrap();
+    let root = dir.path().join(repo);
+    fs::create_dir_all(&root).unwrap();
+    if git {
+        fs::create_dir(root.join(".git")).unwrap();
+    }
     let mut sources = Vec::new();
     for (rel, content) in files {
-        write(root, rel, content);
-        if rel.ends_with(".rs") || rel.ends_with(".py") {
-            sources.push(rel.to_string());
+        write(dir.path(), rel, content);
+        let inside = Path::new(rel).strip_prefix(repo).unwrap_or(Path::new(rel));
+        if (repo.is_empty() || rel.starts_with(repo)) && is_source(rel) {
+            sources.push(inside.to_string_lossy().into_owned());
         }
     }
-    let walked: Vec<String> = FileWalker::new(root)
+    let walked: Vec<String> = FileWalker::new(&root)
         .walk()
         .into_iter()
         .map(|e| {
             e.path
-                .strip_prefix(root)
+                .strip_prefix(&root)
                 .unwrap()
                 .to_string_lossy()
                 .into_owned()
         })
         .collect();
-    let ignore = KeelIgnore::new(root);
-    let bad = sources
-        .into_iter()
+    let ignore = KeelIgnore::new(&root);
+    let model = sources
+        .iter()
         .filter(|s| ignore.is_ignored(Path::new(s)) == walked.contains(s))
+        .cloned()
         .collect();
-    (bad, walked)
+    let listed: Vec<PathBuf> = sources.iter().map(PathBuf::from).collect();
+    let ignored = KeelIgnore::new(&root).ignored_paths(&listed);
+    let walk = sources
+        .into_iter()
+        .filter(|s| ignored.contains(Path::new(s)) == walked.contains(s))
+        .collect();
+    (model, walk, walked)
 }
 
-/// Asserts agreement on `files`, and that the walker visits exactly `visited`.
+fn is_source(rel: &str) -> bool {
+    rel.ends_with(".rs") || rel.ends_with(".py")
+}
+
+fn compare(files: &[(&str, &str)]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    compare_at(files, "", true)
+}
+
+/// Asserts the hand model AND the batch filter agree with the walker on
+/// `files`, and that the walker visits exactly `visited`.
 fn assert_parity(files: &[(&str, &str)], visited: &[&str]) {
-    let (bad, mut walked) = compare(files);
-    assert!(bad.is_empty(), "matcher disagrees with walker on {bad:?}");
+    let (model, walk, mut walked) = compare(files);
+    assert!(
+        model.is_empty(),
+        "hand model disagrees with walker on {model:?}"
+    );
+    assert!(
+        walk.is_empty(),
+        "ignored_paths disagrees with walker on {walk:?}"
+    );
+    walked.sort();
+    let mut want: Vec<&str> = visited.to_vec();
+    want.sort();
+    assert_eq!(walked, want, "fixture no longer exercises the case");
+}
+
+/// Asserts only the batch filter (existing paths) agrees with the walker, for
+/// behaviours the hand model deliberately omits, and that the walker visits
+/// exactly `visited`.
+fn assert_walk_parity(files: &[(&str, &str)], repo: &str, git: bool, visited: &[&str]) {
+    let (_, walk, mut walked) = compare_at(files, repo, git);
+    assert!(
+        walk.is_empty(),
+        "ignored_paths disagrees with walker on {walk:?}"
+    );
     walked.sort();
     let mut want: Vec<&str> = visited.to_vec();
     want.sort();
@@ -240,21 +298,154 @@ fn parity_nested_repository_boundary() {
     );
 }
 
-/// 10,000 distinct paths 32 directories deep with no ignore files must cost a
-/// small multiple of the base matcher (cached per-directory verdicts; debug
-/// profile: base ~28 ms, 59ba129 ~18 s, this fold ~97 ms).
+/// The hand model builds each directory's state once, however many paths share
+/// it: 10,000 distinct absent paths 32 directories deep cost 33 directory
+/// states (deterministic; timing belongs in a benchmark, not a test).
 #[test]
-fn deep_paths_without_ignore_files_are_cheap() {
+fn deep_paths_without_ignore_files_build_one_state_per_directory() {
     let dir = tempfile::tempdir().unwrap();
     let ignore = KeelIgnore::new(dir.path());
     let deep: String = (0..32).map(|i| format!("d{i}/")).collect();
     let paths: Vec<PathBuf> = (0..10_000)
         .map(|n| PathBuf::from(format!("{deep}f{n}.rs")))
         .collect();
-    let start = std::time::Instant::now();
-    let ignored = paths.iter().filter(|p| ignore.is_ignored(p)).count();
-    let elapsed = start.elapsed();
-    assert_eq!(ignored, 0);
-    eprintln!("10k paths at depth 32: {elapsed:?}");
-    assert!(elapsed.as_millis() < 500, "too slow: {elapsed:?}");
+    assert!(paths.iter().all(|p| !ignore.is_ignored(p)));
+    assert_eq!(ignore.cached_dirs(), 33, "root plus the 32 ancestors");
+}
+
+/// The pruned walk enters only the listed paths' ancestor directories, however
+/// many unrelated directories the tree holds.
+#[test]
+fn pruned_walk_enters_only_ancestor_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for d in 0..50 {
+        write(root, &format!("other{d}/x/f.rs"), "fn f() {}");
+    }
+    let mut listed = std::collections::HashSet::new();
+    for n in 0..200 {
+        let rel = format!("a/b/c{}/f{n}.rs", n % 3);
+        write(root, &rel, "fn f() {}");
+        listed.insert(PathBuf::from(rel));
+    }
+    let (walked, dirs) = KeelIgnore::new(root).walk_listed(listed.clone());
+    assert_eq!(walked, listed);
+    // root, a, a/b and the three a/b/cN directories.
+    assert_eq!(dirs, 6);
+}
+
+/// Hidden files and directories are skipped by the walker unless a rule
+/// whitelists them. Base and df040e5 include the hidden ones.
+#[test]
+fn parity_hidden_entries() {
+    assert_walk_parity(
+        &[
+            (".github/scripts/h.py", "def h(): pass"),
+            (".hid.py", "def h(): pass"),
+            ("ok.py", "def o(): pass"),
+        ],
+        "",
+        true,
+        &["ok.py"],
+    );
+    assert_walk_parity(
+        &[
+            (".keelignore", "!.github/\n!.hid.py\n"),
+            (".github/scripts/h.py", "def h(): pass"),
+            (".hid.py", "def h(): pass"),
+            (".other/o.py", "def o(): pass"),
+        ],
+        "",
+        true,
+        &[".github/scripts/h.py", ".hid.py"],
+    );
+}
+
+/// `.git/info/exclude` excludes a file the walker then never maps, even when
+/// git still lists it as tracked. Base and df040e5 check it.
+#[test]
+fn parity_git_info_exclude() {
+    assert_walk_parity(
+        &[
+            (".git/info/exclude", "tracked.rs\n"),
+            ("tracked.rs", "fn t() {}"),
+            ("ok.rs", "fn o() {}"),
+        ],
+        "",
+        true,
+        &["ok.rs"],
+    );
+}
+
+/// The walker reads `.keelignore` in directories above its root (both
+/// directions). Base and df040e5 do not.
+#[test]
+fn parity_ignore_files_above_the_root() {
+    assert_walk_parity(
+        &[
+            (".keelignore", "!*.rs\n"),
+            ("repo/.gitignore", "*.rs\n"),
+            ("repo/x.rs", "fn x() {}"),
+        ],
+        "repo",
+        true,
+        &["x.rs"],
+    );
+    assert_walk_parity(
+        &[
+            (".keelignore", "x.rs\n"),
+            ("repo/x.rs", "fn x() {}"),
+            ("repo/y.rs", "fn y() {}"),
+        ],
+        "repo",
+        true,
+        &["y.rs"],
+    );
+}
+
+/// Without any repository marker the walker ignores `.gitignore` (require_git).
+/// Base and df040e5 honour it.
+#[test]
+fn parity_gitignore_needs_a_repository() {
+    assert_walk_parity(
+        &[(".gitignore", "x.rs\n"), ("x.rs", "fn x() {}")],
+        "",
+        false,
+        &["x.rs"],
+    );
+}
+
+/// A tracked symlink to a source file is never mapped (not a regular file).
+/// Base and df040e5 admit it.
+#[cfg(unix)]
+#[test]
+fn parity_symlink_is_not_a_regular_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "real.py", "def r(): pass");
+    std::os::unix::fs::symlink(root.join("real.py"), root.join("alias.py")).unwrap();
+    let walked: Vec<PathBuf> = FileWalker::new(root)
+        .walk()
+        .into_iter()
+        .map(|e| e.path.strip_prefix(root).unwrap().to_path_buf())
+        .collect();
+    assert_eq!(walked, vec![PathBuf::from("real.py")]);
+    let listed = vec![PathBuf::from("alias.py"), PathBuf::from("real.py")];
+    let ignored = KeelIgnore::new(root).ignored_paths(&listed);
+    assert!(ignored.contains(Path::new("alias.py")));
+    assert!(!ignored.contains(Path::new("real.py")));
+}
+
+/// A path reached through a directory that became a symlink is, to git, a
+/// deleted file: it must fall back to the hand model, not be dropped because
+/// the walker never descends into the alias.
+#[cfg(unix)]
+#[test]
+fn path_through_a_symlinked_directory_is_treated_as_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "real/lib.rs", "fn l() {}");
+    std::os::unix::fs::symlink("real", root.join("pkg")).unwrap();
+    let ignored = KeelIgnore::new(root).ignored_paths(&[PathBuf::from("pkg/lib.rs")]);
+    assert!(ignored.is_empty());
 }
