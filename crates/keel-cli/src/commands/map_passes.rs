@@ -252,20 +252,6 @@ pub fn first_pass(
                 continue;
             };
             if let Some(&selected) = name_to_id.get(&(file_path.clone(), reference.name.clone())) {
-                let Some(target_id) = super::call_binding::select_parsed_local_target(
-                    reference,
-                    selected,
-                    &file_path,
-                    &result.definitions,
-                    &local_definitions[&reference.name],
-                ) else {
-                    rejected_calls.insert((
-                        file_path.clone(),
-                        reference.line,
-                        reference.name.clone(),
-                    ));
-                    continue;
-                };
                 let source_id = find_containing_def(
                     &result.definitions,
                     reference.line,
@@ -273,6 +259,22 @@ pub fn first_pass(
                     name_to_id,
                     Some(module_id),
                 );
+                let Some(target_id) = super::call_binding::select_parsed_local_target(
+                    reference,
+                    selected,
+                    &file_path,
+                    &result.definitions,
+                    &local_definitions[&reference.name],
+                ) else {
+                    if source_id.is_some_and(|src_id| src_id != selected) {
+                        rejected_calls.insert((
+                            file_path.clone(),
+                            reference.line,
+                            reference.name.clone(),
+                        ));
+                    }
+                    continue;
+                };
                 if let Some(src_id) = source_id {
                     if src_id != target_id {
                         let edge_id = *next_id;
@@ -388,13 +390,6 @@ pub fn second_pass(
             let mut rejected = false;
             let resolved =
                 resolve_call_reference_with_rejection(&idx, &ctx, reference, &mut rejected);
-            if rejected {
-                rejected_calls.insert((file_path.clone(), reference.line, reference.name.clone()));
-            }
-            let Some(resolved) = resolved else {
-                continue;
-            };
-
             let source_id = find_containing_def(
                 &file_data.definitions,
                 reference.line,
@@ -402,6 +397,13 @@ pub fn second_pass(
                 name_to_id,
                 file_module_ids.get(file_path.as_str()).copied(),
             );
+            // The rejected pick is in another file, so it cannot be a self-edge.
+            if rejected && source_id.is_some() {
+                rejected_calls.insert((file_path.clone(), reference.line, reference.name.clone()));
+            }
+            let Some(resolved) = resolved else {
+                continue;
+            };
             if let Some(src_id) = source_id {
                 if src_id != resolved.target_id {
                     let edge_id = *next_id;

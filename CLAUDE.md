@@ -299,8 +299,8 @@ Compile's E005 ambiguity guard bypasses refusal only when the unique-free replac
 a parsed replacement opportunity alone is insufficient while stored siblings lag an edit.
 
 Tier-3 full-map test fixtures must put calls on lines separate from declarations — admission treats ANY edge on the call's line (a `contains` edge included) as prior resolution — and include an ordinary unresolved call SCIP does resolve as a positive control, so a skipped pass cannot read green.
-Earlier member rejections retain that line occupancy: another unresolved call on the same line stays
-unbound, preserving base admission even though the rejected member edge is no longer stored.
+A rejected member pick occupies its line only when base would have stored its edge: a containing source exists and is not the pick itself.
+Residual: a permitted same-file unique-free replacement can add an edge where base suppressed a self-edge, blocking Tier 3 from resolving another call on that line.
 Graph-diff probes must set their working directory to the scratch tree. In zsh copy loops, use
 `file_path`, not the special variable `path`, which rewrites `PATH`.
 Compare semantic graph rows without run timestamps or storage ids; retain resolution-tier changes
