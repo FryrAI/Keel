@@ -363,6 +363,44 @@ and the exact CI setup. Regex, template inference, comment exclusion and
 working-tree rename detection in compile are not implemented: a staged pure
 rename can still fire under `compile --changed`, while review handles it.
 
+### W012 — Template Respelled
+
+**Severity:** ADVISORY (review-only; never gating)
+**Category:** `template_respelled`.
+
+`keel review` found a baseline-new decoded string literal containing a pure
+template function's fixed segment: at least 24 Unicode characters, with
+expression punctuation. No homes configuration is needed. A home has exactly
+one returned template expression and no other statements. Comments, test files,
+inline test contexts, and the owner's own body are excluded; module-level
+literals participate. Rust, Python, TypeScript/TSX/JavaScript/JSX, and Go are
+supported; Svelte, Astro, SQL, Typst, BAML, and Bash are excluded. Rust `concat!`
+and Python adjacent literals are folded; `+` chains are not.
+
+The message names every owner and its file/line, recommending a call instead.
+Each literal/home pair is reported once even if multiple segments match.
+Segment plus whitespace-normalized decoded literal pieces defines the Git
+multiset baseline; unchanged copies and moves across diffed files cancel.
+Owners come from the last full `keel map`, with the same bounded staleness as
+clone measurements. Remap after changing homes.
+
+W012 is serialized under `template_advisories`, omitted when empty, and rendered
+in human, LLM, JSON, and MCP review output. It never enters `new_violations`,
+`keel compile`, or the circuit breaker. Neither `--gate` nor `review.gate` can
+gate it, even when the config lists W012.
+
+Independent labels on a private production corpus measured conservative precision **38/50 = 0.76** at
+24 characters, versus **35/50 = 0.70** at 16; the keel population at 24 was empty.
+The issue's Berlin helper was found (24 respellings; all 12 sampled judged TRUE).
+The 0.8 warning threshold was not met. Known false-positive sources are bare
+projection-column tokens, keyword-only prefixes ending before an interpolated
+table name, one conjunct of a different predicate over the same columns,
+whole-query boilerplate, and spurious co-owners of shared segments. Review the
+home's complete semantics before substituting a call.
+
+See the [precision study](../studies/template-respelled/README.md) for the method,
+counts and decision.
+
 ## Plan findings
 
 `P001`, `P002`, and `P003` live in a deliberately separate namespace. They are produced by [`keel validate-plan`](commands.md) only — never by `keel compile` — because they describe claims about code that does not exist yet. They never appear in the compile stream or affect a compile's exit code. `P003` is always advisory; `--strict` applies only to live P001/P002 findings.

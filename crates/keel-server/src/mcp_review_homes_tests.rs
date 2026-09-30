@@ -84,3 +84,43 @@ fn homes_mcp_review_loads_rules_and_escalation_from_project_config() {
         .chain(result["warnings"].as_array().unwrap())
         .all(|v| v["code"] != "E007" && v["code"] != "W011"));
 }
+
+#[test]
+fn template_advisories_reach_mcp_review_outside_violations() {
+    use keel_core::store::GraphStore;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let home =
+        "fn berlin(x: &str) -> String { format!(\"({x} AT TIME ZONE 'Europe/Berlin')::date\") }\n";
+    fs::write(root.join("home.rs"), home).unwrap();
+    git(root, &["init", "-q"]);
+    git(root, &["add", "home.rs"]);
+    git(root, &["commit", "-qm", "base"]);
+    fs::write(
+        root.join("caller.rs"),
+        "const SQL: &str = \"SELECT (now() AT TIME ZONE 'Europe/Berlin')::date\";\n",
+    )
+    .unwrap();
+    git(root, &["add", "caller.rs"]);
+    let mut graph = SqliteGraphStore::in_memory().unwrap();
+    graph
+        .replace_template_homes(keel_enforce::template_respelled::extract_homes(
+            "home.rs", home,
+        ))
+        .unwrap();
+    let store = Arc::new(Mutex::new(graph));
+    let result = super::handle_review(&store, root, Some(json!({"base": "HEAD"}))).unwrap();
+    assert_eq!(result["template_advisories"][0]["code"], "W012");
+    assert_eq!(
+        result["template_advisories"][0]["homes"][0]["name"],
+        "berlin"
+    );
+    assert!(result["new_violations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|v| v["code"] != "W012"));
+    git(root, &["commit", "-qm", "caller"]);
+    let result = super::handle_review(&store, root, Some(json!({"base": "HEAD"}))).unwrap();
+    assert!(result.get("template_advisories").is_none());
+}

@@ -23,6 +23,7 @@ pub fn is_silent(result: &ReviewResult) -> bool {
         && result.new_violations.is_empty()
         && result.sprawl.is_empty()
         && result.reuse_advisories.is_empty()
+        && result.template_advisories.is_empty()
 }
 
 /// Compact factual summary of additive production surface.
@@ -129,7 +130,7 @@ mod tests {
             doc_only_count: 0,
             sprawl: Default::default(),
             reuse_advisories: Vec::new(),
-            template_study: Default::default(),
+            template_advisories: Vec::new(),
             changes,
             unanalyzed: Vec::new(),
             new_violations: Vec::new(),

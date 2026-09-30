@@ -167,13 +167,10 @@ pub struct ReviewResult {
     /// Advisory only: these never participate in `review.gate`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reuse_advisories: Vec<reuse::ReuseAdvisory>,
-    /// Unjudged phase-1 template study export (JSON only). Never a violation
-    /// or gate; its mapped homes are as fresh as the last full map.
-    #[serde(
-        default,
-        skip_serializing_if = "crate::template_respelled::TemplateStudy::is_empty"
-    )]
-    pub template_study: crate::template_respelled::TemplateStudy,
+    /// Baseline-new W012 template respellings. Advisory only, never gating;
+    /// mapped owners are as fresh as the last full map.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub template_advisories: Vec<crate::template_respelled::TemplateAdvisory>,
     /// Every touched symbol, ranked callers-outside-the-diff first.
     pub changes: Vec<ContractChange>,
     /// Changed files keel does not parse.
@@ -212,7 +209,8 @@ pub fn review(
     let scan = diff::scan_paths(&root, &commit, &paths);
     let sprawl = sprawl::measure(&paths, &scan);
     let reuse_advisories = reuse::detect(store, &scan);
-    let template_study = crate::template_respelled::review_export(store, &root, &commit, &paths)?;
+    let template_advisories =
+        crate::template_respelled::review_advisories(store, &root, &commit, &paths)?;
 
     let mut baseline = baseline::diff(store, &scan, &config.enforce);
     if !config.homes.is_empty() {
@@ -269,7 +267,7 @@ pub fn review(
         doc_only_count,
         sprawl,
         reuse_advisories,
-        template_study,
+        template_advisories,
         changes,
         unanalyzed: scan.unanalyzed,
         new_violations: baseline.new_violations,

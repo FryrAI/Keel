@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::sqlite::SqliteGraphStore;
 use crate::types::GraphError;
 
-/// A pure template function and its fixed, decoded segments (minimum 16 chars).
+/// A pure template function and its fixed, decoded segments, filtered by the detector.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateHome {
     /// Diagnostic hash, never part of baseline identity.

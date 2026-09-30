@@ -346,3 +346,19 @@ fn fstring_hex_braces_remain_literal_and_nul_never_bridges_interpolations() {
     let head = occurrences("head.py", &dynamic, &homes);
     assert_eq!(git::subtract(head, base).len(), 1);
 }
+
+#[test]
+fn shipped_threshold_rejects_short_segments_even_in_an_old_map_cache() {
+    assert_eq!(MIN_SEGMENT_CHARS, 24);
+    let source = r#"fn short() -> &'static str { "SELECT value::date" }"#;
+    let mut homes = extract_homes("home.rs", source);
+    assert_eq!(homes.len(), 1);
+    assert!(homes[0].segments.is_empty());
+    homes[0].segments.push("SELECT value::date".into());
+    assert!(occurrences(
+        "caller.rs",
+        r#"const SQL: &str = "SELECT value::date";"#,
+        &homes
+    )
+    .is_empty());
+}
