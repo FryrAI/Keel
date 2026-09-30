@@ -284,21 +284,28 @@ pub fn run(version: Option<String>, yes: bool) -> i32 {
 
     eprintln!("upgraded to keel v{latest_version}");
     if let Ok(cwd) = std::env::current_dir() {
-        sync_keel_json_version(&cwd, &latest_version);
+        if !sync_keel_json_version(&cwd, &latest_version) {
+            return 2;
+        }
     }
     0
 }
 
 /// Sync `.keel/keel.json`'s pinned version to the binary just installed, if
 /// `keel upgrade` happened to be run from inside an initialized project.
-/// Best-effort and silent on failure: the upgrade itself already succeeded,
-/// and a project outside any `.keel/` (or whose config can't be written) is
-/// not an upgrade error. This never touches the generated docs — those stay
+/// A missing config is a no-op; an unreadable config is reported and preserved.
+/// This never touches the generated docs — those stay
 /// stale until the human runs `keel init --update-docs`, which `map`/`compile`
 /// now point at (Principle 7: never auto-rewrite user files).
-fn sync_keel_json_version(cwd: &std::path::Path, version: &str) {
+fn sync_keel_json_version(cwd: &std::path::Path, version: &str) -> bool {
     let keel_dir = keel_core::paths::keel_dir(cwd);
-    let _ = keel_core::config::KeelConfig::sync_version(&keel_dir, version);
+    match keel_core::config::KeelConfig::sync_version(&keel_dir, version) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("keel upgrade: binary upgraded, but failed to sync keel.json version: {e}");
+            false
+        }
+    }
 }
 
 /// Move `new_binary` into place at `exe_path`, replacing the running executable.

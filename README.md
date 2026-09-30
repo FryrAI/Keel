@@ -311,6 +311,7 @@ scripts/
 | E004 | Function removed | ERROR |
 | E005 | Arity mismatch | ERROR |
 | E006 | Layer violation (opt-in `architecture.deny`) | ERROR |
+| E007 | Home violation (opt-in `enforce.homes: "error"`) | ERROR |
 | W001 | Placement issue | WARNING |
 | W002 | Duplicate name | WARNING |
 | W005 | Dead code | WARNING |
@@ -318,10 +319,23 @@ scripts/
 | W007 | Oversized file | WARNING |
 | W009 | New cross-boundary dependency | WARNING |
 | W010 | Semantic reuse candidate (`keel review`, advisory-only) | WARNING |
+| W011 | New expression outside its configured home | WARNING |
 | S001 | Suppressed | INFO |
 | P001 | Unknown symbol (plan-time, `keel validate-plan` only) | WARNING |
 | P002 | Signature mismatch (plan-time, `keel validate-plan` only) | WARNING |
 | P003 | Reuse candidate (plan-time, never strict) | WARNING |
+
+### Expression homes
+
+Opt-in `homes` rules flag new literal expressions outside a declared home as
+W011, or E007 with `enforce.homes: "error"`. Matching includes code, strings,
+comments and test source. Compile compares with Git HEAD (or `--since`), while
+review compares with `--base`; the baseline is independent of a fresh map or a
+shared worktree graph. For the committed ratchet, configure
+`review.gate: ["W011"]` (or `["E007"]`) and run
+`keel review --base origin/main --gate` in CI after `keel map`. Escalation alone
+does not gate review. See [configuration](docs/src/config.md#expression-homes-w011--e007)
+for patterns, home/scope globs, exclusions and the full CI example.
 
 ### Exit Codes
 

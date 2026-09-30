@@ -167,3 +167,84 @@ The `graph.db`, `telemetry.db`, and `session.json` files should be added to `.gi
 ```
 
 This configuration only fires on structural errors (E001 broken callers, E004 function removed, E005 arity mismatch) -- the violations that cannot be ignored.
+
+### Expression homes (W011 / E007)
+
+Opt in to literal, case-sensitive patterns whose meaning belongs in one place:
+
+```json
+{
+  "homes": [{
+    "name": "berlin-civil-day",
+    "patterns": ["AT TIME ZONE 'Europe/Berlin'", "date_naive()"],
+    "home": ["crates/core/src/zeit.rs"],
+    "scope": "crates/*/src"
+  }],
+  "enforce": {"homes": "error"},
+  "review": {"gate": ["E007"]}
+}
+```
+
+`homes` defaults to `[]` (no work). `enforce.homes` is `"warning"` by default (W011),
+with `"error"` selecting E007. Each rule requires a nonempty `name` and nonempty
+`patterns`; `home` and `scope` accept a string or an array of globs. Missing/empty
+`home` bans the patterns everywhere in scope; missing/empty `scope` means the
+whole repo. A glob matches a path or any ancestor directory: `crates/*/src`
+covers descendants, while `*` never crosses `/`. Paths use `/` relative to the
+current worktree root, including when invoked from a subdirectory.
+Glob normalization drops leading `/`, empty components and `.` components;
+`/src`, `.//src` and `src/` therefore mean `src`. A `..` component rejects the
+rule with a named warning. A glob normalized to the repo root means whole-repo
+scope, but is rejected as a home; use an empty `home` to ban the pattern.
+Malformed rules are skipped with a named stderr warning without discarding
+other config. Duplicate names keep the first valid rule. Warnings are emitted
+once per identical malformed rule per process, including telemetry reloads.
+
+Matching includes code, string literals (including embedded SQL), comments, and
+test source. Reword a new matching comment or use `keel compile --suppress W011`
+(or E007). There is no regex or semantic/template inference. One violation per
+file/line lists all matching rules, patterns, and homes, with an empty hash.
+
+The baseline is Git text, independent of `graph.db`: compile compares with
+HEAD, or the `--since` commit; review compares with `--base`. Occurrences are
+multisets keyed by rule, pattern, and the complete line with whitespace runs
+collapsed. Moving or reindenting an unchanged line is silent; another identical
+line adds an occurrence; other line edits are checked again. Removed occurrences
+cancel matching additions across the checked file set: review uses all diffed
+files, while compile uses the files selected for that invocation. Compiling only
+a move's destination still reports it. Home or out-of-scope paths contribute no
+removals to this pool. Symlinks are skipped; their targets are checked only when
+selected under their own paths. Base blobs are read only for eligible base paths.
+Review recognizes
+renames and checks home/scope eligibility on both sides, so moving an expression
+out of its permitted home fires. Compile does not detect working-tree renames:
+even a staged pure rename can fire under `compile --changed`; review handles it.
+Non-Git repos, unborn HEAD, or unresolvable compile bases skip homes with one
+`--verbose` note. Missing base files have an empty baseline; Git read failures
+or non-UTF-8 base blobs skip that file instead of treating it as new.
+
+For a committed ratchet, CI needs BOTH the gate configuration above and this
+command (fetch the base ref first):
+
+```sh
+keel map
+keel review --base origin/main --gate
+```
+
+With warning severity, use `review.gate: ["W011"]`. `--gate` with an empty list
+gates nothing, and `enforce.homes: "error"` alone does not gate review. A fresh
+map at PR head cannot erase review's base-relative findings. The bundled action
+must be configured/customized to run this gate command; its default review call
+is a report. Ordinary compile's HEAD comparison stops reporting a committed
+addition, so the review gate is the committed ratchet.
+
+CLI compile applies ordinary suppression, batch deferral (W011 only), circuit
+breaker and `--delta`; E007 starts as ERROR regardless of progressive adoption.
+The empty hash gives E007 one breaker counter per file. Its stored fingerprint
+is the set of normalized offending line identities in that file's own surplus,
+before cross-file move cancellation. Unchanged sets never advance the counter;
+a strict subset resets it as progress. A new identity counts as an attempt,
+with the third attempt downgrading the remaining findings. Changing the selected
+file set alone cannot advance it. Persisted errors do not gate `--delta` a second
+time. Review is stateless and does not apply these compile controls.
+Server/watch/HTTP/MCP compile do not run homes; CLI and MCP review do.

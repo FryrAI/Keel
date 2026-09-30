@@ -205,6 +205,7 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | E004 | function_removed | ERROR | Function deleted but still has callers |
 | E005 | arity_mismatch | ERROR | Parameter count changed, callers pass wrong argument count |
 | E006 | layer_violation | ERROR | Cross-boundary dependency matching an ordered pair in `architecture.deny` (opt-in) |
+| E007 | home_violation | ERROR | New expression outside its configured home (`enforce.homes: "error"`, opt-in) |
 | W001 | placement | WARNING | Function may be better placed in different module |
 | W002 | duplicate_name | WARNING | Function with same name exists elsewhere |
 | W003 | naming_convention | WARNING | Name doesn't match module naming pattern (Phase 2) |
@@ -213,6 +214,7 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | W006 | duplicate_implementation | WARNING | Function body identical (whitespace-normalized) to an existing function, or identical after identifier/literal normalization (lower confidence) |
 | W007 | oversized_file | WARNING | File exceeds the configured line budget and grew in this change |
 | W009 | new_cross_boundary_dep | WARNING | File depends on a package it did not depend on at the last `keel map` |
+| W011 | home_violation | WARNING | New configured expression outside its home (Git-base comparison, opt-in) |
 | S001 | suppressed | INFO | Violation suppressed via inline or config |
 
 W005-W007 are the v0.5 "economy" additions — additive only; existing codes, severities, and exit codes are unchanged.

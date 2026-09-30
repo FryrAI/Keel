@@ -231,6 +231,7 @@ pub fn run(
 
     // Named targets must exist, and targets outside the repository are dropped
     // rather than enforced against a graph that cannot contain them.
+    let home_targets = target_files.clone();
     let target_files =
         match super::compile_scope::screen_targets(&cwd, target_files, explicit_targets) {
             Ok(t) => t,
@@ -245,6 +246,16 @@ pub fn run(
     }
 
     let mut file_indices: Vec<FileIndex> = Vec::new();
+    let mut homes = (!config.homes.is_empty()).then(|| {
+        keel_enforce::homes_git::GitHomes::new(
+            &cwd,
+            since.as_deref().unwrap_or("HEAD"),
+            &config,
+            verbose,
+        )
+    });
+    let mut home_findings = std::collections::HashMap::new();
+    let mut home_sources = std::collections::BTreeMap::new();
 
     for file_str in &target_files {
         let file_path = Path::new(file_str);
@@ -294,7 +305,20 @@ pub fn run(
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
 
+        if homes.is_some() {
+            home_sources.insert(file_path.to_path_buf(), content.clone());
+        }
         file_indices.push(FileIndex::from_parse(&rel_path, &content, result));
+    }
+
+    if let Some(homes) = &mut homes {
+        // Deleted files contribute removed occurrences to the invocation's move pool.
+        for path in &home_targets {
+            if !Path::new(path).exists() && !Path::new(path).is_symlink() {
+                home_sources.insert(std::path::PathBuf::from(path), String::new());
+            }
+        }
+        home_findings = homes.compile_findings(&cwd, &home_sources);
     }
 
     if verbose && !file_indices.is_empty() {
@@ -329,7 +353,7 @@ pub fn run(
         engine.batch_start();
     }
 
-    let result = engine.compile(&file_indices);
+    let result = engine.compile_with_findings(&file_indices, home_findings);
 
     // Persist circuit-breaker state and run the incremental graph sync. Both
     // run *after* enforcement, sequentially, so they share ONE post-enforcement
@@ -340,11 +364,13 @@ pub fn run(
     // expose; E001/E004 already diffed against the pre-edit graph.
     let cb_out = engine.export_circuit_breaker();
     let cb_events = cb_out.len() as u32;
+    // An empty export must clear previously persisted counters after a fix.
+    let persist_breaker = !cb_out.is_empty() || !cb_state.is_empty();
     let need_sync = !full_repo_compile && !file_indices.is_empty();
     // One post-enforcement handle, reused for circuit-breaker persistence, the
     // incremental sync, and the batch-state writes below. Opened only when
     // something actually needs it, so the clean no-work path adds no connection.
-    let mut post_store = if !cb_out.is_empty() || need_sync || active_batch.is_some() {
+    let mut post_store = if persist_breaker || need_sync || active_batch.is_some() {
         match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
             Ok(s) => Some(s),
             Err(e) => {
@@ -361,7 +387,7 @@ pub fn run(
         None
     };
     if let Some(ps) = post_store.as_mut() {
-        if !cb_out.is_empty() {
+        if persist_breaker {
             if let Err(e) = ps.save_circuit_breaker(&cb_out) {
                 if verbose {
                     eprintln!("keel compile: failed to persist circuit breaker: {}", e);

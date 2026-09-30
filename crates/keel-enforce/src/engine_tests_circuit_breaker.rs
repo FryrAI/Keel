@@ -11,6 +11,93 @@
 //! breaker governs what the agent is actively working on.
 use super::*;
 
+/// Normalized home scopes must not clear a live non-home entry whose finding
+/// uses the caller's lexical path. Both imported attempt counts must survive.
+#[test]
+fn test_home_scope_alias_preserves_imported_e005_state_and_plain_path_output() {
+    use keel_parsers::resolver::{Reference, ReferenceKind};
+
+    let scope = "src/caller.rs";
+    let alias = "src/../src/caller.rs";
+    let target_hash = "calleehash01";
+    let config: keel_core::config::KeelConfig = serde_json::from_value(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "languages": ["rust"],
+        "homes": [{"name": "civil-day", "patterns": ["CURRENT_DATE"],
+            "home": "src/time.rs", "scope": "src"}]
+    }))
+    .unwrap();
+
+    for (count, downgraded) in [(2, false), (3, true)] {
+        let mut outputs = Vec::new();
+        for path in [scope, alias] {
+            let store = SqliteGraphStore::in_memory().unwrap();
+            store
+                .insert_node(&make_node(
+                    1,
+                    target_hash,
+                    "target",
+                    "fn target(x: i32, y: i32)",
+                    "src/target.rs",
+                ))
+                .unwrap();
+            let caller = make_definition("caller", "fn caller()", "target(1)", path);
+            let fingerprint = crate::violations_util::definition_hashes(&caller, path).0;
+            let imported = vec![(
+                "E005".to_string(),
+                target_hash.to_string(),
+                count,
+                downgraded,
+                scope.to_string(),
+                fingerprint,
+            )];
+            let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+            engine.import_circuit_breaker(&imported);
+            let file = FileIndex {
+                file_path: path.to_string(),
+                content_hash: 0,
+                definitions: vec![caller],
+                references: vec![Reference {
+                    name: "target".to_string(),
+                    file_path: path.to_string(),
+                    line: 15,
+                    kind: ReferenceKind::Call,
+                    resolved_to: Some(target_hash.to_string()),
+                    call_arity: Some(1),
+                }],
+                imports: vec![],
+                external_endpoints: vec![],
+                parse_duration_us: 0,
+            };
+            // A configured home check supplies its normalized scope even when
+            // there are no matches. E005 still comes from ordinary enforcement.
+            let findings = HashMap::from([(
+                path.to_string(),
+                (scope.to_string(), Vec::new(), String::new()),
+            )]);
+            let result = engine.compile_with_findings(&[file], findings);
+            let mut expected = imported;
+            // Ordinary record_failure updates provenance to the selected path.
+            expected[0].4 = path.to_string();
+            assert_eq!(engine.export_circuit_breaker(), expected, "path: {path}");
+            let mut violations = result
+                .errors
+                .into_iter()
+                .chain(result.warnings)
+                .collect::<Vec<_>>();
+            assert_eq!(violations.len(), 1);
+            assert_eq!(violations[0].code, "E005");
+            assert_eq!(
+                violations[0].severity,
+                if downgraded { "WARNING" } else { "ERROR" }
+            );
+            violations[0].file = scope.to_string();
+            outputs.push(serde_json::to_value(violations).unwrap());
+        }
+        assert_eq!(outputs[0], outputs[1]);
+    }
+}
+
 #[test]
 fn test_passive_recompiles_never_downgrade_then_reset_on_fix() {
     let store = SqliteGraphStore::in_memory().unwrap();

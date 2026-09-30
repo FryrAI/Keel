@@ -69,7 +69,8 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
 
     let binary_version = env!("CARGO_PKG_VERSION");
     if let Err(e) = keel_core::config::KeelConfig::sync_version(&keel_dir, binary_version) {
-        eprintln!("keel init --update-docs: warning: failed to sync keel.json version: {e}");
+        eprintln!("keel init --update-docs: failed to sync keel.json version: {e}");
+        return 2;
     }
 
     let hook_note = if on_edit { ", post-edit.sh," } else { "" };

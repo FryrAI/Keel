@@ -38,6 +38,8 @@ mod test_graph_lock;
 mod test_graph_lock_followup;
 #[path = "cli/test_graph_staleness.rs"]
 mod test_graph_staleness;
+#[path = "cli/test_homes.rs"]
+mod test_homes;
 #[path = "cli/test_init.rs"]
 mod test_init;
 #[path = "cli/test_init_merge.rs"]

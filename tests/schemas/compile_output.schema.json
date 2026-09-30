@@ -76,6 +76,7 @@
             "duplicate_implementation",
             "oversized_file",
             "new_cross_boundary_dep",
+            "home_violation",
             "suppressed"
           ],
           "description": "Violation category"

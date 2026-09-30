@@ -7,12 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Opt-in expression homes (#80): W011/E007.** Literal patterns in code, strings,
+  comments and test source are checked against home/scope globs. Tolerant rules
+  preserve unrelated config. Compile compares with HEAD or `--since`; CLI/MCP
+  review uses an immutable Git base and rename-aware multiset subtraction.
+  The committed ratchet requires configured `review.gate` codes plus
+  `keel review --base origin/main --gate`; a fresh map cannot re-baseline a PR.
+  Server/watch/HTTP/MCP compile do not run homes.
+  Removed occurrences cancel matching additions across the invocation's checked
+  files: review considers all diffed files; compile considers its selected files.
+  A compile of only a move's destination still reports the occurrence. Symlink
+  aliases are skipped; their targets are checked under their own paths.
+
 ### Fixed
 - Every disk-backed graph writer now shares a kernel-backed graph lock (#78),
   released automatically after a crashed holder on Unix and Windows. CLI writers,
   HTTP/MCP compile/fix/checkpoint, and watcher prune/compile cannot interleave with
   a map. Watchers retain busy batches without blocking the async runtime, and
   lock I/O errors are reported separately from contention.
+- Review resolves `--base` to one immutable commit and refuses range expressions
+  such as `main...HEAD` with an explicit error (exit 2).
+- Review invoked from a subdirectory analyzes paths from the worktree root.
+- Compile clears persisted circuit-breaker state when the last counter clears.
+- Home violations charge one breaker attempt per file, using the identity set of
+  the file's own surplus before move cancellation. Only a new identity advances
+  the counter; unchanged sets keep it steady, and strict subsets reset it.
+- Config writers patch only their selected raw JSON key, preserving malformed
+  rules, string globs and unknown settings; invalid JSON is never overwritten.
+  JSON formatting may change when rewritten. Unknown `enforce.homes` values warn
+  and default to warning without discarding other settings. Home/scope globs
+  drop leading `/`, empty and `.` components; `..` rejects the rule with a named
+  warning. Root scope is allowed, root home warns and rejects the rule. Review
+  gates naming the unavailable home code warn.
+- `keel init --merge` and `keel push` refuse an unparsable existing `keel.json`
+  with exit 2 instead of overwriting it. `keel config` validates `enforce.homes`
+  and requires `homes` to be a JSON array before writing.
+- Empty-hash circuit-breaker findings omit the unusable `keel discover` hint.
 
 ### Changed
 - Minimum supported Rust version is now 1.89 for the standard file-locking API.
