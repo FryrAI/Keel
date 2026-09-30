@@ -460,3 +460,48 @@ fn path_through_a_symlinked_directory_is_judged_by_its_target() {
     assert!(!ignored.contains(Path::new("pkg/lib.rs")));
     assert!(ignored.contains(Path::new("alias/lib.rs")));
 }
+
+/// A linked worktree's `.git` FILE leads the walker to the main repository's
+/// `info/exclude` through `commondir`; the hand model must read the same file.
+#[test]
+fn parity_linked_worktree_shared_exclude() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path();
+    write(base, "main/.git/info/exclude", "excl/\n");
+    write(base, "main/.git/worktrees/wt/commondir", "../..\n");
+    let gitdir = base.join("main/.git/worktrees/wt");
+    write(
+        base,
+        "wt/.git",
+        &format!("gitdir: {}\n", gitdir.to_string_lossy()),
+    );
+    write(base, "wt/excl/e.rs", "fn e() {}");
+    write(base, "wt/src/ok.rs", "fn o() {}");
+    let root = base.join("wt");
+    let walked: Vec<PathBuf> = FileWalker::new(&root)
+        .walk()
+        .into_iter()
+        .map(|e| e.path.strip_prefix(&root).unwrap().to_path_buf())
+        .collect();
+    assert_eq!(walked, vec![PathBuf::from("src/ok.rs")], "fixture drifted");
+    let ignore = KeelIgnore::new(&root);
+    assert!(ignore.is_ignored(Path::new("excl/e.rs")));
+    assert!(!ignore.is_ignored(Path::new("src/ok.rs")));
+    let listed = [PathBuf::from("excl/e.rs"), PathBuf::from("src/ok.rs")];
+    let ignored = KeelIgnore::new(&root).ignored_paths(&listed);
+    assert!(ignored.contains(Path::new("excl/e.rs")) && ignored.len() == 1);
+}
+
+/// A traversal error (a symlink loop) is not disappearance: the walk does not
+/// index the path, so it is ignored rather than handed to the hand model.
+#[cfg(unix)]
+#[test]
+fn symlink_loop_is_ignored_not_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::os::unix::fs::symlink("loop2", root.join("loop1")).unwrap();
+    std::os::unix::fs::symlink("loop1", root.join("loop2")).unwrap();
+    let listed = [PathBuf::from("loop1/lib.rs")];
+    let ignored = KeelIgnore::new(root).ignored_paths(&listed);
+    assert!(ignored.contains(Path::new("loop1/lib.rs")));
+}

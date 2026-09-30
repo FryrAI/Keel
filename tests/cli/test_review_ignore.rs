@@ -64,6 +64,12 @@ fn review_json(root: &Path, extra: &[&str]) -> (Option<i32>, serde_json::Value) 
 /// destination, so its violations gate.
 fn assert_moved_in_is_new_code(root: &Path, dest: &str) {
     gate_on_type_and_doc_errors(root);
+    assert_gates_as_new_code(root, dest);
+}
+
+/// The gate config is already in place (a linked worktree reads the main
+/// checkout's `.keel`).
+fn assert_gates_as_new_code(root: &Path, dest: &str) {
     let (code, json) = review_json(root, &["--gate"]);
     assert_eq!(code, Some(1), "new violations at {dest} must gate: {json}");
     assert!(
@@ -150,4 +156,46 @@ fn changed_workflow_file_is_listed_unanalyzed() {
         stdout.contains("UNANALYZED .github/workflows/ci.yml [unparsed]"),
         "a hidden non-source file must still be named as unanalyzed: {stdout}"
     );
+}
+
+/// A tracked regular file replaced by a symlink is a git type change: the head
+/// side is not a regular file, so only the base contracts remain, as removals.
+#[cfg(unix)]
+#[test]
+fn type_change_to_a_symlink_keeps_the_base_removal() {
+    let dir = repo(&[
+        ("src/app.py", CLEAN),
+        ("src/old.py", CLEAN.replace("app", "old_fn").as_str()),
+    ]);
+    let root = dir.path();
+    fs::remove_file(root.join("src/old.py")).unwrap();
+    std::os::unix::fs::symlink("app.py", root.join("src/old.py")).unwrap();
+    let (_, json) = review_json(root, &[]);
+    assert!(
+        json["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "old_fn" && c["kind"] == "removed"),
+        "the type change must keep the removal: {json}"
+    );
+}
+
+/// A linked worktree reads the main repository's `info/exclude`, as the walker
+/// does, so a rename out of a path it excludes is new code.
+#[test]
+fn rename_out_of_a_linked_worktree_excluded_path_reads_as_added() {
+    let dir = repo(&[("src/app.py", CLEAN), ("excl/e.py", VIOLATION)]);
+    let main = dir.path();
+    fs::write(main.join(".git/info/exclude"), "excl/\n").unwrap();
+    let wt_holder = TempDir::new().unwrap();
+    let wt = wt_holder.path().join("wt");
+    git(
+        main,
+        &["worktree", "add", "-q", "-b", "wtb", wt.to_str().unwrap()],
+    );
+    git(&wt, &["mv", "excl/e.py", "src/e.py"]);
+    assert!(keel(&wt, &["map"]).status.success(), "keel map failed");
+    gate_on_type_and_doc_errors(main);
+    assert_gates_as_new_code(&wt, "src/e.py");
 }

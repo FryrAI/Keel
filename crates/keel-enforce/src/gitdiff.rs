@@ -325,6 +325,15 @@ fn apply_ignore(
                 }),
             }
         }
+        // A type change (regular file replaced by a symlink) parses as Modified
+        // but its head side is not a regular file: only the base side is in
+        // the graph, so the contracts it held are gone.
+        ChangeStatus::Modified if head_ignored && !ignore.is_ignored(Path::new(&entry.path)) => {
+            Some(ChangedPath {
+                path: entry.path,
+                status: ChangeStatus::Deleted,
+            })
+        }
         status => (!head_ignored).then_some(ChangedPath {
             path: entry.path,
             status,

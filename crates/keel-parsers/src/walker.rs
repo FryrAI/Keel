@@ -104,7 +104,7 @@ fn is_walked_file(entry: &DirEntry) -> bool {
 /// directory stays excluded whatever a deeper file says. Per-directory state is
 /// built lazily and cached, so the tree is never walked. A missing ignore file
 /// contributes no patterns. A fourth kind, `<dir>/.git/info/exclude` (only for
-/// a `.git` that is a directory), ranks after `.gitignore` with its climb. The
+/// a `.git` directory, or a linked worktree's shared one), ranks after `.gitignore` with its climb. The
 /// walker's hidden rule is modelled too: an entry whose name starts with `.` is
 /// ignored when no rule matched it (a `!` whitelist un-hides), but only for
 /// paths `detect_language` recognises, since map never indexes the rest
@@ -114,11 +114,10 @@ fn is_walked_file(entry: &DirEntry) -> bool {
 /// [`KeelIgnore::ignored_paths`] is the filter for HEAD-side paths. A source
 /// path it is given gets the walker's own verdict: a walk built from the same
 /// configuration as `keel map`, pruned to the listed paths' ancestor
-/// directories, must yield it as a regular file, else it is ignored if it still
-/// exists (a path through a symlinked directory exists and is never yielded,
-/// exactly as in `keel map`) and judged by the hand model if it vanished. A
-/// path through a symlinked directory is judged as the file it resolves to
-/// inside the root, since that is what map indexes.
+/// directories, must yield it as a regular file, else it is ignored unless it
+/// is gone (`NotFound`), when the hand model decides. A path through a symlinked
+/// directory is judged as the file it resolves to inside the root, since that
+/// is what map indexes.
 /// Hidden entries, `.git/info/exclude`, ignore files above the root,
 /// `require_git` and non-regular files follow by construction. Non-source
 /// paths, and every BASE-side path (a deletion's path, a rename's source, which
@@ -194,6 +193,31 @@ fn entry_match(parent: &Arc<DirState>, rel: &Path, is_dir: bool) -> Match<()> {
         .or(kind_match(parent, rel, is_dir, |s| &s.exclude, true))
 }
 
+/// The `info/exclude` file the walker reads for the directory `dir` holding
+/// `git_dir` (its `.git` entry): `<.git>/info/exclude` for a directory, and for
+/// a linked worktree's `.git` FILE the shared one under the `commondir` of the
+/// `gitdir:` it names (ignore 0.4 `resolve_git_commondir`). Anything missing or
+/// malformed contributes nothing.
+fn exclude_file(dir: &Path, git_dir: &Path) -> Option<PathBuf> {
+    if git_dir.is_dir() {
+        return Some(git_dir.join("info/exclude"));
+    }
+    if !git_dir.is_file() {
+        return None;
+    }
+    let text = std::fs::read_to_string(git_dir).ok()?;
+    let real = dir.join(text.lines().next()?.strip_prefix("gitdir: ")?);
+    let common = std::fs::read_to_string(real.join("commondir")).ok()?;
+    let common = common.lines().next()?;
+    // The walker joins only a `.`-leading line onto the gitdir.
+    let common = if common.starts_with('.') {
+        real.join(common)
+    } else {
+        PathBuf::from(common)
+    };
+    Some(common.join("info/exclude"))
+}
+
 /// The walker's hidden rule: it skips a `.`-named entry only when no ignore
 /// rule matched it.
 fn hidden_unmatched(rel: &Path, m: &Match<()>) -> bool {
@@ -236,12 +260,13 @@ impl KeelIgnore {
         };
         let abs = self.root.join(dir);
         let git_dir = abs.join(".git");
-        let exclude = if git_dir.is_dir() {
-            let mut builder = GitignoreBuilder::new(&abs);
-            let _ = builder.add(git_dir.join("info/exclude"));
-            builder.build().unwrap_or_else(|_| Gitignore::empty())
-        } else {
-            Gitignore::empty()
+        let exclude = match exclude_file(&abs, &git_dir) {
+            Some(file) => {
+                let mut builder = GitignoreBuilder::new(&abs);
+                let _ = builder.add(file);
+                builder.build().unwrap_or_else(|_| Gitignore::empty())
+            }
+            None => Gitignore::empty(),
         };
         // Unreadable or malformed ignore files contribute nothing rather than
         // failing: not ignoring a file is a false positive, refusing to run at
@@ -315,10 +340,16 @@ impl KeelIgnore {
                 if walked.contains(&effective) {
                     continue;
                 }
-                // Not yielded: ignored if it is still there (map would skip
-                // it), the hand model if it vanished since the diff.
-                let exists = self.root.join(&rel).symlink_metadata().is_ok();
-                if exists || self.is_ignored(path) {
+                // Not yielded: ignored unless it vanished since the diff (only
+                // NotFound means that; any other error is a traversal failure,
+                // which the walk also reads as not indexed), when the hand
+                // model decides.
+                let gone = self
+                    .root
+                    .join(&rel)
+                    .symlink_metadata()
+                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
+                if !gone || self.is_ignored(path) {
                     ignored.insert(path.clone());
                 }
             }
