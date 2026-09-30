@@ -232,32 +232,80 @@ fn root_file_command_display_matches_literal_base_spelling() {
                 "{command} {argument}"
             );
         }
-        let fix = keel(dir.path(), &["fix", "--file", argument, "--json"]);
-        assert!(fix.status.success());
+    }
+}
+
+/// A mapped baseline with a working-tree addition that must print a file path.
+fn changed_fixture() -> tempfile::TempDir {
+    let dir = fixture();
+    fs::write(
+        dir.path().join("pkg/src/lib.rs"),
+        format!("{TARGET}\npub fn added() {{}}\n"),
+    )
+    .unwrap();
+    dir
+}
+
+fn changed_base() -> Value {
+    // Captured independently from the de1620c 0.6.2 comparator, with the
+    // undocumented public addition present before each command.
+    serde_json::from_str(include_str!("fixtures/project_root_round3_base.json")).unwrap()
+}
+
+#[test]
+fn root_fix_matches_literal_base_output_with_a_violation() {
+    let base = changed_base();
+    for spelling in ["plain", "dotted", "absolute"] {
+        let dir = changed_fixture();
+        let argument = match spelling {
+            "plain" => "pkg/src/lib.rs".to_string(),
+            "dotted" => "./pkg/src/lib.rs".to_string(),
+            _ => dir
+                .path()
+                .join("pkg/src/lib.rs")
+                .to_string_lossy()
+                .to_string(),
+        };
+        let out = keel(dir.path(), &["fix", "--file", &argument, "--json"]);
+        assert!(out.status.success());
+        let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(result["violations_addressed"], 1);
+        assert_eq!(result["plans"][0]["actions"][0]["file"], "pkg/src/lib.rs");
         assert_eq!(
-            String::from_utf8(fix.stdout).unwrap(),
-            base_output(&base, "fix")
+            String::from_utf8(out.stdout).unwrap(),
+            base_output(&base, "fix"),
+            "{spelling}"
         );
     }
 }
 
 #[test]
-fn root_checkpoint_and_review_match_literal_base_output() {
-    let dir = fixture();
-    let base: Value =
-        serde_json::from_str(include_str!("fixtures/project_root_round2_base.json")).unwrap();
-    for args in [
-        ["checkpoint", "--since", "HEAD", "--json"],
-        ["review", "--base", "HEAD", "--json"],
-    ] {
-        let out = keel(dir.path(), &args);
-        assert!(out.status.success());
-        let expected = base_output(&base, args[0]);
-        assert_eq!(
-            String::from_utf8(out.stdout).unwrap(),
-            expected,
-            "{}",
-            args[0]
-        );
-    }
+fn root_checkpoint_matches_literal_base_output_with_a_change() {
+    let dir = changed_fixture();
+    let out = keel(dir.path(), &["checkpoint", "--since", "HEAD", "--json"]);
+    assert!(out.status.success());
+    let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["files"][0]["file"], "pkg/src/lib.rs");
+    assert_eq!(result["violations"][0]["code"], "E003");
+    assert_eq!(result["violations"][0]["file"], "pkg/src/lib.rs");
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        base_output(&changed_base(), "checkpoint")
+    );
+}
+
+#[test]
+fn root_review_matches_literal_base_output_with_a_change() {
+    let dir = changed_fixture();
+    let out = keel(dir.path(), &["review", "--base", "HEAD", "--json"]);
+    assert!(out.status.success());
+    let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["files_changed"], 1);
+    assert_eq!(result["changes"][0]["file"], "pkg/src/lib.rs");
+    assert_eq!(result["new_violations"][0]["code"], "E003");
+    assert_eq!(result["new_violations"][0]["file"], "pkg/src/lib.rs");
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        base_output(&changed_base(), "review")
+    );
 }

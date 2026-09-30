@@ -35,17 +35,13 @@ pub(crate) fn handle_checkpoint(
         CheckpointMode::Since(since)
     };
 
-    // Git returns repo-relative paths. Read from the authoritative root, then
-    // preserve the relative graph path even when the process cwd differs.
+    // Git returns repo-relative paths. Read from the authoritative root, keeping
+    // the parser's canonical graph key when a Git path traverses a directory alias.
     let changed = checkpoint::changed_files(root, &mode);
     let mut parser = FileParser::new(root);
     let file_indices: Vec<_> = changed
         .iter()
-        .filter_map(|f| {
-            let mut index = parser.parse(&root.join(f).to_string_lossy())?;
-            index.file_path = f.clone();
-            Some(index)
-        })
+        .filter_map(|f| parser.parse(&root.join(f).to_string_lossy()))
         .collect();
 
     // Diff against the PRE-edit graph BEFORE compiling: `engine.compile`

@@ -89,7 +89,7 @@ fn package_init_map_removed_function_explicit_and_changed() {
 #[test]
 fn package_file_commands_use_root_keys() {
     let dir = fixture();
-    for command in ["discover", "focus", "context", "analyze", "skeleton"] {
+    for command in ["discover", "focus", "context", "analyze"] {
         let from_root = keel(dir.path(), &[command, "pkg/src/lib.rs", "--json"]);
         let from_package = keel(&dir.path().join("pkg"), &[command, "src/lib.rs", "--json"]);
         assert!(from_package.status.success(), "{command}");

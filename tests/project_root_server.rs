@@ -111,6 +111,50 @@ fn linked_worktree_mcp_reads_its_checkpoint_skeleton_and_compile() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn mcp_checkpoint_keeps_canonical_key_after_tracked_directory_becomes_alias() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("pkg")).unwrap();
+    fs::write(root.join("pkg/lib.rs"), "/// Target.\npub fn target() {}\n").unwrap();
+    fs::write(
+        root.join("caller.rs"),
+        "use crate::target;\n/// Caller.\npub fn caller() { target(); }\n",
+    )
+    .unwrap();
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init", "--yes"]).status.success());
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "base"]);
+    fs::rename(root.join("pkg"), root.join("real")).unwrap();
+    std::os::unix::fs::symlink("real", root.join("pkg")).unwrap();
+    assert!(keel(root, &["map"]).status.success());
+    fs::write(
+        root.join("real/lib.rs"),
+        "/// Replacement.\npub fn replacement() {}\n",
+    )
+    .unwrap();
+
+    let cli = keel(root, &["checkpoint", "--json"]);
+    let cli: Value = serde_json::from_slice(&cli.stdout).unwrap();
+    let checkpoint = mcp(root, "keel/checkpoint", json!({}));
+    for result in [&cli, &checkpoint] {
+        assert!(
+            result["violations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["code"] == "E004" && v["file"] == "real/lib.rs"),
+            "{result}"
+        );
+        assert!(
+            result["affected_callers"].to_string().contains("caller.rs"),
+            "{result}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn linked_worktree_http_and_watcher_use_root_relative_graph_paths() {
     use axum::body::{to_bytes, Body};

@@ -24,11 +24,10 @@ pub fn run(
 
     // The path-resolve → read → parse preamble lives in keel_enforce so the CLI
     // and the `keel/skeleton` MCP tool share one implementation.
-    let root = keel_core::paths::project_root(&cwd);
-    let key = keel_core::paths::make_relative(&root, &cwd.join(&file));
-    match keel_enforce::skeleton::build_skeleton_from_path(&root, &key, private, docs) {
-        Ok(mut result) => {
-            result.file = if cwd == root { file } else { key };
+    // Let the filesystem resolve the original argument: a missing directory
+    // before `..` must still fail, and diagnostics retain the supplied spelling.
+    match keel_enforce::skeleton::build_skeleton_from_path(&cwd, &file, private, docs) {
+        Ok(result) => {
             if verbose {
                 eprintln!(
                     "keel skeleton: {} — {} symbols, {} imports",

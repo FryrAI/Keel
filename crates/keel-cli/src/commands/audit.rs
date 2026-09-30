@@ -56,7 +56,7 @@ pub fn run(
         strict_cycles,
     };
 
-    let result = keel_enforce::audit::audit_repo(&store, &root, &options, changed_files.as_deref());
+    let result = keel_enforce::audit::audit_repo(&store, &cwd, &options, changed_files.as_deref());
 
     if verbose {
         eprintln!(
