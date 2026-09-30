@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
@@ -75,6 +75,16 @@ impl EnforcementEngine {
 
     /// Compile (validate) a set of files. Returns violations.
     pub fn compile(&mut self, files: &[FileIndex]) -> CompileResult {
+        self.compile_with_findings(files, HashMap::new())
+    }
+
+    /// Validate files with caller-provided findings through the ordinary post-processing.
+    /// Map keys use `FileIndex` paths; values carry the stable file scope and findings.
+    pub fn compile_with_findings(
+        &mut self,
+        files: &[FileIndex],
+        mut findings: HashMap<String, (String, Vec<Violation>)>,
+    ) -> CompileResult {
         let mut all_errors = Vec::new();
         let mut all_warnings = Vec::new();
         let mut hashes_changed = Vec::new();
@@ -109,7 +119,10 @@ impl EnforcementEngine {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
             let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
 
-            let mut file_violations = Vec::new();
+            let (scope, mut file_violations) = findings
+                .remove(&file.file_path)
+                .map(|(scope, findings)| (Some(scope), findings))
+                .unwrap_or_default();
 
             // E001: broken callers (uses cached nodes, batch-aware)
             file_violations.extend(violations::check_broken_callers_with_cache(
@@ -196,6 +209,23 @@ impl EnforcementEngine {
                 file.references.iter().filter_map(|r| r.resolved_to.clone()),
                 &file_violations,
             );
+            if let Some(scope) = &scope {
+                let active = file_violations
+                    .iter()
+                    .filter(|v| v.severity == "ERROR" && v.file == *scope)
+                    .map(|v| {
+                        (
+                            v.code.clone(),
+                            if v.hash.is_empty() {
+                                scope.clone()
+                            } else {
+                                v.hash.clone()
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                self.circuit_breaker.reconcile_scope(scope, &active);
+            }
 
             // Apply circuit breaker. The breaker counts fix ATTEMPTS, not
             // compiles, so each violation is charged against a fingerprint that
@@ -214,8 +244,9 @@ impl EnforcementEngine {
                 .map(|d| crate::violations_util::definition_hashes(d, &file.file_path))
                 .collect();
 
-            let fingerprints =
+            let mut fingerprints =
                 FileFingerprints::new(&file.file_path, &file.definitions, &def_hashes);
+            fingerprints.file_alias = scope;
             file_violations = self.apply_circuit_breaker(file_violations, &fingerprints);
 
             // Apply suppressions
@@ -634,6 +665,7 @@ impl EnforcementEngine {
 /// edits march a live ERROR toward its auto-downgrade to WARNING.
 pub(crate) struct FileFingerprints {
     file_path: String,
+    file_alias: Option<String>,
     /// `(line_start, line_end, content hash)` per definition, in file order.
     defs: Vec<(u32, u32, String)>,
     /// The file's sorted definition NAMES, joined. Changes only when a def is
@@ -658,6 +690,7 @@ impl FileFingerprints {
         names.sort_unstable();
         Self {
             file_path: file_path.to_string(),
+            file_alias: None,
             defs,
             name_set: names.join("|"),
         }
@@ -683,7 +716,7 @@ impl FileFingerprints {
     /// Fallbacks: name set (structure) when the specific lookup misses, then
     /// the violation's own hash for a file with no definitions at all.
     fn fingerprint_for<'a>(&'a self, v: &'a Violation) -> &'a str {
-        if v.file == self.file_path {
+        if v.file == self.file_path || self.file_alias.as_deref() == Some(v.file.as_str()) {
             match v.code.as_str() {
                 "E004" => {}
                 "E005" => {

@@ -146,6 +146,15 @@ Pairs are ordered: `["harness", "core"]` denies `harness → core` and says noth
 
 **Fix:** Route through the target boundary's public surface, or move the shared code into a boundary both sides already depend on.
 
+### E007 — Enforced Home Violation
+
+**Severity:** ERROR (opt-in `enforce.homes: "error"`).
+
+The escalation of [W011](#w011--home-violation--e007--enforced-home-violation), with
+the same raw-text matching and Git-base multiset baseline. Progressive adoption
+does not demote it; ordinary compile breaker and delta behavior still apply.
+CI requires `review.gate: ["E007"]` and `keel review --base origin/main --gate`.
+
 ## Warnings
 
 Warnings indicate potential issues that don't block compilation. They cause exit code `0` in normal mode, or exit code `1` with `--strict`.
@@ -315,6 +324,34 @@ gate it. The fix is to inspect the existing contract and either reuse it or
 state the semantic difference that justifies both symbols.
 
 See [Semantic Reuse](reuse-advisories.md) for scoring, exclusions, and calibration.
+
+### W011 — Home Violation / E007 — Enforced Home Violation
+
+**Severity:** WARNING (W011); ERROR (E007 with `enforce.homes: "error"`).
+**Category:** `home_violation`; confidence 1.0; empty hash; one finding per file/line.
+
+A configured literal pattern occurs in tracked-language source outside its
+home and is new relative to Git HEAD (`compile`), the `--since` commit, or the
+review `--base`. The message lists every matching rule, pattern, and home on
+that line. Code, strings and comments match; tests are included according to
+scope. Whitespace-only edits and unchanged line moves cancel against the base
+multiset. Additional identical lines remain distinct findings. Moving text out
+of a home or out-of-scope path introduces a finding.
+
+**Fix:** Route through the named home instead of re-spelling the pattern, or
+remove it if the rule has no permitted home. Reword a matching new comment or
+suppress the code for a compile run. W011 defers during batch mode; E007 is
+immediate. E007 participates in the ordinary file-level circuit breaker and
+`--delta`, and is not demoted by progressive adoption.
+
+The committed ratchet requires `review.gate: ["W011"]` (or `["E007"]`) plus
+`keel review --base origin/main --gate`. Compile alone compares with HEAD and
+therefore stops flagging an addition after commit. A missing Git base skips
+homes; a missing base path makes its baseline empty; unreadable/non-UTF-8 blobs
+skip that file. Server/watch/HTTP/MCP compile do not run homes; MCP review does.
+See [Expression homes](config.md#expression-homes-w011--e007) for configuration
+and the exact CI setup. Regex, template inference, comment exclusion and
+working-tree rename detection in compile are not implemented.
 
 ## Plan findings
 

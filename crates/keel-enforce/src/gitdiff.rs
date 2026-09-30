@@ -322,6 +322,55 @@ pub fn blob_at(dir: &Path, rev: &str, path: &str) -> Option<String> {
     String::from_utf8(out.stdout).ok()
 }
 
+/// Resolve a revision to one immutable commit, rejecting unborn or unknown refs.
+pub fn resolve_commit(dir: &Path, rev: &str) -> Result<String, String> {
+    let spec = format!("{}^{{commit}}", rev);
+    let out = run_git_checked(dir, &["rev-parse", "--verify", "--end-of-options", &spec])?
+        .ok_or_else(|| format!("cannot resolve base ref {rev:?}"))?;
+    Ok(out.trim().to_string())
+}
+
+/// Read a UTF-8 blob, distinguishing a missing path from Git or decoding failures.
+/// `rev` should be a resolved commit id, so all reads use the same snapshot.
+pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<String>, String> {
+    let listing = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["ls-tree", "-z", rev, "--", path])
+        .output()
+        .map_err(|e| format!("failed to run git: {e}"))?;
+    if !listing.status.success() {
+        return Err("cannot read base tree".into());
+    }
+    if listing.stdout.is_empty() {
+        return Ok(None);
+    }
+    let header = listing
+        .stdout
+        .split(|b| *b == b'\t')
+        .next()
+        .unwrap_or_default();
+    let header = std::str::from_utf8(header).map_err(|e| e.to_string())?;
+    let mut fields = header.split_whitespace();
+    let _mode = fields.next();
+    if fields.next() != Some("blob") {
+        return Err("base path is not a blob".into());
+    }
+    let oid = fields.next().ok_or("missing base blob id")?;
+    let blob = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["cat-file", "blob", oid])
+        .output()
+        .map_err(|e| format!("failed to run git: {e}"))?;
+    if !blob.status.success() {
+        return Err("cannot read base blob".into());
+    }
+    String::from_utf8(blob.stdout)
+        .map(Some)
+        .map_err(|e| format!("base blob is not UTF-8: {e}"))
+}
+
 #[cfg(test)]
 #[path = "gitdiff_tests.rs"]
 mod tests;

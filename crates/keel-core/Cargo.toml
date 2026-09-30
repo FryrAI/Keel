@@ -14,6 +14,7 @@ rusqlite = { workspace = true }
 xxhash-rust = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+globset = "0.4"
 thiserror = { workspace = true }
 
 [dev-dependencies]

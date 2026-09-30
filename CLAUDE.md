@@ -102,12 +102,14 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | E004 | function_removed | ERROR |
 | E005 | arity_mismatch | ERROR |
 | E006 | layer_violation | ERROR (opt-in) |
+| E007 | home_violation | ERROR (opt-in) |
 | W001 | placement | WARNING |
 | W002 | duplicate_name | WARNING |
 | W005 | dead_code | WARNING |
 | W006 | duplicate_implementation | WARNING |
 | W007 | oversized_file | WARNING |
 | W009 | new_cross_boundary_dep | WARNING |
+| W011 | home_violation | WARNING (opt-in) |
 | S001 | suppressed | INFO |
 | P001 | unknown_symbol | WARNING (plan-time only) |
 | P002 | signature_mismatch | WARNING (plan-time only) |
@@ -153,6 +155,19 @@ site keeps its edge until the next `keel map` (bounded staleness, accepted in PR
 parse touches nothing. Do not "fix" the staleness by re-adding a wholesale prune: that was the edge-erosion
 bug where one compile permanently deleted a file's cross-crate edges, starving W005/E004/E001/`keel
 discover` and W009's stored-boundary baseline.
+
+### Expression Homes Use a Git Base, Not the Graph
+W011 (or E007 with `enforce.homes: "error"`) compares raw source lines to one resolved Git commit:
+`compile` uses HEAD or `--since`; `review` uses `--base`. A fresh map must never grandfather a PR's own
+additions, and a shared worktree graph must never re-baseline another branch, so there is no graph baseline.
+Matches include comments and strings. Findings have empty hashes and are grouped per file/line; whitespace
+runs collapse for multiset subtraction, but other line edits re-evaluate the occurrence. Home/scope globs
+use current-worktree paths and eligibility is checked independently on both sides of a rename.
+The committed ratchet requires `review.gate: ["W011"]` (or `["E007"]`) AND
+`keel review --base origin/main --gate` in CI. Escalation alone does not gate review. Compile uses ordinary
+suppression, batch (W011 only), circuit-breaker (empty hash means a file-level counter), and delta handling;
+progressive adoption does not demote E007. Missing/unavailable bases skip homes (a verbose note).
+Server/watch/HTTP/MCP **compile** do not run homes; CLI and MCP **review** do.
 
 ### Hash Computation
 Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Uses AST-based normalization, not raw text. Docstring is part of hash input.
@@ -276,6 +291,7 @@ project vault/notes directory is optional and entirely user-side.)
 | E004 | function_removed — a function was deleted but callers remain |
 | E005 | arity_mismatch — caller passes wrong number of arguments |
 | E006 | layer_violation — dependency denied by `architecture.deny` in keel.json (opt-in) |
+| E007 | home_violation — new expression outside its configured home (`enforce.homes: "error"`) |
 | W001 | placement — function is in a non-ideal module |
 | W002 | duplicate_name — another function with the same name exists |
 | W005 | dead_code — private function has no callers in the graph |
@@ -283,6 +299,7 @@ project vault/notes directory is optional and entirely user-side.)
 | W007 | oversized_file — file exceeds the configured line budget and grew |
 | W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
 | W010 | semantic_reuse — review-time advisory only; an added function may overlap an existing graph role |
+| W011 | home_violation — new configured expression outside its home (Git-base comparison) |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
 | P001 | unknown_symbol — plan-time only: the plan calls a symbol the graph does not have |
 | P002 | signature_mismatch — plan-time only: the plan's call does not match the stored signature |

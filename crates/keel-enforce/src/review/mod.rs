@@ -35,7 +35,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use keel_core::config::EnforceConfig;
+use keel_core::config::KeelConfig;
 use keel_core::store::GraphStore;
 /// Re-exported so consumers outside `keel-core`'s dependency graph (the output
 /// formatters) can name `ContractChange::symbol_kind`.
@@ -185,7 +185,7 @@ pub struct ReviewResult {
 ///
 /// `store` is the live graph. The two-sided definition diff never consults it,
 /// so a stale or freshly-mapped store changes the caller counts and the
-/// baseline checks' shared inputs but never the contract facts. `enforce`
+/// baseline checks' shared inputs but never the contract facts. `config`
 /// supplies the same check toggles and line budget `keel compile` uses, so the
 /// baseline diff cannot report a code the repo turned off.
 ///
@@ -196,14 +196,34 @@ pub fn review(
     store: &dyn GraphStore,
     dir: &Path,
     base: &str,
-    enforce: &EnforceConfig,
+    config: &KeelConfig,
+    verbose: bool,
 ) -> Result<ReviewResult, String> {
-    let paths = gitdiff::changed_paths(dir, base)?;
-    let scan = diff::scan_paths(dir, base, &paths);
+    let commit = gitdiff::resolve_commit(dir, base)?;
+    let root = keel_core::paths::worktree_root(dir).unwrap_or_else(|| dir.to_path_buf());
+    let paths = gitdiff::changed_paths(&root, &commit)?;
+    let scan = diff::scan_paths(&root, &commit, &paths);
     let sprawl = sprawl::measure(&paths, &scan);
     let reuse_advisories = reuse::detect(store, &scan);
 
-    let baseline = baseline::diff(store, &scan, enforce);
+    let mut baseline = baseline::diff(store, &scan, &config.enforce);
+    if !config.homes.is_empty() {
+        let mut homes = crate::homes_git::GitHomes::new(&root, &commit, config, verbose);
+        for path in &paths {
+            if path.status == gitdiff::ChangeStatus::Deleted {
+                continue;
+            }
+            let file = root.join(&path.path);
+            if let Ok(text) = std::fs::read_to_string(&file) {
+                baseline
+                    .new_violations
+                    .extend(homes.check(&file, &text, path.base_path()));
+            }
+        }
+        baseline
+            .new_violations
+            .sort_by(|a, b| (&a.file, a.line, &a.code).cmp(&(&b.file, b.line, &b.code)));
+    }
 
     let mut changes = scan.changes;
     risk::attach_callers(store, &mut changes, &scan.diff_files, &scan.renames);

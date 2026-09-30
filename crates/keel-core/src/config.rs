@@ -7,6 +7,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::config_homes::{HomeRule, HomeSeverity};
+
 /// Top-level keel configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeelConfig {
@@ -32,6 +34,9 @@ pub struct KeelConfig {
     pub architecture: ArchitectureConfig,
     #[serde(default)]
     pub review: ReviewConfig,
+    /// Opt-in literal expression homes, validated independently per rule.
+    #[serde(default, deserialize_with = "crate::config_homes::deserialize_homes")]
+    pub homes: Vec<HomeRule>,
     /// Stable random identifier for telemetry project deduplication.
     /// Generated at `keel init` time; avoids path-based hash inflation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,6 +186,9 @@ pub struct EnforceConfig {
     /// Line budget used by the W007 oversized-file check.
     #[serde(default = "default_max_file_lines")]
     pub max_file_lines: u32,
+    /// W011 by default; E007 when explicitly escalated.
+    #[serde(default)]
+    pub homes: HomeSeverity,
 }
 
 /// Circuit breaker tuning.
@@ -221,6 +229,7 @@ impl Default for EnforceConfig {
             duplication: true,
             oversized_files: true,
             max_file_lines: 400,
+            homes: HomeSeverity::default(),
         }
     }
 }
@@ -256,6 +265,7 @@ impl Default for KeelConfig {
             tier3: Tier3Config::default(),
             architecture: ArchitectureConfig::default(),
             review: ReviewConfig::default(),
+            homes: vec![],
             telemetry_id: None,
         }
     }

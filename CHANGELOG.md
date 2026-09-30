@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Opt-in expression homes (#80): W011/E007.** Literal patterns in code, strings,
+  comments and test source are checked against home/scope globs. Tolerant rules
+  preserve unrelated config. Compile compares with HEAD or `--since`; CLI/MCP
+  review uses an immutable Git base and rename-aware multiset subtraction.
+  The committed ratchet requires configured `review.gate` codes plus
+  `keel review --base origin/main --gate`; a fresh map cannot re-baseline a PR.
+  Server/watch/HTTP/MCP compile do not run homes.
+
 ## [0.6.2] - 2026-09-04
 
 Agent-hook reliability: every silent failure mode found while running keel

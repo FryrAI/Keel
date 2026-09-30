@@ -14,6 +14,7 @@
 
 pub mod confidence;
 pub mod config;
+pub mod config_homes;
 pub mod fragments;
 pub mod hash;
 pub mod hash_t2;

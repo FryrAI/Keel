@@ -167,7 +167,8 @@ pub fn run(
     // fixtures, non-git checkouts) keep the old full-repo-scan default, since
     // there is no git history to scope against.
     let bare_compile = files.is_empty() && !changed && since.is_none();
-    let default_to_changed = bare_compile && cwd.join(".git").exists();
+    let worktree_root = keel_core::paths::worktree_root(&cwd);
+    let default_to_changed = bare_compile && worktree_root.is_some();
 
     // Resolve target files: --changed, --since, default-to-changed, explicit
     // list, or (only for a non-git bare compile) all.
@@ -212,6 +213,12 @@ pub fn run(
     // Skip incremental sync there rather than weaken the map-built edge graph.
     let full_repo_compile = bare_compile && !default_to_changed;
 
+    let target_root = if changed || since.is_some() || default_to_changed {
+        worktree_root.as_ref().unwrap_or(&cwd)
+    } else {
+        &cwd
+    };
+
     let target_files = if full_repo_compile {
         let walker = keel_parsers::walker::FileWalker::new(&cwd);
         walker
@@ -227,7 +234,7 @@ pub fn run(
                 if p.is_absolute() {
                     f.clone()
                 } else {
-                    cwd.join(f).to_string_lossy().to_string()
+                    target_root.join(f).to_string_lossy().to_string()
                 }
             })
             .collect::<Vec<_>>()
@@ -249,6 +256,15 @@ pub fn run(
     }
 
     let mut file_indices: Vec<FileIndex> = Vec::new();
+    let mut homes = (!config.homes.is_empty()).then(|| {
+        keel_enforce::homes_git::GitHomes::new(
+            &cwd,
+            since.as_deref().unwrap_or("HEAD"),
+            &config,
+            verbose,
+        )
+    });
+    let mut home_findings = std::collections::HashMap::new();
 
     for file_str in &target_files {
         let file_path = Path::new(file_str);
@@ -298,6 +314,12 @@ pub fn run(
         let result = resolver.parse_file(file_path, &content);
         let rel_path = make_relative(&cwd, file_path);
 
+        if let Some(homes) = &mut homes {
+            let findings = homes.check(file_path, &content, None);
+            if let Some(scope) = homes.relative_path(file_path) {
+                home_findings.insert(rel_path.clone(), (scope, findings));
+            }
+        }
         file_indices.push(FileIndex::from_parse(&rel_path, &content, result));
     }
 
@@ -333,7 +355,7 @@ pub fn run(
         engine.batch_start();
     }
 
-    let result = engine.compile(&file_indices);
+    let result = engine.compile_with_findings(&file_indices, home_findings);
 
     // Persist circuit-breaker state and run the incremental graph sync. Both
     // run *after* enforcement, sequentially, so they share ONE post-enforcement
@@ -344,11 +366,13 @@ pub fn run(
     // expose; E001/E004 already diffed against the pre-edit graph.
     let cb_out = engine.export_circuit_breaker();
     let cb_events = cb_out.len() as u32;
+    // An empty export must clear previously persisted counters after a fix.
+    let persist_breaker = !cb_out.is_empty() || !cb_state.is_empty();
     let need_sync = !full_repo_compile && !file_indices.is_empty();
     // One post-enforcement handle, reused for circuit-breaker persistence, the
     // incremental sync, and the batch-state writes below. Opened only when
     // something actually needs it, so the clean no-work path adds no connection.
-    let mut post_store = if !cb_out.is_empty() || need_sync || active_batch.is_some() {
+    let mut post_store = if persist_breaker || need_sync || active_batch.is_some() {
         match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
             Ok(s) => Some(s),
             Err(e) => {
@@ -365,7 +389,7 @@ pub fn run(
         None
     };
     if let Some(ps) = post_store.as_mut() {
-        if !cb_out.is_empty() {
+        if persist_breaker {
             if let Err(e) = ps.save_circuit_breaker(&cb_out) {
                 if verbose {
                     eprintln!("keel compile: failed to persist circuit breaker: {}", e);

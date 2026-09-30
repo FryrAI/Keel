@@ -43,7 +43,7 @@ pub fn run(
     // never reaches the one reader who can act on it.
     super::version_drift::warn(&cwd, &config);
 
-    let result = match review::review(&store, &cwd, &base, &config.enforce) {
+    let result = match review::review(&store, &cwd, &base, &config, verbose) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("keel review: {}", e);

@@ -32,6 +32,7 @@ fn test_roundtrip_all_non_default_values() {
             duplication: false,     // default is true
             oversized_files: false, // default is true
             max_file_lines: 123,    // default is 400
+            homes: HomeSeverity::Error,
         },
         circuit_breaker: CircuitBreakerConfig {
             max_failures: 42, // default is 3
@@ -82,6 +83,12 @@ fn test_roundtrip_all_non_default_values() {
         review: ReviewConfig {
             gate: vec!["E003".to_string(), "W007".to_string()], // default is empty
         },
+        homes: vec![HomeRule {
+            name: "civil-day".into(),
+            patterns: vec!["date_naive()".into()],
+            home: vec!["src/time.rs".into()],
+            scope: vec!["src".into()],
+        }],
         telemetry_id: Some("a1b2c3d4e5f60718a1b2c3d4e5f60718".to_string()),
     };
 
@@ -269,6 +276,8 @@ fn test_backward_compat_old_json_without_new_fields() {
         "ignore_patterns": []
     }"#;
     let cfg: KeelConfig = serde_json::from_str(old_json).unwrap();
+    assert!(cfg.homes.is_empty());
+    assert_eq!(cfg.enforce.homes, HomeSeverity::Warning);
     assert_eq!(cfg.tier, Tier::Free);
     assert!(cfg.telemetry.enabled);
     // T1.1: remote now defaults to false, including for old configs that
