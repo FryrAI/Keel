@@ -585,10 +585,15 @@ fn sync_one_file(
         }
     };
 
-    // name -> node id for the definitions currently in the graph for this file.
-    let mut local: HashMap<String, u64> = existing
+    // Reuse module definition ids for node writes, but never as call targets.
+    let mut definition_ids: HashMap<String, u64> = existing
         .iter()
         .filter(|n| n.id != module_id)
+        .map(|n| (n.name.clone(), n.id))
+        .collect();
+    let mut local: HashMap<String, u64> = existing
+        .iter()
+        .filter(|n| n.kind != NodeKind::Module)
         .map(|n| (n.name.clone(), n.id))
         .collect();
     let current_names: HashSet<&str> = file.definitions.iter().map(|d| d.name.as_str()).collect();
@@ -610,7 +615,7 @@ fn sync_one_file(
 
     // Insert nodes for definitions new since the last graph write.
     for def in &file.definitions {
-        if local.contains_key(&def.name) {
+        if definition_ids.contains_key(&def.name) {
             continue;
         }
         if created_module {
@@ -651,7 +656,10 @@ fn sync_one_file(
             line: def.line_start,
             confidence: 1.0,
         }));
-        local.insert(def.name.clone(), id);
+        definition_ids.insert(def.name.clone(), id);
+        if def.kind != NodeKind::Module {
+            local.insert(def.name.clone(), id);
+        }
     }
 
     // Remove nodes for definitions that vanished from the file. E004 already
@@ -662,7 +670,7 @@ fn sync_one_file(
     // to remove and E004 would stop re-firing while real callers stay broken.
     for node in existing
         .iter()
-        .filter(|n| n.kind != NodeKind::Module && !current_names.contains(n.name.as_str()))
+        .filter(|n| n.id != module_id && !current_names.contains(n.name.as_str()))
     {
         if has_live_external_callers(store, node.id, batch_files) {
             continue;
