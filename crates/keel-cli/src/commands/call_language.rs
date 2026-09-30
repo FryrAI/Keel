@@ -1,0 +1,69 @@
+//! Language eligibility for ordinary call-resolution rungs.
+
+use std::path::Path;
+
+use keel_parsers::resolver::{Definition, Reference};
+use keel_parsers::treesitter::{detect_language, is_typescript_family};
+
+use super::call_binding::{is_bare_call, select_parsed_local_target};
+use super::call_resolve::CallSiteCtx;
+use super::map_resolve::CallIndex;
+
+/// Whether an ordinary candidate belongs to the caller's callable language.
+/// SQL retains its existing behaviour; deliberate boundary surfaces bypass
+/// this check at their own rung. Astro's extracted scripts share the TS family.
+pub(crate) fn compatible(language: &str, file: &str) -> bool {
+    if language == "sql" {
+        return true;
+    }
+    let Some(target) = detect_language(Path::new(file)) else {
+        return false;
+    };
+    let scripts = |lang| is_typescript_family(lang) || lang == "astro";
+    target == "sql" || language == target || (scripts(language) && scripts(target))
+}
+
+/// Admit a selected ordinary target using the paths already on candidate rows.
+/// Selection precedes admission: rejecting a base pick cannot rebind the call
+/// to a different file or a later rung. Members still count toward ambiguity.
+pub(crate) fn allows_target(idx: &dyn CallIndex, ctx: &CallSiteCtx, name: &str, id: u64) -> bool {
+    let allows = |candidates: &[(String, u64)]| {
+        candidates
+            .iter()
+            .any(|(file, candidate)| *candidate == id && compatible(ctx.language, file))
+    };
+    let bare = name.rsplit(['.', ':']).next().unwrap_or(name);
+    allows(&idx.candidates(name)) || (bare != name && allows(&idx.candidates(bare)))
+}
+
+/// Select a parsed local for a module-level bare call, just as map's first pass.
+/// This applies only when compile has no stored local to select; it must not
+/// change existing in-function or stored-sibling selection.
+pub(crate) fn module_local<'a>(
+    reference: &Reference,
+    file: &str,
+    definitions: &'a [Definition],
+) -> Option<&'a Definition> {
+    if !is_bare_call(reference)
+        || definitions.iter().any(|d| {
+            d.kind != keel_core::types::NodeKind::Module
+                && d.line_start <= reference.line
+                && reference.line <= d.line_end
+        })
+    {
+        return None;
+    }
+    let locals: Vec<_> = definitions
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| d.name == reference.name)
+        .map(|(i, d)| (d, i as u64))
+        .collect();
+    let selected = locals.last()?.1;
+    let id = select_parsed_local_target(reference, selected, file, definitions, &locals)?;
+    definitions.get(id as usize)
+}
+
+#[cfg(test)]
+#[path = "call_language_tests.rs"]
+mod tests;

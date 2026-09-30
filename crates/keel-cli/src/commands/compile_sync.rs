@@ -331,6 +331,17 @@ pub fn resolve_call_targets(
             if !countable_call(reference) {
                 continue;
             }
+            // A new file has no stored local ids yet. Map's first pass still
+            // binds its module-level bare names from the current parse; do the
+            // same before a resolver's unique-name fallback can claim them.
+            if !local.contains_key(&reference.name) {
+                if let Some(def) =
+                    super::call_language::module_local(reference, file_path, definitions)
+                {
+                    reference.resolved_to = Some(node_hash_for(store, def, file_path));
+                    continue;
+                }
+            }
             let Some((resolved, replaced)) = resolve_reference(&local, &idx, &ctx, reference)
             else {
                 continue;
