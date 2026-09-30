@@ -71,7 +71,12 @@ pub fn run(
     }
 
     let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let db_path = keel_core::paths::keel_dir(&root_dir).join("graph.db");
+    let keel_dir = keel_core::paths::keel_dir(&root_dir);
+    if !keel_dir.exists() {
+        eprintln!("keel serve: not initialized. Run `keel init` first.");
+        return 2;
+    }
+    let db_path = keel_dir.join("graph.db");
 
     // Fast path: MCP alone is a synchronous stdio loop — no tokio needed.
     if plan.is_stdio_only() {
@@ -105,13 +110,18 @@ async fn run_async(
     verbose: bool,
     no_telemetry: bool,
 ) -> i32 {
-    let server = match keel_server::KeelServer::open(
-        db_path.to_str().unwrap_or(".keel/graph.db"),
-        root_dir.clone(),
-    ) {
-        Ok(s) => s,
+    // SQLite schema opening belongs on a blocking thread, like MCP stdio.
+    let open_root = root_dir.clone();
+    let open_db = db_path.clone();
+    let opened = tokio::task::spawn_blocking(move || {
+        keel_server::KeelServer::open(open_db.to_str().unwrap_or(".keel/graph.db"), open_root)
+    })
+    .await
+    .unwrap_or_else(|e| Err(keel_core::types::GraphError::Internal(e.to_string())));
+    let server = match opened {
+        Ok(server) => server,
         Err(e) => {
-            eprintln!("keel serve: failed to open store: {}", e);
+            eprintln!("keel serve: failed to open store: {e}");
             return 2;
         }
     };

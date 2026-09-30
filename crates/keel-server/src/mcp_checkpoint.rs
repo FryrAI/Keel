@@ -11,8 +11,7 @@ use serde_json::Value;
 use keel_enforce::checkpoint::{self, CheckpointMode};
 
 use crate::mcp::{
-    internal_err, lock_engine, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine,
-    SharedStore,
+    internal_err, lock_store, param_bool, param_str_opt, JsonRpcError, SharedEngine, SharedStore,
 };
 use crate::parse_shared::FileParser;
 
@@ -26,6 +25,7 @@ pub(crate) fn handle_checkpoint(
     root: &Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
+    let mut engine = engine.writer().map_err(internal_err)?;
     let since = param_str_opt(&params, "since").map(String::from);
     let staged = param_bool(&params, "staged", false);
 
@@ -35,12 +35,18 @@ pub(crate) fn handle_checkpoint(
         CheckpointMode::Since(since)
     };
 
-    // Parse changed files. Git returns repo-relative paths and the server runs
-    // at the repo root, so pass them straight through — that keeps the parsed
-    // `file_path` relative and matching the stored graph.
+    // Git returns repo-relative paths. Read from the authoritative root, then
+    // preserve the relative graph path even when the process cwd differs.
     let changed = checkpoint::changed_files(root, &mode);
     let mut parser = FileParser::new();
-    let file_indices: Vec<_> = changed.iter().filter_map(|f| parser.parse(f)).collect();
+    let file_indices: Vec<_> = changed
+        .iter()
+        .filter_map(|f| {
+            let mut index = parser.parse(&root.join(f).to_string_lossy())?;
+            index.file_path = f.clone();
+            Some(index)
+        })
+        .collect();
 
     // Diff against the PRE-edit graph BEFORE compiling: `engine.compile`
     // persists re-baselined hashes, which would erase the reported change.
@@ -49,10 +55,7 @@ pub(crate) fn handle_checkpoint(
         checkpoint::diff_changed_files(&*store, &file_indices)
     };
 
-    let compile_result = {
-        let mut eng = lock_engine(engine)?;
-        eng.compile(&file_indices)
-    };
+    let compile_result = engine.compile(&file_indices);
 
     let commits = checkpoint::commit_subjects(root, &mode);
     let range = checkpoint::range_label(&mode);

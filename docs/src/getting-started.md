@@ -6,7 +6,7 @@ This guide walks you through installation, initialization, and your first compil
 
 ## Prerequisites
 
-- **Rust 1.75+** (if building from source)
+- **Rust 1.89+** (if building from source)
 - A codebase in TypeScript, Python, Go, or Rust (or any combination)
 - Git (recommended, for pre-commit hook integration)
 

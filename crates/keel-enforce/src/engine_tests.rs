@@ -82,6 +82,8 @@ mod e004_misc;
 mod economy;
 #[path = "engine_tests_module_identity.rs"]
 mod module_identity;
+#[path = "engine_tests_prune.rs"]
+mod prune;
 
 #[test]
 fn test_prune_file_removes_nodes_and_edges() {
@@ -116,6 +118,42 @@ fn test_prune_file_removes_nodes_and_edges() {
     // call and the internal one).
     use keel_core::types::EdgeDirection;
     assert!(engine.store.get_edges(3, EdgeDirection::Both).is_empty());
+}
+
+#[test]
+fn test_prune_file_removes_children_before_module() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let mut module = make_node(1, "module", "gone", "", "src/gone.rs");
+    module.kind = NodeKind::Module;
+    store.insert_node(&module).unwrap();
+    for (id, name) in [(2, "foo"), (3, "bar")] {
+        let mut node = make_node(id, name, name, "fn f()", "src/gone.rs");
+        node.module_id = module.id;
+        store.insert_node(&node).unwrap();
+    }
+    store
+        .insert_node(&make_node(
+            4,
+            "caller",
+            "caller",
+            "fn caller()",
+            "src/keep.rs",
+        ))
+        .unwrap();
+    store
+        .update_edges(vec![
+            EdgeChange::Add(make_call_edge(1, 4, 2, "src/keep.rs")),
+            EdgeChange::Add(make_call_edge(2, 2, 3, "src/gone.rs")),
+        ])
+        .unwrap();
+    let mut engine = EnforcementEngine::new(Box::new(store));
+    assert_eq!(engine.prune_file("src/gone.rs").unwrap(), 3);
+    assert!(engine.store.get_nodes_in_file("src/gone.rs").is_empty());
+    assert!(engine.store.get_node_by_id(4).is_some());
+    assert!(engine
+        .store
+        .get_edges(4, keel_core::types::EdgeDirection::Both)
+        .is_empty());
 }
 
 #[test]

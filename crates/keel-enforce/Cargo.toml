@@ -1,6 +1,7 @@
 [package]
 name = "keel-enforce"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "Compile validation, error codes, and circuit breaker for keel"
 license-file.workspace = true

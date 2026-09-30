@@ -12,7 +12,7 @@ mod query;
 mod tool_handlers;
 
 fn test_engine() -> SharedEngine {
-    create_shared_engine(None)
+    create_shared_engine(None).unwrap()
 }
 
 fn test_store() -> SharedStore {
@@ -59,6 +59,7 @@ fn engine_with_node() -> SharedEngine {
     Arc::new(Mutex::new(EnforcementEngine::new(Box::new(
         populated_node_store(),
     ))))
+    .into()
 }
 
 fn make_node(id: u64, hash: &str, name: &str, sig: &str, file: &str) -> GraphNode {
@@ -145,6 +146,7 @@ fn engine_with_edges() -> SharedEngine {
     Arc::new(Mutex::new(EnforcementEngine::new(Box::new(
         populated_edge_store(),
     ))))
+    .into()
 }
 
 /// Store with a module + function node — needed for search which iterates modules.

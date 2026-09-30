@@ -5,7 +5,7 @@
   </p>
   <p align="center">
     <a href="https://github.com/FryrAI/Keel/actions/workflows/ci.yml"><img src="https://github.com/FryrAI/Keel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust 1.75+">
+    <img src="https://img.shields.io/badge/rust-1.89%2B-orange" alt="Rust 1.89+">
     <img src="https://img.shields.io/badge/license-FSL--1.1--MIT-blue" alt="License: FSL-1.1-MIT">
     <img src="https://img.shields.io/badge/status-Phase%204-green" alt="Status: Phase 4">
     <a href="https://github.com/FryrAI/Keel"><img src="https://img.shields.io/github/stars/FryrAI/Keel?style=social" alt="GitHub Stars"></a>
@@ -270,7 +270,7 @@ The `extensions/vscode/` directory contains a VS Code extension that displays ke
 ### Building from Source
 
 ```bash
-# Prerequisites: Rust 1.75+
+# Prerequisites: Rust 1.89+
 cargo build --workspace
 
 # Run tests

@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   aliases are skipped; their targets are checked under their own paths.
 
 ### Fixed
+- Every disk-backed graph writer now shares a kernel-backed graph lock (#78),
+  released automatically after a crashed holder on Unix and Windows. CLI writers,
+  HTTP/MCP compile/fix/checkpoint, and watcher prune/compile cannot interleave with
+  a map. Watchers retain busy batches without blocking the async runtime, and
+  lock I/O errors are reported separately from contention.
 - Review resolves `--base` to one immutable commit and refuses range expressions
   such as `main...HEAD` with an explicit error (exit 2).
 - Review invoked from a subdirectory analyzes paths from the worktree root.
@@ -39,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with exit 2 instead of overwriting it. `keel config` validates `enforce.homes`
   and requires `homes` to be a JSON array before writing.
 - Empty-hash circuit-breaker findings omit the unusable `keel discover` hint.
+
+### Changed
+- Minimum supported Rust version is now 1.89 for the standard file-locking API.
 
 ## [0.6.2] - 2026-09-04
 
