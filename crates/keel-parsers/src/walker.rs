@@ -75,52 +75,79 @@ impl FileWalker {
 /// The repository's ignore rules, applied to paths that did NOT come from a
 /// directory walk — a `git diff --name-only` list, for instance.
 ///
-/// [`FileWalker::walk`] gets `.keelignore` and `.gitignore` handling for free
-/// from the `ignore` crate's walker, so the graph never contains an ignored
-/// file. Commands whose file list comes from git need the same rules applied
-/// after the fact, or they check files the map deliberately skipped (issue #70:
-/// a vendored tree listed in `.keelignore` raised violations against
-/// third-party source in the pre-commit hook; issue #90: the same for a
+/// [`FileWalker::walk`] gets `.keelignore`, `.ignore` and `.gitignore` handling
+/// for free from the `ignore` crate's walker, so the graph never contains an
+/// ignored file. Commands whose file list comes from git need the same rules
+/// applied after the fact, or they check files the map deliberately skipped
+/// (issue #70: a vendored tree listed in `.keelignore` raised violations
+/// against third-party source in the pre-commit hook; issue #90: the same for a
 /// `.keelignore` nested in a package).
 ///
-/// Every `.gitignore` and `.keelignore` from the root down to a path's parent
-/// directory is consulted, each rooted at its own directory, with the walker's
-/// precedence: a deeper directory's rules override a shallower one's, and
-/// within one directory `.keelignore` outranks `.gitignore`. A file under an
-/// excluded directory stays excluded whatever a deeper file says. Per-directory
-/// matchers are built lazily on first use and cached, so the tree is never
-/// walked. A missing ignore file simply contributes no patterns.
-/// `.git/info/exclude`, the global gitignore and hidden-file rules are not
-/// applied.
+/// The rules are the walker's. Ignore files from the root down to a path's
+/// parent directory all apply, each rooted at its own directory, and they rank
+/// by KIND before depth: the nearest `.keelignore` opinion at any depth beats
+/// every `.ignore`, which beats every `.gitignore`; within one kind the deepest
+/// directory wins. `.gitignore` inheritance stops at the nearest directory that
+/// holds a `.git` entry (a nested repository). A file under an excluded
+/// directory stays excluded whatever a deeper file says. Per-directory state is
+/// built lazily and cached, so the tree is never walked. A missing ignore file
+/// contributes no patterns. `.git/info/exclude`, the global gitignore and
+/// hidden-file rules are not applied, and an explicitly named compile target is
+/// never filtered.
 pub struct KeelIgnore {
     root: PathBuf,
-    dirs: Mutex<HashMap<PathBuf, Arc<DirRules>>>,
+    dirs: Mutex<HashMap<PathBuf, Arc<DirState>>>,
 }
 
-/// The two ignore files of one directory, each rooted at that directory.
-struct DirRules {
+/// One directory's ignore files (each rooted at that directory), its place in
+/// the chain to the root, and whether the directory itself is excluded.
+struct DirState {
+    /// Directory relative to the root; empty for the root.
+    dir: PathBuf,
     keelignore: Gitignore,
+    ignore: Gitignore,
     gitignore: Gitignore,
+    /// Whether a `.git` entry sits here, ending `.gitignore` inheritance.
+    has_git: bool,
+    parent: Option<Arc<DirState>>,
+    /// This directory is excluded, directly or through an ancestor.
+    excluded: bool,
 }
 
-impl DirRules {
-    fn load(dir: &Path) -> Self {
-        // Unreadable or malformed ignore files contribute nothing rather than
-        // failing: not ignoring a file is a false positive, refusing to run at
-        // all is worse.
-        Self {
-            keelignore: Gitignore::new(dir.join(".keelignore")).0,
-            gitignore: Gitignore::new(dir.join(".gitignore")).0,
+/// The first non-`None` opinion on `rel` among one kind of ignore file, from
+/// `start` (the entry's parent) upward; `stop_at_git` ends the climb after the
+/// first directory holding a `.git` entry.
+fn kind_match(
+    start: &Arc<DirState>,
+    rel: &Path,
+    is_dir: bool,
+    pick: fn(&DirState) -> &Gitignore,
+    stop_at_git: bool,
+) -> Match<()> {
+    let mut state = Some(start);
+    while let Some(s) = state {
+        let matcher = pick(s);
+        if !matcher.is_empty() {
+            let within = rel.strip_prefix(&s.dir).unwrap_or(rel);
+            let m = matcher.matched(within, is_dir).map(|_| ());
+            if !m.is_none() {
+                return m;
+            }
         }
+        if stop_at_git && s.has_git {
+            break;
+        }
+        state = s.parent.as_ref();
     }
+    Match::None
+}
 
-    /// `.keelignore` first: it outranks `.gitignore` in the same directory.
-    fn matched(&self, rel: &Path, is_dir: bool) -> Match<()> {
-        self.keelignore
-            .matched(rel, is_dir)
-            .map(|_| ())
-            .or(self.gitignore.matched(rel, is_dir).map(|_| ()))
-    }
+/// The walker's verdict on the entry `rel` whose parent directory is `parent`.
+fn entry_ignored(parent: &Arc<DirState>, rel: &Path, is_dir: bool) -> bool {
+    kind_match(parent, rel, is_dir, |s| &s.keelignore, false)
+        .or(kind_match(parent, rel, is_dir, |s| &s.ignore, false))
+        .or(kind_match(parent, rel, is_dir, |s| &s.gitignore, true))
+        .is_ignore()
 }
 
 impl KeelIgnore {
@@ -133,33 +160,39 @@ impl KeelIgnore {
         }
     }
 
-    /// The cached rules of `dir` (relative to the root; empty is the root).
-    fn rules(&self, dir: &Path) -> Arc<DirRules> {
-        let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(rules) = dirs.get(dir) {
-            return Arc::clone(rules);
+    /// The cached state of `dir` (relative to the root; empty is the root),
+    /// building its ancestors first.
+    fn state(&self, dir: &Path) -> Arc<DirState> {
+        if let Some(state) = self.cached(dir) {
+            return state;
         }
-        let rules = Arc::new(DirRules::load(&self.root.join(dir)));
-        dirs.insert(dir.to_path_buf(), Arc::clone(&rules));
-        rules
+        let parent = dir
+            .parent()
+            .filter(|_| !dir.as_os_str().is_empty())
+            .map(|up| self.state(up));
+        let excluded = parent
+            .as_ref()
+            .is_some_and(|p| p.excluded || entry_ignored(p, dir, true));
+        let abs = self.root.join(dir);
+        // Unreadable or malformed ignore files contribute nothing rather than
+        // failing: not ignoring a file is a false positive, refusing to run at
+        // all is worse.
+        let state = Arc::new(DirState {
+            dir: dir.to_path_buf(),
+            keelignore: Gitignore::new(abs.join(".keelignore")).0,
+            ignore: Gitignore::new(abs.join(".ignore")).0,
+            gitignore: Gitignore::new(abs.join(".gitignore")).0,
+            has_git: abs.join(".git").exists() || abs.join(".jj").exists(),
+            parent,
+            excluded,
+        });
+        let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
+        Arc::clone(dirs.entry(dir.to_path_buf()).or_insert(state))
     }
 
-    /// Whether the entry `rel` (root-relative) is excluded by the nearest
-    /// directory, from its parent up to the root, that has an opinion on it.
-    fn entry_ignored(&self, rel: &Path, is_dir: bool) -> bool {
-        let mut dir = rel.parent().unwrap_or(Path::new(""));
-        loop {
-            let within = rel.strip_prefix(dir).unwrap_or(rel);
-            match self.rules(dir).matched(within, is_dir) {
-                Match::Ignore(()) => return true,
-                Match::Whitelist(()) => return false,
-                Match::None => {}
-            }
-            match dir.parent() {
-                Some(up) if !dir.as_os_str().is_empty() => dir = up,
-                _ => return false,
-            }
-        }
+    fn cached(&self, dir: &Path) -> Option<Arc<DirState>> {
+        let dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
+        dirs.get(dir).map(Arc::clone)
     }
 
     /// Whether `path` — relative to the root, or absolute beneath it — is
@@ -172,19 +205,8 @@ impl KeelIgnore {
             Err(_) if path.is_absolute() => return false,
             Err(_) => path,
         };
-        // Top-down, stopping at the first excluded ancestor: git never
-        // re-includes a file under an excluded directory, and the walker
-        // enforces it by never descending into one.
-        let mut prefix = PathBuf::new();
-        let mut components = relative.components().peekable();
-        while let Some(component) = components.next() {
-            prefix.push(component);
-            let is_dir = components.peek().is_some();
-            if self.entry_ignored(&prefix, is_dir) {
-                return true;
-            }
-        }
-        false
+        let parent = self.state(relative.parent().unwrap_or(Path::new("")));
+        parent.excluded || entry_ignored(&parent, relative, false)
     }
 }
 

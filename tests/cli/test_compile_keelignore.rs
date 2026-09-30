@@ -103,7 +103,7 @@ fn compile_changed_honors_nested_keelignore() {
     let clean = "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n";
     write(root, "pkg/.keelignore", "thirdparty/\n");
     write(root, "pkg/thirdparty/v.py", clean);
-    write(root, "src/app.py", clean);
+    write(root, "pkg/lib.py", clean);
     git(root, &["init", "-q"]);
     assert!(keel(root, &["init"]).status.success(), "keel init failed");
     git(root, &["add", "-A"]);
@@ -117,19 +117,33 @@ fn compile_changed_honors_nested_keelignore() {
         "pkg/thirdparty/v.py",
         "def compute(value):\n    return value\n",
     );
-    for cwd in [root.to_path_buf(), root.join("pkg")] {
+    // Positive control: a real violation in a non-ignored changed file IS
+    // reported, so a run that checked nothing cannot pass.
+    for (n, cwd) in [root.to_path_buf(), root.join("pkg")]
+        .into_iter()
+        .enumerate()
+    {
+        // A fresh function each time: a compile remembers what it has seen.
+        let source = format!("def compute_{n}(value):\n    return value\n");
+        write(root, "pkg/lib.py", &source);
         let out = keel(&cwd, &["compile", "--changed"]);
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(
             out.status.code(),
-            Some(0),
-            "a file under a nested .keelignore must not be checked (cwd {}); stdout: {stdout} stderr: {stderr}",
+            Some(1),
+            "the non-ignored violation must fire (cwd {}); stdout: {stdout} stderr: {stderr}",
+            cwd.display()
+        );
+        assert!(
+            stdout.contains("lib.py") && stdout.contains("E002"),
+            "the non-ignored file must be reported (cwd {}): {stdout}",
             cwd.display()
         );
         assert!(
             !stdout.contains("thirdparty/"),
-            "the ignored tree must stay out of the report: {stdout}"
+            "the ignored tree must stay out of the report (cwd {}): {stdout}",
+            cwd.display()
         );
     }
 }

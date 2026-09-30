@@ -78,9 +78,9 @@ fn collect_lines(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<S
 
 /// List repo-relative paths of files changed for `mode`, evaluated in `dir`.
 ///
-/// Paths excluded by the repository root's `.keelignore`/`.gitignore` are
-/// dropped, so a git-diff-driven command never checks a file `keel map` refused
-/// to graph — `dir` may be any directory inside the repo.
+/// Paths excluded by the repository's `.keelignore`/`.ignore`/`.gitignore`
+/// files (nested ones included, as `keel map` applies them) are dropped, so a
+/// git-diff-driven command never checks a file `keel map` refused to graph — `dir` may be any directory inside the repo.
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
