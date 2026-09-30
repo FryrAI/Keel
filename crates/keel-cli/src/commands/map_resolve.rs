@@ -19,6 +19,8 @@ pub trait CallIndex {
     /// out for free, while the graph-backed index has to query SQLite. Handing
     /// back an owned `Vec` forced the map to clone on every call for nothing.
     fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]>;
+    /// File and starting line of an associated target, or `None` for a free item.
+    fn associated_target(&self, id: u64) -> Option<(String, u32)>;
     /// Every known `relative_file_path -> module_id` mapping, for matching an
     /// import specifier to the module it resolves to.
     fn module_files(&self) -> &HashMap<String, u64>;

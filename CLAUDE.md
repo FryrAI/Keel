@@ -213,6 +213,16 @@ Findings are deduplicated on rule+file+symbol before scoring, then ranked by (se
 ### W002 Exempts Distinct Cargo Compilation Units, Not the Name `main`
 `violations_util::distinct_compilation_units` exempts a duplicate-name pair when BOTH files are Cargo binary/build roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`, `examples/*.rs`) — each compiles as its own crate, so the two names never share a namespace and there is no ambiguity a rename could resolve. Structural, not `main`-specific: two `src/bin` targets sharing `parse_args` are as invisible to each other as two `main`s. A pair involving a library file still fires. Real copy-paste between two binary targets is still caught by W006's body tiers, which do not care which crate a body compiles into.
 
+### A Bare Call Never Binds to a Member
+Map and compile resolve every call through `commands/call_resolve.rs`; candidate eligibility lives in ONE
+place, `commands/call_binding.rs`, applied before a target is selected — never add a per-violation filter. A
+bare call (`drop(x)`, `helper()`) cannot bind to a method or associated function (Rust `impl` members, Go
+receiver methods, TS/JS class methods, Python methods), so `drop(g)` next to `impl Drop` is not an E005 (#81).
+References keep their qualification in `name`: a Rust `Guard::new` parses as `Guard.new`, and both separators
+mean qualified. Python class-body code may still call an already-defined class-local function by its bare
+name; method bodies cannot see that namespace. Parse paths may be absolute while graph paths are
+repo-relative — compare same-file callers through the resolution context's canonical caller path.
+
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.
 

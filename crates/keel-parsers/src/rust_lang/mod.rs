@@ -447,14 +447,17 @@ impl LanguageResolver for RustLangResolver {
 
             // Tier 2: receiver is a known type -> check impl_map
             let impl_map = self.impl_map.lock().unwrap();
+            // References retain qualification (`Guard.new` / `Guard::new`),
+            // while impl_map stores bare method names beside their type.
+            let method = callee.rsplit(['.', ':']).next().unwrap_or(callee);
             if let Some(methods) = impl_map.get(receiver.as_str()) {
-                if methods.iter().any(|m| m == callee) {
+                if methods.iter().any(|m| m == method) {
                     let cc = self.content_cache.lock().unwrap();
                     let is_generic = cc.values().any(|c| helpers::is_generic_impl(c, receiver));
                     let confidence = if is_generic { 0.60 } else { 0.80 };
                     return Some(ResolvedEdge {
                         target_file: call_site.file_path.clone(),
-                        target_name: callee.clone(),
+                        target_name: method.to_string(),
                         confidence,
                         resolution_tier: "tier2".into(),
                     });

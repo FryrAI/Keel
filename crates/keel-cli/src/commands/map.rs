@@ -149,7 +149,7 @@ pub fn run(
         rs.set_boundary_literals(literal_keys);
     }
 
-    // === First pass: create nodes and same-file edges ===
+    // === First pass: create nodes ===
     let mut body_index: Vec<keel_core::types::BodyIndexEntry> = Vec::new();
     let mut fragments = keel_core::fragments::FragmentScan::new();
     let all_file_data = map_passes::first_pass(
@@ -217,7 +217,17 @@ pub fn run(
         HashMap::new()
     };
 
-    // === Second pass: cross-file call edges and import edges ===
+    let associated_targets: HashMap<_, _> = node_changes
+        .iter()
+        .filter_map(|change| match change {
+            NodeChange::Add(node) if node.is_associated => {
+                Some((node.id, (node.file_path.clone(), node.line_start)))
+            }
+            _ => None,
+        })
+        .collect();
+
+    // === Second pass: all call edges and import edges ===
     // `node_tiers` records which resolution tier resolved each caller node's
     // outgoing edges, persisted to `nodes.resolution_tier` after the nodes land.
     let resolver_set = super::map_lang_resolve::ResolverSet {
@@ -236,6 +246,7 @@ pub fn run(
         &file_module_ids,
         &package_node_index,
         &boundary_index,
+        &associated_targets,
         &mut edge_changes,
         &mut next_id,
         &mut node_tiers,
@@ -261,6 +272,7 @@ pub fn run(
             &tier3_data,
             &name_to_id,
             &global_name_index,
+            &associated_targets,
             &mut edge_changes,
             &mut next_id,
             resolution_cache_seed,
