@@ -230,6 +230,12 @@ before move cancellation: unchanged sets do not advance, strict subsets reset th
 and only a new identity charges another attempt. Selecting different files alone cannot advance it.
 Server/watch/HTTP/MCP **compile** do not run homes; CLI and MCP **review** do.
 
+### Compile-Added Nodes Carry Map's Package
+`compile_sync` stamps every module/definition node it adds with `keel_parsers::walker::package_for_path` over the
+monorepo layout (detected once per sync, only when `monorepo.enabled`; absolute path = root joined to the graph path,
+the form map walks) — the same authority `walk_with_packages` uses. W009's `Boundary::of` depends on it: a NULL
+package falls back to the first path segment (`crates`) and a same-crate call fires a false W009 (#89).
+
 ### Hash Computation
 Hash = `base62(xxhash64(canonical_signature + body_normalized + docstring))`. Uses AST-based normalization, not raw text. Docstring is part of hash input.
 

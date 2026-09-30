@@ -63,7 +63,7 @@ impl FileWalker {
     pub fn walk_with_packages(&self, layout: &MonorepoLayout) -> Vec<WalkEntry> {
         let mut entries = self.walk();
         for entry in &mut entries {
-            entry.package = find_package_for_path(&entry.path, layout);
+            entry.package = package_for_path(&entry.path, layout);
         }
         entries
     }
@@ -139,7 +139,12 @@ impl KeelIgnore {
 }
 
 /// Find which package a file belongs to using longest-prefix match.
-fn find_package_for_path(file_path: &Path, layout: &MonorepoLayout) -> Option<String> {
+///
+/// `file_path` must be in the same form as the layout's package paths (absolute
+/// when the layout came from `detect_monorepo(root)`); a root-relative path
+/// never prefix-matches. This is the single package authority shared by
+/// `keel map` (via `walk_with_packages`) and `keel compile`'s graph sync.
+pub fn package_for_path(file_path: &Path, layout: &MonorepoLayout) -> Option<String> {
     let mut best_match: Option<&str> = None;
     let mut best_len = 0;
 

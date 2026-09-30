@@ -59,6 +59,7 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::boundary::BoundaryProvider;
+use keel_parsers::monorepo::MonorepoLayout;
 use keel_parsers::resolver::{Definition, FileIndex, Reference, ReferenceKind};
 use keel_parsers::treesitter::detect_language;
 
@@ -84,6 +85,9 @@ struct GraphIndexBase<'a> {
     boundary_index: HashMap<String, (u64, f64)>,
     // Facts come from candidate rows, shared across files in this pass.
     associated_targets: RefCell<HashMap<u64, (String, u32)>>,
+    /// The monorepo layout, detected once per sync and only when
+    /// `monorepo.enabled` — the same gate `keel map` uses to annotate nodes.
+    layout: Option<MonorepoLayout>,
 }
 
 impl<'a> GraphIndexBase<'a> {
@@ -108,13 +112,26 @@ impl<'a> GraphIndexBase<'a> {
         } else {
             HashMap::new()
         };
+        let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(cwd));
+        let layout = config
+            .monorepo
+            .enabled
+            .then(|| keel_parsers::monorepo::detect_monorepo(cwd));
         Self {
             store,
             module_files,
             package_node_index,
             boundary_index,
             associated_targets: RefCell::new(HashMap::new()),
+            layout,
         }
+    }
+
+    /// The package `keel map` would store for `rel_path` (`None` without a
+    /// monorepo layout). Map walks absolute paths, so the lookup joins `cwd`.
+    fn package_for(&self, cwd: &Path, rel_path: &str) -> Option<String> {
+        let layout = self.layout.as_ref()?;
+        keel_parsers::walker::package_for_path(&cwd.join(rel_path), layout)
     }
 }
 
@@ -564,13 +581,22 @@ fn sync_one_file(
         .collect();
     let current_names: HashSet<&str> = file.definitions.iter().map(|d| d.name.as_str()).collect();
 
+    // Compile-added nodes carry the package map would give this file (W009's
+    // boundary depends on it), whether the module is new or already stored.
+    let package = base.package_for(cwd, rel_path);
+
     // Insert nodes for definitions new since the last graph write.
     for def in &file.definitions {
         if local.contains_key(&def.name) {
             continue;
         }
         if created_module {
-            node_changes.push(NodeChange::Add(module_node(module_id, rel_path, file)));
+            node_changes.push(NodeChange::Add(module_node(
+                module_id,
+                rel_path,
+                file,
+                package.clone(),
+            )));
             created_module = false;
         }
         let id = *next_id;
@@ -583,7 +609,12 @@ fn sync_one_file(
             assigned_hashes.insert(hash.clone());
         }
         node_changes.push(NodeChange::Add(definition_node(
-            id, hash, def, rel_path, module_id,
+            id,
+            hash,
+            def,
+            rel_path,
+            module_id,
+            package.clone(),
         )));
         // "contains" edge module -> definition, mirroring the map first pass.
         let edge_id = *next_id;
@@ -784,7 +815,7 @@ fn node_hash_for(store: &SqliteGraphStore, def: &Definition, rel_path: &str) -> 
 }
 
 /// Build a module `GraphNode` for a file first seen at compile time.
-fn module_node(id: u64, rel_path: &str, file: &FileIndex) -> GraphNode {
+fn module_node(id: u64, rel_path: &str, file: &FileIndex, package: Option<String>) -> GraphNode {
     let line_end = file
         .definitions
         .iter()
@@ -812,7 +843,7 @@ fn module_node(id: u64, rel_path: &str, file: &FileIndex) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
-        package: None,
+        package,
     }
 }
 
@@ -823,6 +854,7 @@ fn definition_node(
     def: &Definition,
     rel_path: &str,
     module_id: u64,
+    package: Option<String>,
 ) -> GraphNode {
     let mut node = GraphNode {
         id,
@@ -848,7 +880,7 @@ fn definition_node(
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
-        package: None,
+        package,
     };
     def.apply_parse_facts(&mut node);
     node
