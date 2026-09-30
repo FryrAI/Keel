@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::FileIndex;
@@ -75,6 +75,17 @@ impl EnforcementEngine {
 
     /// Compile (validate) a set of files. Returns violations.
     pub fn compile(&mut self, files: &[FileIndex]) -> CompileResult {
+        self.compile_with_findings(files, HashMap::new())
+    }
+
+    /// Validate files with caller-provided findings through the ordinary post-processing.
+    /// Map keys use `FileIndex` paths; values carry the stable file scope, findings,
+    /// and a fingerprint of the file's own surplus line identities before pooling.
+    pub fn compile_with_findings(
+        &mut self,
+        files: &[FileIndex],
+        mut findings: HashMap<String, (String, Vec<Violation>, String)>,
+    ) -> CompileResult {
         let mut all_errors = Vec::new();
         let mut all_warnings = Vec::new();
         let mut hashes_changed = Vec::new();
@@ -109,7 +120,10 @@ impl EnforcementEngine {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
             let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
 
-            let mut file_violations = Vec::new();
+            let (scope, mut file_violations, home_fingerprint) = findings
+                .remove(&file.file_path)
+                .map(|(scope, findings, fingerprint)| (Some(scope), findings, fingerprint))
+                .unwrap_or_default();
 
             // E001: broken callers (uses cached nodes, batch-aware)
             file_violations.extend(violations::check_broken_callers_with_cache(
@@ -196,6 +210,27 @@ impl EnforcementEngine {
                 file.references.iter().filter_map(|r| r.resolved_to.clone()),
                 &file_violations,
             );
+            if let Some(scope) = &scope {
+                let active = file_violations
+                    .iter()
+                    .filter(|v| {
+                        matches!(v.code.as_str(), "W011" | "E007")
+                            && v.severity == "ERROR"
+                            && v.file == *scope
+                    })
+                    .map(|v| {
+                        (
+                            v.code.clone(),
+                            if v.hash.is_empty() {
+                                scope.clone()
+                            } else {
+                                v.hash.clone()
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                self.circuit_breaker.reconcile_home_scope(scope, &active);
+            }
 
             // Apply circuit breaker. The breaker counts fix ATTEMPTS, not
             // compiles, so each violation is charged against a fingerprint that
@@ -214,8 +249,10 @@ impl EnforcementEngine {
                 .map(|d| crate::violations_util::definition_hashes(d, &file.file_path))
                 .collect();
 
-            let fingerprints =
+            let mut fingerprints =
                 FileFingerprints::new(&file.file_path, &file.definitions, &def_hashes);
+            fingerprints.file_alias = scope;
+            fingerprints.home_fingerprint = home_fingerprint;
             file_violations = self.apply_circuit_breaker(file_violations, &fingerprints);
 
             // Apply suppressions
@@ -512,17 +549,18 @@ impl EnforcementEngine {
     /// The file watcher calls this on `Remove` events so deleted files stop
     /// accreting in the shared graph between full `keel map` runs. Works
     /// entirely through the frozen [`GraphStore`] trait: collect the file's
-    /// nodes, drop every edge touching them, then drop the nodes. Returns the
-    /// number of nodes removed.
+    /// nodes, drop children before their modules, then drop remaining edges.
+    /// Returns the number of nodes removed.
     pub fn prune_file(&mut self, file_path: &str) -> Result<usize, keel_core::types::GraphError> {
         use keel_core::types::{EdgeChange, EdgeDirection, NodeChange};
 
-        let nodes = self.store.get_nodes_in_file(file_path);
+        let mut nodes = self.store.get_nodes_in_file(file_path);
         if nodes.is_empty() {
             return Ok(0);
         }
 
-        // Drop edges first so no dangling source/target ids survive.
+        // Collect before deleting nodes: stores without cascades still need
+        // an explicit edge-removal pass after the node transaction succeeds.
         let mut seen_edges = HashSet::new();
         let mut edge_changes = Vec::new();
         for node in &nodes {
@@ -532,16 +570,18 @@ impl EnforcementEngine {
                 }
             }
         }
-        if !edge_changes.is_empty() {
-            self.store.update_edges(edge_changes)?;
-        }
-
         let count = nodes.len();
+        crate::engine_prune::order_file_nodes_for_removal(&mut nodes);
         let node_changes = nodes
             .into_iter()
             .map(|n| NodeChange::Remove(n.id))
             .collect();
         self.store.update_nodes(node_changes)?;
+        // SQLite cascades edges in the node transaction, so a failed node
+        // removal leaves nodes and edges intact. This pass is then a no-op.
+        if !edge_changes.is_empty() {
+            self.store.update_edges(edge_changes)?;
+        }
         Ok(count)
     }
 
@@ -579,23 +619,34 @@ impl EnforcementEngine {
         violations: Vec<Violation>,
         fingerprints: &FileFingerprints,
     ) -> Vec<Violation> {
+        let mut home_actions = HashMap::new();
         violations
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
                     let body_hash = fingerprints.fingerprint_for(&v);
-                    let action = self
-                        .circuit_breaker
-                        .record_failure(&v.code, &v.hash, body_hash, &v.file);
+                    let action = if matches!(v.code.as_str(), "W011" | "E007") {
+                        home_actions
+                            .entry((v.code.clone(), v.file.clone()))
+                            .or_insert_with(|| {
+                                self.circuit_breaker
+                                    .record_failure(&v.code, &v.hash, body_hash, &v.file)
+                            })
+                            .clone()
+                    } else {
+                        self.circuit_breaker
+                            .record_failure(&v.code, &v.hash, body_hash, &v.file)
+                    };
                     match action {
                         BreakerAction::FixHint => {} // fix_hint already set
-                        BreakerAction::WiderContext => {
+                        BreakerAction::WiderContext if !v.hash.is_empty() => {
                             v.fix_hint = Some(format!(
                                 "{} (2nd attempt — run `keel discover {}` for context)",
                                 v.fix_hint.unwrap_or_default(),
                                 v.hash
                             ));
                         }
+                        BreakerAction::WiderContext => {}
                         BreakerAction::Downgrade => {
                             v.severity = "WARNING".to_string();
                             v.fix_hint = Some(format!(
@@ -634,6 +685,8 @@ impl EnforcementEngine {
 /// edits march a live ERROR toward its auto-downgrade to WARNING.
 pub(crate) struct FileFingerprints {
     file_path: String,
+    file_alias: Option<String>,
+    home_fingerprint: String,
     /// `(line_start, line_end, content hash)` per definition, in file order.
     defs: Vec<(u32, u32, String)>,
     /// The file's sorted definition NAMES, joined. Changes only when a def is
@@ -658,6 +711,8 @@ impl FileFingerprints {
         names.sort_unstable();
         Self {
             file_path: file_path.to_string(),
+            file_alias: None,
+            home_fingerprint: String::new(),
             defs,
             name_set: names.join("|"),
         }
@@ -683,7 +738,10 @@ impl FileFingerprints {
     /// Fallbacks: name set (structure) when the specific lookup misses, then
     /// the violation's own hash for a file with no definitions at all.
     fn fingerprint_for<'a>(&'a self, v: &'a Violation) -> &'a str {
-        if v.file == self.file_path {
+        if matches!(v.code.as_str(), "W011" | "E007") {
+            return &self.home_fingerprint;
+        }
+        if v.file == self.file_path || self.file_alias.as_deref() == Some(v.file.as_str()) {
             match v.code.as_str() {
                 "E004" => {}
                 "E005" => {

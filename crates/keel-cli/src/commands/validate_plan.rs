@@ -24,6 +24,10 @@ const PLAN_SCOPE: &str = "<plan>";
 /// errors (no initialized graph, unreadable plan input) still exit 2 per the
 /// CLI contract.
 pub fn run(formatter: &dyn OutputFormatter, verbose: bool, plan: String, strict: bool) -> i32 {
+    let _lock = match super::writer_lock::for_command("validate-plan") {
+        Ok(lock) => lock,
+        Err(code) => return code,
+    };
     let ctx = match super::open_repo("validate-plan") {
         Ok(x) => x,
         Err(code) => return code,

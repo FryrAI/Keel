@@ -1252,7 +1252,6 @@ dependencies = [
  "keel-output",
  "keel-parsers",
  "keel-server",
- "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1266,6 +1265,7 @@ dependencies = [
 name = "keel-core"
 version = "0.6.2"
 dependencies = [
+ "globset",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1278,6 +1278,7 @@ dependencies = [
 name = "keel-enforce"
 version = "0.6.2"
 dependencies = [
+ "globset",
  "ignore",
  "keel-core",
  "keel-parsers",
@@ -1334,6 +1335,7 @@ dependencies = [
  "keel-output",
  "keel-parsers",
  "notify",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

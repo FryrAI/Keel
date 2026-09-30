@@ -31,8 +31,8 @@ const EXPECTED_COMMANDS: &[&str] = &[
 /// Every additive enforcement/advisory code that must appear in the shared
 /// Error codes table.
 const EXPECTED_ERROR_CODES: &[&str] = &[
-    "E001", "E002", "E003", "E004", "E005", "E006", "W005", "W006", "W007", "W009", "W010", "P001",
-    "P002", "P003",
+    "E001", "E002", "E003", "E004", "E005", "E006", "E007", "W005", "W006", "W007", "W009", "W010",
+    "W011", "P001", "P002", "P003",
 ];
 
 /// Every instruction template composed from `templates/shared/core.md` (see the

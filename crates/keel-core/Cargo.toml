@@ -1,6 +1,7 @@
 [package]
 name = "keel-core"
 version.workspace = true
+rust-version.workspace = true
 edition.workspace = true
 description = "Core graph schema, hashing, and SQLite storage for keel"
 license-file.workspace = true
@@ -14,6 +15,7 @@ rusqlite = { workspace = true }
 xxhash-rust = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+globset = "0.4"
 thiserror = { workspace = true }
 
 [dev-dependencies]

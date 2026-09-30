@@ -54,7 +54,7 @@ fn test_server_engine_isolation() {
     server1.engine.lock().unwrap().suppress("E002");
 
     // Verify engines are distinct Arc<Mutex<>>
-    assert!(!Arc::ptr_eq(&server1.engine, &server2.engine));
+    assert!(!std::ptr::eq(&*server1.engine, &*server2.engine));
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn test_server_mcp_process_line_integration() {
         })
         .unwrap();
     let shared = Arc::new(Mutex::new(store));
-    let engine = create_shared_engine(None);
+    let engine = create_shared_engine(None).unwrap();
 
     // Initialize
     let init_req = serde_json::json!({
@@ -141,7 +141,7 @@ fn test_server_handles_concurrent_requests() {
         })
         .unwrap();
     let shared: Arc<Mutex<SqliteGraphStore>> = Arc::new(Mutex::new(store));
-    let engine = create_shared_engine(None);
+    let engine = create_shared_engine(None).unwrap();
 
     // Simulate 10 sequential requests without panics
     for i in 0..10 {

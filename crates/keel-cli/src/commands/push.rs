@@ -116,7 +116,10 @@ pub fn run(formatter: &dyn keel_output::OutputFormatter, verbose: bool, yes: boo
             // Store project_id if we got a new one
             if project_id.is_none() {
                 if let Some(ref pid) = new_project_id {
-                    save_project_id(&keel_dir, pid);
+                    if let Err(e) = save_project_id(&keel_dir, pid) {
+                        eprintln!("keel push: {e}");
+                        return 2;
+                    }
                 }
             }
             eprintln!("push complete.");
@@ -194,32 +197,35 @@ fn read_project_id(keel_dir: &Path) -> Option<String> {
     extract_json_string(&data, "project_id")
 }
 
-fn save_project_id(keel_dir: &Path, project_id: &str) {
+fn save_project_id(keel_dir: &Path, project_id: &str) -> Result<(), String> {
     let config_path = keel_dir.join("keel.json");
 
-    // Read existing config or start fresh
-    let content = std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".into());
-    let mut json: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => serde_json::json!({}),
+    // Only a missing config may start fresh; unreadable or invalid files survive.
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}".into(),
+        Err(e) => return Err(format!("refusing to rewrite config: {e}")),
     };
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("refusing to rewrite config: {e}"))?;
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "refusing to rewrite config: expected a JSON object".to_string())?;
 
     // Don't overwrite an existing project_id
-    if json.get("project_id").is_some() {
-        return;
+    if obj.contains_key("project_id") {
+        return Ok(());
     }
 
-    if let Some(obj) = json.as_object_mut() {
-        obj.insert(
-            "project_id".to_string(),
-            serde_json::Value::String(project_id.to_string()),
-        );
-    }
-
-    let _ = std::fs::write(
-        config_path,
-        serde_json::to_string_pretty(&json).unwrap_or_default(),
+    obj.insert(
+        "project_id".to_string(),
+        serde_json::Value::String(project_id.to_string()),
     );
+    let mut serialized = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    if content.ends_with('\n') {
+        serialized.push('\n');
+    }
+    std::fs::write(config_path, serialized).map_err(|e| format!("failed to write config: {e}"))
 }
 
 #[cfg(test)]

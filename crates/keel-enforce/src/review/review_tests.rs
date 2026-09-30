@@ -109,8 +109,8 @@ fn empty_store() -> SqliteGraphStore {
 }
 
 /// The same check toggles `keel compile` runs with.
-fn enforce() -> keel_core::config::EnforceConfig {
-    keel_core::config::EnforceConfig::default()
+fn enforce() -> keel_core::config::KeelConfig {
+    keel_core::config::KeelConfig::default()
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn signature_change_leads_with_its_callers_outside_the_diff() {
     );
 
     let store = store_with_caller("execute", "src/commands.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce(), false).unwrap();
 
     assert_eq!(result.contract_change_count, 1);
     let top = &result.changes[0];
@@ -177,7 +177,7 @@ fn callers_inside_the_diff_do_not_count() {
     );
 
     let store = store_with_caller("execute", "src/commands.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce(), false).unwrap();
 
     let exec = result.changes.iter().find(|c| c.name == "execute").unwrap();
     assert_eq!(exec.callers_outside_diff_count, 0);
@@ -196,7 +196,7 @@ fn a_body_only_pr_is_silent() {
         "pub fn add(a: u8, b: u8) -> u8 {\n    let sum = a + b;\n    sum\n}\n",
     );
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     assert_eq!(result.contract_change_count, 0);
     assert_eq!(result.body_only_count, 1);
     assert_eq!(result.functions_touched, 1);
@@ -215,7 +215,7 @@ fn a_docstring_only_change_is_doc_only_not_body_only() {
         "/// New wording entirely.\npub fn add(a: u8, b: u8) -> u8 {\n    a + b\n}\n",
     );
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     assert_eq!(result.doc_only_count, 1);
     assert_eq!(result.body_only_count, 0);
     assert!(render::is_silent(&result));
@@ -235,7 +235,7 @@ fn a_pure_rename_reports_moved_not_add_plus_remove() {
     // -M rename detection needs the deletion staged alongside the addition.
     git(dir.path(), &["add", "-A"]);
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     assert_eq!(result.changes.len(), 1, "{:?}", result.changes);
     let moved = &result.changes[0];
     assert_eq!(moved.name, "render");
@@ -287,7 +287,7 @@ fn a_renamed_file_whose_symbol_also_changed_still_finds_its_callers() {
 
     // The graph was mapped before the rename: `execute` sits under the old path.
     let store = store_with_caller("execute", "src/old_name.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce(), false).unwrap();
 
     let exec = result.changes.iter().find(|c| c.name == "execute").unwrap();
     assert_eq!(
@@ -320,7 +320,7 @@ fn unparsed_boundaries_are_named_while_parsed_sql_is_analyzed() {
     write(dir.path(), "README.md", "# docs\n");
     git(dir.path(), &["add", "-A"]);
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     let paths: Vec<&str> = result.unanalyzed.iter().map(|u| u.path.as_str()).collect();
     assert_eq!(paths, vec!["baml_src/main.baml"]);
     assert_eq!(result.unanalyzed[0].class, "boundary");
@@ -337,7 +337,7 @@ fn a_deleted_file_reports_its_symbols_as_removed() {
     std::fs::remove_file(dir.path().join("src/lib.rs")).unwrap();
 
     let store = store_with_caller("gone", "src/lib.rs", "main", "src/main.rs");
-    let result = review(&store, dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&store, dir.path(), "HEAD", &enforce(), false).unwrap();
 
     let removed = result.changes.iter().find(|c| c.name == "gone").unwrap();
     assert_eq!(removed.kind, ChangeKind::Removed);
@@ -359,7 +359,7 @@ fn a_whitespace_only_reformat_introduces_no_new_violations() {
         "\n\n\n\npub fn one(x: u8) -> u8 {\n\n    x\n\n}\n\npub fn two(y: u8) -> u8 {\n\n    y\n\n}\n",
     );
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     assert!(
         result.new_violations.is_empty(),
         "reformat produced: {:?}",
@@ -384,7 +384,7 @@ fn a_newly_added_undocumented_function_is_a_new_violation() {
         "/// Documented.\npub fn one(x: u8) -> u8 {\n    x\n}\n\npub fn two(y: u8) -> u8 {\n    y\n}\n",
     );
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     assert_eq!(
         result.new_violations.len(),
         1,
@@ -402,7 +402,7 @@ fn a_newly_added_undocumented_function_is_a_new_violation() {
 #[test]
 fn an_unresolvable_base_is_an_error_not_an_empty_review() {
     let dir = repo(&[("src/lib.rs", "pub fn a() -> u8 {\n    1\n}\n")]);
-    let err = review(&empty_store(), dir.path(), "no-such-ref", &enforce()).unwrap_err();
+    let err = review(&empty_store(), dir.path(), "no-such-ref", &enforce(), false).unwrap_err();
     assert!(err.contains("no-such-ref"), "got: {err}");
 }
 
@@ -412,7 +412,7 @@ fn json_round_trips_including_the_moved_payload() {
     std::fs::rename(dir.path().join("src/old.rs"), dir.path().join("src/new.rs")).unwrap();
     git(dir.path(), &["add", "-A"]);
 
-    let result = review(&empty_store(), dir.path(), "HEAD", &enforce()).unwrap();
+    let result = review(&empty_store(), dir.path(), "HEAD", &enforce(), false).unwrap();
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("\"kind\":\"moved\""), "{json}");
     assert!(json.contains("\"from\":\"src/old.rs\""), "{json}");

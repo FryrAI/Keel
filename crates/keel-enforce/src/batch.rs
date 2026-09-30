@@ -111,8 +111,9 @@ fn now_unix() -> u64 {
 // W009 defers as well — mid-scaffold a new package's first files legitimately
 // reach across boundaries before the façade they will go through exists. E006
 // does not: an explicitly denied pair is an error at any point in the scaffold.
+// Likewise W011 defers while E007 remains immediate.
 const DEFERRABLE_CODES: &[&str] = &[
-    "E002", "E003", "W001", "W002", "W005", "W006", "W007", "W009",
+    "E002", "E003", "W001", "W002", "W005", "W006", "W007", "W009", "W011",
 ];
 
 /// Returns true if this code should be deferred in batch mode.

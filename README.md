@@ -5,7 +5,7 @@
   </p>
   <p align="center">
     <a href="https://github.com/FryrAI/Keel/actions/workflows/ci.yml"><img src="https://github.com/FryrAI/Keel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust 1.75+">
+    <img src="https://img.shields.io/badge/rust-1.89%2B-orange" alt="Rust 1.89+">
     <img src="https://img.shields.io/badge/license-FSL--1.1--MIT-blue" alt="License: FSL-1.1-MIT">
     <img src="https://img.shields.io/badge/status-Phase%204-green" alt="Status: Phase 4">
     <a href="https://github.com/FryrAI/Keel"><img src="https://img.shields.io/github/stars/FryrAI/Keel?style=social" alt="GitHub Stars"></a>
@@ -270,7 +270,7 @@ The `extensions/vscode/` directory contains a VS Code extension that displays ke
 ### Building from Source
 
 ```bash
-# Prerequisites: Rust 1.75+
+# Prerequisites: Rust 1.89+
 cargo build --workspace
 
 # Run tests
@@ -311,6 +311,7 @@ scripts/
 | E004 | Function removed | ERROR |
 | E005 | Arity mismatch | ERROR |
 | E006 | Layer violation (opt-in `architecture.deny`) | ERROR |
+| E007 | Home violation (opt-in `enforce.homes: "error"`) | ERROR |
 | W001 | Placement issue | WARNING |
 | W002 | Duplicate name | WARNING |
 | W005 | Dead code | WARNING |
@@ -318,10 +319,23 @@ scripts/
 | W007 | Oversized file | WARNING |
 | W009 | New cross-boundary dependency | WARNING |
 | W010 | Semantic reuse candidate (`keel review`, advisory-only) | WARNING |
+| W011 | New expression outside its configured home | WARNING |
 | S001 | Suppressed | INFO |
 | P001 | Unknown symbol (plan-time, `keel validate-plan` only) | WARNING |
 | P002 | Signature mismatch (plan-time, `keel validate-plan` only) | WARNING |
 | P003 | Reuse candidate (plan-time, never strict) | WARNING |
+
+### Expression homes
+
+Opt-in `homes` rules flag new literal expressions outside a declared home as
+W011, or E007 with `enforce.homes: "error"`. Matching includes code, strings,
+comments and test source. Compile compares with Git HEAD (or `--since`), while
+review compares with `--base`; the baseline is independent of a fresh map or a
+shared worktree graph. For the committed ratchet, configure
+`review.gate: ["W011"]` (or `["E007"]`) and run
+`keel review --base origin/main --gate` in CI after `keel map`. Escalation alone
+does not gate review. See [configuration](docs/src/config.md#expression-homes-w011--e007)
+for patterns, home/scope globs, exclusions and the full CI example.
 
 ### Exit Codes
 

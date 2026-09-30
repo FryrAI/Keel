@@ -1,6 +1,7 @@
 [package]
 name = "keel-tests"
 version.workspace = true
+rust-version.workspace = true
 edition = "2021"
 publish = false
 
@@ -19,7 +20,7 @@ resolver = "2"
 version = "0.6.2"
 edition = "2021"
 license-file = "LICENSE"
-rust-version = "1.75"
+rust-version = "1.89"
 description = "Structural code enforcement for LLM coding agents"
 homepage = "https://keel.engineer"
 repository = "https://github.com/FryrAI/Keel"

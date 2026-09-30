@@ -142,7 +142,7 @@ pub fn run_stdio(
 ) -> io::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    let engine = mcp::create_shared_engine(db_path);
+    let engine = mcp::create_shared_engine(db_path).map_err(io::Error::other)?;
     let session = McpSession::new(keel_dir, no_telemetry);
     run_loop(&store, &engine, session, stdin.lock(), stdout.lock())
 }

@@ -5,7 +5,6 @@ pub mod call_resolve;
 pub mod check;
 pub mod checkpoint;
 pub mod compile;
-pub mod compile_lock;
 pub mod compile_metrics;
 pub mod compile_scope;
 pub mod compile_sync;
@@ -44,6 +43,7 @@ pub mod validate_plan;
 pub(crate) mod version_drift;
 pub mod watch;
 pub mod where_cmd;
+pub(crate) mod writer_lock;
 
 use std::path::PathBuf;
 

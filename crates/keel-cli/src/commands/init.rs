@@ -94,77 +94,6 @@ pub fn run(
         keel_core::config::MonorepoConfig::default()
     };
 
-    let config_path = keel_dir.join("keel.json");
-
-    if merge && config_path.exists() {
-        // Merge mode: read existing config and deep-merge with new defaults
-        let existing_json = fs::read_to_string(&config_path).unwrap_or_default();
-        let existing: serde_json::Value = serde_json::from_str(&existing_json)
-            .unwrap_or(serde_json::Value::Object(Default::default()));
-
-        let new_config = KeelConfig {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            languages: languages.clone(),
-            monorepo: monorepo_config.clone(),
-            telemetry_id: Some(generate_telemetry_id(&cwd)),
-            ..KeelConfig::default()
-        };
-        let new_json: serde_json::Value = serde_json::to_value(&new_config)
-            .unwrap_or(serde_json::Value::Object(Default::default()));
-
-        // Deep merge: new values fill in missing keys, existing values preserved
-        let merged = merge::json_deep_merge(&new_json, &existing);
-        match fs::write(&config_path, serde_json::to_string_pretty(&merged).unwrap()) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("keel init: failed to write merged config: {}", e);
-                return 2;
-            }
-        }
-        if verbose {
-            eprintln!("keel init --merge: config merged");
-        }
-    } else {
-        // Fresh init: write new config
-        let config = KeelConfig {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            languages: languages.clone(),
-            monorepo: monorepo_config.clone(),
-            telemetry_id: Some(generate_telemetry_id(&cwd)),
-            ..KeelConfig::default()
-        };
-        match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("keel init: failed to write config: {}", e);
-                return 2;
-            }
-        }
-    }
-
-    // Open (or create) the graph database.
-    // On merge: reset circuit breaker state.
-    let db_path = keel_dir.join("graph.db");
-    match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
-        Ok(store) => {
-            if merge {
-                // Reset circuit breaker state on merge
-                if let Err(e) = store.save_circuit_breaker(&[]) {
-                    if verbose {
-                        eprintln!(
-                            "keel init --merge: warning: failed to reset circuit breaker: {}",
-                            e
-                        );
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("keel init: failed to create graph database: {}", e);
-            return 2;
-        }
-    }
-
     // Create .keelignore
     create_keelignore(&cwd, verbose);
 
@@ -236,6 +165,100 @@ pub fn run(
             on_edit: hook_selections.contains(&3),
         }
     };
+
+    let config_path = keel_dir.join("keel.json");
+    let db_path = keel_dir.join("graph.db");
+    // Prompts above and hook/config generation below must never hold the graph
+    // lock. Only config read/write, schema opening, and breaker reset need it.
+    {
+        let _lock = match super::writer_lock::acquire("init", &keel_dir) {
+            Ok(lock) => lock,
+            Err(code) => return code,
+        };
+
+        if merge && config_path.exists() {
+            // Merge mode: read existing config and deep-merge with new defaults
+            let existing_json = match fs::read_to_string(&config_path) {
+                Ok(text) => text,
+                Err(e) => {
+                    eprintln!("keel init: refusing to rewrite config: {e}");
+                    return 2;
+                }
+            };
+            let existing = match serde_json::from_str::<serde_json::Value>(&existing_json) {
+                Ok(value) if value.is_object() => value,
+                _ => {
+                    eprintln!("keel init: refusing to rewrite config: expected a JSON object");
+                    return 2;
+                }
+            };
+
+            let new_config = KeelConfig {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                languages: languages.clone(),
+                monorepo: monorepo_config.clone(),
+                telemetry_id: Some(generate_telemetry_id(&cwd)),
+                ..KeelConfig::default()
+            };
+            let new_json: serde_json::Value = serde_json::to_value(&new_config)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+
+            // Deep merge: new values fill in missing keys, existing values preserved
+            let merged = merge::json_deep_merge(&new_json, &existing);
+            let mut json = serde_json::to_string_pretty(&merged).unwrap();
+            if existing_json.ends_with('\n') {
+                json.push('\n');
+            }
+            match fs::write(&config_path, json) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("keel init: failed to write merged config: {}", e);
+                    return 2;
+                }
+            }
+            if verbose {
+                eprintln!("keel init --merge: config merged");
+            }
+        } else {
+            // Fresh init: write new config
+            let config = KeelConfig {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                languages: languages.clone(),
+                monorepo: monorepo_config.clone(),
+                telemetry_id: Some(generate_telemetry_id(&cwd)),
+                ..KeelConfig::default()
+            };
+            match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("keel init: failed to write config: {}", e);
+                    return 2;
+                }
+            }
+        }
+
+        // Open (or create) the graph database.
+        // On merge: reset circuit breaker state.
+        match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
+            Ok(store) => {
+                if merge {
+                    // Reset circuit breaker state on merge
+                    if let Err(e) = store.save_circuit_breaker(&[]) {
+                        if verbose {
+                            eprintln!(
+                                "keel init --merge: warning: failed to reset circuit breaker: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("keel init: failed to create graph database: {}", e);
+                return 2;
+            }
+        }
+    }
 
     if hook_selection.on_edit {
         eprintln!(

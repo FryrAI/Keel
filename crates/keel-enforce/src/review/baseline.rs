@@ -52,7 +52,8 @@ use super::diff::DiffScan;
 /// equivalent of) and W009/E006 (self-baselining already — they fire only on
 /// dependencies absent from the stored graph, which is the same job done at
 /// edit time).
-pub const DIFFABLE_CODES: [&str; 5] = ["E002", "E003", "W005", "W006", "W007"];
+/// W011/E007 use raw-text multiset subtraction, appended by the review caller.
+pub const DIFFABLE_CODES: [&str; 7] = ["E002", "E003", "W005", "W006", "W007", "W011", "E007"];
 
 /// Everything the baseline diff concluded about one PR.
 pub struct BaselineDiff {

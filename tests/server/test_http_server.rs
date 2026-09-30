@@ -20,7 +20,7 @@ fn root() -> std::path::PathBuf {
 fn test_engine() -> SharedEngine {
     let store = SqliteGraphStore::in_memory().unwrap();
     let engine = EnforcementEngine::new(Box::new(store));
-    Arc::new(Mutex::new(engine))
+    Arc::new(Mutex::new(engine)).into()
 }
 
 fn engine_with_node() -> SharedEngine {
@@ -50,7 +50,7 @@ fn engine_with_node() -> SharedEngine {
         })
         .unwrap();
     let engine = EnforcementEngine::new(Box::new(store));
-    Arc::new(Mutex::new(engine))
+    Arc::new(Mutex::new(engine)).into()
 }
 
 #[tokio::test]
