@@ -8,8 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Expression homes follow-ups (#87, part A).** Patterns accept case-sensitive
+  literals and line-local `{"regex": "…"}` objects; invalid, empty, or empty-matching
+  regexes skip their rule, and explicit config writes refuse invalid objects.
+  Syntax-tree comments and hash-bang lines are excluded in Rust, Python, Go,
+  TypeScript/TSX, JavaScript/JSX, and Bash, while strings and Python docstrings
+  remain checked. SQL, Typst, and raw Svelte/Astro markup remain unmasked.
 - **Opt-in expression homes (#80): W011/E007.** Literal patterns in code, strings,
-  comments and test source are checked against home/scope globs. Tolerant rules
+  and test source are checked against home/scope globs. Tolerant rules
   preserve unrelated config. Compile compares with HEAD or `--since`; CLI/MCP
   review uses an immutable Git base and rename-aware multiset subtraction.
   The committed ratchet requires configured `review.gate` codes plus
@@ -17,10 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Server/watch/HTTP/MCP compile do not run homes.
   Removed occurrences cancel matching additions across the invocation's checked
   files: review considers all diffed files; compile considers its selected files.
-  A compile of only a move's destination still reports the occurrence. Symlink
+  A compile of only a move's destination still reports it unless Git detects a rename. Symlink
   aliases are skipped; their targets are checked under their own paths.
 
 ### Fixed
+- Compile homes detect indexed renames against the immutable HEAD/`--since`
+  base and consume each old blob once, preventing a separately selected deletion
+  from cancelling a newly added occurrence. Plain unstaged moves remain undetected.
+  Comment deletion preserves unchanged code identities; uncommenting matching
+  code introduces a finding. Older breaker fingerprints reset on first sight of
+  masked `homes-v3:` identities without charging an attempt or keeping a downgrade.
 - Compile and file queries use one worktree-relative graph key, including through
   directory symlinks, from any working directory (#82/#86). A full `keel map`
   walks the entire project root even when invoked from a package directory, so

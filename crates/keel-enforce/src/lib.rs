@@ -26,6 +26,7 @@ pub mod focus;
 pub mod gitdiff;
 pub mod hash_diff;
 pub mod homes_git;
+mod homes_mask;
 pub mod map;
 pub mod naming;
 pub mod parse_util;

@@ -205,10 +205,16 @@ bug where one compile permanently deleted a file's cross-crate edges, starving W
 discover` and W009's stored-boundary baseline.
 
 ### Expression Homes Use a Git Base, Not the Graph
-W011 (or E007 with `enforce.homes: "error"`) compares raw source lines to one resolved Git commit:
+W011 (or E007 with `enforce.homes: "error"`) compares source lines to one resolved Git commit:
 `compile` uses HEAD or `--since`; `review` uses `--base`. A fresh map must never grandfather a PR's own
 additions, and a shared worktree graph must never re-baseline another branch, so there is no graph baseline.
-Matches include comments and strings. Findings have empty hashes and are grouped per file/line; whitespace
+Patterns are case-sensitive substrings or `{"regex": "…"}` line-local regexes; invalid, empty, and
+empty-string-matching regexes skip their rule and are refused by `keel config homes` writes.
+Matches include strings (including Python docstrings). Tree-sitter comments and hash-bang lines are deleted
+except for newlines in Rust, Python, Go, TypeScript/TSX, JavaScript/JSX and Bash, on both sides. SQL, Typst,
+and raw Svelte/Astro markup remain unmasked. Blank masked lines never match. Removing comments from
+unchanged code is silent; uncommenting matching code introduces a finding. Every eligible file is parsed.
+Findings have empty hashes and are grouped per file/line; whitespace
 runs collapse for multiset subtraction, but other line edits re-evaluate the occurrence. Home/scope globs
 use current-worktree paths and eligibility is checked independently on both sides of a rename.
 Glob components drop leading `/`, empty parts and `.`; `..` rejects the rule with a named
@@ -216,11 +222,13 @@ warning. Root scope is allowed, root home is rejected. Symlinks are skipped; a t
 when selected under its own path. Base symlink link text contributes no occurrences, so replacing
 a symlink with a regular source file cannot grandfather its expressions. Removed occurrences cancel
 matching additions across the checked file set (all diffed files for review, selected files for compile); compiling only a move's
-destination still fires. Deduplicate normalized paths before subtracting baselines or pooling.
+destination still fires unless Git detects a rename. Deduplicate normalized paths before subtracting baselines or pooling.
 Read base blobs only for eligible base paths. Eligibility follows the canonical
 `detect_language` table (including SQL), not just the four core parser languages.
-Compile has no working-tree rename detection,
-so even a staged pure rename can fire under `compile --changed`; review recognizes renames.
+Compile and review detect renames against the same immutable homes base; each renamed base is consumed
+once, including when the old deletion is separately selected. The destination must be indexed: a plain
+unstaged `mv` contributes only its deletion to `--changed`; explicitly compiling the destination fires.
+`--since` selects `<base>..HEAD` files but compares working-tree text against `<base>`.
 The committed ratchet requires `review.gate: ["W011"]` (or `["E007"]`) AND
 `keel review --base origin/main --gate` in CI. Escalation alone does not gate review. Compile uses ordinary
 suppression, batch (W011 only), circuit-breaker (empty hash means a file-level counter), and delta handling;
@@ -228,6 +236,7 @@ progressive adoption does not demote E007. Missing/unavailable bases skip homes 
 E007's fingerprint is the set of normalized offending line identities in the file's own surplus
 before move cancellation: unchanged sets do not advance, strict subsets reset the counter,
 and only a new identity charges another attempt. Selecting different files alone cannot advance it.
+Older raw-line fingerprints reset to first sighting on migration to masked `homes-v3:` identities.
 Server/watch/HTTP/MCP **compile** do not run homes; CLI and MCP **review** do.
 
 ### Hash Computation

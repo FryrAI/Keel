@@ -118,6 +118,26 @@ fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
         eprintln!("keel config: enforce.homes must be warning or error");
         return 1;
     }
+    if key == "homes" {
+        // Config loads are tolerant; an explicit write must not save a regex
+        // that the next load would silently discard with its containing rule.
+        for pattern in parsed_value
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|rule| rule.get("patterns").and_then(|p| p.as_array()))
+            .flatten()
+            .filter(|p| p.is_object())
+        {
+            let valid = serde_json::from_value::<keel_core::config::HomePattern>(pattern.clone())
+                .map_err(|e| e.to_string())
+                .and_then(|p| p.validate());
+            if let Err(e) = valid {
+                eprintln!("keel config: invalid home pattern: {e}");
+                return 1;
+            }
+        }
+    }
 
     let schema = serde_json::to_value(KeelConfig::load(
         config_path.parent().unwrap_or(Path::new(".")),

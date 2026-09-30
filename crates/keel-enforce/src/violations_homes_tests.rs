@@ -1,6 +1,7 @@
 use super::*;
 
-fn scanner() -> HomeScanner {
+/// Prepare the literal rules shared with the comment and regex regressions.
+pub(super) fn scanner() -> HomeScanner {
     HomeScanner::new(
         &[
             HomeRule {
@@ -21,11 +22,11 @@ fn scanner() -> HomeScanner {
 }
 
 #[test]
-fn homes_scan_code_raw_strings_triple_quotes_and_comments() {
+fn homes_scan_code_raw_strings_triple_quotes_excludes_comments() {
     let scanner = scanner();
     let text = "value.date_naive();\nlet sql = r#\"CURRENT_DATE\"#;\n// CURRENT_DATE\n";
     let hits = scanner.scan("src/lib.rs", text);
-    assert_eq!(hits.len(), 4);
+    assert_eq!(hits.len(), 3);
     assert_eq!(
         scanner
             .scan("src/query.py", "sql = \"\"\"\nCURRENT_DATE\n\"\"\"\n")

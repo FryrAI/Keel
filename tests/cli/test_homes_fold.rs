@@ -38,12 +38,12 @@ fn homes_review_rejects_a_range_base_with_the_explicit_resolution_error() {
 
 #[test]
 fn homes_compile_breaker_counts_file_attempts_and_clears_after_resolution() {
-    for comment_only in [false, true] {
+    for symbol_less in [false, true] {
         let dir = fixture(true);
         config(dir.path(), "error", &[]);
         let source = |value| {
-            if comment_only {
-                format!("// CURRENT_DATE {value}\n// CURRENT_DATE second\n")
+            if symbol_less {
+                format!("const SQL: &str = \"CURRENT_DATE {value}\";\nconst OTHER: &str = \"CURRENT_DATE second\";\n")
             } else {
                 format!("fn a() {{ let _ = \"CURRENT_DATE\"; }}\nfn b() {{ let _ = \"CURRENT_DATE\"; }}\nfn query() {{\n    let _ = \"CURRENT_DATE {value}\";\n}}\n")
             }
@@ -53,7 +53,7 @@ fn homes_compile_breaker_counts_file_attempts_and_clears_after_resolution() {
             for _ in 0..5 {
                 let out = keel(dir.path(), &["compile", "src/lib.rs", "--json"]);
                 let hits = violations_with_code(&parse(&out), "E007");
-                assert_eq!(hits.len(), if comment_only { 2 } else { 3 });
+                assert_eq!(hits.len(), if symbol_less { 2 } else { 3 });
                 assert!(hits
                     .iter()
                     .all(|v| v["severity"] == if attempt < 3 { "ERROR" } else { "WARNING" }));
@@ -282,7 +282,7 @@ fn homes_breaker_fixing_one_line_at_a_time_resets_attempts_and_keeps_errors() {
         let source = (0..remaining)
             .map(|i| {
                 format!(
-                    "// CURRENT_DATE {}\n",
+                    "const SQL_{i}: &str = \"CURRENT_DATE {}\";\n",
                     if i == 0 { version * 10 } else { i }
                 )
             })
@@ -299,7 +299,7 @@ fn homes_breaker_fixing_one_line_at_a_time_resets_attempts_and_keeps_errors() {
         let state = rows.iter().find(|row| row.0 == "E007").unwrap();
         assert_eq!(state.2, if version == 2 && remaining == 4 { 2 } else { 1 });
         assert!(!state.3);
-        assert!(state.5.starts_with("homes-v2:\n"));
+        assert!(state.5.starts_with("homes-v3:\n"));
     }
 }
 

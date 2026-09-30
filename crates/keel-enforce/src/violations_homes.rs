@@ -1,9 +1,9 @@
-//! Raw-text expression matching and multiset subtraction for W011/E007.
+//! Comment-free expression matching and multiset subtraction for W011/E007.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
-use keel_core::config::{HomeRule, HomeSeverity};
+use keel_core::config::{HomePattern, HomeRule, HomeSeverity};
 use keel_core::config_homes::path_globs;
 use keel_parsers::treesitter::detect_language;
 
@@ -13,6 +13,32 @@ struct PreparedRule {
     rule: HomeRule,
     home: globset::GlobSet,
     scope: globset::GlobSet,
+    patterns: Vec<PreparedPattern>,
+}
+
+enum PreparedPattern {
+    Literal(String),
+    Regex(regex::Regex),
+}
+
+impl PreparedPattern {
+    fn new(pattern: &HomePattern) -> Option<Self> {
+        match pattern {
+            HomePattern::Literal(text) if !text.is_empty() => Some(Self::Literal(text.clone())),
+            HomePattern::Literal(_) => None,
+            HomePattern::Regex { regex } => {
+                let compiled = regex::Regex::new(regex).ok()?;
+                (!compiled.is_match("")).then_some(Self::Regex(compiled))
+            }
+        }
+    }
+
+    fn is_match(&self, line: &str) -> bool {
+        match self {
+            Self::Literal(text) => line.contains(text),
+            Self::Regex(regex) => regex.is_match(line),
+        }
+    }
 }
 
 impl PreparedRule {
@@ -55,6 +81,11 @@ impl HomeScanner {
                     Some(PreparedRule {
                         home: path_globs(&rule.home).ok()?,
                         scope: path_globs(&rule.scope).ok()?,
+                        patterns: rule
+                            .patterns
+                            .iter()
+                            .map(PreparedPattern::new)
+                            .collect::<Option<_>>()?,
                         rule,
                     })
                 })
@@ -68,16 +99,23 @@ impl HomeScanner {
         self.rules.iter().any(|rule| rule.eligible(path))
     }
 
-    /// Match case-sensitive substrings in code, strings, and comments, once per pattern/line.
+    /// Match code and strings after removing comments, once per pattern/nonblank line.
     pub fn scan(&self, path: &str, text: &str) -> Vec<HomeOccurrence> {
+        if !self.eligible(path) {
+            return vec![];
+        }
+        let text = crate::homes_mask::without_comments(path, text);
         let mut out = Vec::new();
         for (rule_index, prepared) in self.rules.iter().enumerate() {
             if !prepared.eligible(path) {
                 continue;
             }
             for (line, text) in text.lines().enumerate() {
-                for (pattern_index, pattern) in prepared.rule.patterns.iter().enumerate() {
-                    if text.contains(pattern) {
+                if text.trim().is_empty() {
+                    continue;
+                }
+                for (pattern_index, pattern) in prepared.patterns.iter().enumerate() {
+                    if pattern.is_match(text) {
                         out.push(HomeOccurrence {
                             rule: rule_index,
                             pattern: pattern_index,
@@ -162,7 +200,7 @@ impl HomeScanner {
                 rule.home.join(", ")
             };
             lines.entry(occurrence.line).or_default().push(format!(
-                "{}: {:?} (home: {})",
+                "{}: {} (home: {})",
                 rule.name, rule.patterns[occurrence.pattern], home
             ));
         }
@@ -182,3 +220,7 @@ impl HomeScanner {
 #[cfg(test)]
 #[path = "violations_homes_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "violations_homes_87_tests.rs"]
+mod issue87_tests;
