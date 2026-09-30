@@ -2,6 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::types::Violation;
 
+#[path = "circuit_breaker_homes.rs"]
+mod homes;
+
 /// Tracks consecutive failures per (error_code, identifier) pair.
 /// The identifier is normally the node hash, but when hash is empty
 /// (e.g. E003, W001, W002), we fall back to file_path so each file

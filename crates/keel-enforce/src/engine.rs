@@ -80,7 +80,7 @@ impl EnforcementEngine {
 
     /// Validate files with caller-provided findings through the ordinary post-processing.
     /// Map keys use `FileIndex` paths; values carry the stable file scope, findings,
-    /// and a fingerprint of the sorted normalized lines reported by homes.
+    /// and a fingerprint of the file's own surplus line identities before pooling.
     pub fn compile_with_findings(
         &mut self,
         files: &[FileIndex],
@@ -213,7 +213,11 @@ impl EnforcementEngine {
             if let Some(scope) = &scope {
                 let active = file_violations
                     .iter()
-                    .filter(|v| v.severity == "ERROR" && v.file == *scope)
+                    .filter(|v| {
+                        matches!(v.code.as_str(), "W011" | "E007")
+                            && v.severity == "ERROR"
+                            && v.file == *scope
+                    })
                     .map(|v| {
                         (
                             v.code.clone(),
@@ -225,7 +229,7 @@ impl EnforcementEngine {
                         )
                     })
                     .collect::<Vec<_>>();
-                self.circuit_breaker.reconcile_scope(scope, &active);
+                self.circuit_breaker.reconcile_home_scope(scope, &active);
             }
 
             // Apply circuit breaker. The breaker counts fix ATTEMPTS, not

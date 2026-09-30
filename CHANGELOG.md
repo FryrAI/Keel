@@ -25,14 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as `main...HEAD` with an explicit error (exit 2).
 - Review invoked from a subdirectory analyzes paths from the worktree root.
 - Compile clears persisted circuit-breaker state when the last counter clears.
-- Home violations charge one breaker attempt per file, using the sorted normalized
-  offending lines; unchanged recompiles do not advance the counter.
+- Home violations charge one breaker attempt per file, using the identity set of
+  the file's own surplus before move cancellation. Only a new identity advances
+  the counter; unchanged sets keep it steady, and strict subsets reset it.
 - Config writers patch only their selected raw JSON key, preserving malformed
   rules, string globs and unknown settings; invalid JSON is never overwritten.
   JSON formatting may change when rewritten. Unknown `enforce.homes` values warn
   and default to warning without discarding other settings. Home/scope globs
-  normalize leading `./` and trailing `/`; root scope is allowed, root home warns
-  and rejects the rule. Review gates naming the unavailable home code warn.
+  drop leading `/`, empty and `.` components; `..` rejects the rule with a named
+  warning. Root scope is allowed, root home warns and rejects the rule. Review
+  gates naming the unavailable home code warn.
+- `keel init --merge` and `keel push` refuse an unparsable existing `keel.json`
+  with exit 2 instead of overwriting it. `keel config` validates `enforce.homes`
+  and requires `homes` to be a JSON array before writing.
 - Empty-hash circuit-breaker findings omit the unusable `keel discover` hint.
 
 ## [0.6.2] - 2026-09-04
