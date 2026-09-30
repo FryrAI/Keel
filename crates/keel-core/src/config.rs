@@ -306,8 +306,13 @@ impl KeelConfig {
         if !config_path.exists() {
             return Ok(());
         }
-        let mut config = Self::load(keel_dir);
-        config.version = version.to_string();
+        let content = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+        let mut config: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| format!("refusing to rewrite {}: {e}", config_path.display()))?;
+        let object = config
+            .as_object_mut()
+            .ok_or_else(|| "config must be a JSON object".to_string())?;
+        object.insert("version".into(), version.into());
         let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
         std::fs::write(&config_path, json).map_err(|e| e.to_string())
     }

@@ -79,11 +79,12 @@ impl EnforcementEngine {
     }
 
     /// Validate files with caller-provided findings through the ordinary post-processing.
-    /// Map keys use `FileIndex` paths; values carry the stable file scope and findings.
+    /// Map keys use `FileIndex` paths; values carry the stable file scope, findings,
+    /// and a fingerprint of the sorted normalized lines reported by homes.
     pub fn compile_with_findings(
         &mut self,
         files: &[FileIndex],
-        mut findings: HashMap<String, (String, Vec<Violation>)>,
+        mut findings: HashMap<String, (String, Vec<Violation>, String)>,
     ) -> CompileResult {
         let mut all_errors = Vec::new();
         let mut all_warnings = Vec::new();
@@ -119,9 +120,9 @@ impl EnforcementEngine {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
             let existing_nodes = self.store.get_nodes_in_file(&file.file_path);
 
-            let (scope, mut file_violations) = findings
+            let (scope, mut file_violations, home_fingerprint) = findings
                 .remove(&file.file_path)
-                .map(|(scope, findings)| (Some(scope), findings))
+                .map(|(scope, findings, fingerprint)| (Some(scope), findings, fingerprint))
                 .unwrap_or_default();
 
             // E001: broken callers (uses cached nodes, batch-aware)
@@ -247,6 +248,7 @@ impl EnforcementEngine {
             let mut fingerprints =
                 FileFingerprints::new(&file.file_path, &file.definitions, &def_hashes);
             fingerprints.file_alias = scope;
+            fingerprints.home_fingerprint = home_fingerprint;
             file_violations = self.apply_circuit_breaker(file_violations, &fingerprints);
 
             // Apply suppressions
@@ -610,23 +612,34 @@ impl EnforcementEngine {
         violations: Vec<Violation>,
         fingerprints: &FileFingerprints,
     ) -> Vec<Violation> {
+        let mut home_actions = HashMap::new();
         violations
             .into_iter()
             .map(|mut v| {
                 if v.severity == "ERROR" {
                     let body_hash = fingerprints.fingerprint_for(&v);
-                    let action = self
-                        .circuit_breaker
-                        .record_failure(&v.code, &v.hash, body_hash, &v.file);
+                    let action = if matches!(v.code.as_str(), "W011" | "E007") {
+                        home_actions
+                            .entry((v.code.clone(), v.file.clone()))
+                            .or_insert_with(|| {
+                                self.circuit_breaker
+                                    .record_failure(&v.code, &v.hash, body_hash, &v.file)
+                            })
+                            .clone()
+                    } else {
+                        self.circuit_breaker
+                            .record_failure(&v.code, &v.hash, body_hash, &v.file)
+                    };
                     match action {
                         BreakerAction::FixHint => {} // fix_hint already set
-                        BreakerAction::WiderContext => {
+                        BreakerAction::WiderContext if !v.hash.is_empty() => {
                             v.fix_hint = Some(format!(
                                 "{} (2nd attempt — run `keel discover {}` for context)",
                                 v.fix_hint.unwrap_or_default(),
                                 v.hash
                             ));
                         }
+                        BreakerAction::WiderContext => {}
                         BreakerAction::Downgrade => {
                             v.severity = "WARNING".to_string();
                             v.fix_hint = Some(format!(
@@ -666,6 +679,7 @@ impl EnforcementEngine {
 pub(crate) struct FileFingerprints {
     file_path: String,
     file_alias: Option<String>,
+    home_fingerprint: String,
     /// `(line_start, line_end, content hash)` per definition, in file order.
     defs: Vec<(u32, u32, String)>,
     /// The file's sorted definition NAMES, joined. Changes only when a def is
@@ -691,6 +705,7 @@ impl FileFingerprints {
         Self {
             file_path: file_path.to_string(),
             file_alias: None,
+            home_fingerprint: String::new(),
             defs,
             name_set: names.join("|"),
         }
@@ -716,6 +731,9 @@ impl FileFingerprints {
     /// Fallbacks: name set (structure) when the specific lookup misses, then
     /// the violation's own hash for a file with no definitions at all.
     fn fingerprint_for<'a>(&'a self, v: &'a Violation) -> &'a str {
+        if matches!(v.code.as_str(), "W011" | "E007") {
+            return &self.home_fingerprint;
+        }
         if v.file == self.file_path || self.file_alias.as_deref() == Some(v.file.as_str()) {
             match v.code.as_str() {
                 "E004" => {}

@@ -35,6 +35,15 @@ pub fn run(
         Err(code) => return code,
     };
     let config = keel_core::config::KeelConfig::load(&ctx.keel_dir);
+    if gate {
+        let (emitted, unavailable) = match config.enforce.homes {
+            keel_core::config::HomeSeverity::Warning => ("W011", "E007"),
+            keel_core::config::HomeSeverity::Error => ("E007", "W011"),
+        };
+        if config.review.gate.iter().any(|code| code == unavailable) {
+            eprintln!("keel review: review.gate names {unavailable}, but enforce.homes can only emit {emitted}; {unavailable} gates nothing");
+        }
+    }
     let (cwd, store) = (ctx.cwd, ctx.store);
 
     // Detect (never rewrite — Principle 7) a binary/docs version mismatch, as

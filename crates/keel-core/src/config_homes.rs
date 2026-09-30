@@ -18,12 +18,29 @@ pub struct HomeRule {
 }
 
 /// Severity of newly introduced expressions outside their home.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HomeSeverity {
     #[default]
     Warning,
     Error,
+}
+
+impl<'de> Deserialize<'de> for HomeSeverity {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(d)?;
+        Ok(match value.as_str() {
+            Some("error") => Self::Error,
+            Some("warning") => Self::Warning,
+            _ => {
+                warn_once(
+                    format!("homes-severity:{value}"),
+                    &format!("unknown enforce.homes value {value}; using warning"),
+                );
+                Self::Warning
+            }
+        })
+    }
 }
 
 fn string_or_array<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
@@ -80,7 +97,26 @@ pub fn deserialize_homes<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<HomeRule
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .unwrap_or_else(|| format!("#{}", i + 1));
-        let rule = serde_json::from_value::<HomeRule>(value.clone());
+        let rule = serde_json::from_value::<HomeRule>(value.clone()).and_then(|mut rule| {
+            for path in rule.home.iter_mut().chain(&mut rule.scope) {
+                *path = path
+                    .trim_start_matches("./")
+                    .trim_end_matches('/')
+                    .to_string();
+                if path == "." {
+                    path.clear();
+                }
+            }
+            if rule.home.iter().any(String::is_empty) {
+                return Err(serde::de::Error::custom(
+                    "repo root is not a permitted home",
+                ));
+            }
+            if rule.scope.iter().any(String::is_empty) {
+                rule.scope.clear();
+            }
+            Ok(rule)
+        });
         let reason = match &rule {
             Err(e) => Some(e.to_string()),
             Ok(r) if r.name.trim().is_empty() => Some("empty name".into()),

@@ -93,29 +93,63 @@ impl HomeScanner {
         head: &[HomeOccurrence],
         base: &[HomeOccurrence],
     ) -> Vec<Violation> {
-        let mut counts = HashMap::new();
-        for occurrence in base {
-            *counts
-                .entry((
-                    occurrence.rule,
-                    occurrence.pattern,
-                    occurrence.text.as_str(),
-                ))
-                .or_insert(0usize) += 1;
+        self.introduced_many(&[(path.to_string(), head.to_vec(), base.to_vec())])
+    }
+
+    /// Subtract per-file baselines, then cancel moves across the checked file set.
+    /// Surplus matches consume removed occurrences in deterministic path/line order.
+    pub fn introduced_many(
+        &self,
+        files: &[(String, Vec<HomeOccurrence>, Vec<HomeOccurrence>)],
+    ) -> Vec<Violation> {
+        let mut pool = HashMap::new();
+        let mut surpluses = BTreeMap::new();
+        for (path, head, base) in files {
+            let mut counts = HashMap::new();
+            for occurrence in base {
+                *counts
+                    .entry((occurrence.rule, occurrence.pattern, occurrence.text.clone()))
+                    .or_insert(0usize) += 1;
+            }
+            let mut surplus = Vec::new();
+            for occurrence in head {
+                let count = counts
+                    .entry((occurrence.rule, occurrence.pattern, occurrence.text.clone()))
+                    .or_default();
+                if *count > 0 {
+                    *count -= 1;
+                } else {
+                    surplus.push(occurrence.clone());
+                }
+            }
+            for (key, count) in counts {
+                *pool.entry(key).or_insert(0usize) += count;
+            }
+            surplus.sort_by_key(|o| (o.line, o.rule, o.pattern));
+            surpluses.insert(path, surplus);
         }
+        let mut out = Vec::new();
+        for (path, surplus) in surpluses {
+            let head = surplus
+                .into_iter()
+                .filter(|o| {
+                    let count = pool.entry((o.rule, o.pattern, o.text.clone())).or_default();
+                    if *count == 0 {
+                        true
+                    } else {
+                        *count -= 1;
+                        false
+                    }
+                })
+                .collect::<Vec<_>>();
+            out.extend(self.report(path, &head));
+        }
+        out
+    }
+
+    fn report(&self, path: &str, head: &[HomeOccurrence]) -> Vec<Violation> {
         let mut lines = BTreeMap::<u32, Vec<String>>::new();
         for occurrence in head {
-            let count = counts
-                .entry((
-                    occurrence.rule,
-                    occurrence.pattern,
-                    occurrence.text.as_str(),
-                ))
-                .or_default();
-            if *count > 0 {
-                *count -= 1;
-                continue;
-            }
             let rule = &self.rules[occurrence.rule].rule;
             let home = if rule.home.is_empty() {
                 "no permitted home".into()

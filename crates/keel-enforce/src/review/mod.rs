@@ -209,17 +209,23 @@ pub fn review(
     let mut baseline = baseline::diff(store, &scan, &config.enforce);
     if !config.homes.is_empty() {
         let mut homes = crate::homes_git::GitHomes::new(&root, &commit, config, verbose);
+        let mut sources = Vec::new();
         for path in &paths {
-            if path.status == gitdiff::ChangeStatus::Deleted {
-                continue;
-            }
             let file = root.join(&path.path);
-            if let Ok(text) = std::fs::read_to_string(&file) {
-                baseline
-                    .new_violations
-                    .extend(homes.check(&file, &text, path.base_path()));
+            let text = if path.status == gitdiff::ChangeStatus::Deleted {
+                Ok(String::new())
+            } else {
+                std::fs::read_to_string(&file)
+            };
+            if let Ok(text) = text {
+                sources.push((file, text, path.base_path()));
             }
         }
+        let inputs = sources
+            .iter()
+            .map(|(file, text, base)| (file.as_path(), text.as_str(), *base))
+            .collect::<Vec<_>>();
+        baseline.new_violations.extend(homes.check_many(&inputs));
         baseline
             .new_violations
             .sort_by(|a, b| (&a.file, a.line, &a.code).cmp(&(&b.file, b.line, &b.code)));

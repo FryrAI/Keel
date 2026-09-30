@@ -87,11 +87,13 @@ fn get_config(config_path: &Path, key: &str) -> i32 {
 }
 
 fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
-    let config = KeelConfig::load(config_path.parent().unwrap_or(Path::new(".")));
-    let mut json_value = match serde_json::to_value(&config) {
+    let mut json_value: serde_json::Value = match fs::read_to_string(config_path)
+        .map_err(|e| e.to_string())
+        .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+    {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("keel config: failed to serialize: {}", e);
+            eprintln!("keel config: refusing to rewrite config: {}", e);
             return 2;
         }
     };
@@ -99,13 +101,37 @@ fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
     // Parse value into appropriate JSON type
     let parsed_value = parse_value(value);
 
-    if !set_dot_path(&mut json_value, key, parsed_value) {
+    let schema = serde_json::to_value(KeelConfig::load(
+        config_path.parent().unwrap_or(Path::new(".")),
+    ))
+    .unwrap();
+    if resolve_dot_path(&schema, key).is_none() {
         eprintln!("keel config: unknown key '{}'", key);
         return 1;
     }
+    // Defaults describe supported keys, but only the selected path is added to disk.
+    let segments = key.split('.').collect::<Vec<_>>();
+    let mut current = &mut json_value;
+    for segment in &segments[..segments.len() - 1] {
+        let Some(object) = current.as_object_mut() else {
+            eprintln!("keel config: invalid object for '{key}'");
+            return 2;
+        };
+        current = object
+            .entry(*segment)
+            .or_insert_with(|| serde_json::json!({}));
+    }
+    let Some(object) = current.as_object_mut() else {
+        eprintln!("keel config: invalid object for '{key}'");
+        return 2;
+    };
+    object
+        .entry(*segments.last().unwrap())
+        .or_insert(serde_json::Value::Null);
+    set_dot_path(&mut json_value, key, parsed_value);
 
     // Validate by deserializing back to KeelConfig
-    let updated: KeelConfig = match serde_json::from_value(json_value.clone()) {
+    let _: KeelConfig = match serde_json::from_value(json_value.clone()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("keel config: invalid value for '{}': {}", key, e);
@@ -113,7 +139,10 @@ fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
         }
     };
 
-    match fs::write(config_path, serde_json::to_string_pretty(&updated).unwrap()) {
+    match fs::write(
+        config_path,
+        serde_json::to_string_pretty(&json_value).unwrap(),
+    ) {
         Ok(_) => {
             eprintln!("keel config: {} = {}", key, value);
             0

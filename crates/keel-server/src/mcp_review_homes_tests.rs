@@ -7,9 +7,6 @@ use std::sync::{Arc, Mutex};
 use keel_core::config::KeelConfig;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_enforce::engine::EnforcementEngine;
-use keel_parsers::resolver::FileIndex;
-use keel_parsers::resolver::LanguageResolver;
-use keel_parsers::rust_lang::RustLangResolver;
 use serde_json::json;
 
 fn git(root: &std::path::Path, args: &[&str]) {
@@ -70,13 +67,18 @@ fn homes_mcp_review_loads_rules_and_escalation_from_project_config() {
     assert!(hits[0]["message"].as_str().unwrap().contains("civil-day"));
 
     let config = KeelConfig::load(&root.join(".keel"));
-    let mut engine =
-        EnforcementEngine::with_config(Box::new(SqliteGraphStore::in_memory().unwrap()), &config);
-    let parsed = RustLangResolver::new().parse_file(&root.join("src/lib.rs"), content);
-    let result = engine.compile(&[FileIndex::from_parse("src/lib.rs", content, parsed)]);
-    assert!(result
-        .errors
+    let engine = Arc::new(Mutex::new(EnforcementEngine::with_config(
+        Box::new(SqliteGraphStore::in_memory().unwrap()),
+        &config,
+    )));
+    let file = root.join("src/lib.rs").to_string_lossy().to_string();
+    let result =
+        crate::mcp_compile::handle_compile(&engine, Some(json!({"files": [file]}))).unwrap();
+    assert_eq!(result["files_analyzed"], json!([file]));
+    assert!(result["errors"]
+        .as_array()
+        .unwrap()
         .iter()
-        .chain(&result.warnings)
-        .all(|v| v.code != "E007" && v.code != "W011"));
+        .chain(result["warnings"].as_array().unwrap())
+        .all(|v| v["code"] != "E007" && v["code"] != "W011"));
 }

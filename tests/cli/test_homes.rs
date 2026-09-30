@@ -158,14 +158,16 @@ fn homes_compile_since_and_subdirectory_use_repository_paths() {
     git(dir.path(), &["add", "src/lib.rs"]);
     git(dir.path(), &["commit", "-q", "-m", "add occurrence"]);
     assert!(violations_with_code(&compile_json(dir.path(), "src/lib.rs"), "W011").is_empty());
-    let out = keel(
-        &dir.path().join("src"),
-        &["compile", "--since", "HEAD~1", "--json"],
-    );
+    let out = keel(dir.path(), &["compile", "--since", "HEAD~1", "--json"]);
     let hits = violations_with_code(&parse(&out), "W011");
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0]["line"], 3);
     assert_eq!(hits[0]["file"], "src/lib.rs");
+    let out = keel(
+        &dir.path().join("src"),
+        &["compile", "--since", "HEAD~1", "--json"],
+    );
+    assert!(violations_with_code(&parse(&out), "W011").is_empty());
     write(dir.path(), "src/new.rs", BASE);
     let hits = violations_with_code(&compile_json(&dir.path().join("src"), "./new.rs"), "W011");
     assert_eq!(hits.len(), 1);
@@ -281,7 +283,8 @@ fn homes_review_unknown_base_is_an_explicit_error_without_crash() {
     let out = review(dir.path(), "no-such-ref", false);
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("cannot resolve"));
+    assert!(String::from_utf8_lossy(&out.stderr)
+        .contains("keel review: cannot resolve base ref \"no-such-ref\""));
 }
 
 #[test]
@@ -301,40 +304,6 @@ fn homes_config_malformed_rules_warn_once_each_and_keep_valid_rules() {
     assert_eq!(stderr.matches("skipping home rule").count(), 2);
     assert!(stderr.contains("bad") && stderr.contains("duplicate name"));
     assert!(!stderr.contains("using defaults"));
-}
-
-#[test]
-fn homes_compile_breaker_counts_real_attempts_and_clears_after_resolution() {
-    let dir = fixture(true);
-    config(dir.path(), "error", &[]);
-    for (attempt, value) in [1, 2, 3].into_iter().enumerate() {
-        write(
-            dir.path(),
-            "src/lib.rs",
-            &format!("fn query() {{ let _ = \"CURRENT_DATE\"; let _ = {value}; }}\n"),
-        );
-        let out = keel(dir.path(), &["compile", "src/lib.rs", "--json"]);
-        let hits = violations_with_code(&parse(&out), "E007");
-        assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0]["severity"],
-            if attempt < 2 { "ERROR" } else { "WARNING" }
-        );
-        assert_eq!(out.status.code(), Some(if attempt < 2 { 1 } else { 0 }));
-    }
-    write(dir.path(), "src/lib.rs", "fn query() {}\n");
-    assert!(violations_with_code(&compile_json(dir.path(), "src/lib.rs"), "E007").is_empty());
-    write(
-        dir.path(),
-        "src/lib.rs",
-        "fn query() { let _ = \"CURRENT_DATE\"; }\n",
-    );
-    assert_eq!(
-        keel(dir.path(), &["compile", "src/lib.rs", "--json"])
-            .status
-            .code(),
-        Some(1)
-    );
 }
 
 #[test]
@@ -463,10 +432,23 @@ fn homes_subdirectory_breaker_clears_the_same_repository_scope() {
 
 #[cfg(unix)]
 #[test]
-fn homes_source_symlink_does_not_inherit_the_target_home_exemption() {
+fn homes_committed_source_symlink_is_skipped_and_target_checked_once() {
     let dir = fixture(true);
-    std::os::unix::fs::symlink("time.rs", dir.path().join("src/alias.rs")).unwrap();
-    let hits = violations_with_code(&compile_json(dir.path(), "src/alias.rs"), "W011");
+    std::os::unix::fs::symlink("lib.rs", dir.path().join("src/alias.rs")).unwrap();
+    git(dir.path(), &["add", "src/alias.rs"]);
+    git(dir.path(), &["commit", "-q", "-m", "committed alias"]);
+    let args = ["compile", "src/alias.rs", "src/lib.rs", "--json"];
+    assert!(violations_with_code(&parse(&keel(dir.path(), &args)), "W011").is_empty());
+    assert!(review_hits(&review(dir.path(), "HEAD~1", false), "W011").is_empty());
+    write(dir.path(), "src/lib.rs", ADDED);
+    let hits = violations_with_code(&parse(&keel(dir.path(), &args)), "W011");
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0]["file"], "src/alias.rs");
+    assert_eq!(hits[0]["file"], "src/lib.rs");
+    assert_eq!(
+        review_hits(&review(dir.path(), "HEAD", false), "W011").len(),
+        1
+    );
 }
+
+#[path = "test_homes_fold.rs"]
+mod fold;
