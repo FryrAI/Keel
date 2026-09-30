@@ -213,3 +213,48 @@ fn rejects_symlink_escaping_root() {
     );
     assert!(confine(&root, "ok.rs").is_some(), "real file still passes");
 }
+
+#[test]
+fn project_paths_normalize_subdirectories_and_deleted_parents() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src/deep")).unwrap();
+    git(&["init", "-q"], root);
+    assert_eq!(
+        super::project_root(&root.join("src")),
+        root.canonicalize().unwrap()
+    );
+    for file in ["src/./a.rs", "src/deep/../a.rs", "src/gone/deeper/a.rs"] {
+        let expected = if file.contains("gone") {
+            "src/gone/deeper/a.rs"
+        } else {
+            "src/a.rs"
+        };
+        assert_eq!(
+            super::project_relative(root, Path::new(file)).as_deref(),
+            Some(expected)
+        );
+        assert_eq!(make_relative(root, &root.join(file)), expected);
+    }
+    assert!(super::project_relative(root, Path::new("../outside.rs")).is_none());
+}
+
+#[test]
+fn project_root_without_git_preserves_start() {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    let start = dir.path().join("src");
+    assert_eq!(super::project_root(&start), start.canonicalize().unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn project_paths_preserve_source_symlink_leaf() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("target.rs"), "fn a() {}\n").unwrap();
+    std::os::unix::fs::symlink("target.rs", dir.path().join("alias.rs")).unwrap();
+    assert_eq!(
+        super::project_relative(dir.path(), Path::new("alias.rs")).as_deref(),
+        Some("alias.rs")
+    );
+}

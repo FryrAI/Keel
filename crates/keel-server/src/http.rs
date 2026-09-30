@@ -36,6 +36,7 @@ impl FromRef<AppState> for SharedEngine {
 /// Build the axum router, confining compile targets to `root` — the project
 /// root the server owns (`KeelServer::root_dir`), not the ambient process cwd.
 pub fn router(engine: SharedEngine, root: PathBuf) -> Router {
+    let root = keel_core::paths::project_root(&root);
     let state = AppState {
         engine,
         root: Arc::new(root),
@@ -160,7 +161,7 @@ async fn compile(State(state): State<AppState>, Json(req): Json<CompileRequest>)
         }
     };
 
-    let mut parser = FileParser::new();
+    let mut parser = FileParser::new(&state.root);
     let file_indexes: Vec<FileIndex> = targets
         .iter()
         .filter_map(|path| parser.parse(path))

@@ -50,6 +50,8 @@ mod test_map;
 mod test_name;
 #[path = "cli/test_plan_hook.rs"]
 mod test_plan_hook;
+#[path = "cli/test_project_root.rs"]
+mod test_project_root;
 #[path = "cli/test_quality.rs"]
 mod test_quality;
 #[path = "cli/test_review.rs"]

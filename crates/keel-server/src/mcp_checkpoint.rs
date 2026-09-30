@@ -38,7 +38,7 @@ pub(crate) fn handle_checkpoint(
     // Git returns repo-relative paths. Read from the authoritative root, then
     // preserve the relative graph path even when the process cwd differs.
     let changed = checkpoint::changed_files(root, &mode);
-    let mut parser = FileParser::new();
+    let mut parser = FileParser::new(root);
     let file_indices: Vec<_> = changed
         .iter()
         .filter_map(|f| {

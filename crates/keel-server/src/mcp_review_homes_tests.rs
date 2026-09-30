@@ -75,7 +75,7 @@ fn homes_mcp_review_loads_rules_and_escalation_from_project_config() {
     );
     let file = root.join("src/lib.rs").to_string_lossy().to_string();
     let result =
-        crate::mcp_compile::handle_compile(&engine, Some(json!({"files": [file]}))).unwrap();
+        crate::mcp_compile::handle_compile(&engine, root, Some(json!({"files": [file]}))).unwrap();
     assert_eq!(result["files_analyzed"], json!([file]));
     assert!(result["errors"]
         .as_array()

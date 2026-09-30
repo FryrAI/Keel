@@ -71,6 +71,7 @@ pub fn run(
     }
 
     let root_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root_dir = keel_core::paths::project_root(&root_dir);
     let keel_dir = keel_core::paths::keel_dir(&root_dir);
     if !keel_dir.exists() {
         eprintln!("keel serve: not initialized. Run `keel init` first.");

@@ -254,13 +254,13 @@ pub(crate) fn dispatch_tool(
     arguments: Option<Value>,
 ) -> Option<Result<Value, JsonRpcError>> {
     Some(match name {
-        "keel/compile" => crate::mcp_compile::handle_compile(engine, arguments),
+        "keel/compile" => crate::mcp_compile::handle_compile(engine, root, arguments),
         "keel/discover" => crate::mcp_discover::handle_discover(engine, arguments),
         "keel/where" => crate::mcp_discover::handle_where(store, arguments),
         "keel/explain" => crate::mcp_discover::handle_explain(engine, arguments),
         "keel/map" => crate::mcp_discover::handle_map(store, arguments),
         "keel/check" => crate::mcp_check::handle_check(engine, arguments),
-        "keel/fix" => crate::mcp_fix::handle_fix(store, engine, arguments),
+        "keel/fix" => crate::mcp_fix::handle_fix(store, engine, root, arguments),
         "keel/search" => crate::mcp_search::handle_search(store, arguments),
         "keel/name" => crate::mcp_name::handle_name(store, arguments),
         "keel/analyze" => crate::mcp_analyze::handle_analyze(store, arguments),

@@ -14,6 +14,7 @@ pub fn run(verbose: bool) -> i32 {
         }
     };
 
+    let root = keel_core::paths::project_root(&root);
     let keel_dir = keel_core::paths::keel_dir(&root);
     if !keel_dir.exists() {
         eprintln!("[keel watch] not initialized. Run `keel init` first.");

@@ -50,6 +50,7 @@ pub struct KeelServer {
 impl KeelServer {
     /// Create a new server instance from an existing database path.
     pub fn open(db_path: &str, root_dir: PathBuf) -> Result<Self, keel_core::types::GraphError> {
+        let root_dir = keel_core::paths::project_root(&root_dir);
         let keel_dir = crate::writer::disk_lock_dir(db_path);
         // Like nominal readers, startup relies on SQLite to serialize schema DDL.
         // Each write request acquires the graph lock separately.

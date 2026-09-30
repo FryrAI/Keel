@@ -66,7 +66,8 @@ pub fn run(
         }
     };
 
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
+    let root = keel_core::paths::project_root(&cwd);
+    let keel_dir = keel_core::paths::keel_dir(&root);
     if !keel_dir.exists() {
         eprintln!("keel compile: not initialized. Run `keel init` first.");
         return (2, EventMetrics::default());
@@ -77,7 +78,7 @@ pub fn run(
 
     // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
     // At most one line, emitted once per invocation.
-    super::version_drift::warn(&cwd, &config);
+    super::version_drift::warn(&root, &config);
 
     // Acquire the shared graph lock to prevent concurrent map/compile writes.
     let _lock = match super::writer_lock::acquire("compile", &keel_dir) {
@@ -98,7 +99,7 @@ pub fn run(
     // not contain: every caller and every removal it reports would be phantom.
     // Exit 2 (internal error), never 0 — a stale graph must fail loudly, which
     // is the one thing "no graph" already does for free.
-    if let Some(msg) = super::graph_staleness::stale_graph_message(&cwd, &store) {
+    if let Some(msg) = super::graph_staleness::stale_graph_message(&root, &store) {
         eprintln!("{msg}");
         return (2, EventMetrics::default());
     }
@@ -145,7 +146,7 @@ pub fn run(
     // the boundary surface). It must be installed on the resolvers below:
     // compile prunes and re-resolves each touched file's outgoing edges, so a
     // literal edge it cannot reproduce would be deleted until the next map.
-    let literal_keys = super::map_boundary::persisted_literal_keys(&cwd, &store);
+    let literal_keys = super::map_boundary::persisted_literal_keys(&root, &store);
 
     // Whether the user explicitly named the target files (not --changed/--since,
     // not a bare full-repo compile). Only then is a missing file a hard error;
@@ -163,7 +164,7 @@ pub fn run(
     // fixtures, non-git checkouts) keep the old full-repo-scan default, since
     // there is no git history to scope against.
     let bare_compile = files.is_empty() && !changed && since.is_none();
-    let default_to_changed = bare_compile && cwd.join(".git").exists();
+    let default_to_changed = bare_compile && root.join(".git").exists();
 
     // Resolve target files: --changed, --since, default-to-changed, explicit
     // list, or (only for a non-git bare compile) all.
@@ -209,7 +210,7 @@ pub fn run(
     let full_repo_compile = bare_compile && !default_to_changed;
 
     let target_files = if full_repo_compile {
-        let walker = keel_parsers::walker::FileWalker::new(&cwd);
+        let walker = keel_parsers::walker::FileWalker::new(&root);
         walker
             .walk()
             .into_iter()
@@ -223,7 +224,13 @@ pub fn run(
                 if p.is_absolute() {
                     f.clone()
                 } else {
-                    cwd.join(f).to_string_lossy().to_string()
+                    if explicit_targets {
+                        cwd.join(f)
+                    } else {
+                        root.join(f)
+                    }
+                    .to_string_lossy()
+                    .to_string()
                 }
             })
             .collect::<Vec<_>>()
@@ -233,10 +240,22 @@ pub fn run(
     // rather than enforced against a graph that cannot contain them.
     let home_targets = target_files.clone();
     let target_files =
-        match super::compile_scope::screen_targets(&cwd, target_files, explicit_targets) {
+        match super::compile_scope::screen_targets(&root, target_files, explicit_targets) {
             Ok(t) => t,
             Err(code) => return (code, EventMetrics::default()),
         };
+
+    // Read the same normalized root-relative paths that map and graph sync use.
+    let target_files = target_files
+        .iter()
+        .map(|path| {
+            root.join(make_relative(&root, Path::new(path)))
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
 
     // Exit 0 on a file keel never parsed is a false all-clear for any hook that
     // reads the exit code as verification. One line, for structurally
@@ -248,7 +267,7 @@ pub fn run(
     let mut file_indices: Vec<FileIndex> = Vec::new();
     let mut homes = (!config.homes.is_empty()).then(|| {
         keel_enforce::homes_git::GitHomes::new(
-            &cwd,
+            &root,
             since.as_deref().unwrap_or("HEAD"),
             &config,
             verbose,
@@ -272,10 +291,10 @@ pub fn run(
                     // must never be mistaken for a clean one.
                     eprintln!(
                         "keel compile: skipped (not valid UTF-8, NOT validated): {}",
-                        file_str
+                        file_path.display()
                     );
                 } else if verbose {
-                    eprintln!("keel compile: skipping {}: {}", file_str, e);
+                    eprintln!("keel compile: skipping {}: {}", file_path.display(), e);
                 }
                 continue;
             }
@@ -286,7 +305,7 @@ pub fn run(
         // repo with no boundary surface, which disables literals entirely).
         let resolver: &dyn LanguageResolver = match lang {
             l if keel_parsers::treesitter::is_typescript_family(l) => ts.get_or_insert_with(|| {
-                TsResolver::with_project_root(&cwd).with_boundary_literals(literal_keys.clone())
+                TsResolver::with_project_root(&root).with_boundary_literals(literal_keys.clone())
             }),
             "python" => py.get_or_insert_with(|| {
                 PyResolver::detect().with_boundary_literals(literal_keys.clone())
@@ -296,14 +315,14 @@ pub fn run(
                 RustLangResolver::new().with_boundary_literals(literal_keys.clone())
             }),
             "typst" | "astro" | "bash" | "sql" => supplemental.get_or_insert_with(|| {
-                SupplementalResolver::with_project_root(&cwd)
+                SupplementalResolver::with_project_root(&root)
                     .with_boundary_literals(literal_keys.clone())
             }),
             _ => continue,
         };
 
         let result = resolver.parse_file(file_path, &content);
-        let rel_path = make_relative(&cwd, file_path);
+        let rel_path = make_relative(&root, file_path);
 
         if homes.is_some() {
             home_sources.insert(file_path.to_path_buf(), content.clone());
@@ -318,7 +337,7 @@ pub fn run(
                 home_sources.insert(std::path::PathBuf::from(path), String::new());
             }
         }
-        home_findings = homes.compile_findings(&cwd, &home_sources);
+        home_findings = homes.compile_findings(&root, &home_sources);
     }
 
     if verbose && !file_indices.is_empty() {
@@ -339,7 +358,7 @@ pub fn run(
     // Resolve call references against the pre-edit graph so E005 arity
     // checking has real targets — before the engine takes ownership of the
     // store, and before enforcement mutates anything.
-    super::compile_sync::resolve_call_targets(&store, &cwd, &mut file_indices, &resolvers);
+    super::compile_sync::resolve_call_targets(&store, &root, &mut file_indices, &resolvers);
 
     let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
     engine.import_circuit_breaker(&cb_state);
@@ -395,7 +414,7 @@ pub fn run(
             }
         }
         if need_sync {
-            super::compile_sync::sync_compiled_files(ps, &cwd, &file_indices, &resolvers, verbose);
+            super::compile_sync::sync_compiled_files(ps, &root, &file_indices, &resolvers, verbose);
         }
     }
 
@@ -531,13 +550,14 @@ pub fn run(
 /// paths from the very check that exists to stop them passing silently.
 fn git_changed_files(since: &Option<String>) -> Result<Vec<String>, String> {
     let cwd = std::env::current_dir().map_err(|e| format!("failed to get cwd: {}", e))?;
+    let root = keel_core::paths::project_root(&cwd);
     let mode = match since {
         // `--since <commit>` means the committed range `<commit>..HEAD`.
         Some(base) => keel_enforce::gitdiff::DiffMode::Range(base.clone()),
         // `--changed` means working tree vs HEAD.
         None => keel_enforce::gitdiff::DiffMode::Since(None),
     };
-    keel_enforce::gitdiff::changed_files_checked(&cwd, &mode, false)
+    keel_enforce::gitdiff::changed_files_checked(&root, &mode, false)
 }
 
 /// Annotations for the violations `--delta` calls new.

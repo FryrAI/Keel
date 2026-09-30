@@ -158,16 +158,10 @@ fn run_loop<R: BufRead, W: Write>(
     reader: R,
     mut writer: W,
 ) -> io::Result<()> {
-    // The authoritative project root: the parent of the server's `.keel`
-    // directory (worktree-aware), falling back to cwd. Filesystem-touching
-    // tools (audit/skeleton/checkpoint) resolve against this rather than the
-    // ambient process cwd.
-    let root = session
-        .keel_dir
-        .as_deref()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    // Shared graph storage may live in the main checkout. Tools must read
+    // and run Git in the worktree containing the server's cwd instead.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = keel_core::paths::project_root(&cwd);
 
     for line in reader.lines() {
         let line = line?;

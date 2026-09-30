@@ -210,7 +210,7 @@ pub fn apply_batch(
     // Events can be stale after waiting for map, including delete/recreate
     // pairs whose recreation event is still in the debounce window. Revalidate
     // every path under the graph lock before choosing compile versus prune.
-    let mut parser = FileParser::new();
+    let mut parser = FileParser::new(root);
     let mut indices = Vec::new();
     for path in batch.changed.iter().chain(&batch.removed) {
         if path.exists() {
@@ -272,6 +272,7 @@ pub async fn watch(
     verbose: bool,
 ) -> Result<(), notify::Error> {
     // `_watcher` must outlive the loop — dropping it ends the watch.
+    let root = keel_core::paths::project_root(&root);
     let (_watcher, rx) = start_watching(&root)?;
     if verbose {
         eprintln!("[keel watch] watching {}", root.display());

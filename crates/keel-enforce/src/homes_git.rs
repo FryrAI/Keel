@@ -25,7 +25,7 @@ impl GitHomes {
     pub fn new(dir: &Path, base: &str, config: &KeelConfig, verbose: bool) -> Self {
         Self {
             scanner: HomeScanner::new(&config.homes, config.enforce.homes),
-            root: keel_core::paths::worktree_root(dir).unwrap_or_else(|| dir.to_path_buf()),
+            root: keel_core::paths::project_root(dir),
             base_ref: base.into(),
             commit: None,
             enabled: !config.homes.is_empty(),
@@ -134,6 +134,7 @@ impl GitHomes {
                 (path.as_str(), format!("homes-v2:\n{identities}"))
             })
             .collect::<HashMap<_, _>>();
+        let root = keel_core::paths::project_root(cwd);
         sources
             .keys()
             .filter_map(|path| {
@@ -148,7 +149,7 @@ impl GitHomes {
                     .cloned()
                     .unwrap_or_default();
                 Some((
-                    keel_core::paths::make_relative(cwd, path),
+                    keel_core::paths::make_relative(&root, path),
                     (scope, hits, fingerprint),
                 ))
             })
@@ -157,26 +158,7 @@ impl GitHomes {
 
     /// Normalize a source path relative to this worktree, preserving the leaf's spelling.
     pub fn relative_path(&self, file: &Path) -> Option<String> {
-        // Normalize parent components without following a source symlink into its home.
-        let mut parent = file.parent()?;
-        let mut missing = Vec::new();
-        while !parent.exists() {
-            missing.push(parent.file_name()?);
-            parent = parent.parent()?;
-        }
-        let mut file_path = parent.canonicalize().ok()?;
-        for component in missing.into_iter().rev() {
-            file_path.push(component);
-        }
-        let file = file_path.join(file.file_name()?);
-        let root = self.root.canonicalize().ok()?;
-        let rel = file.strip_prefix(root).ok()?;
-        Some(
-            rel.components()
-                .map(|c| c.as_os_str().to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/"),
-        )
+        keel_core::paths::project_relative(&self.root, file)
     }
 }
 

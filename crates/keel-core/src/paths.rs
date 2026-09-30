@@ -26,18 +26,11 @@ pub fn keel_dir(start: &Path) -> PathBuf {
         .unwrap_or_else(|| start.join(".keel"))
 }
 
-/// Render `path` as a project-root-relative string the way the graph stores it.
-///
-/// Strips `root` when `path` sits under it; otherwise (a path outside `root`, or
-/// an already-relative path — `strip_prefix` fails on both) the input is
-/// returned unchanged via `to_string_lossy`. This is the one shared spelling of
-/// the "make it relative to the repo root" idiom that the CLI commands, the map
-/// builder, and the server watcher all need.
+/// Render `path` as a normalized project-root-relative graph path.
+/// Paths outside `root` pass through unchanged; in-tree paths use the shared
+/// normalizer, including `/` separators and preservation of source symlinks.
 pub fn make_relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .to_string()
+    project_relative(root, path).unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
 /// The working-tree root containing `start`: the nearest ancestor holding a
@@ -49,6 +42,49 @@ pub fn make_relative(root: &Path, path: &Path) -> String {
 /// inside the repository" must be answered against the worktree itself.
 pub fn worktree_root(start: &Path) -> Option<PathBuf> {
     find_dot_git(start).map(|(root, _)| root)
+}
+
+/// Resolve the current worktree's project root, falling back to `start` outside Git.
+/// The shared `.keel` directory is deliberately independent of this file root.
+pub fn project_root(start: &Path) -> PathBuf {
+    let root = worktree_root(start).unwrap_or_else(|| start.to_path_buf());
+    root.canonicalize().unwrap_or(root)
+}
+
+/// Normalize a path inside `root` to its graph spelling, with `/` separators.
+/// Relative inputs are rooted at `root`. Parent directories are canonicalized
+/// when available, but the leaf is preserved so source symlinks retain their
+/// own identity. Deleted files and missing parent directories are supported.
+/// Returns `None` for paths outside the project.
+pub fn project_relative(root: &Path, path: &Path) -> Option<String> {
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let mut parent = joined.parent()?;
+    let mut missing = Vec::new();
+    while !parent.exists() {
+        missing.push(parent.file_name()?);
+        parent = parent.parent()?;
+    }
+    let mut normalized = parent.canonicalize().ok()?;
+    for component in missing.into_iter().rev() {
+        normalized.push(component);
+    }
+    normalized.push(joined.file_name()?);
+    let normalized = normalize_lexically(&normalized);
+    let root = root
+        .canonicalize()
+        .unwrap_or_else(|_| normalize_lexically(root));
+    let relative = normalized.strip_prefix(root).ok()?;
+    Some(
+        relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
 }
 
 /// Find the main checkout root of the repo containing `start`, or `None` if

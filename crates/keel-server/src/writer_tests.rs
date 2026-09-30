@@ -72,7 +72,8 @@ fn compile_request(source: &std::path::Path) -> Request<Body> {
 
 #[tokio::test(flavor = "current_thread")]
 async fn http_disk_compile_busy_then_writes_after_release_without_stalling_runtime() {
-    let (dir, store, engine, source) = disk_fixture(false);
+    // Map stores relative graph keys even when a client sends an absolute path.
+    let (dir, store, engine, source) = disk_fixture(true);
     let before = state(dir.path());
     let app = router(engine, dir.path().to_path_buf());
     let held = graph_lock::try_acquire(&dir.path().join(".keel")).unwrap();
@@ -126,7 +127,7 @@ async fn http_disk_lock_io_returns_500_without_writing() {
 }
 
 fn mcp_busy_then_release(tool: &str) {
-    let (dir, store, engine, source) = disk_fixture(false);
+    let (dir, store, engine, source) = disk_fixture(true);
     let shared = Arc::new(Mutex::new(
         SqliteGraphStore::open(dir.path().join(".keel/graph.db").to_str().unwrap()).unwrap(),
     ));
