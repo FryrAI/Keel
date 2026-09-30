@@ -17,7 +17,7 @@ use keel_enforce::map::{
 use super::map_passes;
 use super::map_resolve::build_package_node_index;
 use crate::telemetry_recorder::EventMetrics;
-use keel_core::paths::make_relative;
+use keel_core::paths::ProjectPathBatch;
 
 /// Run `keel map` — full re-parse of the codebase.
 #[allow(clippy::too_many_arguments)]
@@ -57,8 +57,10 @@ pub fn run(
         return super::map_cached::run_cached(&store, formatter, verbose, _depth);
     }
 
+    let mut paths = ProjectPathBatch::new(&root);
+
     // Walk all source files (with optional monorepo package annotation)
-    let walker = FileWalker::new(&cwd);
+    let walker = FileWalker::new(&root);
     let entries = if config.monorepo.enabled {
         let layout = keel_parsers::monorepo::detect_monorepo(&root);
         walker.walk_with_packages(&layout)
@@ -129,9 +131,9 @@ pub fn run(
     let scanned: Vec<(Vec<keel_parsers::boundary::BoundarySymbol>, f64)> = providers
         .iter()
         .map(|p| {
-            let mut symbols = p.scan(&cwd);
+            let mut symbols = p.scan(&root);
             for symbol in &mut symbols {
-                symbol.file_path = make_relative(&root, &cwd.join(&symbol.file_path));
+                symbol.file_path = paths.make_relative(&root.join(&symbol.file_path));
             }
             (symbols, p.confidence())
         })
@@ -150,7 +152,7 @@ pub fn run(
     let mut rejected_calls = HashSet::new();
     let all_file_data = map_passes::first_pass(
         &entries,
-        &root,
+        &mut paths,
         verbose,
         &ts,
         &py,
@@ -197,7 +199,7 @@ pub fn run(
     // Build file -> package mapping and cross-package index for monorepo resolution
     let entries_by_path: HashMap<_, _> = entries
         .iter()
-        .map(|entry| (make_relative(&root, &entry.path), entry))
+        .map(|entry| (paths.make_relative(&entry.path), entry))
         .collect();
     let file_packages: HashMap<String, String> = all_file_data
         .iter()

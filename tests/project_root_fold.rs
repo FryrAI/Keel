@@ -17,7 +17,7 @@ fn fixture() -> tempfile::TempDir {
     fs::create_dir_all(dir.path().join("pkg/src")).unwrap();
     fs::write(dir.path().join("pkg/src/lib.rs"), TARGET).unwrap();
     fs::write(dir.path().join("pkg/src/caller.rs"), CALLER).unwrap();
-    // The subtree map must not silently expand its walk to the whole repository.
+    // Package maps rebuild the shared graph from the whole project root.
     fs::write(dir.path().join("outside.rs"), "pub fn outside() {}\n").unwrap();
     git(dir.path(), &["init", "-q"]);
     assert!(keel(&dir.path().join("pkg"), &["init", "--yes"])
@@ -49,7 +49,10 @@ fn package_init_map_removed_function_explicit_and_changed() {
     ] {
         let dir = fixture();
         let root = dir.path();
-        assert_eq!(graph_paths(root), ["pkg/src/caller.rs", "pkg/src/lib.rs"]);
+        assert_eq!(
+            graph_paths(root),
+            ["outside.rs", "pkg/src/caller.rs", "pkg/src/lib.rs"]
+        );
         assert!(!root.join("pkg/.keel").exists());
         fs::write(
             root.join("pkg/src/lib.rs"),
@@ -67,7 +70,10 @@ fn package_init_map_removed_function_explicit_and_changed() {
             common::violations_with_code(&result, "W002").is_empty(),
             "{result}"
         );
-        assert_eq!(graph_paths(root), ["pkg/src/caller.rs", "pkg/src/lib.rs"]);
+        assert_eq!(
+            graph_paths(root),
+            ["outside.rs", "pkg/src/caller.rs", "pkg/src/lib.rs"]
+        );
         let db = rusqlite::Connection::open(root.join(".keel/graph.db")).unwrap();
         let modules: i64 = db
             .query_row(
@@ -76,7 +82,7 @@ fn package_init_map_removed_function_explicit_and_changed() {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(modules, 2, "compile created a duplicate module");
+        assert_eq!(modules, 3, "compile created a duplicate module");
     }
 }
 
@@ -149,6 +155,7 @@ fn root_map_keeps_base_path_spelling_including_boundaries() {
     assert_eq!(
         graph_paths(dir.path()),
         [
+            "outside.rs",
             "pkg/baml_src/main.baml",
             "pkg/src/caller.rs",
             "pkg/src/lib.rs"

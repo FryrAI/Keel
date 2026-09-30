@@ -332,3 +332,29 @@ fn confinement_accepts_checkout_alias_and_rejects_symlink_escape() {
     std::os::unix::fs::symlink(&outside, root.join("src/escape.rs")).unwrap();
     assert!(confine(&root, alias.join("src/escape.rs").to_str().unwrap()).is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn directory_alias_spellings_share_canonical_graph_key() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("pkg/src/inner")).unwrap();
+    std::fs::write(root.join("pkg/src/lib.rs"), "fn target() {}\n").unwrap();
+    std::fs::write(root.join("pkg/src/inner/i.rs"), "fn inner() {}\n").unwrap();
+    std::os::unix::fs::symlink("pkg/src", root.join("alias")).unwrap();
+    std::os::unix::fs::symlink("inner", root.join("pkg/src/inlink")).unwrap();
+    let mut batch = super::ProjectPathBatch::new(root);
+    for (input, expected) in [
+        ("alias/lib.rs", "pkg/src/lib.rs"),
+        ("alias/./lib.rs", "pkg/src/lib.rs"),
+        ("pkg/src/lib.rs", "pkg/src/lib.rs"),
+        ("pkg/src/inlink/i.rs", "pkg/src/inner/i.rs"),
+        ("pkg/src/inlink/../inlink/i.rs", "pkg/src/inner/i.rs"),
+    ] {
+        assert_eq!(
+            super::project_relative(root, Path::new(input)).as_deref(),
+            Some(expected)
+        );
+        assert_eq!(batch.make_relative(Path::new(input)), expected);
+    }
+}

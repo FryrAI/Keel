@@ -15,7 +15,7 @@ use keel_parsers::walker::WalkEntry;
 use super::call_resolve::{edge_for_reference, resolve_call_reference_with_rejection, CallSiteCtx};
 use super::map_lang_resolve::ResolverSet;
 use super::map_resolve::{find_containing_def, resolve_import_to_module, CallIndex};
-use keel_core::paths::make_relative;
+use keel_core::paths::ProjectPathBatch;
 
 /// Per-file parse data collected during the first pass for use in the second pass.
 pub struct FileParseData {
@@ -31,7 +31,7 @@ pub struct FileParseData {
 #[allow(clippy::too_many_arguments)]
 pub fn first_pass(
     entries: &[WalkEntry],
-    cwd: &Path,
+    paths: &mut ProjectPathBatch,
     verbose: bool,
     ts: &TsResolver,
     py: &dyn LanguageResolver,
@@ -74,7 +74,7 @@ pub fn first_pass(
             "typst" | "bash" | "sql" => supplemental.parse_file(&entry.path, &content),
             _ => continue,
         };
-        let file_path = make_relative(cwd, &entry.path);
+        let file_path = paths.make_relative(&entry.path);
         // A property of the path, so it is answered once per file rather than
         // once per definition.
         let grades_size_and_naming =

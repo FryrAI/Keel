@@ -63,8 +63,6 @@ pub fn run(
         }
     };
 
-    let cwd = keel_core::paths::project_root(&cwd);
-
     if update_docs {
         return update_docs::run(&cwd, verbose);
     }

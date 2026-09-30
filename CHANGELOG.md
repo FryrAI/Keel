@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   aliases are skipped; their targets are checked under their own paths.
 
 ### Fixed
+- Compile and file queries use one worktree-relative graph key, including through
+  directory symlinks, from any working directory (#82/#86). A full `keel map`
+  walks the entire project root even when invoked from a package directory, so
+  remapping cannot erase files outside that package. `keel init` retains local
+  tool detection, agent documents, ignore files and hooks in the invoking directory.
 - Every disk-backed graph writer now shares a kernel-backed graph lock (#78),
   released automatically after a crashed holder on Unix and Windows. CLI writers,
   HTTP/MCP compile/fix/checkpoint, and watcher prune/compile cannot interleave with

@@ -14,6 +14,7 @@ pub mod context;
 pub mod deinit;
 pub mod discover;
 pub mod explain;
+pub(crate) mod file_display;
 pub mod fix;
 pub mod focus;
 pub(crate) mod graph_staleness;

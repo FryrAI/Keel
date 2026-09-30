@@ -7,7 +7,7 @@
 //! made safe by the SQLite `busy_timeout` configured on every connection.
 
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// Resolve the `.keel` directory for the repository containing `start`.
 ///
@@ -55,43 +55,17 @@ pub fn project_root(start: &Path) -> PathBuf {
 /// Relative inputs are rooted at `root`. Parent directories are canonicalized
 /// when available, but the leaf is preserved so source symlinks retain their
 /// own identity. Deleted files and missing parent directories are supported.
-/// Plain paths under an already canonical root take a filesystem-free fast path.
 /// Resolve the root once with `project_root` before normalizing a batch.
 /// Returns `None` for paths outside the project.
 pub fn project_relative(root: &Path, path: &Path) -> Option<String> {
-    let joined = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    };
-    if let Ok(relative) = joined.strip_prefix(root) {
-        if relative
-            .components()
-            .all(|c| matches!(c, Component::Normal(_)))
-        {
-            return Some(graph_spelling(relative));
-        }
-    }
     let root = canonicalize_portable(root).unwrap_or_else(|_| normalize_lexically(root));
-    // A directory alias has no source-file leaf whose identity needs preserving.
-    if joined.is_dir() {
-        let directory = canonicalize_portable(&joined).ok()?;
-        return Some(graph_spelling(directory.strip_prefix(&root).ok()?));
-    }
-    let mut parent = joined.parent()?;
-    let mut missing = Vec::new();
-    while !parent.exists() {
-        missing.push(parent.components().next_back()?.as_os_str());
-        parent = parent.parent()?;
-    }
-    let mut normalized = canonicalize_portable(parent).ok()?;
-    for component in missing.into_iter().rev() {
-        normalized.push(component);
-    }
-    normalized.push(joined.components().next_back()?.as_os_str());
-    let normalized = normalize_lexically(&normalized);
-    Some(graph_spelling(normalized.strip_prefix(&root).ok()?))
+    batch::relative(&root, path, None)
 }
+
+#[path = "paths_batch.rs"]
+mod batch;
+
+pub use batch::ProjectPathBatch;
 
 fn graph_spelling(path: &Path) -> String {
     path.components()

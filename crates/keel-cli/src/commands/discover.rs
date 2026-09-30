@@ -119,12 +119,13 @@ fn discover_file(
     verbose: bool,
 ) -> i32 {
     // Normalize the file path to be relative (matching how nodes are stored).
-    let rel_path =
-        keel_core::paths::make_relative(&keel_core::paths::project_root(cwd), &cwd.join(query));
+    let root = keel_core::paths::project_root(cwd);
+    let rel_path = keel_core::paths::make_relative(&root, &cwd.join(query));
+    let display = super::file_display::graph_argument(cwd, &root, query, &rel_path);
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {
-        eprintln!("keel discover: no nodes found in file: {}", rel_path);
+        eprintln!("keel discover: no nodes found in file: {}", display);
         return 2;
     }
 
@@ -135,13 +136,13 @@ fn discover_file(
         .collect();
 
     if verbose {
-        eprintln!("keel discover: {} symbols in {}", symbols.len(), rel_path);
+        eprintln!("keel discover: {} symbols in {}", symbols.len(), display);
     }
 
     let result = FileSymbols {
         version: env!("CARGO_PKG_VERSION").into(),
         command: "discover".into(),
-        path: Some(rel_path),
+        path: Some(display),
         symbols,
     };
     let out = formatter.format_file_symbols(&result);
