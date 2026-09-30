@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::gitignore::Gitignore;
+use ignore::Match;
 use ignore::WalkBuilder;
 
 use crate::monorepo::MonorepoLayout;
@@ -77,35 +80,85 @@ impl FileWalker {
 /// file. Commands whose file list comes from git need the same rules applied
 /// after the fact, or they check files the map deliberately skipped (issue #70:
 /// a vendored tree listed in `.keelignore` raised violations against
-/// third-party source in the pre-commit hook).
+/// third-party source in the pre-commit hook; issue #90: the same for a
+/// `.keelignore` nested in a package).
 ///
-/// Only the **root-level** `<root>/.keelignore` and `<root>/.gitignore` are
-/// consulted. Nested ignore files are the walker's business, and git's own diff
-/// already omits the untracked files a nested `.gitignore` excludes. A missing
-/// ignore file simply contributes no patterns.
+/// Every `.gitignore` and `.keelignore` from the root down to a path's parent
+/// directory is consulted, each rooted at its own directory, with the walker's
+/// precedence: a deeper directory's rules override a shallower one's, and
+/// within one directory `.keelignore` outranks `.gitignore`. A file under an
+/// excluded directory stays excluded whatever a deeper file says. Per-directory
+/// matchers are built lazily on first use and cached, so the tree is never
+/// walked. A missing ignore file simply contributes no patterns.
+/// `.git/info/exclude`, the global gitignore and hidden-file rules are not
+/// applied.
 pub struct KeelIgnore {
     root: PathBuf,
-    matcher: Gitignore,
+    dirs: Mutex<HashMap<PathBuf, Arc<DirRules>>>,
+}
+
+/// The two ignore files of one directory, each rooted at that directory.
+struct DirRules {
+    keelignore: Gitignore,
+    gitignore: Gitignore,
+}
+
+impl DirRules {
+    fn load(dir: &Path) -> Self {
+        // Unreadable or malformed ignore files contribute nothing rather than
+        // failing: not ignoring a file is a false positive, refusing to run at
+        // all is worse.
+        Self {
+            keelignore: Gitignore::new(dir.join(".keelignore")).0,
+            gitignore: Gitignore::new(dir.join(".gitignore")).0,
+        }
+    }
+
+    /// `.keelignore` first: it outranks `.gitignore` in the same directory.
+    fn matched(&self, rel: &Path, is_dir: bool) -> Match<()> {
+        self.keelignore
+            .matched(rel, is_dir)
+            .map(|_| ())
+            .or(self.gitignore.matched(rel, is_dir).map(|_| ()))
+    }
 }
 
 impl KeelIgnore {
-    /// Compiles the root-level ignore files under `root` into one matcher.
-    ///
-    /// `.gitignore` is added first and `.keelignore` second: `GitignoreBuilder`
-    /// is last-match-wins, which reproduces the walker's precedence, where a
-    /// custom ignore file outranks `.gitignore`. So `!vendor/gen.rs` in
-    /// `.keelignore` re-includes a file `.gitignore` excluded, not the reverse.
-    ///
-    /// Unreadable or malformed ignore files contribute nothing rather than
-    /// failing: not ignoring a file is a false positive, refusing to run at all
-    /// is worse.
+    /// Creates a matcher for the ignore files under `root`; nothing is read
+    /// until a path is checked.
     pub fn new(root: &Path) -> Self {
-        let mut builder = GitignoreBuilder::new(root);
-        let _ = builder.add(root.join(".gitignore"));
-        let _ = builder.add(root.join(".keelignore"));
         Self {
             root: root.to_path_buf(),
-            matcher: builder.build().unwrap_or_else(|_| Gitignore::empty()),
+            dirs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The cached rules of `dir` (relative to the root; empty is the root).
+    fn rules(&self, dir: &Path) -> Arc<DirRules> {
+        let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(rules) = dirs.get(dir) {
+            return Arc::clone(rules);
+        }
+        let rules = Arc::new(DirRules::load(&self.root.join(dir)));
+        dirs.insert(dir.to_path_buf(), Arc::clone(&rules));
+        rules
+    }
+
+    /// Whether the entry `rel` (root-relative) is excluded by the nearest
+    /// directory, from its parent up to the root, that has an opinion on it.
+    fn entry_ignored(&self, rel: &Path, is_dir: bool) -> bool {
+        let mut dir = rel.parent().unwrap_or(Path::new(""));
+        loop {
+            let within = rel.strip_prefix(dir).unwrap_or(rel);
+            match self.rules(dir).matched(within, is_dir) {
+                Match::Ignore(()) => return true,
+                Match::Whitelist(()) => return false,
+                Match::None => {}
+            }
+            match dir.parent() {
+                Some(up) if !dir.as_os_str().is_empty() => dir = up,
+                _ => return false,
+            }
         }
     }
 
@@ -119,22 +172,19 @@ impl KeelIgnore {
             Err(_) if path.is_absolute() => return false,
             Err(_) => path,
         };
-        // Excluded ancestors first. Git's rule is that a file under an excluded
-        // directory cannot be re-included, and the walker enforces it by never
-        // descending into one — but `matched_path_or_any_parents` answers a
-        // direct whitelist match before it ever looks at the parents, so
-        // `vendor/` plus `!vendor/keep.rs` would read as "keep" here alone.
-        let mut ancestor = relative.parent();
-        while let Some(dir) = ancestor {
-            if dir.as_os_str().is_empty() {
-                break;
-            }
-            if self.matcher.matched(dir, true).is_ignore() {
+        // Top-down, stopping at the first excluded ancestor: git never
+        // re-includes a file under an excluded directory, and the walker
+        // enforces it by never descending into one.
+        let mut prefix = PathBuf::new();
+        let mut components = relative.components().peekable();
+        while let Some(component) = components.next() {
+            prefix.push(component);
+            let is_dir = components.peek().is_some();
+            if self.entry_ignored(&prefix, is_dir) {
                 return true;
             }
-            ancestor = dir.parent();
         }
-        self.matcher.matched(relative, false).is_ignore()
+        false
     }
 }
 
@@ -328,3 +378,7 @@ mod tests {
         assert_eq!(root_entry.unwrap().package, None);
     }
 }
+
+#[cfg(test)]
+#[path = "walker_parity_tests.rs"]
+mod parity_tests;

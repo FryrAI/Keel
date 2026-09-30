@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `keel compile` (and every git-diff target filter) now honours nested `.keelignore`/`.gitignore`
+  files exactly as `keel map` does: deeper rules override shallower, `.keelignore` outranks
+  `.gitignore` per directory, and an excluded directory stays excluded (#90).
 - **Opt-in expression homes (#80): W011/E007.** Literal patterns in code, strings,
   comments and test source are checked against home/scope globs. Tolerant rules
   preserve unrelated config. Compile compares with HEAD or `--since`; CLI/MCP

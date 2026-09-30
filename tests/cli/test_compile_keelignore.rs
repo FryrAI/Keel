@@ -92,3 +92,44 @@ fn compile_changed_honors_keelignore() {
         "the ignored tree must stay out of the report: {stdout}"
     );
 }
+
+/// Issue #90: a `.keelignore` nested in a package excludes its subtree from
+/// `keel map`, so `compile --changed` must skip it too — from the repo root and
+/// from inside the package.
+#[test]
+fn compile_changed_honors_nested_keelignore() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let clean = "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n";
+    write(root, "pkg/.keelignore", "thirdparty/\n");
+    write(root, "pkg/thirdparty/v.py", clean);
+    write(root, "src/app.py", clean);
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    // `thirdparty/` is not in the root .keelignore that `keel init` writes.
+    // Missing type hints and docstring: E002 + E003 on any graded file.
+    write(
+        root,
+        "pkg/thirdparty/v.py",
+        "def compute(value):\n    return value\n",
+    );
+    for cwd in [root.to_path_buf(), root.join("pkg")] {
+        let out = keel(&cwd, &["compile", "--changed"]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "a file under a nested .keelignore must not be checked (cwd {}); stdout: {stdout} stderr: {stderr}",
+            cwd.display()
+        );
+        assert!(
+            !stdout.contains("thirdparty/"),
+            "the ignored tree must stay out of the report: {stdout}"
+        );
+    }
+}
