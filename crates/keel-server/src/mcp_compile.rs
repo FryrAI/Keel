@@ -13,6 +13,7 @@ use crate::parse_shared::FileParser;
 /// Handle the `keel/compile` MCP tool call to parse files and run enforcement checks.
 pub(crate) fn handle_compile(
     engine: &SharedEngine,
+    root: &std::path::Path,
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
     let mut engine = engine.writer().map_err(internal_err)?;
@@ -26,7 +27,7 @@ pub(crate) fn handle_compile(
     let batch_end = param_bool(&params, "batch_end", false);
 
     // Parse files that exist on disk into FileIndexes
-    let mut parser = FileParser::new();
+    let mut parser = FileParser::new(root);
     let file_indexes: Vec<_> = files.iter().filter_map(|path| parser.parse(path)).collect();
 
     // Use shared engine — state persists across calls

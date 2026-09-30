@@ -167,7 +167,7 @@ fn homes_compile_since_and_subdirectory_use_repository_paths() {
         &dir.path().join("src"),
         &["compile", "--since", "HEAD~1", "--json"],
     );
-    assert!(violations_with_code(&parse(&out), "W011").is_empty());
+    assert_eq!(violations_with_code(&parse(&out), "W011"), hits);
     write(dir.path(), "src/new.rs", BASE);
     let hits = violations_with_code(&compile_json(&dir.path().join("src"), "./new.rs"), "W011");
     assert_eq!(hits.len(), 1);

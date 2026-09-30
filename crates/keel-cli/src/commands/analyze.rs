@@ -8,14 +8,17 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, file: String) -> i32 
     };
 
     // Normalize file path to relative (matching how nodes are stored).
-    let rel_path = keel_core::paths::make_relative(&cwd, std::path::Path::new(&file));
+    let root = keel_core::paths::project_root(&cwd);
+    let rel_path = keel_core::paths::make_relative(&root, &cwd.join(&file));
+    let display = super::file_display::graph_argument(&cwd, &root, &file, &rel_path);
 
     match keel_enforce::analyze::analyze_file(&store, &rel_path) {
-        Some(result) => {
+        Some(mut result) => {
+            result.file = display.clone();
             if verbose {
                 eprintln!(
                     "keel analyze: {} — {} functions, {} classes, {} smells",
-                    rel_path,
+                    display,
                     result.structure.function_count,
                     result.structure.class_count,
                     result.smells.len(),
@@ -28,7 +31,7 @@ pub fn run(formatter: &dyn OutputFormatter, verbose: bool, file: String) -> i32 
             0
         }
         None => {
-            eprintln!("keel analyze: no data for file: {}", rel_path);
+            eprintln!("keel analyze: no data for file: {}", display);
             eprintln!("hint: Run `keel map` first to populate the graph.");
             2
         }

@@ -116,6 +116,7 @@ pub fn process_line(store: &SharedStore, engine: &SharedEngine, line: &str) -> S
     // cwd. The instrumented loop calls `process_line_with_root` with the
     // server's authoritative root instead.
     let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = keel_core::paths::project_root(&root);
     process_line_with_root(store, engine, &root, line)
 }
 

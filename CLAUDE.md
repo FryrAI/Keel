@@ -146,6 +146,13 @@ cargo test                    # All unit tests
 
 ## Common Gotchas
 
+### Graph Paths Belong to the Project Root
+Compile, file queries and audit resolve graph paths from the current worktree's
+project root. A full `keel map` always walks that entire root, even from a package
+subdirectory, because it replaces the shared graph. Directory aliases resolve to
+canonical parents; source symlink leaves retain their own identity. `keel init`
+keeps tool detection, agent documents, ignore files and hooks local to its cwd.
+
 ### Every Disk-Backed Graph Writer Shares the Graph Lock
 `keel-core::graph_lock` holds an OS lock on an open `.keel/compile.lock` handle
 (`File::try_lock`: flock on Unix, LockFileEx on Windows). The kernel releases it

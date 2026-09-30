@@ -37,11 +37,10 @@ pub(crate) struct FileParser {
 }
 
 impl FileParser {
-    /// Root the parser at the current working directory — the project root
-    /// for both `keel serve` modes. Cheap: resolvers build lazily.
-    pub(crate) fn new() -> Self {
+    /// Root the parser at the server's project root. Resolvers build lazily.
+    pub(crate) fn new(root: &Path) -> Self {
         Self {
-            root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            root: keel_core::paths::project_root(root),
             ts: None,
             py: None,
             go: None,
@@ -52,7 +51,8 @@ impl FileParser {
 
     /// Parse a single file from disk into a `FileIndex`.
     pub(crate) fn parse(&mut self, path: &str) -> Option<FileIndex> {
-        let content = std::fs::read_to_string(path).ok()?;
+        let absolute = self.root.join(path);
+        let content = std::fs::read_to_string(&absolute).ok()?;
         let resolver: &dyn LanguageResolver = match detect_language(path)? {
             "typescript" => self
                 .ts
@@ -72,7 +72,8 @@ impl FileParser {
             _ => return None,
         };
 
-        let parsed = resolver.parse_file(Path::new(path), &content);
-        Some(FileIndex::from_parse(path, &content, parsed))
+        let parsed = resolver.parse_file(&absolute, &content);
+        let relative = keel_core::paths::make_relative(&self.root, &absolute);
+        Some(FileIndex::from_parse(&relative, &content, parsed))
     }
 }

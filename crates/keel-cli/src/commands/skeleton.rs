@@ -24,6 +24,8 @@ pub fn run(
 
     // The path-resolve → read → parse preamble lives in keel_enforce so the CLI
     // and the `keel/skeleton` MCP tool share one implementation.
+    // Let the filesystem resolve the original argument: a missing directory
+    // before `..` must still fail, and diagnostics retain the supplied spelling.
     match keel_enforce::skeleton::build_skeleton_from_path(&cwd, &file, private, docs) {
         Ok(result) => {
             if verbose {

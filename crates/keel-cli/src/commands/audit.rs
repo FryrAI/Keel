@@ -33,12 +33,14 @@ pub fn run(
         Err(code) => return code,
     };
 
+    let root = keel_core::paths::project_root(&cwd);
+
     // Resolve changed files if --changed, via the shared git-diff helper: a
     // name-only working-tree diff against HEAD, restricted to parseable source
     // files, with the initial-commit fallback built in.
     let changed_files = if changed {
         Some(keel_enforce::gitdiff::changed_files(
-            &cwd,
+            &root,
             &keel_enforce::gitdiff::DiffMode::Since(None),
             true,
         ))

@@ -9,7 +9,7 @@ fn homes_subdirectory_git_scoped_compile_preserves_base_graph_paths() {
     write(dir.path(), "src/lib.rs", ADDED);
     let out = keel(&dir.path().join("src"), &["compile", "--changed", "--json"]);
     assert_eq!(out.status.code(), Some(0));
-    assert!(violations_with_code(&parse(&out), "W011").is_empty());
+    assert_eq!(violations_with_code(&parse(&out), "W011").len(), 1);
     git(dir.path(), &["add", "src/lib.rs"]);
     git(dir.path(), &["commit", "-q", "-m", "modified query"]);
     let out = keel(
@@ -17,7 +17,7 @@ fn homes_subdirectory_git_scoped_compile_preserves_base_graph_paths() {
         &["compile", "--since", "HEAD~1", "--json"],
     );
     assert_eq!(out.status.code(), Some(0));
-    assert!(violations_with_code(&parse(&out), "W011").is_empty());
+    assert_eq!(violations_with_code(&parse(&out), "W011").len(), 1);
     keel(&dir.path().join("src"), &["compile", "--json"]);
     let db = dir.path().join(".keel/graph.db");
     let store = keel_core::sqlite::SqliteGraphStore::open(db.to_str().unwrap()).unwrap();

@@ -38,6 +38,9 @@ fn scored_dimension(name: &str, mut findings: Vec<AuditFinding>) -> AuditDimensi
 }
 
 /// Run a full audit of the repository and return a scored result.
+///
+/// Workflow and agent configuration checks stay local to `root_dir`; reads of
+/// graph file paths use its project root, matching the graph's stored keys.
 pub fn audit_repo(
     store: &dyn GraphStore,
     root_dir: &std::path::Path,
@@ -45,6 +48,7 @@ pub fn audit_repo(
     files: Option<&[String]>,
 ) -> AuditResult {
     let mut dimensions = Vec::new();
+    let graph_root = keel_core::paths::project_root(root_dir);
 
     let run_dim = |name: &str| {
         options
@@ -63,7 +67,7 @@ pub fn audit_repo(
     if run_dim("discoverability") {
         dimensions.push(scored_dimension(
             "discoverability",
-            discoverability::check_discoverability(store, root_dir, files),
+            discoverability::check_discoverability(store, &graph_root, files),
         ));
     }
 

@@ -28,11 +28,13 @@ pub fn run(
     };
 
     // Normalize to relative path (matching how nodes are stored).
-    let rel_path = keel_core::paths::make_relative(&cwd, std::path::Path::new(&file));
+    let root = keel_core::paths::project_root(&cwd);
+    let rel_path = keel_core::paths::make_relative(&root, &cwd.join(&file));
+    let display = super::file_display::graph_argument(&cwd, &root, &file, &rel_path);
 
     let nodes = store.get_nodes_in_file(&rel_path);
     if nodes.is_empty() {
-        eprintln!("keel context: no data for file: {}", rel_path);
+        eprintln!("keel context: no data for file: {}", display);
         eprintln!("hint: Run `keel map` first to populate the graph.");
         return 2;
     }
@@ -44,7 +46,7 @@ pub fn run(
     if verbose {
         eprintln!(
             "keel context: {} — {} symbols, {} ext callers, {} ext callees",
-            rel_path,
+            display,
             contexts.len(),
             total_callers,
             total_callees,
@@ -52,9 +54,9 @@ pub fn run(
     }
 
     if json {
-        print_json(&rel_path, &contexts);
+        print_json(&display, &contexts);
     } else {
-        print_text(&rel_path, &contexts, total_callers, total_callees, llm);
+        print_text(&display, &contexts, total_callers, total_callees, llm);
     }
 
     0

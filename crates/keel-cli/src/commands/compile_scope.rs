@@ -31,8 +31,7 @@ pub fn screen_targets(
     }
     // The working tree, not `cwd`: an agent started in a subdirectory still
     // edits files across the whole repository, and every one of them is in-tree.
-    let root = keel_core::paths::worktree_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
-    let root = root.canonicalize().unwrap_or(root);
+    let root = keel_core::paths::project_root(cwd);
     let total = targets.len();
     let kept: Vec<String> = targets
         .into_iter()
@@ -65,5 +64,5 @@ fn in_repo(root: &Path, path: &Path) -> bool {
 /// Canonicalize `path`'s parent directory — `path` itself may be a file that
 /// was just deleted, and the directory is what decides in-tree membership.
 fn canonical_parent(path: &Path) -> Option<PathBuf> {
-    path.parent()?.canonicalize().ok()
+    keel_core::paths::canonicalize_portable(path.parent()?).ok()
 }

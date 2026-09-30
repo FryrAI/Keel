@@ -17,7 +17,7 @@ use keel_enforce::map::{
 use super::map_passes;
 use super::map_resolve::build_package_node_index;
 use crate::telemetry_recorder::EventMetrics;
-use keel_core::paths::make_relative;
+use keel_core::paths::ProjectPathBatch;
 
 /// Run `keel map` — full re-parse of the codebase.
 #[allow(clippy::too_many_arguments)]
@@ -43,6 +43,7 @@ pub fn run(
         Err(code) => return (code, EventMetrics::default()),
     };
     let keel_dir = keel_core::paths::keel_dir(&cwd);
+    let root = keel_core::paths::project_root(&cwd);
 
     // One config load serves both the drift check and the walk below.
     let config = keel_core::config::KeelConfig::load(&keel_dir);
@@ -56,10 +57,12 @@ pub fn run(
         return super::map_cached::run_cached(&store, formatter, verbose, _depth);
     }
 
+    let mut paths = ProjectPathBatch::new(&root);
+
     // Walk all source files (with optional monorepo package annotation)
-    let walker = FileWalker::new(&cwd);
+    let walker = FileWalker::new(&root);
     let entries = if config.monorepo.enabled {
-        let layout = keel_parsers::monorepo::detect_monorepo(&cwd);
+        let layout = keel_parsers::monorepo::detect_monorepo(&root);
         walker.walk_with_packages(&layout)
     } else {
         walker.walk()
@@ -72,7 +75,7 @@ pub fn run(
     // Create resolvers for each language. `PyResolver::detect()` wires the
     // Tier-2 `ty` subprocess when it is on PATH and falls back to heuristics
     // otherwise.
-    let ts = TsResolver::with_project_root(&cwd);
+    let ts = TsResolver::with_project_root(&root);
     let py = PyResolver::detect();
     let go_resolver = GoResolver::new();
     let rs = RustLangResolver::new();
@@ -127,7 +130,13 @@ pub fn run(
         vec![Box::new(keel_parsers::boundary::BamlProvider)];
     let scanned: Vec<(Vec<keel_parsers::boundary::BoundarySymbol>, f64)> = providers
         .iter()
-        .map(|p| (p.scan(&cwd), p.confidence()))
+        .map(|p| {
+            let mut symbols = p.scan(&root);
+            for symbol in &mut symbols {
+                symbol.file_path = paths.make_relative(&root.join(&symbol.file_path));
+            }
+            (symbols, p.confidence())
+        })
         .collect();
     let literal_keys =
         super::map_boundary::literal_keys(scanned.iter().flat_map(|(symbols, _)| symbols));
@@ -143,7 +152,7 @@ pub fn run(
     let mut rejected_calls = HashSet::new();
     let all_file_data = map_passes::first_pass(
         &entries,
-        &cwd,
+        &mut paths,
         verbose,
         &ts,
         &py,
@@ -188,17 +197,19 @@ pub fn run(
     }
 
     // Build file -> package mapping and cross-package index for monorepo resolution
+    let entries_by_path: HashMap<_, _> = entries
+        .iter()
+        .map(|entry| (paths.make_relative(&entry.path), entry))
+        .collect();
     let file_packages: HashMap<String, String> = all_file_data
         .iter()
         .filter_map(|fd| {
-            entries
-                .iter()
-                .find(|e| make_relative(&cwd, &e.path) == fd.file_path)
-                .and_then(|e| {
-                    e.package
-                        .as_ref()
-                        .map(|p| (fd.file_path.clone(), p.clone()))
-                })
+            entries_by_path.get(&fd.file_path).and_then(|entry| {
+                entry
+                    .package
+                    .as_ref()
+                    .map(|p| (fd.file_path.clone(), p.clone()))
+            })
         })
         .collect();
     let package_node_index = if config.monorepo.enabled {
@@ -229,7 +240,7 @@ pub fn run(
     let mut node_tiers: HashMap<u64, (String, f64)> = HashMap::new();
     map_passes::second_pass(
         &all_file_data,
-        &cwd,
+        &root,
         &resolver_set,
         &name_to_id,
         &global_name_index,
@@ -258,7 +269,7 @@ pub fn run(
         super::map_tier3::run_tier3_pass(
             &config.tier3,
             &config.languages,
-            &cwd,
+            &root,
             verbose,
             &tier3_data,
             &name_to_id,

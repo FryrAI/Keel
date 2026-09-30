@@ -77,7 +77,7 @@ async fn retained_removal_recreated_and_mapped_during_contention_survives_retry(
     // Simulate map completing with the recreated file. No recreation event is
     // delivered before retry, matching an event still inside debounce.
     std::fs::write(&source, "fn hello() -> i32 { 73 }\n").unwrap();
-    let index = crate::parse_shared::FileParser::new()
+    let index = crate::parse_shared::FileParser::new(dir.path())
         .parse(source.to_str().unwrap())
         .unwrap();
     let mut node = store.get_node_by_id(1).unwrap();
