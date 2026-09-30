@@ -218,8 +218,12 @@ pub fn apply_batch(
                 index.file_path = relative_path(root, path);
                 indices.push(index);
             }
-        } else if let Ok(n) = engine.prune_file(&relative_path(root, path)) {
-            outcome.pruned += n;
+        } else {
+            let file = relative_path(root, path);
+            match engine.prune_file(&file) {
+                Ok(n) => outcome.pruned += n,
+                Err(error) => eprintln!("[keel watch] failed to prune {file}: {error}"),
+            }
         }
     }
     if !indices.is_empty() {

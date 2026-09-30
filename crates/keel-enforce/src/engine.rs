@@ -512,12 +512,12 @@ impl EnforcementEngine {
     /// The file watcher calls this on `Remove` events so deleted files stop
     /// accreting in the shared graph between full `keel map` runs. Works
     /// entirely through the frozen [`GraphStore`] trait: collect the file's
-    /// nodes, drop every edge touching them, then drop the nodes. Returns the
-    /// number of nodes removed.
+    /// nodes, drop every edge touching them, then drop children before modules.
+    /// Returns the number of nodes removed.
     pub fn prune_file(&mut self, file_path: &str) -> Result<usize, keel_core::types::GraphError> {
-        use keel_core::types::{EdgeChange, EdgeDirection, NodeChange};
+        use keel_core::types::{EdgeChange, EdgeDirection, NodeChange, NodeKind};
 
-        let nodes = self.store.get_nodes_in_file(file_path);
+        let mut nodes = self.store.get_nodes_in_file(file_path);
         if nodes.is_empty() {
             return Ok(0);
         }
@@ -537,6 +537,8 @@ impl EnforcementEngine {
         }
 
         let count = nodes.len();
+        // nodes.module_id references the module without ON DELETE CASCADE.
+        nodes.sort_by_key(|node| node.kind == NodeKind::Module);
         let node_changes = nodes
             .into_iter()
             .map(|n| NodeChange::Remove(n.id))
