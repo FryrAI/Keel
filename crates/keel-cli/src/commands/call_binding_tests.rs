@@ -38,6 +38,7 @@ fn check_bare_and_method(language: &str, file: &str, source: &str, method: &str)
         std::slice::from_ref(&file),
         &resolvers,
         false,
+        false,
     );
     let target = store
         .get_nodes_in_file(&file.file_path)
@@ -150,7 +151,14 @@ fn python_class_body_keeps_its_local_function_calls() {
         rs: None,
     };
     let mut store = SqliteGraphStore::in_memory().unwrap();
-    sync_compiled_files(&mut store, Path::new("/repo"), &[file], &resolvers, false);
+    sync_compiled_files(
+        &mut store,
+        Path::new("/repo"),
+        &[file],
+        &resolvers,
+        false,
+        false,
+    );
     let helper = store
         .get_nodes_in_file("a.py")
         .into_iter()
@@ -191,12 +199,14 @@ fn bare_cross_file_calls_cannot_bind_receiver_methods() {
         &[target, caller.clone()],
         &resolvers,
         false,
+        false,
     );
     sync_compiled_files(
         &mut store,
         cwd,
         std::slice::from_ref(&caller),
         &resolvers,
+        false,
         false,
     );
     resolve_call_targets(&store, cwd, std::slice::from_mut(&mut caller), &resolvers);
@@ -254,7 +264,14 @@ fn fresh_mixed_siblings_keep_or_reject_the_first_inserted_definition() {
             &format!("{first}{second}fn wire() {{ run(1); }}\n"),
         );
         let mut store = SqliteGraphStore::in_memory().unwrap();
-        sync_compiled_files(&mut store, Path::new("/repo"), &[file], &resolvers, false);
+        sync_compiled_files(
+            &mut store,
+            Path::new("/repo"),
+            &[file],
+            &resolvers,
+            false,
+            false,
+        );
         let target = store
             .get_nodes_in_file("src/lib.rs")
             .into_iter()

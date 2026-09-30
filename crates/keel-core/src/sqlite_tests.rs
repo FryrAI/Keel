@@ -141,6 +141,22 @@ fn test_readd_same_node_no_unique_constraint_error() {
 }
 
 #[test]
+fn insert_node_round_trips_package() {
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let mut node = test_node(1, "pkg_hash", "pkg_fn");
+    node.package = Some("keel-core".to_string());
+    store.insert_node(&node).unwrap();
+    let stored = store.get_node("pkg_hash").unwrap();
+    assert_eq!(stored.package.as_deref(), Some("keel-core"));
+
+    // Re-inserting the same hash (ON CONFLICT path) stores the new package.
+    node.package = Some("keel-enforce".to_string());
+    store.insert_node(&node).unwrap();
+    let stored = store.get_node("pkg_hash").unwrap();
+    assert_eq!(stored.package.as_deref(), Some("keel-enforce"));
+}
+
+#[test]
 fn concurrent_insert_after_clear_collides_with_map_node_id() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("graph.db");
