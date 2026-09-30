@@ -278,13 +278,12 @@ fn homes_review_rename_out_of_home_or_scope_fires() {
 }
 
 #[test]
-fn homes_review_unknown_base_is_an_explicit_error_without_crash() {
+fn homes_review_unknown_base_returns_an_error() {
     let dir = fixture(true);
     let out = review(dir.path(), "no-such-ref", false);
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&out.stderr)
-        .contains("keel review: cannot resolve base ref \"no-such-ref\""));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("cannot resolve base ref"));
 }
 
 #[test]

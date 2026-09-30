@@ -1,14 +1,14 @@
 //! Git-base context for CLI compile and CLI/MCP review expression homes.
 //! Server compile intentionally never constructs this context.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use keel_core::config::KeelConfig;
 
 use crate::gitdiff;
 use crate::types::Violation;
-use crate::violations_homes::HomeScanner;
+use crate::violations_homes::{HomeOccurrence, HomeScanner};
 
 /// An invocation's prepared rules and lazily resolved immutable Git base.
 pub struct GitHomes {
@@ -42,9 +42,18 @@ impl GitHomes {
     /// Compare every checked file together, including deletions with empty head text.
     /// Symlink paths are skipped; their target text is checked at the target's path.
     pub fn check_many(&mut self, files: &[(&Path, &str, Option<&str>)]) -> Vec<Violation> {
+        let scanned = self.scan_many(files);
+        self.scanner.introduced_many(&scanned)
+    }
+
+    fn scan_many(
+        &mut self,
+        files: &[(&Path, &str, Option<&str>)],
+    ) -> Vec<(String, Vec<HomeOccurrence>, Vec<HomeOccurrence>)> {
         if !self.enabled {
             return vec![];
         }
+        let mut seen = BTreeSet::new();
         let heads = files
             .iter()
             .filter_map(|(file, text, base_path)| {
@@ -52,6 +61,9 @@ impl GitHomes {
                     return None;
                 }
                 let path = self.relative_path(file)?;
+                if !seen.insert(path.clone()) {
+                    return None;
+                }
                 let head = self.scanner.scan(&path, text);
                 Some((path, head, *base_path))
             })
@@ -74,6 +86,10 @@ impl GitHomes {
         let mut scanned = Vec::new();
         for (path, head, base_path) in heads {
             let base_path = base_path.unwrap_or(&path);
+            if !self.scanner.eligible(base_path) {
+                scanned.push((path, head, vec![]));
+                continue;
+            }
             let base_text = match gitdiff::blob_at_checked(&self.root, commit, base_path) {
                 Ok(Some(text)) => text,
                 Ok(None) => String::new(),
@@ -87,10 +103,10 @@ impl GitHomes {
             let base = self.scanner.scan(base_path, &base_text);
             scanned.push((path, head, base));
         }
-        self.scanner.introduced_many(&scanned)
+        scanned
     }
 
-    /// Prepare graph-path findings and one fingerprint of each file's reported lines.
+    /// Prepare graph-path findings and each file's own surplus identities before pooling.
     pub fn compile_findings(
         &mut self,
         cwd: &Path,
@@ -100,28 +116,37 @@ impl GitHomes {
             .iter()
             .map(|(p, text)| (p.as_path(), text.as_str(), None))
             .collect::<Vec<_>>();
-        let findings = self.check_many(&inputs);
+        let scanned = self.scan_many(&inputs);
+        let findings = self.scanner.introduced_many(&scanned);
+        let fingerprints = scanned
+            .iter()
+            .map(|(path, head, base)| {
+                let own = self.scanner.introduced(path, head, base);
+                let lines = own.iter().map(|v| v.line).collect::<BTreeSet<_>>();
+                let identities = head
+                    .iter()
+                    .filter(|o| lines.contains(&o.line))
+                    .map(|o| keel_core::hash::hash_string(&o.text))
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                (path.as_str(), format!("homes-v2:\n{identities}"))
+            })
+            .collect::<HashMap<_, _>>();
         sources
             .iter()
-            .filter_map(|(path, text)| {
+            .filter_map(|(path, _)| {
                 let scope = self.relative_path(path)?;
                 let hits = findings
                     .iter()
                     .filter(|v| v.file == scope)
                     .cloned()
                     .collect::<Vec<_>>();
-                let lines = hits
-                    .iter()
-                    .map(|v| v.line)
-                    .collect::<std::collections::HashSet<_>>();
-                let mut texts = text
-                    .lines()
-                    .enumerate()
-                    .filter(|(i, _)| lines.contains(&(*i as u32 + 1)))
-                    .map(|(_, line)| line.split_whitespace().collect::<Vec<_>>().join(" "))
-                    .collect::<Vec<_>>();
-                texts.sort_unstable();
-                let fingerprint = keel_core::hash::hash_string(&texts.join("\n"));
+                let fingerprint = fingerprints
+                    .get(scope.as_str())
+                    .cloned()
+                    .unwrap_or_default();
                 Some((
                     keel_core::paths::make_relative(cwd, path),
                     (scope, hits, fingerprint),
@@ -152,5 +177,63 @@ impl GitHomes {
                 .collect::<Vec<_>>()
                 .join("/"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keel_core::config::{HomeRule, HomeSeverity};
+
+    #[test]
+    fn homes_base_path_filter_excludes_home_out_of_scope_and_untracked_languages() {
+        let scanner = HomeScanner::new(
+            &[HomeRule {
+                name: "civil-day".into(),
+                patterns: vec!["CURRENT_DATE".into()],
+                home: vec!["src/time.rs".into()],
+                scope: vec!["src".into()],
+            }],
+            HomeSeverity::Warning,
+        );
+        assert!(scanner.eligible("src/query.rs"));
+        assert!(scanner.eligible("src/query.sql"));
+        // The filter is applied to the base path independently of the head path.
+        for path in [
+            "src/time.rs",
+            "other/query.rs",
+            "src/readme.md",
+            "src/query.txt",
+        ] {
+            assert!(!scanner.eligible(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn homes_ineligible_base_paths_do_not_read_blobs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        let mut config = KeelConfig::default();
+        config.homes.push(HomeRule {
+            name: "civil-day".into(),
+            patterns: vec!["CURRENT_DATE".into()],
+            home: vec!["src/time.rs".into()],
+            scope: vec!["src".into()],
+        });
+        let mut homes = GitHomes::new(dir.path(), "HEAD", &config, false);
+        // An already-resolved base that cannot be read makes an accidental
+        // blob fetch observable: eligible paths skip the file on read failure.
+        homes.commit = Some(Ok("unavailable-base".into()));
+        let file = dir.path().join("src/query.rs");
+        for base in ["src/time.rs", "outside/query.rs", "src/readme.md"] {
+            assert_eq!(
+                homes.check(&file, "// CURRENT_DATE", Some(base)).len(),
+                1,
+                "{base}"
+            );
+        }
+        assert!(homes
+            .check(&file, "// CURRENT_DATE", Some("src/old.rs"))
+            .is_empty());
     }
 }

@@ -98,9 +98,20 @@ pub fn run(
 
     if merge && config_path.exists() {
         // Merge mode: read existing config and deep-merge with new defaults
-        let existing_json = fs::read_to_string(&config_path).unwrap_or_default();
-        let existing: serde_json::Value = serde_json::from_str(&existing_json)
-            .unwrap_or(serde_json::Value::Object(Default::default()));
+        let existing_json = match fs::read_to_string(&config_path) {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("keel init: refusing to rewrite config: {e}");
+                return 2;
+            }
+        };
+        let existing = match serde_json::from_str::<serde_json::Value>(&existing_json) {
+            Ok(value) if value.is_object() => value,
+            _ => {
+                eprintln!("keel init: refusing to rewrite config: expected a JSON object");
+                return 2;
+            }
+        };
 
         let new_config = KeelConfig {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -114,7 +125,11 @@ pub fn run(
 
         // Deep merge: new values fill in missing keys, existing values preserved
         let merged = merge::json_deep_merge(&new_json, &existing);
-        match fs::write(&config_path, serde_json::to_string_pretty(&merged).unwrap()) {
+        let mut json = serde_json::to_string_pretty(&merged).unwrap();
+        if existing_json.ends_with('\n') {
+            json.push('\n');
+        }
+        match fs::write(&config_path, json) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("keel init: failed to write merged config: {}", e);

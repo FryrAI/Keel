@@ -192,6 +192,10 @@ with `"error"` selecting E007. Each rule requires a nonempty `name` and nonempty
 whole repo. A glob matches a path or any ancestor directory: `crates/*/src`
 covers descendants, while `*` never crosses `/`. Paths use `/` relative to the
 current worktree root, including when invoked from a subdirectory.
+Glob normalization drops leading `/`, empty components and `.` components;
+`/src`, `.//src` and `src/` therefore mean `src`. A `..` component rejects the
+rule with a named warning. A glob normalized to the repo root means whole-repo
+scope, but is rejected as a home; use an empty `home` to ban the pattern.
 Malformed rules are skipped with a named stderr warning without discarding
 other config. Duplicate names keep the first valid rule. Warnings are emitted
 once per identical malformed rule per process, including telemetry reloads.
@@ -205,9 +209,16 @@ The baseline is Git text, independent of `graph.db`: compile compares with
 HEAD, or the `--since` commit; review compares with `--base`. Occurrences are
 multisets keyed by rule, pattern, and the complete line with whitespace runs
 collapsed. Moving or reindenting an unchanged line is silent; another identical
-line adds an occurrence; other line edits are checked again. Review recognizes
+line adds an occurrence; other line edits are checked again. Removed occurrences
+cancel matching additions across the checked file set: review uses all diffed
+files, while compile uses the files selected for that invocation. Compiling only
+a move's destination still reports it. Home or out-of-scope paths contribute no
+removals to this pool. Symlinks are skipped; their targets are checked only when
+selected under their own paths. Base blobs are read only for eligible base paths.
+Review recognizes
 renames and checks home/scope eligibility on both sides, so moving an expression
-out of its permitted home fires. Compile does not detect working-tree renames.
+out of its permitted home fires. Compile does not detect working-tree renames:
+even a staged pure rename can fire under `compile --changed`; review handles it.
 Non-Git repos, unborn HEAD, or unresolvable compile bases skip homes with one
 `--verbose` note. Missing base files have an empty baseline; Git read failures
 or non-UTF-8 base blobs skip that file instead of treating it as new.
@@ -229,7 +240,11 @@ addition, so the review gate is the committed ratchet.
 
 CLI compile applies ordinary suppression, batch deferral (W011 only), circuit
 breaker and `--delta`; E007 starts as ERROR regardless of progressive adoption.
-The empty hash gives E007 one breaker counter per file; ordinary fix-attempt
-fingerprints determine downgrades, and persisted errors do not gate `--delta`
-a second time. Review is stateless and does not apply these compile controls.
+The empty hash gives E007 one breaker counter per file. Its stored fingerprint
+is the set of normalized offending line identities in that file's own surplus,
+before cross-file move cancellation. Unchanged sets never advance the counter;
+a strict subset resets it as progress. A new identity counts as an attempt,
+with the third attempt downgrading the remaining findings. Changing the selected
+file set alone cannot advance it. Persisted errors do not gate `--delta` a second
+time. Review is stateless and does not apply these compile controls.
 Server/watch/HTTP/MCP compile do not run homes; CLI and MCP review do.

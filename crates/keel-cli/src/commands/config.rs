@@ -87,10 +87,14 @@ fn get_config(config_path: &Path, key: &str) -> i32 {
 }
 
 fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
-    let mut json_value: serde_json::Value = match fs::read_to_string(config_path)
-        .map_err(|e| e.to_string())
-        .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
-    {
+    let content = match fs::read_to_string(config_path) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("keel config: refusing to rewrite config: {}", e);
+            return 2;
+        }
+    };
+    let mut json_value: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("keel config: refusing to rewrite config: {}", e);
@@ -99,7 +103,21 @@ fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
     };
 
     // Parse value into appropriate JSON type
-    let parsed_value = parse_value(value);
+    let parsed_value = if key == "homes" {
+        match serde_json::from_str::<serde_json::Value>(value) {
+            Ok(v) if v.is_array() => v,
+            _ => {
+                eprintln!("keel config: homes must be a JSON array; edit .keel/keel.json");
+                return 1;
+            }
+        }
+    } else {
+        parse_value(value)
+    };
+    if key == "enforce.homes" && !matches!(value, "warning" | "error") {
+        eprintln!("keel config: enforce.homes must be warning or error");
+        return 1;
+    }
 
     let schema = serde_json::to_value(KeelConfig::load(
         config_path.parent().unwrap_or(Path::new(".")),
@@ -139,10 +157,11 @@ fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
         }
     };
 
-    match fs::write(
-        config_path,
-        serde_json::to_string_pretty(&json_value).unwrap(),
-    ) {
+    let mut json = serde_json::to_string_pretty(&json_value).unwrap();
+    if content.ends_with('\n') {
+        json.push('\n');
+    }
+    match fs::write(config_path, json) {
         Ok(_) => {
             eprintln!("keel config: {} = {}", key, value);
             0

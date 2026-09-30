@@ -73,7 +73,7 @@ fn homes_unknown_severity_keeps_gate_and_other_settings() {
 
 #[test]
 fn homes_glob_spellings_normalize_and_root_home_is_rejected() {
-    for spelling in ["src/", "./src", "././src/"] {
+    for spelling in ["src/", "./src", "././src/", "/src", ".//src", "src//./"] {
         let cfg: KeelConfig = serde_json::from_value(json!({
             "version": "test", "languages": ["rust"],
             "homes": [{"name": "x", "patterns": ["x"], "scope": spelling}]
@@ -81,7 +81,13 @@ fn homes_glob_spellings_normalize_and_root_home_is_rejected() {
         .unwrap();
         assert_eq!(cfg.homes[0].scope, ["src"]);
     }
-    for spelling in ["src/time/", "./src/time", "././src/time/"] {
+    for spelling in [
+        "src/time/",
+        "./src/time",
+        "././src/time/",
+        "/src/time",
+        ".//src//time/",
+    ] {
         let cfg: KeelConfig = serde_json::from_value(json!({
             "version": "test", "languages": ["rust"],
             "homes": [{"name": "x", "patterns": ["x"], "home": spelling}]
@@ -89,7 +95,7 @@ fn homes_glob_spellings_normalize_and_root_home_is_rejected() {
         .unwrap();
         assert_eq!(cfg.homes[0].home, ["src/time"]);
     }
-    for spelling in [".", "./", "/", "././"] {
+    for spelling in [".", "./", "/", "././", "//./"] {
         let cfg: KeelConfig = serde_json::from_value(json!({
             "version": "test", "languages": ["rust"],
             "homes": [{"name": "scope", "patterns": ["x"], "scope": spelling},
@@ -98,6 +104,38 @@ fn homes_glob_spellings_normalize_and_root_home_is_rejected() {
         .unwrap();
         assert_eq!(cfg.homes.len(), 1);
         assert!(cfg.homes[0].scope.is_empty());
+    }
+}
+
+#[test]
+fn homes_parent_components_are_rejected_without_losing_other_settings() {
+    for key in ["home", "scope"] {
+        for spelling in ["../src", "src/../time", "/src/./../time"] {
+            let mut bad = json!({"name": "parent", "patterns": ["x"]});
+            bad[key] = json!(spelling);
+            let cfg: KeelConfig = serde_json::from_value(json!({
+                "version": "test", "languages": ["rust"], "review": {"gate": ["E007"]},
+                "homes": [bad, {"name": "valid", "patterns": ["x"], "scope": "src"}]
+            }))
+            .unwrap();
+            assert_eq!(cfg.homes.len(), 1);
+            assert_eq!(cfg.homes[0].name, "valid");
+            assert_eq!(cfg.review.gate, ["E007"]);
+        }
+    }
+}
+
+#[test]
+fn homes_sync_version_preserves_trailing_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    for newline in ["", "\n"] {
+        std::fs::write(&path, format!("{{\"version\":\"old\"}}{newline}")).unwrap();
+        KeelConfig::sync_version(dir.path(), "updated").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap().ends_with('\n'),
+            !newline.is_empty()
+        );
     }
 }
 

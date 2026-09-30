@@ -99,13 +99,17 @@ pub fn deserialize_homes<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<HomeRule
             .unwrap_or_else(|| format!("#{}", i + 1));
         let rule = serde_json::from_value::<HomeRule>(value.clone()).and_then(|mut rule| {
             for path in rule.home.iter_mut().chain(&mut rule.scope) {
-                *path = path
-                    .trim_start_matches("./")
-                    .trim_end_matches('/')
-                    .to_string();
-                if path == "." {
-                    path.clear();
+                let components = path.split('/').collect::<Vec<_>>();
+                if components.contains(&"..") {
+                    return Err(serde::de::Error::custom(
+                        "parent component '..' is not permitted in a home/scope glob",
+                    ));
                 }
+                *path = components
+                    .into_iter()
+                    .filter(|part| !part.is_empty() && *part != ".")
+                    .collect::<Vec<_>>()
+                    .join("/");
             }
             if rule.home.iter().any(String::is_empty) {
                 return Err(serde::de::Error::custom(

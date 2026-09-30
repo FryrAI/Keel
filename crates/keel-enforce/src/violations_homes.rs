@@ -63,6 +63,11 @@ impl HomeScanner {
         }
     }
 
+    /// Whether a path can contribute occurrences under any configured home rule.
+    pub fn eligible(&self, path: &str) -> bool {
+        self.rules.iter().any(|rule| rule.eligible(path))
+    }
+
     /// Match case-sensitive substrings in code, strings, and comments, once per pattern/line.
     pub fn scan(&self, path: &str, text: &str) -> Vec<HomeOccurrence> {
         let mut out = Vec::new();

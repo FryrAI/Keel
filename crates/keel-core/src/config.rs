@@ -313,7 +313,10 @@ impl KeelConfig {
             .as_object_mut()
             .ok_or_else(|| "config must be a JSON object".to_string())?;
         object.insert("version".into(), version.into());
-        let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        let mut json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        if content.ends_with('\n') {
+            json.push('\n');
+        }
         std::fs::write(&config_path, json).map_err(|e| e.to_string())
     }
 }

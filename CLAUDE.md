@@ -163,10 +163,22 @@ additions, and a shared worktree graph must never re-baseline another branch, so
 Matches include comments and strings. Findings have empty hashes and are grouped per file/line; whitespace
 runs collapse for multiset subtraction, but other line edits re-evaluate the occurrence. Home/scope globs
 use current-worktree paths and eligibility is checked independently on both sides of a rename.
+Glob components drop leading `/`, empty parts and `.`; `..` rejects the rule with a named
+warning. Root scope is allowed, root home is rejected. Symlinks are skipped; a target is checked
+when selected under its own path. Removed occurrences cancel matching additions across the
+checked file set (all diffed files for review, selected files for compile); compiling only a move's
+destination still fires. Deduplicate normalized paths before subtracting baselines or pooling.
+Read base blobs only for eligible base paths. Eligibility follows the canonical
+`detect_language` table (including SQL), not just the four core parser languages.
+Compile has no working-tree rename detection,
+so even a staged pure rename can fire under `compile --changed`; review recognizes renames.
 The committed ratchet requires `review.gate: ["W011"]` (or `["E007"]`) AND
 `keel review --base origin/main --gate` in CI. Escalation alone does not gate review. Compile uses ordinary
 suppression, batch (W011 only), circuit-breaker (empty hash means a file-level counter), and delta handling;
 progressive adoption does not demote E007. Missing/unavailable bases skip homes (a verbose note).
+E007's fingerprint is the set of normalized offending line identities in the file's own surplus
+before move cancellation: unchanged sets do not advance, strict subsets reset the counter,
+and only a new identity charges another attempt. Selecting different files alone cannot advance it.
 Server/watch/HTTP/MCP **compile** do not run homes; CLI and MCP **review** do.
 
 ### Hash Computation
