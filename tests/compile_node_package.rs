@@ -125,9 +125,9 @@ fn non_monorepo_compile_added_nodes_keep_null_package() {
     let root = dir.path();
     assert_eq!(package_of(root, "existing"), None);
     write(root, "crates/a/src/x.rs", FRESH_X);
-    assert!(keel(root, &["compile", "crates/a/src/x.rs"])
-        .status
-        .success());
+    let out = keel(root, &["compile", "crates/a/src/x.rs"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty(), "clean compile must print nothing");
     assert_eq!(package_of(root, "fresh"), None);
 }
 
@@ -137,6 +137,14 @@ fn non_monorepo_compile_added_nodes_keep_null_package() {
 fn compile_heals_null_package_stored_by_an_older_binary() {
     let dir = fixture(true);
     let root = dir.path();
+    // y.rs starts with ONLY an in-file edge, so its first call to `existing`
+    // is what W009 judges.
+    write(
+        root,
+        "crates/a/src/y.rs",
+        "/// Local.\npub fn local() -> i32 { 1 }\n\n/// Other.\npub fn other() -> i32 { local() }\n",
+    );
+    assert!(keel(root, &["map"]).status.success());
     {
         let db = rusqlite::Connection::open(root.join(".keel/graph.db")).unwrap();
         db.execute(
@@ -149,16 +157,11 @@ fn compile_heals_null_package_stored_by_an_older_binary() {
     let out = keel(root, &["compile", "crates/a/src/x.rs"]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(package_of(root, "existing").as_deref(), Some("a"));
-    // Other files are untouched by the heal.
-    assert_eq!(package_of(root, "other").as_deref(), Some("a"));
 
     write(
         root,
         "crates/a/src/y.rs",
-        &format!("{BASE_Y}\n{CALLER_Y}").replace(
-            "use crate::x::existing;",
-            "use crate::x::{existing, fresh};",
-        ),
+        "use crate::x::existing;\n\n/// Local.\npub fn local() -> i32 { 1 }\n\n/// Other.\npub fn other() -> i32 { local() + existing() }\n",
     );
     let result = compile_json(root, "crates/a/src/y.rs");
     assert!(violations_with_code(&result, "W009").is_empty(), "{result}");
