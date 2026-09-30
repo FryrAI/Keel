@@ -56,9 +56,7 @@ fn new_python_module_call_binds_parsed_local_instead_of_rust() {
     );
     clean_compile(dir.path(), file);
     assert_no_rust_edges(dir.path(), file);
-    // Compile sync attributes edges only to containing definitions. Module
-    // calls may therefore have no edge; any stored edge must stay in Python.
-    assert!(incoming_calls(dir.path(), file, "sym", false) <= 1);
+    assert_eq!(incoming_calls(dir.path(), file, "sym", false), 1);
     assert!(keel(dir.path(), &["map"]).status.success());
     assert_eq!(incoming_calls(dir.path(), file, "sym", false), 1);
     clean_compile(dir.path(), file);

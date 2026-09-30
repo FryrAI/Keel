@@ -303,17 +303,43 @@ fn fresh_module_call_has_local_hash_before_any_graph_write() {
 }
 
 #[test]
-fn parsed_module_local_never_admits_bare_members_or_function_body_calls() {
+fn parsed_local_admits_function_body_calls_but_never_bare_members() {
     use keel_parsers::python::PyResolver;
     let py = PyResolver::new();
-    for content in [
-        "class Guard:\n    def run(self) -> None:\n        pass\nX = run()\n",
-        "def run() -> None:\n    pass\ndef main() -> None:\n    run()\n",
+    for (content, expected) in [
+        (
+            "class Guard:\n    def run(self) -> None:\n        pass\nX = run()\n",
+            false,
+        ),
+        (
+            "def run() -> None:\n    pass\ndef main() -> None:\n    run()\n",
+            true,
+        ),
     ] {
         let parsed = py.parse_file(Path::new("/repo/src/caller.py"), content);
         let call = parsed.references.iter().find(|r| r.name == "run").unwrap();
-        assert!(module_local(call, "src/caller.py", &parsed.definitions).is_none());
+        assert_eq!(
+            module_local(call, "src/caller.py", &parsed.definitions).is_some(),
+            expected
+        );
     }
+}
+
+#[test]
+fn selected_boundary_entry_keeps_ordinary_rung_confidence() {
+    let mut index = Index {
+        candidates: vec![("baml_src/main.baml".into(), 3)],
+        boundary: HashMap::from([("run".into(), (3, 0.75))]),
+        ..Index::default()
+    };
+    assert_eq!(target(&index, None, &[import("baml_client")]), Some(3));
+    assert_eq!(
+        target(&index, Some(&Resolver("baml_src/main.baml")), &[]),
+        Some(3)
+    );
+    // A different boundary with the same name must not replace a rejected pick.
+    index.boundary.insert("run".into(), (4, 0.75));
+    assert_eq!(target(&index, None, &[import("baml_client")]), None);
 }
 
 #[test]

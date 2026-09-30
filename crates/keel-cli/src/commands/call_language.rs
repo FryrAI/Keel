@@ -24,8 +24,9 @@ pub(crate) fn compatible(language: &str, file: &str) -> bool {
 }
 
 /// Admit a selected ordinary target using the paths already on candidate rows.
-/// Selection precedes admission: rejecting a base pick cannot rebind the call
-/// to a different file or a later rung. Members still count toward ambiguity.
+/// A deliberate boundary entry is admitted at any rung, retaining its selected
+/// confidence. Selection precedes admission: rejecting a base pick cannot
+/// rebind to a different file or a later rung. Members still count toward ambiguity.
 pub(crate) fn allows_target(idx: &dyn CallIndex, ctx: &CallSiteCtx, name: &str, id: u64) -> bool {
     let allows = |candidates: &[(String, u64)]| {
         candidates
@@ -33,24 +34,22 @@ pub(crate) fn allows_target(idx: &dyn CallIndex, ctx: &CallSiteCtx, name: &str, 
             .any(|(file, candidate)| *candidate == id && compatible(ctx.language, file))
     };
     let bare = name.rsplit(['.', ':']).next().unwrap_or(name);
-    allows(&idx.candidates(name)) || (bare != name && allows(&idx.candidates(bare)))
+    idx.boundary_index()
+        .get(bare)
+        .is_some_and(|&(boundary, _)| boundary == id)
+        || allows(&idx.candidates(name))
+        || (bare != name && allows(&idx.candidates(bare)))
 }
 
-/// Select a parsed local for a module-level bare call, just as map's first pass.
-/// This applies only when compile has no stored local to select; it must not
-/// change existing in-function or stored-sibling selection.
+/// Select a fresh parsed local for a bare call, just as map's first pass.
+/// Compile uses this only when no stored local exists, including calls inside
+/// definitions. A refused member must not fall through to cross-file binding.
 pub(crate) fn module_local<'a>(
     reference: &Reference,
     file: &str,
     definitions: &'a [Definition],
 ) -> Option<&'a Definition> {
-    if !is_bare_call(reference)
-        || definitions.iter().any(|d| {
-            d.kind != keel_core::types::NodeKind::Module
-                && d.line_start <= reference.line
-                && reference.line <= d.line_end
-        })
-    {
+    if !is_bare_call(reference) {
         return None;
     }
     let locals: Vec<_> = definitions

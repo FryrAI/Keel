@@ -78,5 +78,7 @@ mod test_bare_call_regressions;
 #[path = "cli/test_bare_call_round2.rs"]
 mod test_bare_call_round2;
 
+#[path = "cli/test_call_language_fold.rs"]
+mod test_call_language_fold;
 #[path = "cli/test_call_languages.rs"]
 mod test_call_languages;

@@ -332,16 +332,17 @@ pub fn resolve_call_targets(
             if !countable_call(reference) {
                 continue;
             }
-            // A new file has no stored local ids yet. Map's first pass still
-            // binds its module-level bare names from the current parse; do the
-            // same before a resolver's unique-name fallback can claim them.
-            if !local.contains_key(&reference.name) {
-                if let Some(def) =
+            // A parsed bare local owns the name even before its node exists,
+            // at any call location. Refused members also skip the ladder,
+            // matching map's first-pass selection and second-pass skip.
+            if !local.contains_key(&reference.name)
+                && super::call_binding::is_bare_call(reference)
+                && definitions.iter().any(|d| d.name == reference.name)
+            {
+                reference.resolved_to =
                     super::call_language::module_local(reference, file_path, definitions)
-                {
-                    reference.resolved_to = Some(node_hash_for(store, def, file_path));
-                    continue;
-                }
+                        .map(|def| node_hash_for(store, def, file_path));
+                continue;
             }
             let Some((resolved, replaced)) = resolve_reference(&local, &idx, &ctx, reference)
             else {
@@ -675,6 +676,7 @@ fn sync_one_file(
         file,
         resolvers,
         &local,
+        module_id,
         next_id,
         edge_changes,
         node_tiers,
@@ -706,6 +708,7 @@ fn resolve_outgoing_edges(
     file: &FileIndex,
     resolvers: &ResolverSet,
     local: &HashMap<String, u64>,
+    module_id: u64,
     next_id: &mut u64,
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
@@ -732,6 +735,7 @@ fn resolve_outgoing_edges(
             push_reference_edge(
                 file,
                 local,
+                module_id,
                 reference.line,
                 resolved.target_id,
                 kind,
@@ -745,11 +749,12 @@ fn resolve_outgoing_edges(
     }
 }
 
-/// Find the definition containing `line` and emit a `calls`/`uses` edge from it.
+/// Emit a reference edge from its containing definition, or the file module.
 #[allow(clippy::too_many_arguments)]
 fn push_reference_edge(
     file: &FileIndex,
     local: &HashMap<String, u64>,
+    module_id: u64,
     line: u32,
     target_id: u64,
     kind: EdgeKind,
@@ -759,9 +764,7 @@ fn push_reference_edge(
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
 ) {
-    let Some(source_id) = containing_def(file, local, line) else {
-        return;
-    };
+    let source_id = containing_def(file, local, line).unwrap_or(module_id);
     if source_id == target_id {
         return;
     }

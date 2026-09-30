@@ -63,7 +63,7 @@ pub(crate) fn run_tier3_pass(
     let mut tier3_resolved = 0u32;
     // Base admission treats any edge on a line as prior resolution. Preserve
     // that occupancy after removing a member edge, including for other callees.
-    let rejected_lines: HashSet<(&str, u32)> = rejected_calls
+    let mut rejected_lines: HashSet<(&str, u32)> = rejected_calls
         .iter()
         .map(|(file, line, _)| (file.as_str(), *line))
         .collect();
@@ -131,6 +131,13 @@ pub(crate) fn run_tier3_pass(
                 ..
             } = result
             {
+                let source_id = find_containing_def(
+                    fd.definitions,
+                    reference.line,
+                    fd.file_path,
+                    name_to_id,
+                    fd.module_id,
+                );
                 if let Some(tgt_id) = find_target_node(
                     global_name_index,
                     &target_file,
@@ -140,13 +147,6 @@ pub(crate) fn run_tier3_pass(
                     fd.definitions,
                     associated_targets,
                 ) {
-                    let source_id = find_containing_def(
-                        fd.definitions,
-                        reference.line,
-                        fd.file_path,
-                        name_to_id,
-                        fd.module_id,
-                    );
                     if let Some(src_id) = source_id {
                         if src_id != tgt_id {
                             let edge_id = *next_id;
@@ -162,6 +162,19 @@ pub(crate) fn run_tier3_pass(
                             }));
                             tier3_resolved += 1;
                         }
+                    }
+                } else {
+                    // A removed Tier-3 pick occupies the line only when base
+                    // would have emitted it. Preserve that occupancy so a later
+                    // call on this line cannot gain a new binding.
+                    let selected = global_name_index.get(&target_name).and_then(|entries| {
+                        entries
+                            .iter()
+                            .find(|(file, _)| file == &target_file)
+                            .or_else(|| entries.first())
+                    });
+                    if selected.is_some_and(|(_, id)| source_id.is_some_and(|src| src != *id)) {
+                        rejected_lines.insert((fd.file_path, reference.line));
                     }
                 }
             }
@@ -258,6 +271,11 @@ fn find_target_node(
             .iter()
             .find(|(f, _)| f == target_file)
             .or_else(|| entries.first())
+            .filter(|(file, _)| {
+                let language =
+                    keel_parsers::treesitter::detect_language(Path::new(caller_file)).unwrap_or("");
+                super::call_language::compatible(language, file)
+            })
             .filter(|(_, id)| match associated_targets.get(id) {
                 Some((file, line)) => super::call_binding::allows_associated(
                     reference,

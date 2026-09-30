@@ -302,7 +302,11 @@ Map's first pass and compile's local binding preserve base selection order; the 
 binding. The only replacement is a same-file bare name with exactly one eligible definition beside members.
 Uniqueness in later rungs is judged over the unfiltered candidates; qualified calls and value references
 keep base behaviour. Membership applies only to Rust, Go, the TypeScript family, Astro scripts and Python,
-not SQL's exemption flag.
+not SQL's exemption flag. Ordinary cross-file picks, including Tier 3, also require a compatible
+language; deliberate boundary entries keep their selected target and confidence. Foreign candidates still
+count toward uniqueness: filtering them first could create a binding absent on base, contrary to the
+subtractive rule (#91 round-1 ruling). Fresh parsed locals own their bare names at every call location;
+a refused local member skips the cross-file ladder, and module-level edges use the file module as source.
 The TypeScript family includes TSX, JSX and Svelte script blocks. A member rejected by an earlier pass
 cannot be rebound by Tier 3. Python class-body calls can name an already-defined class-local function;
 method bodies cannot. Default
