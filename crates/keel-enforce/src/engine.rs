@@ -512,17 +512,18 @@ impl EnforcementEngine {
     /// The file watcher calls this on `Remove` events so deleted files stop
     /// accreting in the shared graph between full `keel map` runs. Works
     /// entirely through the frozen [`GraphStore`] trait: collect the file's
-    /// nodes, drop every edge touching them, then drop children before modules.
+    /// nodes, drop children before their modules, then drop remaining edges.
     /// Returns the number of nodes removed.
     pub fn prune_file(&mut self, file_path: &str) -> Result<usize, keel_core::types::GraphError> {
-        use keel_core::types::{EdgeChange, EdgeDirection, NodeChange, NodeKind};
+        use keel_core::types::{EdgeChange, EdgeDirection, NodeChange};
 
         let mut nodes = self.store.get_nodes_in_file(file_path);
         if nodes.is_empty() {
             return Ok(0);
         }
 
-        // Drop edges first so no dangling source/target ids survive.
+        // Collect before deleting nodes: stores without cascades still need
+        // an explicit edge-removal pass after the node transaction succeeds.
         let mut seen_edges = HashSet::new();
         let mut edge_changes = Vec::new();
         for node in &nodes {
@@ -532,18 +533,18 @@ impl EnforcementEngine {
                 }
             }
         }
-        if !edge_changes.is_empty() {
-            self.store.update_edges(edge_changes)?;
-        }
-
         let count = nodes.len();
-        // nodes.module_id references the module without ON DELETE CASCADE.
-        nodes.sort_by_key(|node| node.kind == NodeKind::Module);
+        crate::engine_prune::order_file_nodes_for_removal(&mut nodes);
         let node_changes = nodes
             .into_iter()
             .map(|n| NodeChange::Remove(n.id))
             .collect();
         self.store.update_nodes(node_changes)?;
+        // SQLite cascades edges in the node transaction, so a failed node
+        // removal leaves nodes and edges intact. This pass is then a no-op.
+        if !edge_changes.is_empty() {
+            self.store.update_edges(edge_changes)?;
+        }
         Ok(count)
     }
 

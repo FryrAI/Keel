@@ -82,6 +82,8 @@ mod e004_misc;
 mod economy;
 #[path = "engine_tests_module_identity.rs"]
 mod module_identity;
+#[path = "engine_tests_prune.rs"]
+mod prune;
 
 #[test]
 fn test_prune_file_removes_nodes_and_edges() {
