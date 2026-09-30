@@ -135,8 +135,8 @@ impl GitHomes {
             })
             .collect::<HashMap<_, _>>();
         sources
-            .iter()
-            .filter_map(|(path, _)| {
+            .keys()
+            .filter_map(|path| {
                 let scope = self.relative_path(path)?;
                 let hits = findings
                     .iter()
