@@ -82,7 +82,7 @@ pub(super) fn definition_contexts(
             }
 
             if !assoc_decided {
-                if is_function_scope(kind) {
+                if is_function_scope(kind) || (is_ts && kind == "class_static_block") {
                     assoc_decided = true;
                 } else if matches!(
                     (lang, kind),

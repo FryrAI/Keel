@@ -6,6 +6,8 @@ mod common;
 mod test_analyze;
 #[path = "cli/test_audit.rs"]
 mod test_audit;
+#[path = "cli/test_bare_call_binding.rs"]
+mod test_bare_call_binding;
 #[path = "cli/test_check.rs"]
 mod test_check;
 #[path = "cli/test_checkpoint.rs"]
@@ -70,3 +72,8 @@ mod test_update_docs;
 mod test_validate_plan;
 #[path = "cli/test_where.rs"]
 mod test_where;
+
+#[path = "cli/test_bare_call_regressions.rs"]
+mod test_bare_call_regressions;
+#[path = "cli/test_bare_call_round2.rs"]
+mod test_bare_call_round2;

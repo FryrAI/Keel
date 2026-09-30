@@ -282,6 +282,30 @@ Findings are deduplicated on rule+file+symbol before scoring, then ranked by (se
 ### W002 Exempts Distinct Cargo Compilation Units, Not the Name `main`
 `violations_util::distinct_compilation_units` exempts a duplicate-name pair when BOTH files are Cargo binary/build roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`, `examples/*.rs`) — each compiles as its own crate, so the two names never share a namespace and there is no ambiguity a rename could resolve. Structural, not `main`-specific: two `src/bin` targets sharing `parse_args` are as invisible to each other as two `main`s. A pair involving a library file still fires. Real copy-paste between two binary targets is still caught by W006's body tiers, which do not care which crate a body compiles into.
 
+### A Bare Call Never Binds to a Member
+Map's first pass and compile's local binding preserve base selection order; the shared ladder in
+`commands/call_resolve.rs` and Tier 3's `map_tier3::find_target_node` reject impossible targets through
+`commands/call_binding.rs`. Binding is subtractive: keep the base target or remove a bare-call-to-member
+binding. The only replacement is a same-file bare name with exactly one eligible definition beside members.
+Uniqueness in later rungs is judged over the unfiltered candidates; qualified calls and value references
+keep base behaviour. Membership applies only to Rust, Go, the TypeScript family, Astro scripts and Python,
+not SQL's exemption flag.
+The TypeScript family includes TSX, JSX and Svelte script blocks. A member rejected by an earlier pass
+cannot be rebound by Tier 3. Python class-body calls can name an already-defined class-local function;
+method bodies cannot. Default
+expressions in method headers remain a rare limitation: references have lines but no body/header scope.
+Parse paths may be absolute while graph paths are repo-relative; use the canonical caller path.
+Compile's E005 ambiguity guard bypasses refusal only when the unique-free replacement actually fired;
+a parsed replacement opportunity alone is insufficient while stored siblings lag an edit.
+
+Tier-3 full-map test fixtures must put calls on lines separate from declarations — admission treats ANY edge on the call's line (a `contains` edge included) as prior resolution — and include an ordinary unresolved call SCIP does resolve as a positive control, so a skipped pass cannot read green.
+A rejected member pick occupies its line only when base would have stored its edge: a containing source exists and is not the pick itself.
+Residual: a permitted same-file unique-free replacement can add an edge where base suppressed a self-edge, blocking Tier 3 from resolving another call on that line.
+Graph-diff probes must set their working directory to the scratch tree. In zsh copy loops, use
+`file_path`, not the special variable `path`, which rewrites `PATH`.
+Compare semantic graph rows without run timestamps or storage ids; retain resolution-tier changes
+in the report, since removing a call edge can clear its caller's tier.
+
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.
 

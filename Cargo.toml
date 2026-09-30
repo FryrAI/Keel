@@ -94,6 +94,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+scip = { workspace = true }
+protobuf = { workspace = true }
 jsonschema = "0.29"
 rusqlite = { workspace = true }
 tempfile = "3"
