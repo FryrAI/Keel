@@ -43,7 +43,8 @@ pub(crate) fn allows_target(idx: &dyn CallIndex, ctx: &CallSiteCtx, name: &str, 
 
 /// Select a fresh parsed local for a bare call, just as map's first pass.
 /// Compile uses this only when no stored local exists, including calls inside
-/// definitions. A refused member must not fall through to cross-file binding.
+/// definitions. Compile handles all-member refusals separately so imported
+/// functions retain base compile behaviour.
 pub(crate) fn module_local<'a>(
     reference: &Reference,
     file: &str,

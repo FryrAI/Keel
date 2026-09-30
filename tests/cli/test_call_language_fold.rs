@@ -141,8 +141,22 @@ fn fresh_class_body_uses_parsed_class_local_before_stored_foreign_name() {
 }
 
 #[test]
-fn fresh_module_call_to_local_method_never_falls_through_to_other_file() {
-    fresh_local("class Guard:\n    def sym(self, name: str) -> str:\n        \"\"\"Method.\"\"\"\n        return name\nX = sym(\"run\")\n", true, 0);
+fn fresh_module_call_to_local_method_uses_other_file_for_arity_only() {
+    let dir = fixture(&[("tools/other.py", "def sym(a: str, b: str, c: str) -> str:\n    \"\"\"Other symbol.\"\"\"\n    return a + b + c\n"), ("src/base.py", "")]);
+    fs::write(dir.path().join("tools/new.py"), "class Guard:\n    def sym(self, name: str) -> str:\n        \"\"\"Method.\"\"\"\n        return name\nX = sym(\"run\")\n").unwrap();
+    let result = compile(dir.path(), "tools/new.py", 1);
+    assert_eq!(violations_with_code(&result, "E005").len(), 1, "{result}");
+    assert_eq!(incoming_calls(dir.path(), "tools/new.py", "sym", true), 0);
+    assert_eq!(
+        incoming_calls(dir.path(), "tools/other.py", "sym", false),
+        0
+    );
+    assert!(keel(dir.path(), &["map"]).status.success());
+    assert_eq!(incoming_calls(dir.path(), "tools/new.py", "sym", true), 0);
+    assert_eq!(
+        incoming_calls(dir.path(), "tools/other.py", "sym", false),
+        0
+    );
 }
 
 #[test]

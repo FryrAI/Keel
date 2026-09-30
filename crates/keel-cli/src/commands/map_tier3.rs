@@ -164,16 +164,30 @@ pub(crate) fn run_tier3_pass(
                         }
                     }
                 } else {
-                    // A removed Tier-3 pick occupies the line only when base
-                    // would have emitted it. Preserve that occupancy so a later
-                    // call on this line cannot gain a new binding.
+                    // Only a language rejection of a pick base would have
+                    // stored occupies the line. Base already refused members.
                     let selected = global_name_index.get(&target_name).and_then(|entries| {
                         entries
                             .iter()
                             .find(|(file, _)| file == &target_file)
                             .or_else(|| entries.first())
                     });
-                    if selected.is_some_and(|(_, id)| source_id.is_some_and(|src| src != *id)) {
+                    if selected.is_some_and(|(file, id)| {
+                        let language =
+                            keel_parsers::treesitter::detect_language(Path::new(fd.file_path))
+                                .unwrap_or("");
+                        !super::call_language::compatible(language, file)
+                            && source_id.is_some_and(|src| src != *id)
+                            && associated_targets.get(id).is_none_or(|(file, line)| {
+                                super::call_binding::allows_associated(
+                                    reference,
+                                    fd.file_path,
+                                    file,
+                                    *line,
+                                    fd.definitions,
+                                )
+                            })
+                    }) {
                         rejected_lines.insert((fd.file_path, reference.line));
                     }
                 }

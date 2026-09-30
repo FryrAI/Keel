@@ -305,8 +305,14 @@ keep base behaviour. Membership applies only to Rust, Go, the TypeScript family,
 not SQL's exemption flag. Ordinary cross-file picks, including Tier 3, also require a compatible
 language; deliberate boundary entries keep their selected target and confidence. Foreign candidates still
 count toward uniqueness: filtering them first could create a binding absent on base, contrary to the
-subtractive rule (#91 round-1 ruling). Fresh parsed locals own their bare names at every call location;
-a refused local member skips the cross-file ladder, and module-level edges use the file module as source.
+subtractive rule (#91 round-1 ruling). Fresh parsed locals own their bare names at every call location.
+Compile alone falls through to the cross-file ladder when EVERY parsed local of a bare name is a
+refused member, preserving base import/package arity checks; every other local refusal is terminal.
+Map retains its pre-existing method-shadow blind spot (`map_passes.rs` second-pass same-file skip).
+Compile attributes calls to the innermost non-Module definition, as map does. Module-level edges
+use the file module as source ONLY for same-file targets; stored cross-file module edges survive.
+Rust `mod` definitions reuse their stored IDs during sync; only the path-named file module is
+excluded from the local definition index (#96).
 The TypeScript family includes TSX, JSX and Svelte script blocks. A member rejected by an earlier pass
 cannot be rebound by Tier 3. Python class-body calls can name an already-defined class-local function;
 method bodies cannot. Default
@@ -316,7 +322,8 @@ Compile's E005 ambiguity guard bypasses refusal only when the unique-free replac
 a parsed replacement opportunity alone is insufficient while stored siblings lag an edit.
 
 Tier-3 full-map test fixtures must put calls on lines separate from declarations — admission treats ANY edge on the call's line (a `contains` edge included) as prior resolution — and include an ordinary unresolved call SCIP does resolve as a positive control, so a skipped pass cannot read green.
-A rejected member pick occupies its line only when base would have stored its edge: a containing source exists and is not the pick itself.
+A Tier-3 language rejection occupies its line only when base would have stored the pick: a
+non-self source exists and #81 permits the target. A Tier-3 member refusal never occupies a line.
 Residual: a permitted same-file unique-free replacement can add an edge where base suppressed a self-edge, blocking Tier 3 from resolving another call on that line.
 Graph-diff probes must set their working directory to the scratch tree. In zsh copy loops, use
 `file_path`, not the special variable `path`, which rewrites `PATH`.
