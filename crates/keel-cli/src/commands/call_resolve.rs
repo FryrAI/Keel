@@ -129,27 +129,6 @@ pub fn resolve_call_reference(
             });
     }
 
-    let binding = BindingIndex {
-        inner: idx,
-        reference,
-        caller_file: ctx.file_path,
-        definitions: ctx.definitions,
-    };
-    let idx: &dyn CallIndex = &binding;
-
-    // Same-file names use the same eligible candidate set as every later
-    // rung. In particular, a method must not hide a same-named free function.
-    let candidates = idx.candidates(&reference.name);
-    let mut local = candidates.iter().filter(|(file, _)| file == ctx.file_path);
-    if let (Some((_, id)), None) = (local.next(), local.next()) {
-        let (_, confidence) = edge_for_reference(&reference.kind)?;
-        return Some(ResolvedCall {
-            target_id: *id,
-            confidence,
-            tier: tier_for_reference(&reference.kind).to_string(),
-        });
-    }
-
     let mut confidence = keel_core::confidence::CROSS_FILE_HEURISTIC;
     let mut tier = "tier1".to_string();
     let mut target_id: Option<u64> = None;
@@ -202,11 +181,9 @@ pub fn resolve_call_reference(
             if let Some((pkg_tgt, pkg_conf)) =
                 resolve_package_import(&reference.name, &imp.source, idx.package_index())
             {
-                if binding.allows(pkg_tgt) {
-                    target_id = Some(pkg_tgt);
-                    confidence = pkg_conf;
-                    break;
-                }
+                target_id = Some(pkg_tgt);
+                confidence = pkg_conf;
+                break;
             }
         }
     }
@@ -233,6 +210,12 @@ pub fn resolve_call_reference(
         tier = TEMPLATE_TIER.to_string();
     }
 
+    let binding = BindingIndex {
+        inner: idx,
+        reference,
+        caller_file: ctx.file_path,
+        definitions: ctx.definitions,
+    };
     target_id
         .filter(|id| binding.allows(*id))
         .map(|id| ResolvedCall {

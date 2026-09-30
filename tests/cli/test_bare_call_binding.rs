@@ -12,7 +12,8 @@ use crate::common::{assert_no_violation, compile_json, git, keel, violations_wit
 
 const DROP_REPRO: &str = "/// A guard.\npub struct Guard;\n\nimpl Drop for Guard {\n    fn drop(&mut self) {}\n}\n\n/// Takes and releases the guard.\npub fn release() {\n    let g = Guard;\n    drop(g);\n}\n";
 
-fn fixture(files: &[(&str, &str)]) -> TempDir {
+/// Map and commit a small isolated source fixture.
+pub(super) fn fixture(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();
     for (file, source) in files {
         let path = dir.path().join(file);
@@ -27,7 +28,8 @@ fn fixture(files: &[(&str, &str)]) -> TempDir {
     dir
 }
 
-fn incoming_calls(dir: &Path, file: &str, name: &str, associated: bool) -> usize {
+/// Count the stored callers of a named free or associated definition.
+pub(super) fn incoming_calls(dir: &Path, file: &str, name: &str, associated: bool) -> usize {
     let store = SqliteGraphStore::open(dir.join(".keel/graph.db").to_str().unwrap()).unwrap();
     let node = store
         .get_nodes_in_file(file)
@@ -62,14 +64,14 @@ fn drop_prelude_call_never_binds_drop_trait_method() {
 }
 
 #[test]
-fn qualified_constructor_and_free_function_still_report_e005() {
+fn free_function_still_reports_e005_and_qualified_constructor_matches_base() {
     let base = "/// A guard.\npub struct Guard;\nimpl Guard {\n /// Constructs a guard.\n pub fn new(a: i32) -> Self { let _ = a; Guard }\n}\n/// A free function.\npub fn free(a: i32) { let _ = a; }\n";
     let dir = fixture(&[("src/lib.rs", base)]);
     fs::write(dir.path().join("src/lib.rs"), format!("{base}\n/// Calls both functions incorrectly.\npub fn wire() {{\n Guard::new(1, 2);\n free(1, 2);\n}}\n")).unwrap();
     let result = compile_json(dir.path(), "src/lib.rs");
     let mismatches = violations_with_code(&result, "E005");
-    assert_eq!(mismatches.len(), 2, "{result}");
-    assert!(mismatches
+    assert_eq!(mismatches.len(), 1, "{result}");
+    assert!(!mismatches
         .iter()
         .any(|v| v["message"].as_str().unwrap().contains("new")));
     assert!(mismatches

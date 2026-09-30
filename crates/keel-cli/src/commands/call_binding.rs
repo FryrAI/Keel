@@ -1,35 +1,11 @@
 //! Candidate eligibility shared by every graph call-resolution pass.
 
-use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use keel_core::types::NodeKind;
 use keel_parsers::resolver::{Definition, Reference, ReferenceKind};
 
 use super::map_resolve::CallIndex;
-
-/// Associated-item facts for a graph target, preferring unambiguous fresh locals.
-pub(crate) fn graph_associated_target(
-    store: &keel_core::sqlite::SqliteGraphStore,
-    local: &HashMap<String, u64>,
-    file_path: &str,
-    definitions: &[Definition],
-    id: u64,
-) -> Option<(String, u32)> {
-    use keel_core::store::GraphStore;
-    if let Some((name, _)) = local.iter().find(|(_, local_id)| **local_id == id) {
-        let mut matches = definitions.iter().filter(|d| &d.name == name);
-        if let (Some(def), None) = (matches.next(), matches.next()) {
-            return def
-                .is_associated
-                .then(|| (file_path.to_string(), def.line_start));
-        }
-    }
-    store.get_node_by_id(id).and_then(|node| {
-        node.is_associated
-            .then_some((node.file_path, node.line_start))
-    })
-}
 
 /// Whether a reference can name an associated definition at this location.
 ///
@@ -44,6 +20,14 @@ pub(crate) fn allows_associated(
     definitions: &[Definition],
 ) -> bool {
     if !is_bare_call(reference) {
+        return true;
+    }
+    // SQL also uses is_associated as an enforcement exemption, not membership.
+    let language = keel_parsers::treesitter::detect_language(std::path::Path::new(target_file));
+    if !matches!(
+        language,
+        Some("rust" | "go" | "typescript" | "javascript" | "python")
+    ) {
         return true;
     }
     if keel_parsers::treesitter::detect_language(std::path::Path::new(caller_file))
@@ -73,13 +57,14 @@ pub(crate) fn allows_associated(
             .is_some_and(|owner| std::ptr::eq(owner, class))
 }
 
-fn is_bare_call(reference: &Reference) -> bool {
+/// Whether the callee text is an unqualified call name.
+pub(crate) fn is_bare_call(reference: &Reference) -> bool {
     reference.kind == ReferenceKind::Call
         && !reference.name.contains('.')
         && !reference.name.contains("::")
 }
 
-/// A call index with impossible member candidates removed before selection.
+/// Eligibility for a selected target; candidate lists retain base ambiguity.
 pub(crate) struct BindingIndex<'a> {
     pub(crate) inner: &'a dyn CallIndex,
     pub(crate) reference: &'a Reference,
@@ -106,35 +91,113 @@ impl BindingIndex<'_> {
     }
 }
 
-impl CallIndex for BindingIndex<'_> {
-    fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]> {
-        let candidates = self.inner.candidates(name);
-        if candidates.iter().all(|(_, id)| self.allows(*id)) {
-            return candidates;
+/// Preserve the base local pick, except for one eligible local beside members.
+pub(crate) fn select_local_target(
+    reference: &Reference,
+    selected: u64,
+    candidates: impl Iterator<Item = (u64, bool, bool)>,
+) -> Option<u64> {
+    let mut selected_allowed = false;
+    let mut eligible = None;
+    let mut eligible_count = 0;
+    let mut eligible_is_free = false;
+    let mut rejected = false;
+    for (id, allowed, associated) in candidates {
+        if id == selected {
+            selected_allowed = allowed;
         }
-        Cow::Owned(
-            candidates
-                .iter()
-                .filter(|(_, id)| self.allows(*id))
-                .cloned()
-                .collect(),
-        )
+        if allowed {
+            eligible = Some(id);
+            eligible_is_free = !associated;
+            eligible_count += 1;
+        } else {
+            rejected = true;
+        }
     }
-    fn associated_target(&self, id: u64) -> Option<(String, u32)> {
-        self.inner.associated_target(id)
+    if is_bare_call(reference) && rejected && eligible_count == 1 && eligible_is_free {
+        eligible
+    } else {
+        selected_allowed.then_some(selected)
     }
-    fn module_files(&self) -> &HashMap<String, u64> {
-        self.inner.module_files()
+}
+
+/// Apply local selection using association facts from the first-pass definitions.
+pub(crate) fn select_parsed_local_target(
+    reference: &Reference,
+    selected: u64,
+    file: &str,
+    definitions: &[Definition],
+    locals: &[(&Definition, u64)],
+) -> Option<u64> {
+    select_local_target(
+        reference,
+        selected,
+        locals.iter().map(|(d, id)| {
+            (
+                *id,
+                !d.is_associated
+                    || allows_associated(reference, file, file, d.line_start, definitions),
+                d.is_associated,
+            )
+        }),
+    )
+}
+
+/// Association facts keyed by graph id; `None` records a fresh free definition.
+pub(crate) type AssociationFacts = HashMap<u64, Option<(String, u32)>>;
+
+/// Fresh association facts keyed by local id, leaving duplicate names to stored rows.
+pub(crate) fn local_association_facts(
+    local: &HashMap<String, u64>,
+    file_path: &str,
+    definitions: &[Definition],
+) -> (AssociationFacts, HashSet<String>) {
+    let mut local_associated = HashMap::new();
+    let mut duplicate_names = HashSet::new();
+    for def in definitions {
+        if let Some(&id) = local.get(&def.name) {
+            if local_associated
+                .insert(
+                    id,
+                    def.is_associated
+                        .then(|| (file_path.to_string(), def.line_start)),
+                )
+                .is_some()
+            {
+                duplicate_names.insert(def.name.clone());
+            }
+        }
     }
-    fn name_to_id(&self) -> &HashMap<(String, String), u64> {
-        self.inner.name_to_id()
+    for name in &duplicate_names {
+        local_associated.remove(&local[name]);
     }
-    fn package_index(&self) -> &HashMap<String, HashMap<String, u64>> {
-        self.inner.package_index()
+    (local_associated, duplicate_names)
+}
+
+/// Whether a bare same-file collision permits the one free-definition replacement.
+pub(crate) fn has_local_replacement(
+    reference: &Reference,
+    file: &str,
+    name: &str,
+    definitions: &[Definition],
+) -> bool {
+    if !is_bare_call(reference) {
+        return false;
     }
-    fn boundary_index(&self) -> &HashMap<String, (u64, f64)> {
-        self.inner.boundary_index()
+    let mut eligible = 0;
+    let mut rejected = false;
+    let mut eligible_is_free = false;
+    for def in definitions.iter().filter(|d| d.name == name) {
+        if !def.is_associated
+            || allows_associated(reference, file, file, def.line_start, definitions)
+        {
+            eligible += 1;
+            eligible_is_free = !def.is_associated;
+        } else {
+            rejected = true;
+        }
     }
+    rejected && eligible == 1 && eligible_is_free
 }
 
 #[cfg(test)]

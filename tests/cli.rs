@@ -64,3 +64,6 @@ mod test_update_docs;
 mod test_validate_plan;
 #[path = "cli/test_where.rs"]
 mod test_where;
+
+#[path = "cli/test_bare_call_regressions.rs"]
+mod test_bare_call_regressions;

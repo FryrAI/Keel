@@ -214,14 +214,15 @@ Findings are deduplicated on rule+file+symbol before scoring, then ranked by (se
 `violations_util::distinct_compilation_units` exempts a duplicate-name pair when BOTH files are Cargo binary/build roots (`build.rs`, `src/main.rs`, `src/bin/*.rs`, `examples/*.rs`) — each compiles as its own crate, so the two names never share a namespace and there is no ambiguity a rename could resolve. Structural, not `main`-specific: two `src/bin` targets sharing `parse_args` are as invisible to each other as two `main`s. A pair involving a library file still fires. Real copy-paste between two binary targets is still caught by W006's body tiers, which do not care which crate a body compiles into.
 
 ### A Bare Call Never Binds to a Member
-Map and compile resolve every call through `commands/call_resolve.rs`; candidate eligibility lives in ONE
-place, `commands/call_binding.rs`, applied before a target is selected — never add a per-violation filter. A
-bare call (`drop(x)`, `helper()`) cannot bind to a method or associated function (Rust `impl` members, Go
-receiver methods, TS/JS class methods, Python methods), so `drop(g)` next to `impl Drop` is not an E005 (#81).
-References keep their qualification in `name`: a Rust `Guard::new` parses as `Guard.new`, and both separators
-mean qualified. Python class-body code may still call an already-defined class-local function by its bare
-name; method bodies cannot see that namespace. Parse paths may be absolute while graph paths are
-repo-relative — compare same-file callers through the resolution context's canonical caller path.
+Map's first pass and compile's local binding preserve base selection order; the shared ladder in
+`commands/call_resolve.rs` and Tier 3's `map_tier3::find_target_node` reject impossible targets through
+`commands/call_binding.rs`. Binding is subtractive: keep the base target or remove a bare-call-to-member
+binding. The only replacement is a same-file bare name with exactly one eligible definition beside members.
+Uniqueness in later rungs is judged over the unfiltered candidates; qualified calls and value references
+keep base behaviour. Membership applies only to Rust, Go, TS/JS and Python, not SQL's exemption flag.
+Python class-body calls can name an already-defined class-local function; method bodies cannot. Default
+expressions in method headers remain a rare limitation: references have lines but no body/header scope.
+Parse paths may be absolute while graph paths are repo-relative; use the canonical caller path.
 
 ### Dynamic Dispatch
 Low-confidence call edges (trait dispatch, interface methods) produce **WARNING not ERROR**. Prevents false positives on ambiguous resolution.

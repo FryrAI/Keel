@@ -243,23 +243,20 @@ fn find_target_node(
     associated_targets: &HashMap<u64, (String, u32)>,
 ) -> Option<u64> {
     global_name_index.get(target_name).and_then(|entries| {
-        let eligible = || {
-            entries
-                .iter()
-                .filter(|(_, id)| match associated_targets.get(id) {
-                    Some((file, line)) => super::call_binding::allows_associated(
-                        reference,
-                        caller_file,
-                        file,
-                        *line,
-                        definitions,
-                    ),
-                    None => true,
-                })
-        };
-        eligible()
+        entries
+            .iter()
             .find(|(f, _)| f == target_file)
-            .or_else(|| eligible().next())
+            .or_else(|| entries.first())
+            .filter(|(_, id)| match associated_targets.get(id) {
+                Some((file, line)) => super::call_binding::allows_associated(
+                    reference,
+                    caller_file,
+                    file,
+                    *line,
+                    definitions,
+                ),
+                None => true,
+            })
             .map(|(_, id)| *id)
     })
 }
@@ -269,7 +266,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tier3_bare_call_filters_members_before_selecting_target() {
+    fn tier3_bare_call_rejects_selected_member_without_replacement() {
         let reference = resolver::Reference {
             name: "run".into(),
             file_path: "src/caller.rs".into(),
@@ -307,7 +304,7 @@ mod tests {
                 &[],
                 &associated
             ),
-            Some(2)
+            None
         );
         let qualified = resolver::Reference {
             name: "Guard::run".into(),

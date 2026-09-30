@@ -7,7 +7,7 @@ use std::path::Path;
 
 use keel_core::hash::compute_hash;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
-use keel_parsers::resolver::LanguageResolver;
+use keel_parsers::resolver::{Definition, LanguageResolver};
 use keel_parsers::treesitter::SupplementalResolver;
 use keel_parsers::typescript::TsResolver;
 use keel_parsers::walker::WalkEntry;
@@ -27,7 +27,7 @@ pub struct FileParseData {
     pub imports: Vec<keel_parsers::resolver::Import>,
 }
 
-/// First pass: create nodes, collecting parse data for call resolution.
+/// First pass: create nodes and same-file edges, collecting parse data for cross-file resolution.
 #[allow(clippy::too_many_arguments)]
 pub fn first_pass(
     entries: &[WalkEntry],
@@ -110,6 +110,7 @@ pub fn first_pass(
             package: entry.package.clone(),
         }));
 
+        let mut local_definitions: HashMap<String, Vec<(&Definition, u64)>> = HashMap::new();
         // Create definition nodes
         for def in &result.definitions {
             // Canonical content hash (single source of truth: `Definition::hash`),
@@ -123,6 +124,10 @@ pub fn first_pass(
             let node_id = *next_id;
             *next_id += 1;
             valid_node_ids.insert(node_id);
+            local_definitions
+                .entry(def.name.clone())
+                .or_default()
+                .push((def, node_id));
 
             name_to_id.insert((file_path.clone(), def.name.clone()), node_id);
             global_name_index
@@ -240,6 +245,46 @@ pub fn first_pass(
             }));
         }
 
+        // Create same-file call/value edges from references
+        for reference in &result.references {
+            let Some((kind, confidence)) = edge_for_reference(&reference.kind) else {
+                continue;
+            };
+            if let Some(&selected) = name_to_id.get(&(file_path.clone(), reference.name.clone())) {
+                let Some(target_id) = super::call_binding::select_parsed_local_target(
+                    reference,
+                    selected,
+                    &file_path,
+                    &result.definitions,
+                    &local_definitions[&reference.name],
+                ) else {
+                    continue;
+                };
+                let source_id = find_containing_def(
+                    &result.definitions,
+                    reference.line,
+                    &file_path,
+                    name_to_id,
+                    Some(module_id),
+                );
+                if let Some(src_id) = source_id {
+                    if src_id != target_id {
+                        let edge_id = *next_id;
+                        *next_id += 1;
+                        edge_changes.push(EdgeChange::Add(GraphEdge {
+                            id: edge_id,
+                            source_id: src_id,
+                            target_id,
+                            kind,
+                            file_path: file_path.clone(),
+                            line: reference.line,
+                            confidence,
+                        }));
+                    }
+                }
+            }
+        }
+
         all_file_data.push(FileParseData {
             file_path,
             language: entry.language.clone(),
@@ -252,7 +297,7 @@ pub fn first_pass(
     all_file_data
 }
 
-/// Second pass: same-file/cross-file reference edges and import edges.
+/// Second pass: cross-file call edges and import edges.
 ///
 /// `boundary_index` maps boundary function names (e.g. BAML `.baml` functions)
 /// to their `(node id, confidence)`; calls left unresolved by the normal
@@ -322,11 +367,17 @@ pub fn second_pass(
             definitions: &file_data.definitions,
         };
 
-        // All call and value references share one candidate-selection ladder.
+        // Resolve cross-file call and value references (same-file ones were
+        // already linked in the first pass, so skip references to a same-file
+        // def).
         for reference in &file_data.references {
             let Some((kind, _)) = edge_for_reference(&reference.kind) else {
                 continue;
             };
+            if name_to_id.contains_key(&(file_path.clone(), reference.name.clone())) {
+                continue;
+            }
+
             let Some(resolved) = resolve_call_reference(&idx, &ctx, reference) else {
                 continue;
             };

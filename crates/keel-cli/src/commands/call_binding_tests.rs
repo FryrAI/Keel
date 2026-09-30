@@ -211,3 +211,24 @@ fn bare_cross_file_calls_cannot_bind_receiver_methods() {
         .iter()
         .any(|e| e.kind == EdgeKind::Calls));
 }
+
+#[test]
+fn local_replacement_requires_exactly_one_free_definition_among_members() {
+    let file = parsed("rust", "src/lib.rs", "fn wire() { run(); }");
+    let call = file.references.iter().find(|r| r.name == "run").unwrap();
+    for (candidates, expected) in [
+        (vec![(1, true, false), (2, false, true)], Some(1)),
+        (
+            vec![(1, true, false), (3, true, false), (2, false, true)],
+            None,
+        ),
+        (vec![(1, true, true), (2, false, true)], None),
+        (vec![(1, true, false), (2, true, false)], Some(2)),
+        (vec![(2, false, true)], None),
+    ] {
+        assert_eq!(
+            super::select_local_target(call, 2, candidates.into_iter()),
+            expected
+        );
+    }
+}
