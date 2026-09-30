@@ -64,11 +64,11 @@ fn repo_root(dir: &Path) -> PathBuf {
         .unwrap_or_else(|| dir.to_path_buf())
 }
 
-/// Keep non-empty lines; drop paths the repository's ignore rules exclude, and
+/// Keep non-empty NUL-delimited paths; drop paths the ignore rules exclude, and
 /// when `only_supported`, paths keel cannot parse (per the canonical
 /// `detect_language` extension table).
-fn collect_lines(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
-    text.lines()
+fn collect_paths(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
+    text.split('\0')
         .filter(|l| !l.is_empty())
         .filter(|l| !only_supported || detect_language(Path::new(l)).is_some())
         .filter(|l| !ignore.is_ignored(Path::new(l)))
@@ -101,10 +101,10 @@ pub fn changed_files_checked(
     only_supported: bool,
 ) -> Result<Vec<String>, String> {
     let raw = match mode {
-        DiffMode::Staged => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+        DiffMode::Staged => run_git_checked(dir, &["diff", "--name-only", "-z", "--cached"])?,
         DiffMode::Range(base) => {
             let range = format!("{}..HEAD", base);
-            match run_git_checked(dir, &["diff", "--name-only", &range])? {
+            match run_git_checked(dir, &["diff", "--name-only", "-z", &range])? {
                 Some(t) => Some(t),
                 // An explicit base that git cannot resolve is a user error, not
                 // an initial-commit repo: `--since typo` must NOT quietly become
@@ -115,15 +115,15 @@ pub fn changed_files_checked(
         }
         DiffMode::Since(base) => {
             let arg = base.as_deref().unwrap_or("HEAD");
-            match run_git_checked(dir, &["diff", "--name-only", arg])? {
+            match run_git_checked(dir, &["diff", "--name-only", "-z", arg])? {
                 Some(t) => Some(t),
                 // Initial commit / unresolvable base: fall back to the index.
-                None => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+                None => run_git_checked(dir, &["diff", "--name-only", "-z", "--cached"])?,
             }
         }
     };
     Ok(raw
-        .map(|t| collect_lines(&t, only_supported, &KeelIgnore::new(&repo_root(dir))))
+        .map(|t| collect_paths(&t, only_supported, &KeelIgnore::new(&repo_root(dir))))
         .unwrap_or_default())
 }
 
@@ -213,38 +213,36 @@ impl ChangedPath {
     }
 }
 
-/// Parse one `--name-status -M` record into a [`ChangedPath`].
+/// Parse `--name-status -z -M` records into changed paths.
 ///
-/// Rename/copy records carry two tab-separated paths (`R096\told\tnew`);
+/// Status and paths are NUL-separated; rename/copy records carry two paths,
 /// every other status carries one. Unknown status letters are treated as
 /// modifications, which is the safe direction — the file still gets diffed.
-fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
-    let mut parts = line.split('\t');
-    let code = parts.next()?;
-    let first = parts.next()?;
-    match code.chars().next()? {
-        'A' => Some(ChangedPath {
-            path: first.to_string(),
-            status: ChangeStatus::Added,
-        }),
-        'D' => Some(ChangedPath {
-            path: first.to_string(),
-            status: ChangeStatus::Deleted,
-        }),
-        'R' | 'C' => {
-            let new_path = parts.next()?;
-            Some(ChangedPath {
-                path: new_path.to_string(),
-                status: ChangeStatus::Renamed {
-                    from: first.to_string(),
-                },
-            })
-        }
-        _ => Some(ChangedPath {
-            path: first.to_string(),
-            status: ChangeStatus::Modified,
-        }),
+fn parse_name_status(text: &str) -> Vec<ChangedPath> {
+    let mut parts = text.split_terminator('\0');
+    let mut paths = Vec::new();
+    while let Some(code) = parts.next() {
+        let Some(first) = parts.next() else { break };
+        let (path, status) = match code.chars().next() {
+            Some('A') => (first, ChangeStatus::Added),
+            Some('D') => (first, ChangeStatus::Deleted),
+            Some('R' | 'C') => {
+                let Some(new_path) = parts.next() else { break };
+                (
+                    new_path,
+                    ChangeStatus::Renamed {
+                        from: first.to_string(),
+                    },
+                )
+            }
+            _ => (first, ChangeStatus::Modified),
+        };
+        paths.push(ChangedPath {
+            path: path.to_string(),
+            status,
+        });
     }
+    paths
 }
 
 /// List every path changed between `base` and the working tree, with rename
@@ -257,12 +255,11 @@ fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
 /// they are everywhere else — a review is measured against the graph, and the
 /// graph has no ignored files to compare against.
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
-    let raw = run_git_checked(dir, &["diff", "--name-status", "-M", base])?
+    let raw = run_git_checked(dir, &["diff", "--name-status", "-z", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
     let ignore = KeelIgnore::new(&repo_root(dir));
-    Ok(raw
-        .lines()
-        .filter_map(parse_name_status_line)
+    Ok(parse_name_status(&raw)
+        .into_iter()
         .filter_map(|entry| apply_ignore(entry, &ignore))
         .collect())
 }

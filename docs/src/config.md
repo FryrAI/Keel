@@ -215,8 +215,10 @@ Python, Go, TypeScript, TSX, JavaScript, JSX, and Bash. Syntax-tree comment node
 newlines, on both sides of the comparison. Blank resulting lines never match.
 Each eligible file is parsed without a raw-match shortcut. Strings still match;
 Python docstrings are strings and remain checked. SQL, Typst, and raw Svelte/Astro
-markup remain unmasked, so their comments still match. Removing a comment without
-changing code is silent; uncommenting a matching baselined line introduces a finding.
+markup remain unmasked, so their comments still match. Removing comments is silent
+when it preserves which code lands on each line; removing a multi-line comment
+inside a statement can change that line split and produce a finding.
+Uncommenting a matching baselined line introduces a finding.
 
 The baseline is Git text, independent of `graph.db`: compile compares with
 HEAD, or the `--since` commit; review compares with `--base`. Occurrences are

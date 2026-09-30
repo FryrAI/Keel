@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   aliases are skipped; their targets are checked under their own paths.
 
 ### Fixed
+- Git diff paths use NUL delimiters, so non-ASCII, tab, newline, and quote-containing
+  filenames are checked correctly and indexed renames retain their old paths.
+- JavaScript homes masking preserves JSX text in `.js`, `.mjs`, and `.cjs` files.
 - Compile homes detect indexed renames against the immutable HEAD/`--since`
   base and consume each old blob once, preventing a separately selected deletion
   from cancelling a newly added occurrence. Plain unstaged moves remain undetected.

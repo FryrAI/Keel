@@ -338,7 +338,9 @@ Comments and hash-bang lines are excluded in Rust, Python, Go, TypeScript, TSX,
 JavaScript, JSX, and Bash. SQL, Typst, and raw Svelte/Astro markup remain unmasked;
 Python docstrings remain strings and match. Comment bytes are deleted on both
 sides, preserving newlines; blank resulting lines never match. Removing comments
-from unchanged code is silent, while uncommenting matching code is a new finding.
+is silent when it preserves which code lands on each line; removing a multi-line
+comment inside a statement can change that line split and produce a finding.
+Uncommenting matching code is a new finding.
 Whitespace-only edits and unchanged line moves cancel against the base
 multiset. Additional identical lines remain distinct findings. Moving text out
 of a home or out-of-scope path introduces a finding.
@@ -359,6 +361,8 @@ and a new identity counts toward the third-attempt downgrade. Selecting differen
 files without editing cannot advance the counter. Older raw-line fingerprints
 reset to the first-sighting count when the masked `homes-v3:` format is first
 seen, without charging a failed fix attempt or retaining a downgrade.
+This can restore ERROR on passive recompilation of a downgraded E007; W011 is
+unreleased, so only development builds have stored `homes-v2:` fingerprints.
 
 The committed ratchet requires `review.gate: ["W011"]` (or `["E007"]`) plus
 `keel review --base origin/main --gate`. Compile alone compares with HEAD and

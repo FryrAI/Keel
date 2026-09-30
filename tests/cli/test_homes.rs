@@ -459,6 +459,9 @@ mod fold;
 #[path = "test_homes_87.rs"]
 mod issue87;
 
+#[path = "test_homes_87_r1.rs"]
+mod issue87_r1;
+
 #[cfg(unix)]
 #[path = "test_homes_base_symlink.rs"]
 mod base_symlink;

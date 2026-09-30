@@ -12,7 +12,9 @@ pub(crate) fn without_comments<'a>(path: &str, text: &'a str) -> Cow<'a, str> {
     else {
         return Cow::Borrowed(text);
     };
-    let Ok(tree) = TreeSitterParser::new().parse(lang, text.as_bytes()) else {
+    // JavaScript files may contain JSX, whose text must not become a comment.
+    let grammar = if lang == "javascript" { "tsx" } else { lang };
+    let Ok(tree) = TreeSitterParser::new().parse(grammar, text.as_bytes()) else {
         return Cow::Borrowed(text);
     };
     let mut cursor = tree.walk();

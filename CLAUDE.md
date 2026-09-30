@@ -213,7 +213,9 @@ empty-string-matching regexes skip their rule and are refused by `keel config ho
 Matches include strings (including Python docstrings). Tree-sitter comments and hash-bang lines are deleted
 except for newlines in Rust, Python, Go, TypeScript/TSX, JavaScript/JSX and Bash, on both sides. SQL, Typst,
 and raw Svelte/Astro markup remain unmasked. Blank masked lines never match. Removing comments from
-unchanged code is silent; uncommenting matching code introduces a finding. Every eligible file is parsed.
+unchanged code is silent when it preserves which code lands on each line; removing a multi-line comment
+inside a statement can change that line split and produce a finding. Uncommenting matching code introduces
+a finding. Every eligible file is parsed.
 Findings have empty hashes and are grouped per file/line; whitespace
 runs collapse for multiset subtraction, but other line edits re-evaluate the occurrence. Home/scope globs
 use current-worktree paths and eligibility is checked independently on both sides of a rename.
