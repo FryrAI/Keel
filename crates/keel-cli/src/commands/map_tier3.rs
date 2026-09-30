@@ -37,6 +37,8 @@ pub(crate) fn run_tier3_pass(
     file_data: &[Tier3FileData<'_>],
     name_to_id: &HashMap<(String, String), u64>,
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
+    associated_targets: &HashMap<u64, (String, u32)>,
+    rejected_calls: &HashSet<(String, u32, String)>,
     edge_changes: &mut Vec<EdgeChange>,
     next_id: &mut u64,
     seed: Vec<keel_core::types::ResolutionCacheEntry>,
@@ -59,6 +61,12 @@ pub(crate) fn run_tier3_pass(
     }
 
     let mut tier3_resolved = 0u32;
+    // Base admission treats any edge on a line as prior resolution. Preserve
+    // that occupancy after removing a member edge, including for other callees.
+    let rejected_lines: HashSet<(&str, u32)> = rejected_calls
+        .iter()
+        .map(|(file, line, _)| (file.as_str(), *line))
+        .collect();
     // Cache-key hashes of every call site processed this pass. Passed to
     // `live_resolution_cache_entries` below so it carries forward exactly the
     // still-live persisted rows and prunes the rest. Liveness bookkeeping lives
@@ -76,6 +84,10 @@ pub(crate) fn run_tier3_pass(
             }
             // Skip if already resolved (same-file or cross-file)
             if name_to_id.contains_key(&(fd.file_path.to_string(), reference.name.clone())) {
+                continue;
+            }
+            // A rejected member occupies the line just as its base edge did.
+            if rejected_lines.contains(&(fd.file_path, reference.line)) {
                 continue;
             }
             // Check if earlier passes already created an edge at this location
@@ -119,9 +131,15 @@ pub(crate) fn run_tier3_pass(
                 ..
             } = result
             {
-                if let Some(tgt_id) =
-                    find_target_node(global_name_index, &target_file, &target_name)
-                {
+                if let Some(tgt_id) = find_target_node(
+                    global_name_index,
+                    &target_file,
+                    &target_name,
+                    reference,
+                    fd.file_path,
+                    fd.definitions,
+                    associated_targets,
+                ) {
                     let source_id = find_containing_def(
                         fd.definitions,
                         reference.line,
@@ -230,12 +248,90 @@ fn find_target_node(
     global_name_index: &HashMap<String, Vec<(String, u64)>>,
     target_file: &str,
     target_name: &str,
+    reference: &resolver::Reference,
+    caller_file: &str,
+    definitions: &[resolver::Definition],
+    associated_targets: &HashMap<u64, (String, u32)>,
 ) -> Option<u64> {
     global_name_index.get(target_name).and_then(|entries| {
         entries
             .iter()
             .find(|(f, _)| f == target_file)
             .or_else(|| entries.first())
+            .filter(|(_, id)| match associated_targets.get(id) {
+                Some((file, line)) => super::call_binding::allows_associated(
+                    reference,
+                    caller_file,
+                    file,
+                    *line,
+                    definitions,
+                ),
+                None => true,
+            })
             .map(|(_, id)| *id)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tier3_bare_call_rejects_selected_member_without_replacement() {
+        let reference = resolver::Reference {
+            name: "run".into(),
+            file_path: "src/caller.rs".into(),
+            line: 1,
+            kind: resolver::ReferenceKind::Call,
+            resolved_to: None,
+            call_arity: Some(1),
+        };
+        let associated = [(1, ("src/target.rs".to_string(), 1))].into();
+        let members_only = [("run".into(), vec![("src/target.rs".into(), 1)])].into();
+        assert_eq!(
+            find_target_node(
+                &members_only,
+                "src/target.rs",
+                "run",
+                &reference,
+                "src/caller.rs",
+                &[],
+                &associated
+            ),
+            None
+        );
+        let mixed = [(
+            "run".into(),
+            vec![("src/target.rs".into(), 1), ("src/target.rs".into(), 2)],
+        )]
+        .into();
+        assert_eq!(
+            find_target_node(
+                &mixed,
+                "src/target.rs",
+                "run",
+                &reference,
+                "src/caller.rs",
+                &[],
+                &associated
+            ),
+            None
+        );
+        let qualified = resolver::Reference {
+            name: "Guard::run".into(),
+            ..reference
+        };
+        assert_eq!(
+            find_target_node(
+                &members_only,
+                "src/target.rs",
+                "run",
+                &qualified,
+                "src/caller.rs",
+                &[],
+                &associated
+            ),
+            Some(1)
+        );
+    }
 }

@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod audit;
+pub(crate) mod call_binding;
 pub mod call_resolve;
 pub mod check;
 pub mod checkpoint;

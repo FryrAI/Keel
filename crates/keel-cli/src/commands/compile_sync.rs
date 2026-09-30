@@ -12,7 +12,7 @@
 //!
 //! Re-resolution runs the SAME ladder as the map's second pass
 //! ([`super::call_resolve::resolve_call_reference`]), backed here by
-//! graph-backed lookups ([`GraphIndex`]) instead of the map's in-memory
+//! graph-backed lookups (`GraphIndex`) instead of the map's in-memory
 //! indices. The ladder's *rungs* match the map's, but its *inputs* do not:
 //! the map's tier-2 resolvers have parsed the whole repo, while compile-time
 //! resolvers have parsed only the compiled files, so cross-file references
@@ -46,7 +46,7 @@
 //! The module's second job is the mirror image: [`resolve_call_targets`] runs
 //! the same ladder *before* enforcement, read-only, to populate
 //! [`Reference::resolved_to`] for E005 arity checking (issue #54). Both jobs
-//! share one per-reference entry point ([`resolve_reference`]) so they cannot
+//! share one per-reference entry point (`resolve_reference`) so they cannot
 //! drift.
 
 use std::borrow::Cow;
@@ -82,6 +82,8 @@ struct GraphIndexBase<'a> {
     /// tier, carried per entry so compile-sync re-resolution matches map quality
     /// (see [`super::map_resolve::CallIndex::boundary_index`]).
     boundary_index: HashMap<String, (u64, f64)>,
+    // Facts come from candidate rows, shared across files in this pass.
+    associated_targets: RefCell<HashMap<u64, (String, u32)>>,
 }
 
 impl<'a> GraphIndexBase<'a> {
@@ -111,6 +113,7 @@ impl<'a> GraphIndexBase<'a> {
             module_files,
             package_node_index,
             boundary_index,
+            associated_targets: RefCell::new(HashMap::new()),
         }
     }
 }
@@ -133,6 +136,9 @@ struct GraphIndex<'a> {
     /// set cannot change mid-pass (nothing writes to the store until the sync
     /// commits), so one query per distinct name is sufficient.
     candidate_memo: RefCell<HashMap<String, Vec<(String, u64)>>>,
+    local_associated: RefCell<super::call_binding::AssociationFacts>,
+    conflicting_names: HashSet<String>,
+    local_siblings: RefCell<HashMap<String, Vec<(String, u64)>>>,
 }
 
 impl<'a> GraphIndex<'a> {
@@ -140,17 +146,23 @@ impl<'a> GraphIndex<'a> {
         base: &'a GraphIndexBase<'a>,
         local: &'a HashMap<String, u64>,
         file_path: &'a str,
+        definitions: &[Definition],
     ) -> Self {
         let name_to_id = local
             .iter()
             .map(|(name, id)| ((file_path.to_string(), name.clone()), *id))
             .collect();
+        let (local_associated, conflicting_names) =
+            super::call_binding::local_association_facts(local, file_path, definitions);
         Self {
             base,
             local,
             file_path,
             name_to_id,
             candidate_memo: RefCell::new(HashMap::new()),
+            local_associated: RefCell::new(local_associated),
+            conflicting_names,
+            local_siblings: RefCell::new(HashMap::new()),
         }
     }
 
@@ -162,11 +174,36 @@ impl<'a> GraphIndex<'a> {
             .find_nodes_by_name(name, "", "")
             .into_iter()
             .filter(|n| n.kind != NodeKind::Module)
-            .map(|n| (n.file_path, n.id))
+            .map(|n| {
+                // Duplicate fresh definitions share the first inserted id.
+                // When that id is stored, use its own fact for mixed siblings;
+                // unanimous parsed facts (notably all-free variants) win.
+                if self.conflicting_names.contains(name) && self.local.get(name) == Some(&n.id) {
+                    self.local_associated.borrow_mut().insert(
+                        n.id,
+                        n.is_associated.then(|| (n.file_path.clone(), n.line_start)),
+                    );
+                }
+                if n.is_associated {
+                    self.base
+                        .associated_targets
+                        .borrow_mut()
+                        .insert(n.id, (n.file_path.clone(), n.line_start));
+                }
+                (n.file_path, n.id)
+            })
             .collect();
-        // The current file's freshly-known def wins over any stale graph row for
-        // the same (file, name): this compile's node insert has not committed
-        // yet, so `local` holds the id the edge should point at.
+        // Stored ids are needed only to locate the permitted local replacement;
+        // its eligibility and uniqueness are decided from the current parse.
+        if self.conflicting_names.contains(name) && self.local.contains_key(name) {
+            self.local_siblings.borrow_mut().insert(
+                name.to_string(),
+                out.iter()
+                    .filter(|(f, _)| f == self.file_path)
+                    .cloned()
+                    .collect(),
+            );
+        }
         if let Some(&id) = self.local.get(name) {
             out.retain(|(f, _)| f != self.file_path);
             out.push((self.file_path.to_string(), id));
@@ -176,6 +213,13 @@ impl<'a> GraphIndex<'a> {
 }
 
 impl CallIndex for GraphIndex<'_> {
+    fn associated_target(&self, id: u64) -> Option<(String, u32)> {
+        self.local_associated
+            .borrow()
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.base.associated_targets.borrow().get(&id).cloned())
+    }
     fn candidates(&self, name: &str) -> Cow<'_, [(String, u64)]> {
         // Owned, not borrowed: a `RefCell` borrow cannot outlive this call. The
         // memo still removes what actually costs — the SQLite round-trip. What
@@ -210,7 +254,7 @@ impl CallIndex for GraphIndex<'_> {
 /// was unreachable).
 ///
 /// Runs the same ladder as the post-enforcement edge sync below (via the
-/// shared [`resolve_reference`]), read-only against the pre-edit graph, plus
+/// shared `resolve_reference`), read-only against the pre-edit graph, plus
 /// two gates of its own that the edge sync does not apply. Only `Call`
 /// references that carry a syntactic argument count are resolved (they are
 /// the only ones E005 can judge), and only resolutions at error-tier
@@ -274,7 +318,7 @@ pub fn resolve_call_targets(
                 ambiguous.insert(def.name.clone());
             }
         }
-        let idx = GraphIndex::new(&base, &local, file_path);
+        let idx = GraphIndex::new(&base, &local, file_path, definitions);
         let ctx = CallSiteCtx {
             resolvers,
             language,
@@ -287,7 +331,8 @@ pub fn resolve_call_targets(
             if !countable_call(reference) {
                 continue;
             }
-            let Some(resolved) = resolve_reference(&local, &idx, &ctx, reference) else {
+            let Some((resolved, replaced)) = resolve_reference(&local, &idx, &ctx, reference)
+            else {
                 continue;
             };
             // Refuse only a SAME-FILE bind on an ambiguous name — that is the
@@ -300,7 +345,13 @@ pub fn resolve_call_targets(
                 .rsplit(['.', ':'])
                 .next()
                 .unwrap_or(reference.name.as_str());
-            if ambiguous.contains(callee) && local.get(callee) == Some(&resolved.target_id) {
+            if ambiguous.contains(callee)
+                && idx
+                    .candidates(callee)
+                    .iter()
+                    .any(|(f, id)| f == file_path && *id == resolved.target_id)
+                && !replaced
+            {
                 continue;
             }
             if resolved.confidence < keel_core::confidence::ERROR_TIER_THRESHOLD {
@@ -320,21 +371,62 @@ pub fn resolve_call_targets(
 /// kind's same-file confidence, exactly as the map's first pass), everything
 /// else runs the shared ladder. Two mirrored copies of this sequence is the
 /// documented failure mode this module exists to prevent.
+/// The boolean records an actual unique-free local replacement, not merely
+/// whether the current parse permits one while stored siblings may disagree.
 fn resolve_reference(
     local: &HashMap<String, u64>,
     idx: &GraphIndex,
     ctx: &CallSiteCtx,
     reference: &Reference,
-) -> Option<ResolvedCall> {
+) -> Option<(ResolvedCall, bool)> {
     if let Some(&target_id) = local.get(&reference.name) {
+        // Populate stored association facts without changing the base pick.
+        let candidates = idx.candidates(&reference.name);
+        let binding = super::call_binding::BindingIndex {
+            inner: idx,
+            reference,
+            caller_file: ctx.file_path,
+            definitions: ctx.definitions,
+        };
+        let (target_id, replaced) = if super::call_binding::has_local_replacement(
+            reference,
+            ctx.file_path,
+            &reference.name,
+            ctx.definitions,
+        ) {
+            let siblings = idx.local_siblings.borrow();
+            let candidates = siblings
+                .get(&reference.name)
+                .filter(|siblings| !siblings.is_empty())
+                .map_or(candidates.as_ref(), Vec::as_slice);
+            super::call_binding::select_local_target(
+                reference,
+                target_id,
+                candidates
+                    .iter()
+                    .filter(|(f, _)| f == ctx.file_path)
+                    .map(|(_, id)| {
+                        (
+                            *id,
+                            binding.allows(*id),
+                            idx.associated_target(*id).is_some(),
+                        )
+                    }),
+            )?
+        } else {
+            (binding.allows(target_id).then_some(target_id)?, false)
+        };
         let (_, same_file_confidence) = edge_for_reference(&reference.kind)?;
-        return Some(ResolvedCall {
-            target_id,
-            confidence: same_file_confidence,
-            tier: tier_for_reference(&reference.kind).to_string(),
-        });
+        return Some((
+            ResolvedCall {
+                target_id,
+                confidence: same_file_confidence,
+                tier: tier_for_reference(&reference.kind).to_string(),
+            },
+            replaced,
+        ));
     }
-    resolve_call_reference(idx, ctx, reference)
+    resolve_call_reference(idx, ctx, reference).map(|resolved| (resolved, false))
 }
 
 /// Refresh the graph for the compiled files. Best-effort: a failure is logged
@@ -579,7 +671,7 @@ fn resolve_outgoing_edges(
     let language = detect_language(Path::new(rel_path)).unwrap_or("");
     let abs_file = cwd.join(rel_path);
 
-    let idx = GraphIndex::new(base, local, rel_path);
+    let idx = GraphIndex::new(base, local, rel_path, &file.definitions);
     let ctx = CallSiteCtx {
         resolvers,
         language,
@@ -593,7 +685,7 @@ fn resolve_outgoing_edges(
         let Some((kind, _)) = edge_for_reference(&reference.kind) else {
             continue;
         };
-        if let Some(resolved) = resolve_reference(local, &idx, &ctx, reference) {
+        if let Some((resolved, _)) = resolve_reference(local, &idx, &ctx, reference) {
             push_reference_edge(
                 file,
                 local,
