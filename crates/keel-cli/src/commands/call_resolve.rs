@@ -118,7 +118,7 @@ pub fn resolve_call_reference(
     resolve_call_reference_with_rejection(idx, ctx, reference, &mut false)
 }
 
-/// Run the shared ladder, recording a member rejection for Tier-3 admission.
+/// Run the shared ladder, recording a target rejection for Tier-3 admission.
 pub(crate) fn resolve_call_reference_with_rejection(
     idx: &dyn CallIndex,
     ctx: &CallSiteCtx,
@@ -153,11 +153,17 @@ pub(crate) fn resolve_call_reference_with_rejection(
     {
         let cands = idx.candidates(&edge.target_name);
         if let Some(id) = resolve_edge_to_node(&cands, &edge.target_file) {
+            if !super::call_language::allows_target(idx, ctx, &edge.target_name, id) {
+                *rejected = true;
+                return None;
+            }
             target_id = Some(id);
             confidence = edge.confidence;
             tier = edge.resolution_tier;
         }
     }
+
+    let language_checked = target_id.is_some();
 
     // Cross-file call resolved through the caller's imports.
     if target_id.is_none() {
@@ -196,6 +202,17 @@ pub(crate) fn resolve_call_reference_with_rejection(
                 break;
             }
         }
+    }
+
+    // Admit the base ordinary pick before the boundary rung. Rejection is
+    // terminal: falling through would change the target, violating subtractive
+    // binding. Candidate paths carry the facts; no node-by-id lookups are needed.
+    if !language_checked
+        && target_id
+            .is_some_and(|id| !super::call_language::allows_target(idx, ctx, &reference.name, id))
+    {
+        *rejected = true;
+        return None;
     }
 
     // Last resort: a call into a boundary function (e.g. a BAML `.baml`
