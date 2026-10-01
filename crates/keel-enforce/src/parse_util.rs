@@ -54,6 +54,16 @@ impl BlobParser {
     /// what makes hash comparison across a rename well-defined.
     /// Returns `None` for a path in no language keel parses.
     pub fn parse(&mut self, path: &str, content: &str) -> Option<FileIndex> {
+        self.parse_with(path, content, |_| {})
+    }
+
+    /// Parse once, exposing the syntax tree to a derived scan before indexing.
+    pub(crate) fn parse_with(
+        &mut self,
+        path: &str,
+        content: &str,
+        mut observe: impl FnMut(&keel_parsers::resolver::ParseResult),
+    ) -> Option<FileIndex> {
         let lang = detect_language(Path::new(path))?;
         let resolver: &dyn LanguageResolver = if is_typescript_family(lang) {
             self.ts.get_or_insert_with(TsResolver::new)
@@ -70,6 +80,7 @@ impl BlobParser {
         };
 
         let parsed = resolver.parse_file(Path::new(path), content);
+        observe(&parsed);
         Some(FileIndex::from_parse(path, content, parsed))
     }
 }

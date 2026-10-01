@@ -107,6 +107,13 @@ pub fn format_review(result: &ReviewResult) -> String {
         out.push_str(&format!("  fix: {}\n", advisory.fix_hint));
     }
 
+    for advisory in &result.template_advisories {
+        out.push_str(&format!(
+            "TEMPLATE {} {}:{} advisory_only=true {}\n",
+            advisory.code, advisory.file, advisory.line, advisory.message,
+        ));
+    }
+
     for change in render::contract_changes(result).take(MAX_CHANGES) {
         out.push_str(&change_block(change));
     }
@@ -189,6 +196,7 @@ mod tests {
             doc_only_count: 0,
             sprawl: Default::default(),
             reuse_advisories: Vec::new(),
+            template_advisories: Vec::new(),
             changes,
             unanalyzed: Vec::new(),
             new_violations: Vec::new(),
@@ -316,6 +324,38 @@ mod tests {
             keel_enforce::review::baseline::gate_hits(&r.new_violations, &["W010".into()])
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn template_advisory_alone_breaks_silence_without_entering_gates() {
+        let mut r = result(Vec::new());
+        r.template_advisories = vec![keel_enforce::template_respelled::TemplateAdvisory {
+            code: "W012".into(),
+            category: "template_respelled".into(),
+            message: "Literal re-spells the fixed text of berlin (home.rs:1): \"segment\" — call it instead.".into(),
+            file: "caller.rs".into(),
+            line: 2,
+            segment: "segment".into(),
+            homes: Vec::new(),
+        }];
+        assert!(format_review(&r).contains("TEMPLATE W012 caller.rs:2 advisory_only=true"));
+        assert!(HumanFormatter
+            .format_review(&r)
+            .contains("Template advisories (never gating)"));
+        let json: serde_json::Value =
+            serde_json::from_str(&JsonFormatter.format_review(&r)).unwrap();
+        assert_eq!(json["template_advisories"][0]["code"], "W012");
+        assert!(r.new_violations.is_empty());
+        assert!(
+            keel_enforce::review::baseline::gate_hits(&r.new_violations, &["W012".into()])
+                .is_empty()
+        );
+        r.template_advisories.clear();
+        assert!(format_review(&r).is_empty());
+        assert!(HumanFormatter.format_review(&r).is_empty());
+        assert!(!JsonFormatter
+            .format_review(&r)
+            .contains("template_advisories"));
     }
 
     #[test]

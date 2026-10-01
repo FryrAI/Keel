@@ -30,4 +30,5 @@ pub mod sqlite_queries;
 pub mod store;
 pub mod telemetry;
 mod telemetry_aggregate;
+pub mod template_homes;
 pub mod types;

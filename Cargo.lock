@@ -1279,6 +1279,7 @@ dependencies = [
 name = "keel-enforce"
 version = "0.6.2"
 dependencies = [
+ "aho-corasick",
  "globset",
  "ignore",
  "keel-core",
@@ -1287,6 +1288,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tree-sitter",
  "xxhash-rust",
 ]
 

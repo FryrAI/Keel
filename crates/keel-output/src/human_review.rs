@@ -55,6 +55,16 @@ pub fn format_review_human(result: &ReviewResult) -> String {
         }
     }
 
+    if !result.template_advisories.is_empty() {
+        out.push_str("\nTemplate advisories (never gating):\n");
+        for advisory in &result.template_advisories {
+            out.push_str(&format!(
+                "  [{}] {}:{} {}\n",
+                advisory.code, advisory.file, advisory.line, advisory.message,
+            ));
+        }
+    }
+
     let mut listed = false;
     for change in render::contract_changes(result) {
         if !listed {

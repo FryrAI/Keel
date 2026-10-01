@@ -19,6 +19,8 @@ use keel_core::paths::ProjectPathBatch;
 
 /// Per-file parse data collected during the first pass for use in the second pass.
 pub struct FileParseData {
+    /// Template homes extracted from the same parse as the graph.
+    pub template_homes: Vec<keel_core::template_homes::TemplateHome>,
     pub file_path: String,
     /// `detect_language` result, used to pick the Tier-2 resolver in the second pass.
     pub language: String,
@@ -63,7 +65,7 @@ pub fn first_pass(
             }
         };
 
-        let result = match entry.language.as_str() {
+        let mut result = match entry.language.as_str() {
             l if keel_parsers::treesitter::is_typescript_family(l) => {
                 ts.parse_file(&entry.path, &content)
             }
@@ -75,6 +77,15 @@ pub fn first_pass(
             _ => continue,
         };
         let file_path = paths.make_relative(&entry.path);
+        // Release the tree before allocating graph and fragment data.
+        let template_homes = result.syntax_tree.take().map_or_else(Vec::new, |tree| {
+            keel_enforce::template_respelled::extract_homes_from_tree(
+                &file_path,
+                &content,
+                &tree,
+                &result.definitions,
+            )
+        });
         // A property of the path, so it is answered once per file rather than
         // once per definition.
         let grades_size_and_naming =
@@ -294,6 +305,7 @@ pub fn first_pass(
         }
 
         all_file_data.push(FileParseData {
+            template_homes,
             file_path,
             language: entry.language.clone(),
             definitions: result.definitions,

@@ -372,6 +372,11 @@ pub fn run(
         eprintln!("keel map: failed to update fragment clones: {}", e);
     }
 
+    if let Err(e) = super::map_templates::refresh(&mut store, &all_file_data) {
+        eprintln!("keel map: failed to update template homes: {}", e);
+        return (2, EventMetrics::default());
+    }
+
     // Persist the Tier 3 resolution cache for the next run. Skipped when tier-3
     // is off (nothing to flush) so the default path adds zero DB writes. A pure
     // perf optimization — warn and continue rather than fail the map.

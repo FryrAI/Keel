@@ -167,6 +167,10 @@ pub struct ReviewResult {
     /// Advisory only: these never participate in `review.gate`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reuse_advisories: Vec<reuse::ReuseAdvisory>,
+    /// Baseline-new W012 template respellings. Advisory only, never gating;
+    /// mapped owners are as fresh as the last full map.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub template_advisories: Vec<crate::template_respelled::TemplateAdvisory>,
     /// Every touched symbol, ranked callers-outside-the-diff first.
     pub changes: Vec<ContractChange>,
     /// Changed files keel does not parse.
@@ -202,9 +206,11 @@ pub fn review(
     let commit = gitdiff::resolve_commit(dir, base)?;
     let root = keel_core::paths::worktree_root(dir).unwrap_or_else(|| dir.to_path_buf());
     let paths = gitdiff::changed_paths(&root, &commit)?;
-    let scan = diff::scan_paths(&root, &commit, &paths);
+    let mut templates = crate::template_respelled::ReviewScan::new(store, &paths, verbose);
+    let scan = diff::scan_paths_with_templates(&root, &commit, &paths, &mut templates);
     let sprawl = sprawl::measure(&paths, &scan);
     let reuse_advisories = reuse::detect(store, &scan);
+    let template_advisories = templates.finish();
 
     let mut baseline = baseline::diff(store, &scan, &config.enforce);
     if !config.homes.is_empty() {
@@ -266,6 +272,7 @@ pub fn review(
         doc_only_count,
         sprawl,
         reuse_advisories,
+        template_advisories,
         changes,
         unanalyzed: scan.unanalyzed,
         new_violations: baseline.new_violations,

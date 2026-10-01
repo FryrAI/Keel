@@ -9,6 +9,17 @@ use crate::types::{
 };
 
 impl GraphStore for SqliteGraphStore {
+    fn replace_template_homes(
+        &mut self,
+        homes: Vec<crate::template_homes::TemplateHome>,
+    ) -> Result<(), GraphError> {
+        self.template_homes_replace(homes)
+    }
+
+    fn template_homes(&self) -> Vec<crate::template_homes::TemplateHome> {
+        self.template_homes_read()
+    }
+
     fn get_node(&self, hash: &str) -> Option<GraphNode> {
         // Try direct hash lookup first
         let mut stmt = self

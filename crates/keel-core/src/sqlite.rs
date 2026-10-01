@@ -163,6 +163,7 @@ impl SqliteGraphStore {
     }
 
     fn initialize_schema(&self) -> Result<(), GraphError> {
+        self.initialize_template_homes()?;
         self.conn.execute_batch(
             "
             -- Schema version tracking
@@ -666,6 +667,7 @@ impl SqliteGraphStore {
             DELETE FROM previous_hashes;
             DELETE FROM body_index;
             DELETE FROM fragment_clones;
+            DELETE FROM template_homes;
             DELETE FROM nodes;
             ",
         )?;

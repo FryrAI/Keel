@@ -43,19 +43,7 @@ pub(super) fn definition_contexts(
         let kind = n.kind();
 
         if !ctx.in_test {
-            match lang {
-                "rust"
-                    if matches!(kind, "function_item" | "mod_item")
-                        && preceding_attrs_mark_test(n, source) =>
-                {
-                    ctx.in_test = true;
-                }
-                "python" if python_marks_test(n, source) => ctx.in_test = true,
-                _ if is_ts && kind == "call_expression" && ts_call_is_test_block(n, source) => {
-                    ctx.in_test = true;
-                }
-                _ => {}
-            }
+            ctx.in_test = marks_test(n, lang, source);
         }
 
         if !is_self {
@@ -108,6 +96,20 @@ pub(super) fn definition_contexts(
         current = n.parent();
     }
     ctx
+}
+
+/// Check only the context introduced by this node; ancestry is the caller's job.
+pub(super) fn marks_test(n: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -> bool {
+    match lang {
+        "rust" => {
+            matches!(n.kind(), "function_item" | "mod_item") && preceding_attrs_mark_test(n, source)
+        }
+        "python" => python_marks_test(n, source),
+        _ if is_typescript_family(lang) => {
+            n.kind() == "call_expression" && ts_call_is_test_block(n, source)
+        }
+        _ => false,
+    }
 }
 
 /// True when a TypeScript class carries an `implements` clause.

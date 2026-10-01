@@ -15,6 +15,7 @@
 | W007 | oversized_file — file exceeds the configured line budget and grew |
 | W009 | new_cross_boundary_dep — this file now depends on a package it did not before |
 | W010 | semantic_reuse — review-time advisory only; an added function may overlap an existing graph role |
+| W012 | template_respelled — review-only advisory; a literal re-spells a template home's fixed text; never gating |
 | W011 | home_violation — new configured expression outside its home (Git-base comparison) |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
 | P001 | unknown_symbol — plan-time only: the plan calls a symbol the graph does not have |
@@ -60,7 +61,7 @@
 - `keel focus <hash|file>` — minimal context set to safely modify a target (`--depth N`, `--budget <tokens>`)
 - `keel checkpoint [--since <commit>] [--staged] [-o <file>]` — compact session-state summary (changed symbols, affected callers, violations, recent commits) for re-injection after context loss
 - `keel validate-plan <file|-> [--strict]` — validate a plan against the graph before execution plus P001/P002 and advisory-only P003; `--strict` applies only to P001/P002
-- `keel review --base <ref>` — two-sided graph diff, PR sprawl ledger, advisory W010 reuse candidates, callers left outside the diff, and violations the diff introduced (`--gate` never sees W010)
+- `keel review --base <ref>` — two-sided graph diff, PR sprawl ledger, advisory W010 reuse candidates and W012 template respellings, callers left outside the diff, and violations the diff introduced (`--gate` never sees W010/W012)
 - `keel quality [--trend]` — stored-graph maintainability trends, including source files, exported symbols, single-consumer helpers, and exports/KLOC; never gates
 
 **Tip:** When running keel commands manually, always use the `--llm` flag for token-efficient output.

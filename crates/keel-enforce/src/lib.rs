@@ -38,6 +38,7 @@ pub mod semantic;
 pub mod skeleton;
 pub mod snapshot;
 pub mod suppress;
+pub mod template_respelled;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 pub mod types;

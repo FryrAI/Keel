@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Template respelling advisories (#87): W012.** `keel review` and MCP review
+  report baseline-new literals containing at least 24 characters of a pure
+  template function's fixed expression text, once per literal/home. Human, LLM,
+  and JSON output name all owners; empty advisory lists stay silent. W012 never
+  enters violations, gates, compile, or the circuit breaker. Independent labels on a
+  private production corpus measured conservative precision 0.76, selecting
+  advisory-only rollout; the method, counts, decision and keel's own exports
+  live under `docs/studies/template-respelled/`. Run `keel map` once after
+  upgrading to populate homes; review stays silent until that first map.
 - **Expression homes follow-ups (#87, part A).** Patterns accept case-sensitive
   literals and line-local `{"regex": "…"}` objects; invalid, empty, or empty-matching
   regexes skip their rule, and explicit config writes refuse invalid objects.
