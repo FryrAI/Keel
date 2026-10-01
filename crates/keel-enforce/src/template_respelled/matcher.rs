@@ -2,7 +2,16 @@
 use super::{ast, eligible_segment, TemplateOccurrence, MIN_SEGMENT_CHARS};
 use aho_corasick::AhoCorasick;
 use keel_core::template_homes::TemplateHome;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Occurrences and callable names gathered in the same AST traversal.
+#[derive(Default)]
+pub(super) struct ScannedFile {
+    /// Decoded literal matches for baseline subtraction.
+    pub occurrences: Vec<TemplateOccurrence>,
+    /// All non-test callable names, including ineligible template bodies.
+    pub callables: BTreeSet<String>,
+}
 
 /// Compiled segment set shared by every file in one review.
 #[derive(Clone)]
@@ -57,6 +66,11 @@ impl Matcher {
 
     /// Scan one Git side, excluding both pure and cached owner bodies.
     pub(super) fn occurrences(&self, file: &str, source: &str) -> Vec<TemplateOccurrence> {
+        self.scan(file, source).occurrences
+    }
+
+    /// Collect matches and all current callable names with one parse.
+    pub(super) fn scan(&self, file: &str, source: &str) -> ScannedFile {
         let (current, literals) = ast::scan(file, source);
         self.match_literals(file, current, literals)
     }
@@ -67,9 +81,9 @@ impl Matcher {
         file: &str,
         source: &str,
         parsed: &keel_parsers::resolver::ParseResult,
-    ) -> Vec<TemplateOccurrence> {
+    ) -> ScannedFile {
         let Some(tree) = &parsed.syntax_tree else {
-            return vec![];
+            return ScannedFile::default();
         };
         let (current, literals) = ast::scan_tree(file, source, tree, &parsed.definitions);
         self.match_literals(file, current, literals)
@@ -80,7 +94,7 @@ impl Matcher {
         file: &str,
         current: Vec<ast::HomeSpan>,
         literals: Vec<ast::Literal>,
-    ) -> Vec<TemplateOccurrence> {
+    ) -> ScannedFile {
         let mut matches = Vec::new();
         // Index the few exclusion spans once, rather than scan all homes for
         // every literal/segment pair. Current eligibility is per Git side.
@@ -141,6 +155,9 @@ impl Matcher {
                 });
             }
         }
-        matches
+        ScannedFile {
+            occurrences: matches,
+            callables: current.into_iter().map(|span| span.home.name).collect(),
+        }
     }
 }

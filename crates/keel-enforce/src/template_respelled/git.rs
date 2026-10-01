@@ -2,7 +2,7 @@
 //! `HomeScanner::introduced_many`: here identity is segment + normalized decoded
 //! literal, never a function hash or a source line. Removed copies cancel moves.
 
-use super::{matcher::Matcher, TemplateOccurrence};
+use super::{matcher::Matcher, owners::CurrentOwners, TemplateOccurrence};
 use crate::gitdiff::{self, ChangeStatus, ChangedPath};
 use keel_core::template_homes::TemplateHome;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,33 +19,47 @@ fn identity(occurrence: &TemplateOccurrence) -> (String, Vec<String>) {
     )
 }
 
-/// Subtract matching base copies, pooling removals across changed files.
+/// Subtract each file's base copies before pooling removals to cancel moves.
 pub(super) fn subtract(
-    head: Vec<TemplateOccurrence>,
+    mut head: Vec<TemplateOccurrence>,
     base: Vec<TemplateOccurrence>,
 ) -> Vec<TemplateOccurrence> {
-    let mut introduced = if base.is_empty() {
-        head
-    } else {
-        let mut counts = BTreeMap::<_, usize>::new();
-        for occurrence in base {
-            *counts.entry(identity(&occurrence)).or_default() += 1;
-        }
-        let mut introduced = Vec::new();
-        for occurrence in head {
-            let count = counts.entry(identity(&occurrence)).or_default();
-            if *count > 0 {
-                *count -= 1;
-            } else {
-                introduced.push(occurrence);
-            }
-        }
-        introduced
-    };
-    introduced.sort_by(|a, b| {
+    head.sort_by(|a, b| {
         (&a.file, a.line, &a.segment, &a.literal).cmp(&(&b.file, b.line, &b.segment, &b.literal))
     });
-    introduced
+    if base.is_empty() {
+        return head;
+    }
+    let mut counts = BTreeMap::<_, usize>::new();
+    for occurrence in base {
+        *counts
+            .entry((occurrence.file.clone(), identity(&occurrence)))
+            .or_default() += 1;
+    }
+    let mut additions = Vec::new();
+    for occurrence in head {
+        let key = (occurrence.file.clone(), identity(&occurrence));
+        let count = counts.entry(key).or_default();
+        if *count > 0 {
+            *count -= 1;
+        } else {
+            additions.push(occurrence);
+        }
+    }
+    let mut removals = BTreeMap::<_, usize>::new();
+    for ((_, key), count) in counts {
+        *removals.entry(key).or_default() += count;
+    }
+    additions.retain(|occurrence| {
+        let count = removals.entry(identity(occurrence)).or_default();
+        if *count == 0 {
+            true
+        } else {
+            *count -= 1;
+            false
+        }
+    });
+    additions
 }
 
 /// Read both Git sides and return their literal-level multiset surplus.
@@ -54,6 +68,7 @@ pub(super) fn introduced(
     commit: &str,
     paths: &[ChangedPath],
     homes: &[TemplateHome],
+    owners: &mut CurrentOwners,
     verbose: bool,
 ) -> Vec<TemplateOccurrence> {
     let mut head = Vec::new();
@@ -99,10 +114,17 @@ pub(super) fn introduced(
         match pair {
             Ok((old, before, after)) => {
                 if let (Some(old), Some(text)) = (old, before) {
-                    base.extend(base_matcher.occurrences(old, &text));
+                    let mut occurrences = base_matcher.occurrences(old, &text);
+                    // A rename's baseline belongs to its head-side destination.
+                    for occurrence in &mut occurrences {
+                        occurrence.file.clone_from(&path.path);
+                    }
+                    base.extend(occurrences);
                 }
                 if let Some(text) = after {
-                    head.extend(head_matcher.occurrences(&path.path, &text));
+                    let scanned = head_matcher.scan(&path.path, &text);
+                    owners.record(&path.path, scanned.callables);
+                    head.extend(scanned.occurrences);
                 }
             }
             Err(error) if verbose => eprintln!("keel review: W012 skipping {}: {error}", path.path),

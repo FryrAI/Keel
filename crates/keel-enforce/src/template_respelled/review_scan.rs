@@ -1,10 +1,12 @@
 //! W012 consumes the structural review's parse, without reading or parsing again.
 use super::{
-    advisories, git, mapped_homes, matcher::Matcher, TemplateAdvisory, TemplateOccurrence,
+    advisories, git, mapped_homes, matcher::Matcher, owners::CurrentOwners, TemplateAdvisory,
+    TemplateOccurrence,
 };
 use crate::gitdiff::ChangedPath;
 use keel_core::store::GraphStore;
 use keel_parsers::resolver::ParseResult;
+use std::collections::BTreeMap;
 
 /// Invocation-wide matchers and multiset input, collected during structural review.
 pub(crate) struct ReviewScan {
@@ -12,6 +14,8 @@ pub(crate) struct ReviewScan {
     head_matcher: Option<Matcher>,
     base: Vec<TemplateOccurrence>,
     head: Vec<TemplateOccurrence>,
+    renames: BTreeMap<String, String>,
+    owners: CurrentOwners,
     verbose: bool,
 }
 impl ReviewScan {
@@ -27,6 +31,16 @@ impl ReviewScan {
             head_matcher,
             base: vec![],
             head: vec![],
+            renames: paths
+                .iter()
+                .filter_map(|path| match &path.status {
+                    crate::gitdiff::ChangeStatus::Renamed { from } => {
+                        Some((from.clone(), path.path.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            owners: CurrentOwners::new(paths),
             verbose,
         }
     }
@@ -34,16 +48,22 @@ impl ReviewScan {
     /// Match a readable base blob using its existing structural parse.
     pub(crate) fn base(&mut self, file: &str, source: &str, parsed: &ParseResult) {
         if let Some(matcher) = &self.base_matcher {
-            self.base
-                .extend(matcher.parsed_occurrences(file, source, parsed));
+            let mut scanned = matcher.parsed_occurrences(file, source, parsed);
+            if let Some(destination) = self.renames.get(file) {
+                for occurrence in &mut scanned.occurrences {
+                    occurrence.file.clone_from(destination);
+                }
+            }
+            self.base.extend(scanned.occurrences);
         }
     }
 
     /// Match a readable regular head file using its existing structural parse.
     pub(crate) fn head(&mut self, file: &str, source: &str, parsed: &ParseResult) {
         if let Some(matcher) = &self.head_matcher {
-            self.head
-                .extend(matcher.parsed_occurrences(file, source, parsed));
+            let scanned = matcher.parsed_occurrences(file, source, parsed);
+            self.owners.record(file, scanned.callables);
+            self.head.extend(scanned.occurrences);
         }
     }
 
@@ -56,6 +76,6 @@ impl ReviewScan {
 
     /// Subtract base copies before deduplicating literal/home advisories.
     pub(crate) fn finish(self) -> Vec<TemplateAdvisory> {
-        advisories(git::subtract(self.head, self.base))
+        advisories(self.owners.filter(git::subtract(self.head, self.base)))
     }
 }

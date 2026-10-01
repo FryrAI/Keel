@@ -8,6 +8,7 @@ mod git;
 mod homes;
 mod literals;
 mod matcher;
+mod owners;
 mod review_scan;
 
 pub(crate) use review_scan::ReviewScan;
@@ -197,19 +198,22 @@ fn export(
     paths: &[crate::gitdiff::ChangedPath],
     verbose: bool,
 ) -> TemplateStudy {
-    let homes = mapped_homes(store, paths);
+    let mut homes = mapped_homes(store, paths);
+    let mut owners = owners::CurrentOwners::new(paths);
+    // No expression can match without a kept segment. Avoid reading unrelated
+    // blobs (including non-UTF-8 ones) in reviews with no template population.
+    let occurrences = if homes.iter().all(|home| home.segments.is_empty()) {
+        Vec::new()
+    } else {
+        git::introduced(root, commit, paths, &homes, &mut owners, verbose)
+    };
+    owners.retain(&mut homes);
+    let occurrences = owners.filter(occurrences);
     let kept_segments = homes
         .iter()
         .flat_map(|h| &h.segments)
         .collect::<std::collections::BTreeSet<_>>()
         .len();
-    // No expression can match without a kept segment. Avoid reading unrelated
-    // blobs (including non-UTF-8 ones) in reviews with no template population.
-    let occurrences = if kept_segments == 0 {
-        Vec::new()
-    } else {
-        git::introduced(root, commit, paths, &homes, verbose)
-    };
     TemplateStudy {
         min_segment_chars: MIN_SEGMENT_CHARS,
         template_functions: homes.len(),
@@ -226,7 +230,13 @@ fn mapped_homes(
     let mut homes = store.template_homes();
     let deleted: std::collections::BTreeSet<_> = paths
         .iter()
-        .filter(|path| path.status == crate::gitdiff::ChangeStatus::Deleted)
+        .filter(|path| {
+            matches!(
+                path.status,
+                crate::gitdiff::ChangeStatus::Deleted
+                    | crate::gitdiff::ChangeStatus::RenamedToUnreadable
+            )
+        })
         .map(|path| path.path.as_str())
         .collect();
     homes.retain(|home| !deleted.contains(home.file.as_str()));

@@ -101,9 +101,19 @@ fn template_cache_is_map_derived_and_ignored_homes_never_enter_it() {
     fs::write(dir.path().join("home.rs"), "fn empty() {}\n").unwrap();
     assert_eq!(
         count(&review(dir.path(), "HEAD")),
-        1,
-        "home cache stays as of last map"
+        0,
+        "removed callable is excluded before the next map"
     );
+    {
+        use keel_core::store::GraphStore;
+        let db = dir.path().join(".keel/graph.db");
+        let store = keel_core::sqlite::SqliteGraphStore::open(db.to_str().unwrap()).unwrap();
+        assert_eq!(
+            store.template_homes().len(),
+            1,
+            "review leaves cache intact"
+        );
+    }
     map(dir.path());
     let result = review(dir.path(), "HEAD");
     assert_eq!(count(&result), 0);
