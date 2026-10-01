@@ -58,6 +58,8 @@ mod test_project_root;
 mod test_quality;
 #[path = "cli/test_review.rs"]
 mod test_review;
+#[path = "cli/test_review_ignore.rs"]
+mod test_review_ignore;
 #[path = "cli/test_search.rs"]
 mod test_search;
 #[path = "cli/test_skeleton.rs"]
