@@ -64,6 +64,28 @@ pub(crate) fn is_bare_call(reference: &Reference) -> bool {
         && !reference.name.contains("::")
 }
 
+/// Whether every parsed local of this bare name is a refused member.
+/// Compile may then try imported/package functions, as it did before #91.
+pub(crate) fn only_refused_local_members(
+    reference: &Reference,
+    file: &str,
+    definitions: &[Definition],
+) -> bool {
+    if !is_bare_call(reference) {
+        return false;
+    }
+    let mut found = false;
+    for def in definitions.iter().filter(|d| d.name == reference.name) {
+        found = true;
+        if !def.is_associated
+            || allows_associated(reference, file, file, def.line_start, definitions)
+        {
+            return false;
+        }
+    }
+    found
+}
+
 /// Eligibility for a selected target; candidate lists retain base ambiguity.
 pub(crate) struct BindingIndex<'a> {
     pub(crate) inner: &'a dyn CallIndex,

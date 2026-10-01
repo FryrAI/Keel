@@ -332,6 +332,23 @@ pub fn resolve_call_targets(
             if !countable_call(reference) {
                 continue;
             }
+            // A parsed bare local owns the name even before its node exists,
+            // at any call location. Only an all-member refusal permits the
+            // cross-file ladder to try an imported/package function.
+            if !local.contains_key(&reference.name)
+                && super::call_binding::is_bare_call(reference)
+                && definitions.iter().any(|d| d.name == reference.name)
+                && !super::call_binding::only_refused_local_members(
+                    reference,
+                    file_path,
+                    definitions,
+                )
+            {
+                reference.resolved_to =
+                    super::call_language::module_local(reference, file_path, definitions)
+                        .map(|def| node_hash_for(store, def, file_path));
+                continue;
+            }
             let Some((resolved, replaced)) = resolve_reference(&local, &idx, &ctx, reference)
             else {
                 continue;
@@ -380,6 +397,9 @@ fn resolve_reference(
     ctx: &CallSiteCtx,
     reference: &Reference,
 ) -> Option<(ResolvedCall, bool)> {
+    if super::call_binding::only_refused_local_members(reference, ctx.file_path, ctx.definitions) {
+        return resolve_call_reference(idx, ctx, reference).map(|resolved| (resolved, false));
+    }
     if let Some(&target_id) = local.get(&reference.name) {
         // Populate stored association facts without changing the base pick.
         let candidates = idx.candidates(&reference.name);
@@ -553,7 +573,9 @@ fn sync_one_file(
     let existing = store.get_nodes_in_file(rel_path);
 
     // Resolve (or create) the module node for this file.
-    let (module_id, mut created_module) = match existing.iter().find(|n| n.kind == NodeKind::Module)
+    let (module_id, mut created_module) = match existing
+        .iter()
+        .find(|n| n.kind == NodeKind::Module && n.name == *rel_path)
     {
         Some(m) => (m.id, false),
         None => {
@@ -563,13 +585,22 @@ fn sync_one_file(
         }
     };
 
-    // name -> node id for the definitions currently in the graph for this file.
+    // Reuse ids only within the module/non-module kind, never modules as call targets.
+    let mut definition_ids: HashMap<(String, bool), u64> = existing
+        .iter()
+        .filter(|n| n.id != module_id)
+        .map(|n| ((n.name.clone(), n.kind == NodeKind::Module), n.id))
+        .collect();
     let mut local: HashMap<String, u64> = existing
         .iter()
         .filter(|n| n.kind != NodeKind::Module)
         .map(|n| (n.name.clone(), n.id))
         .collect();
-    let current_names: HashSet<&str> = file.definitions.iter().map(|d| d.name.as_str()).collect();
+    let current_names: HashSet<(&str, bool)> = file
+        .definitions
+        .iter()
+        .map(|d| (d.name.as_str(), d.kind == NodeKind::Module))
+        .collect();
 
     // Compile-added nodes carry the package map would give this file (W009's
     // boundary depends on it), whether the module is new or already stored.
@@ -588,7 +619,8 @@ fn sync_one_file(
 
     // Insert nodes for definitions new since the last graph write.
     for def in &file.definitions {
-        if local.contains_key(&def.name) {
+        let key = (def.name.clone(), def.kind == NodeKind::Module);
+        if definition_ids.contains_key(&key) {
             continue;
         }
         if created_module {
@@ -629,7 +661,10 @@ fn sync_one_file(
             line: def.line_start,
             confidence: 1.0,
         }));
-        local.insert(def.name.clone(), id);
+        definition_ids.insert(key, id);
+        if def.kind != NodeKind::Module {
+            local.insert(def.name.clone(), id);
+        }
     }
 
     // Remove nodes for definitions that vanished from the file. E004 already
@@ -638,15 +673,16 @@ fn sync_one_file(
     // batch — removing it (and, via FK cascade, its caller edges) would erase
     // the broken contract, so the next compile of this file would see nothing
     // to remove and E004 would stop re-firing while real callers stay broken.
-    for node in existing
-        .iter()
-        .filter(|n| n.kind != NodeKind::Module && !current_names.contains(n.name.as_str()))
-    {
+    for node in existing.iter().filter(|n| {
+        n.id != module_id && !current_names.contains(&(n.name.as_str(), n.kind == NodeKind::Module))
+    }) {
         if has_live_external_callers(store, node.id, batch_files) {
             continue;
         }
         node_changes.push(NodeChange::Remove(node.id));
-        local.remove(&node.name);
+        if node.kind != NodeKind::Module {
+            local.remove(&node.name);
+        }
     }
 
     // Re-resolve this file's outgoing reference edges, then decide per stored
@@ -664,6 +700,7 @@ fn sync_one_file(
         file,
         resolvers,
         &local,
+        module_id,
         next_id,
         edge_changes,
         node_tiers,
@@ -695,6 +732,7 @@ fn resolve_outgoing_edges(
     file: &FileIndex,
     resolvers: &ResolverSet,
     local: &HashMap<String, u64>,
+    module_id: u64,
     next_id: &mut u64,
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
@@ -721,6 +759,7 @@ fn resolve_outgoing_edges(
             push_reference_edge(
                 file,
                 local,
+                module_id,
                 reference.line,
                 resolved.target_id,
                 kind,
@@ -734,11 +773,12 @@ fn resolve_outgoing_edges(
     }
 }
 
-/// Find the definition containing `line` and emit a `calls`/`uses` edge from it.
+/// Emit a reference edge from its containing definition, or the file module.
 #[allow(clippy::too_many_arguments)]
 fn push_reference_edge(
     file: &FileIndex,
     local: &HashMap<String, u64>,
+    module_id: u64,
     line: u32,
     target_id: u64,
     kind: EdgeKind,
@@ -748,8 +788,12 @@ fn push_reference_edge(
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
 ) {
-    let Some(source_id) = containing_def(file, local, line) else {
-        return;
+    let source_id = match containing_def(file, local, line) {
+        Some(id) => id,
+        // Only same-file targets can be authoritatively refreshed from a
+        // module source. Cross-file module edges stay as the last map wrote.
+        None if local.values().any(|id| *id == target_id) => module_id,
+        None => return,
     };
     if source_id == target_id {
         return;
@@ -797,7 +841,8 @@ fn has_live_external_callers(
 fn containing_def(file: &FileIndex, local: &HashMap<String, u64>, line: u32) -> Option<u64> {
     file.definitions
         .iter()
-        .find(|d| line >= d.line_start && line <= d.line_end)
+        .filter(|d| d.kind != NodeKind::Module && line >= d.line_start && line <= d.line_end)
+        .min_by_key(|d| d.line_end.saturating_sub(d.line_start))
         .and_then(|d| local.get(&d.name).copied())
 }
 
