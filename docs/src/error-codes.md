@@ -382,7 +382,10 @@ Each literal/home pair is reported once even if multiple segments match.
 Segment plus whitespace-normalized decoded literal pieces defines the Git
 multiset baseline; unchanged copies and moves across diffed files cancel.
 Owners come from the last full `keel map`, with the same bounded staleness as
-clone measurements. Remap after changing homes.
+clone measurements. Run `keel map` once after upgrading to populate this cache;
+review has no homes and stays silent until then. Remap after changing homes.
+Unreadable/non-UTF-8 files are skipped for W012 only, with a file-specific
+`--verbose` note; advisories from other files remain available.
 
 W012 is serialized under `template_advisories`, omitted when empty, and rendered
 in human, LLM, JSON, and MCP review output. It never enters `new_violations`,

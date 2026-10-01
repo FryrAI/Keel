@@ -206,11 +206,11 @@ pub fn review(
     let commit = gitdiff::resolve_commit(dir, base)?;
     let root = keel_core::paths::worktree_root(dir).unwrap_or_else(|| dir.to_path_buf());
     let paths = gitdiff::changed_paths(&root, &commit)?;
-    let scan = diff::scan_paths(&root, &commit, &paths);
+    let mut templates = crate::template_respelled::ReviewScan::new(store, &paths, verbose);
+    let scan = diff::scan_paths_with_templates(&root, &commit, &paths, &mut templates);
     let sprawl = sprawl::measure(&paths, &scan);
     let reuse_advisories = reuse::detect(store, &scan);
-    let template_advisories =
-        crate::template_respelled::review_advisories(store, &root, &commit, &paths)?;
+    let template_advisories = templates.finish();
 
     let mut baseline = baseline::diff(store, &scan, &config.enforce);
     if !config.homes.is_empty() {

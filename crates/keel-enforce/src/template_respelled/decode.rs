@@ -3,9 +3,19 @@
 
 /// Decode standard escapes, leaving raw and byte string text as written.
 pub(super) fn decode(text: &str, lang: &str, raw: bool) -> Option<String> {
-    if raw {
-        return Some(text.to_string());
+    // Physical source line endings are normalized before escape processing.
+    let text = if lang == "go" && raw {
+        text.replace('\r', "")
+    } else if lang != "go" {
+        text.replace("\r\n", "\n")
+    } else {
+        text.to_string()
+    };
+    if raw || !text.contains('\\') {
+        return Some(text);
     }
+    // Go hex/octal escapes represent bytes, not Unicode code points.
+    let mut bytes = Vec::new();
     let mut out = String::new();
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -37,7 +47,7 @@ pub(super) fn decode(text: &str, lang: &str, raw: bool) -> Option<String> {
                     chars.next();
                 }
             }
-            'x' | 'u' | 'U' => {
+            'x' | 'u' | 'U' if escaped != 'U' || lang != "typescript" => {
                 let mut hex = String::new();
                 if escaped == 'u'
                     && chars.peek() == Some(&'{')
@@ -64,6 +74,12 @@ pub(super) fn decode(text: &str, lang: &str, raw: bool) -> Option<String> {
                     }
                 }
                 let value = u32::from_str_radix(&hex, 16).ok()?;
+                if lang == "go" && escaped == 'x' {
+                    bytes.extend_from_slice(out.as_bytes());
+                    out.clear();
+                    bytes.push(u8::try_from(value).ok()?);
+                    continue;
+                }
                 // JS encodes supplementary characters as surrogate pairs.
                 let value = if lang == "typescript" && (0xd800..=0xdbff).contains(&value) {
                     if chars.next()? != '\\' || chars.next()? != 'u' {
@@ -92,7 +108,14 @@ pub(super) fn decode(text: &str, lang: &str, raw: bool) -> Option<String> {
                 if lang == "go" && oct.len() != 3 {
                     return None;
                 }
-                out.push(char::from_u32(u32::from_str_radix(&oct, 8).ok()?)?);
+                let value = u32::from_str_radix(&oct, 8).ok()?;
+                if lang == "go" {
+                    bytes.extend_from_slice(out.as_bytes());
+                    out.clear();
+                    bytes.push(u8::try_from(value).ok()?);
+                } else {
+                    out.push(char::from_u32(value)?);
+                }
             }
             c if lang == "python" && !matches!(c, 'N') => {
                 out.push('\\');
@@ -102,7 +125,12 @@ pub(super) fn decode(text: &str, lang: &str, raw: bool) -> Option<String> {
             _ => return None,
         }
     }
-    Some(out)
+    if lang == "go" {
+        bytes.extend_from_slice(out.as_bytes());
+        String::from_utf8(bytes).ok()
+    } else {
+        Some(out)
+    }
 }
 
 /// Rust format strings and Python `.format` use doubled literal braces. The

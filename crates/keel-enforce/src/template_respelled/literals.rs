@@ -142,19 +142,52 @@ pub(super) fn template_segments(
     if is_literal(node.kind()) || is_concat(node, source) {
         return literal_segments(node, source, lang);
     }
+    formatted_literal(node, source, lang, fmt, true).map(|(_, pieces)| pieces)
+}
+
+/// Recognize format literals once, so home and occurrence cooking agree.
+pub(super) fn formatted_literal<'a>(
+    node: Node<'a>,
+    source: &str,
+    lang: &str,
+    fmt: bool,
+    home: bool,
+) -> Option<(Node<'a>, Vec<String>)> {
     if lang == "rust" && node.kind() == "macro_invocation" {
         let name = text(node.child_by_field_name("macro")?, source);
-        if name != "format" {
+        if name != "format"
+            && (home
+                || !matches!(
+                    name,
+                    "format_args"
+                        | "print"
+                        | "println"
+                        | "eprint"
+                        | "eprintln"
+                        | "write"
+                        | "writeln"
+                        | "panic"
+                ))
+        {
             return None;
         }
         let tree = children(node)
             .into_iter()
             .find(|n| n.kind() == "token_tree")?;
-        let first = children(tree).into_iter().next()?;
+        let args = children(tree);
+        let first = if matches!(name, "write" | "writeln") {
+            // The destination may contain several token-tree nodes.
+            args.into_iter().find(|n| is_literal(n.kind()))?
+        } else {
+            *args.first()?
+        };
         if !is_literal(first.kind()) {
             return None;
         }
-        return brace_segments(&literal_segments(first, source, lang)?.join("\0"));
+        return Some((
+            first,
+            brace_segments(&literal_segments(first, source, lang)?.join("\0"))?,
+        ));
     }
     if lang == "python" && node.kind() == "call" {
         let function = node.child_by_field_name("function")?;
@@ -167,7 +200,10 @@ pub(super) fn template_segments(
         if !is_literal(object.kind()) {
             return None;
         }
-        return brace_segments(&literal_segments(object, source, lang)?.join("\0"));
+        return Some((
+            object,
+            brace_segments(&literal_segments(object, source, lang)?.join("\0"))?,
+        ));
     }
     if lang == "go" && fmt && node.kind() == "call_expression" {
         let function = node.child_by_field_name("function")?;
@@ -185,7 +221,10 @@ pub(super) fn template_segments(
         if !is_literal(arg.kind()) {
             return None;
         }
-        return printf_segments(&literal_segments(arg, source, lang)?.join("\0"));
+        return Some((
+            arg,
+            printf_segments(&literal_segments(arg, source, lang)?.join("\0"))?,
+        ));
     }
     None
 }

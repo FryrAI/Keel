@@ -110,11 +110,13 @@ fn unanalyzed_class(path: &str) -> Option<&'static str> {
 }
 
 /// Read the head-side content of `path`, or `None` when it no longer exists.
-fn head_content(dir: &Path, path: &str, status: &ChangeStatus) -> Option<String> {
+fn head_content(dir: &Path, path: &str, status: &ChangeStatus) -> Result<Option<String>, String> {
     if *status == ChangeStatus::Deleted {
-        return None;
+        return Ok(None);
     }
-    std::fs::read_to_string(dir.join(path)).ok()
+    std::fs::read_to_string(dir.join(path))
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 /// Classify one symbol present on both sides.
@@ -190,6 +192,25 @@ fn diff_one_file(
 
 /// Walk every changed path, parsing both sides and collecting the deltas.
 pub fn scan_paths(dir: &Path, base_ref: &str, paths: &[ChangedPath]) -> DiffScan {
+    scan_paths_inner(dir, base_ref, paths, None)
+}
+
+/// Reuse each structural parse for review-only template advisories.
+pub(super) fn scan_paths_with_templates(
+    dir: &Path,
+    base_ref: &str,
+    paths: &[ChangedPath],
+    templates: &mut crate::template_respelled::ReviewScan,
+) -> DiffScan {
+    scan_paths_inner(dir, base_ref, paths, Some(templates))
+}
+
+fn scan_paths_inner(
+    dir: &Path,
+    base_ref: &str,
+    paths: &[ChangedPath],
+    mut templates: Option<&mut crate::template_respelled::ReviewScan>,
+) -> DiffScan {
     let mut parser = BlobParser::new();
     let mut changes = Vec::new();
     let mut unanalyzed = Vec::new();
@@ -213,14 +234,40 @@ pub fn scan_paths(dir: &Path, base_ref: &str, paths: &[ChangedPath]) -> DiffScan
             continue;
         }
 
-        let base_index = changed
+        let before = changed
             .base_path()
-            .and_then(|p| gitdiff::blob_at(dir, base_ref, p).map(|c| (p.to_string(), c)))
-            .and_then(|(p, content)| parser.parse(&p, &content));
+            .map(|p| gitdiff::blob_at_checked(dir, base_ref, p))
+            .unwrap_or(Ok(None));
+        let after = head_content(dir, &changed.path, &changed.status);
+        let available = before.is_ok() && after.is_ok();
+        if let Some(templates) = templates.as_mut() {
+            if let Some(error) = before.as_ref().err().or_else(|| after.as_ref().err()) {
+                templates.read_error(&changed.path, error);
+            }
+        }
+        let base_index = before.ok().flatten().and_then(|content| {
+            let path = changed.base_path()?;
+            parser.parse_with(path, &content, |parsed| {
+                if available {
+                    if let Some(templates) = templates.as_mut() {
+                        templates.base(path, &content, parsed);
+                    }
+                }
+            })
+        });
         let base_facts = base_index.as_ref().map(facts_by_name).unwrap_or_default();
 
-        let head_index = head_content(dir, &changed.path, &changed.status)
-            .and_then(|content| parser.parse(&changed.path, &content));
+        let regular_head =
+            std::fs::symlink_metadata(dir.join(&changed.path)).is_ok_and(|meta| meta.is_file());
+        let head_index = after.ok().flatten().and_then(|content| {
+            parser.parse_with(&changed.path, &content, |parsed| {
+                if available && regular_head {
+                    if let Some(templates) = templates.as_mut() {
+                        templates.head(&changed.path, &content, parsed);
+                    }
+                }
+            })
+        });
         let head_facts = head_index.as_ref().map(facts_by_name).unwrap_or_default();
 
         base_indices.extend(base_index);

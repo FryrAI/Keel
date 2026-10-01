@@ -106,6 +106,7 @@ impl TreeSitterParser {
         // attribute call edges to the file instead of the enclosing function.
 
         Ok(ParseResult {
+            syntax_tree: Some(tree),
             definitions,
             references,
             imports,
@@ -119,6 +120,12 @@ impl TreeSitterParser {
 /// exact test exclusions used by definition extraction.
 pub fn in_test_context(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -> bool {
     definition_contexts(node, lang, source).in_test
+}
+
+/// Whether this node introduces an inline test context. Descendant traversals
+/// can carry this flag instead of repeatedly walking the entire ancestry.
+pub fn begins_test_context(node: tree_sitter::Node<'_>, lang: &str, source: &[u8]) -> bool {
+    contexts::marks_test(node, lang, source)
 }
 
 impl Default for TreeSitterParser {

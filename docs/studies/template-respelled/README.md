@@ -2,7 +2,7 @@
 
 **Decision: W012 ships as a review-only advisory at 24 characters.** Independent
 judges measured conservative precision 38/50 = 0.76 at 24 on a private production
-codebase (zenzy-atlas), versus 35/50 = 0.70 at 16. The selected threshold has no
+codebase, versus 35/50 = 0.70 at 16. The selected threshold has no
 occurrences in keel's own tree. It meets the advisory rule (precision at least 0.5
 and the issue's own example found) but misses the warning rule (precision at least
 0.8). W012 never gates, enters compile, or participates in the circuit breaker.
@@ -10,7 +10,10 @@ The ruling is in [DECISION.md](DECISION.md).
 
 The private corpus's exports, samples, verdicts and reproduction script are not
 published: they quote that codebase's source. Only its aggregate counts appear
-here. keel's own populations are published in full below.
+here. keel's own populations are published in full below. Run
+[`reproduce.sh`](reproduce.sh) to rebuild them with public phase-1 exporter
+`a9e3ade` and the pinned keel source. The sample header preserves the original
+unlabelled-export wording; the verdict cell records the independent review.
 
 ## Method
 
@@ -84,9 +87,11 @@ changing homes. Compile has no W012 enforcement and there is no incremental cach
 writer. Production ignores segments shorter than 24 even when reading an older
 16-character map cache.
 
-Standard escapes are decoded on both sides; raw and byte strings retain their
-written text. AST interpolation boundaries prevent nested expressions or format
-specifications from leaking into fixed segments. `literal` displays holes using
+Standard escapes and recognized formatting expressions are decoded on both
+sides. Physical CRLF is normalized to LF in Rust, Python and JS strings/templates;
+Go raw strings discard CR, and Go hex/octal escapes assemble UTF-8 bytes. Byte
+strings otherwise retain their written escape text. AST interpolation boundaries
+prevent nested expressions or format specifications from leaking into fixed segments. `literal` displays holes using
 NUL separators; `literal_parts` preserves the actual decoded pieces, so literal
 NULs cannot match across holes or collide with interpolations during subtraction.
 Baseline identity is the segment plus whitespace-normalized decoded pieces,
@@ -106,5 +111,8 @@ changed-file set. Multiline findings use the literal's start line.
   interpolated, one conjunct of a different predicate over the same columns,
   whole-query boilerplate, and spurious co-owners of shared segments.
 
-JSON base/head read errors with a nonempty segment population are returned
-explicitly; an incomplete scan cannot masquerade as a complete review.
+W012 never fails a review: unreadable or non-UTF-8 files are skipped on both Git
+sides, preserving advisories from other files. `--verbose` names each skipped
+file and the read error. Owners deleted in the diff are dropped; owner-body
+exclusion is recalculated independently on each side, including cached owners
+whose current bodies no longer qualify as templates.

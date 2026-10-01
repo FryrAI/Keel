@@ -165,6 +165,7 @@ impl LanguageResolver for SupplementalResolver {
 
 fn empty_result() -> ParseResult {
     ParseResult {
+        syntax_tree: None,
         definitions: vec![],
         references: vec![],
         imports: vec![],

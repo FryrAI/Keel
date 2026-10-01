@@ -49,6 +49,8 @@ pub trait LanguageResolver: Send + Sync {
 /// Complete parse output for a single source file.
 #[derive(Debug, Clone)]
 pub struct ParseResult {
+    /// Whole-file syntax tree for immediate derived indexes; never cached.
+    pub syntax_tree: Option<tree_sitter::Tree>,
     pub definitions: Vec<Definition>,
     pub references: Vec<Reference>,
     pub imports: Vec<Import>,
@@ -410,7 +412,10 @@ pub struct ParseCache {
 
 impl ParseCache {
     /// Insert (or replace) the cached parse result for `path`.
-    pub fn insert(&self, path: &Path, result: ParseResult) {
+    pub fn insert(&self, path: &Path, mut result: ParseResult) {
+        // Tree clones share storage: retaining one here keeps every mapped
+        // file's tree alive after its first-pass derived indexes are built.
+        result.syntax_tree = None;
         self.inner
             .lock()
             .unwrap()
@@ -460,6 +465,7 @@ mod tests {
         assert!(cache.get(path).is_none());
 
         let result = ParseResult {
+            syntax_tree: None,
             definitions: vec![Definition {
                 complexity: 1,
                 is_trivial_wrapper_body: false,

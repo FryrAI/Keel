@@ -5,13 +5,17 @@
 mod ast;
 mod decode;
 mod git;
+mod homes;
 mod literals;
+mod matcher;
+mod review_scan;
+
+pub(crate) use review_scan::ReviewScan;
 #[cfg(test)]
 mod tests;
 
 use keel_core::template_homes::TemplateHome;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// Minimum fixed-segment length selected by the independent precision study.
 pub const MIN_SEGMENT_CHARS: usize = 24;
@@ -69,57 +73,36 @@ pub fn eligible_segment(segment: &str, minimum: usize) -> bool {
 
 /// Extract every pure non-test home from one supported whole-file source.
 pub fn extract_homes(file: &str, source: &str) -> Vec<TemplateHome> {
-    ast::scan(file, source)
-        .0
-        .into_iter()
-        .map(|span| span.home)
-        .collect()
+    let Some(lang) = ast::language(file) else {
+        return Vec::new();
+    };
+    let mut parser = keel_parsers::treesitter::TreeSitterParser::new();
+    let Ok(tree) = parser.parse(lang, source.as_bytes()) else {
+        return Vec::new();
+    };
+    extract_homes_from_tree(file, source, &tree, &[])
 }
 
 /// Match decoded literals, folding supported concatenations and excluding each
 /// owner's current body. A matching literal is counted once per distinct segment;
 /// production advisories subsequently deduplicate each literal/home pair.
 pub fn occurrences(file: &str, source: &str, homes: &[TemplateHome]) -> Vec<TemplateOccurrence> {
-    let (current, literals) = ast::scan(file, source);
-    let mut owners: BTreeMap<&str, Vec<TemplateHome>> = BTreeMap::new();
-    for home in homes {
-        for segment in &home.segments {
-            // Older map caches may still contain the study's shorter segments.
-            if !eligible_segment(segment, MIN_SEGMENT_CHARS) {
-                continue;
-            }
-            owners.entry(segment).or_default().push(home.clone());
-        }
-    }
-    let mut matches = Vec::new();
-    for literal in literals {
-        for (segment, homes) in &owners {
-            if !literal.pieces.iter().any(|piece| piece.contains(segment)) {
-                continue;
-            }
-            let own_body = current.iter().any(|span| {
-                span.start <= literal.start
-                    && literal.end <= span.end
-                    && span.home.segments.iter().any(|s| s == segment)
-                    && homes
-                        .iter()
-                        .any(|h| h.file == file && h.name == span.home.name)
-            });
-            if own_body {
-                continue;
-            }
-            matches.push(TemplateOccurrence {
-                byte_start: literal.start,
-                segment: (*segment).into(),
-                homes: homes.clone(),
-                file: file.into(),
-                line: literal.line,
-                literal: literal.text.clone(),
-                literal_parts: literal.pieces.clone(),
-            });
-        }
-    }
-    matches
+    matcher::Matcher::new(homes).map_or_else(Vec::new, |matcher| matcher.occurrences(file, source))
+}
+
+/// Extract homes from map's existing whole-file syntax tree and definitions.
+/// No source read, parser construction, literal scan, or second parse is needed.
+pub fn extract_homes_from_tree(
+    file: &str,
+    source: &str,
+    tree: &tree_sitter::Tree,
+    definitions: &[keel_parsers::resolver::Definition],
+) -> Vec<TemplateHome> {
+    ast::homes_from_tree(file, source, tree, definitions)
+        .into_iter()
+        .filter(|span| span.eligible)
+        .map(|span| span.home)
+        .collect()
 }
 
 /// A baseline-new template respelling, advisory only and never a violation.
@@ -191,25 +174,30 @@ pub fn review_advisories(
     root: &std::path::Path,
     commit: &str,
     paths: &[crate::gitdiff::ChangedPath],
-) -> Result<Vec<TemplateAdvisory>, String> {
-    Ok(advisories(
-        review_export(store, root, commit, paths)?.occurrences,
-    ))
+    verbose: bool,
+) -> Vec<TemplateAdvisory> {
+    advisories(export(store, root, commit, paths, verbose).occurrences)
 }
 
 /// Build the baseline-relative precision-study population from mapped homes.
-/// Errors reading base blobs are surfaced rather than silently inventing additions.
+/// Unreadable files are skipped on both sides; W012 never fails a review.
 pub fn review_export(
     store: &dyn keel_core::store::GraphStore,
     root: &std::path::Path,
     commit: &str,
     paths: &[crate::gitdiff::ChangedPath],
 ) -> Result<TemplateStudy, String> {
-    let mut homes = store.template_homes();
-    for home in &mut homes {
-        home.segments
-            .retain(|s| eligible_segment(s, MIN_SEGMENT_CHARS));
-    }
+    Ok(export(store, root, commit, paths, false))
+}
+
+fn export(
+    store: &dyn keel_core::store::GraphStore,
+    root: &std::path::Path,
+    commit: &str,
+    paths: &[crate::gitdiff::ChangedPath],
+    verbose: bool,
+) -> TemplateStudy {
+    let homes = mapped_homes(store, paths);
     let kept_segments = homes
         .iter()
         .flat_map(|h| &h.segments)
@@ -220,13 +208,34 @@ pub fn review_export(
     let occurrences = if kept_segments == 0 {
         Vec::new()
     } else {
-        git::introduced(root, commit, paths, &homes)?
+        git::introduced(root, commit, paths, &homes, verbose)
     };
-    Ok(TemplateStudy {
+    TemplateStudy {
         min_segment_chars: MIN_SEGMENT_CHARS,
         template_functions: homes.len(),
         kept_segments,
         homes,
         occurrences,
-    })
+    }
 }
+
+fn mapped_homes(
+    store: &dyn keel_core::store::GraphStore,
+    paths: &[crate::gitdiff::ChangedPath],
+) -> Vec<TemplateHome> {
+    let mut homes = store.template_homes();
+    let deleted: std::collections::BTreeSet<_> = paths
+        .iter()
+        .filter(|path| path.status == crate::gitdiff::ChangeStatus::Deleted)
+        .map(|path| path.path.as_str())
+        .collect();
+    homes.retain(|home| !deleted.contains(home.file.as_str()));
+    for home in &mut homes {
+        home.segments
+            .retain(|s| eligible_segment(s, MIN_SEGMENT_CHARS));
+    }
+    homes
+}
+
+#[cfg(test)]
+mod fold_tests;

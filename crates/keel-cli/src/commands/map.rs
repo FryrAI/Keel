@@ -372,7 +372,7 @@ pub fn run(
         eprintln!("keel map: failed to update fragment clones: {}", e);
     }
 
-    if let Err(e) = super::map_templates::refresh(&mut store, &entries, &root) {
+    if let Err(e) = super::map_templates::refresh(&mut store, &all_file_data) {
         eprintln!("keel map: failed to update template homes: {}", e);
         return (2, EventMetrics::default());
     }

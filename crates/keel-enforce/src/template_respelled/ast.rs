@@ -1,17 +1,18 @@
 //! Pure template body eligibility and literal traversal.
 
-use super::literals::{children, is_concat, is_literal, literal_segments, template_segments, text};
-use super::{eligible_segment, MIN_SEGMENT_CHARS};
+use super::literals::{children, is_concat, is_literal, literal_segments, text};
 use keel_core::template_homes::TemplateHome;
-use keel_parsers::treesitter::{detect_language, in_test_context, TreeSitterParser};
+use keel_parsers::resolver::Definition;
+use keel_parsers::treesitter::{begins_test_context, detect_language, TreeSitterParser};
 use std::path::Path;
 use tree_sitter::Node;
 
-/// Current home expression bounds, recalculated even when mapped lines drift.
+/// Current callable body bounds, recalculated even when mapped lines drift.
 pub(super) struct HomeSpan {
     pub home: TemplateHome,
     pub start: usize,
     pub end: usize,
+    pub eligible: bool,
 }
 
 /// One decoded literal or supported concatenation at its source position.
@@ -35,67 +36,13 @@ pub(super) fn language(file: &str) -> Option<&'static str> {
     }
 }
 
-fn callable(kind: &str) -> bool {
-    matches!(
-        kind,
-        "function_item"
-            | "function_definition"
-            | "function_declaration"
-            | "method_definition"
-            | "arrow_function"
-            | "function_expression"
-            | "method_declaration"
-    )
-}
-
-fn only_expression<'a>(node: Node<'a>, lang: &str) -> Option<Node<'a>> {
-    let body = node.child_by_field_name("body")?;
-    if !matches!(body.kind(), "block" | "statement_block") {
-        return (node.kind() == "arrow_function").then_some(body);
-    }
-    let mut statements = children(body);
-    if lang == "go" && statements.len() == 1 && statements[0].kind() == "statement_list" {
-        statements = children(statements[0]);
-    }
-    let [mut expr] = statements.as_slice() else {
-        return None;
-    };
-    if expr.kind() == "expression_statement" {
-        // A Rust expression ending in ';' returns (), unless it is `return`.
-        if lang == "rust" && expr.named_child(0)?.kind() != "return_expression" {
-            return None;
-        }
-        expr = expr.named_child(0)?;
-    }
-    if matches!(expr.kind(), "return_statement" | "return_expression") {
-        let parts = children(expr);
-        let [value] = parts.as_slice() else {
-            return None;
-        };
-        expr = *value;
-        if expr.kind() == "expression_list" {
-            let parts = children(expr);
-            let [value] = parts.as_slice() else {
-                return None;
-            };
-            expr = *value;
-        }
-    } else if lang != "rust" {
-        return None;
-    }
-    while expr.kind() == "parenthesized_expression" {
-        let parts = children(expr);
-        let [value] = parts.as_slice() else {
-            return None;
-        };
-        expr = *value;
-    }
-    Some(expr)
-}
-
 fn walk(node: Node<'_>, visit: &mut impl FnMut(Node<'_>)) {
     visit(node);
-    for child in children(node) {
+    let mut cursor = node.walk();
+    for child in node
+        .named_children(&mut cursor)
+        .filter(|n| !n.kind().contains("comment"))
+    {
         walk(child, visit);
     }
 }
@@ -140,14 +87,85 @@ fn std_fmt(root: Node<'_>, source: &str) -> bool {
     imported && !shadowed
 }
 
-/// Scan current homes and non-test literals using the source grammar.
-pub(super) fn scan(file: &str, source: &str) -> (Vec<HomeSpan>, Vec<Literal>) {
-    if crate::file_class::FileClass::classify(file) == crate::file_class::FileClass::Test
-        || crate::violations_util::is_test_file(file)
-    {
-        return (vec![], vec![]);
+fn excluded(file: &str) -> bool {
+    // FileClass::Test uses this same predicate; calling it directly also
+    // catches test paths nested inside generated clients.
+    crate::violations_util::is_test_file(file)
+}
+
+/// Extract homes without collecting occurrence literals or parsing again.
+pub(super) fn homes_from_tree(
+    file: &str,
+    source: &str,
+    tree: &tree_sitter::Tree,
+    definitions: &[Definition],
+) -> Vec<HomeSpan> {
+    let Some(parse_lang) = language(file).filter(|_| !excluded(file)) else {
+        return vec![];
+    };
+    let lang = if parse_lang == "tsx" {
+        "typescript"
+    } else {
+        parse_lang
+    };
+    let root = tree.root_node();
+    let fmt = lang == "go" && std_fmt(root, source);
+    let mut homes = Vec::new();
+    let index = super::homes::definition_index(definitions);
+    walk_non_test(root, parse_lang, source, false, &mut |node| {
+        if let Some(span) = super::homes::span(node, file, source, lang, fmt, &index) {
+            homes.push(span);
+        }
+    });
+    homes
+}
+
+fn walk_non_test(
+    node: Node<'_>,
+    lang: &str,
+    source: &str,
+    in_test: bool,
+    visit: &mut impl FnMut(Node<'_>),
+) {
+    let in_test = in_test || begins_test_context(node, lang, source.as_bytes());
+    if in_test {
+        return;
     }
-    let Some(parse_lang) = language(file) else {
+    visit(node);
+    // Rust/Go literals cannot contain callable syntax. Avoid traversing their
+    // content and escape nodes when collecting only callable body spans.
+    if matches!(lang, "rust" | "go") && is_literal(node.kind()) {
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node
+        .named_children(&mut cursor)
+        .filter(|n| !n.kind().contains("comment"))
+    {
+        walk_non_test(child, lang, source, in_test, visit);
+    }
+}
+
+/// Scan both current callable spans and non-test literals with one parse.
+pub(super) fn scan(file: &str, source: &str) -> (Vec<HomeSpan>, Vec<Literal>) {
+    let Some(parse_lang) = language(file).filter(|_| !excluded(file)) else {
+        return (vec![], vec![]);
+    };
+    let mut parser = TreeSitterParser::new();
+    let Ok(tree) = parser.parse(parse_lang, source.as_bytes()) else {
+        return (vec![], vec![]);
+    };
+    scan_tree(file, source, &tree, &[])
+}
+
+/// Scan map/review's already-parsed tree, without constructing a parser.
+pub(super) fn scan_tree(
+    file: &str,
+    source: &str,
+    tree: &tree_sitter::Tree,
+    definitions: &[Definition],
+) -> (Vec<HomeSpan>, Vec<Literal>) {
+    let Some(parse_lang) = language(file).filter(|_| !excluded(file)) else {
         return (vec![], vec![]);
     };
     let lang = if parse_lang == "tsx" {
@@ -155,82 +173,115 @@ pub(super) fn scan(file: &str, source: &str) -> (Vec<HomeSpan>, Vec<Literal>) {
     } else {
         parse_lang
     };
-    let mut parser = TreeSitterParser::new();
-    let Ok(tree) = parser.parse(parse_lang, source.as_bytes()) else {
-        return (vec![], vec![]);
-    };
-    let root = tree.root_node();
-    let definitions = parser
-        .parse_file(parse_lang, Path::new(file), source)
-        .map(|r| r.definitions)
-        .unwrap_or_default();
-    let fmt = lang == "go" && std_fmt(root, source);
+    let fmt = lang == "go" && std_fmt(tree.root_node(), source);
     let mut homes = Vec::new();
-    walk(root, &mut |node| {
-        if !callable(node.kind())
-            || node.has_error()
-            || in_test_context(node, parse_lang, source.as_bytes())
-        {
-            return;
-        }
-        let Some(expr) = only_expression(node, lang) else {
-            return;
-        };
-        let Some(pieces) = template_segments(expr, source, lang, fmt) else {
-            return;
-        };
-        let def = definitions.iter().find(|d| {
-            d.line_start <= node.start_position().row as u32 + 1
-                && d.line_end == node.end_position().row as u32 + 1
-                && d.kind == keel_core::types::NodeKind::Function
-                && node
-                    .child_by_field_name("body")
-                    .is_some_and(|body| d.body_text == text(body, source))
-        });
-        let name = def.map(|d| d.name.clone()).or_else(|| {
-            node.child_by_field_name("name")
-                .map(|n| text(n, source).to_string())
-        });
-        let Some(name) = name else {
-            return;
-        };
-        let mut segments: Vec<_> = pieces
-            .into_iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| eligible_segment(s, MIN_SEGMENT_CHARS))
-            .collect();
-        segments.sort();
-        segments.dedup();
-        homes.push(HomeSpan {
-            home: TemplateHome {
-                hash: def.map(|d| d.hash()).unwrap_or_else(|| {
-                    keel_core::hash::compute_hash(&name, text(node, source), "")
-                }),
-                name,
-                file: file.into(),
-                line: node.start_position().row as u32 + 1,
-                segments,
-            },
-            start: expr.start_byte(),
-            end: expr.end_byte(),
-        });
-    });
     let mut literals = Vec::new();
-    collect_literals(root, source, parse_lang, lang, &mut literals);
+    let index = super::homes::definition_index(definitions);
+    let mut visit = |node: Node<'_>| {
+        if let Some(span) = super::homes::span(node, file, source, lang, fmt, &index) {
+            homes.push(span);
+        }
+    };
+    collect_literals(
+        tree.root_node(),
+        source,
+        parse_lang,
+        lang,
+        fmt,
+        None,
+        &mut visit,
+        &mut literals,
+    );
     (homes, literals)
 }
 
+fn docstring(node: Node<'_>, source: &str) -> bool {
+    // Bytes and f-strings are expressions, never Python docstrings.
+    let strings = if node.kind() == "concatenated_string" {
+        children(node)
+    } else {
+        vec![node]
+    };
+    if strings.iter().any(|n| {
+        let prefix = text(*n, source)
+            .split(['\"', '\''])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        prefix.contains('b') || prefix.contains('f')
+    }) {
+        return false;
+    }
+    let mut parent = node.parent();
+    while parent.is_some_and(|p| p.kind() == "parenthesized_expression") {
+        parent = parent.and_then(|p| p.parent());
+    }
+    let Some(statement) = parent.filter(|p| p.kind() == "expression_statement") else {
+        return false;
+    };
+    let Some(body) = statement.parent() else {
+        return false;
+    };
+    if children(body)
+        .first()
+        .is_none_or(|first| first.id() != statement.id())
+    {
+        return false;
+    }
+    body.kind() == "module"
+        || body.kind() == "block"
+            && body
+                .parent()
+                .is_some_and(|p| matches!(p.kind(), "class_definition" | "function_definition"))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn collect_literals(
     node: Node<'_>,
     source: &str,
     parse_lang: &str,
     lang: &str,
+    fmt: bool,
+    skip: Option<usize>,
+    visit: &mut impl FnMut(Node<'_>),
     literals: &mut Vec<Literal>,
 ) {
-    if in_test_context(node, parse_lang, source.as_bytes()) {
+    if begins_test_context(node, parse_lang, source.as_bytes()) {
+        return;
+    }
+    visit(node);
+    if skip == Some(node.id()) {
+        interpolations(node, source, parse_lang, lang, fmt, visit, literals);
+        return;
+    }
+    if let Some((literal, pieces)) =
+        super::literals::formatted_literal(node, source, lang, fmt, false)
+    {
+        literals.push(Literal {
+            text: pieces.join("\0"),
+            pieces,
+            line: literal.start_position().row as u32 + 1,
+            start: literal.start_byte(),
+            end: literal.end_byte(),
+        });
+        for child in children(node) {
+            collect_literals(
+                child,
+                source,
+                parse_lang,
+                lang,
+                fmt,
+                Some(literal.id()),
+                visit,
+                literals,
+            );
+        }
         return;
     }
     if is_literal(node.kind()) || is_concat(node, source) {
+        if lang == "python" && docstring(node, source) {
+            return;
+        }
         if !node.has_error() {
             if let Some(pieces) = literal_segments(node, source, lang) {
                 literals.push(Literal {
@@ -242,13 +293,15 @@ fn collect_literals(
                 });
             }
         }
-        // Folded children must not produce duplicate occurrences. Strings
-        // *inside* interpolation expressions remain independent literals.
-        interpolations(node, source, parse_lang, lang, literals);
+        interpolations(node, source, parse_lang, lang, fmt, visit, literals);
         return;
     }
-    for child in children(node) {
-        collect_literals(child, source, parse_lang, lang, literals);
+    let mut cursor = node.walk();
+    for child in node
+        .named_children(&mut cursor)
+        .filter(|n| !n.kind().contains("comment"))
+    {
+        collect_literals(child, source, parse_lang, lang, fmt, skip, visit, literals);
     }
 }
 
@@ -257,15 +310,24 @@ fn interpolations(
     source: &str,
     parse_lang: &str,
     lang: &str,
+    fmt: bool,
+    visit: &mut impl FnMut(Node<'_>),
     literals: &mut Vec<Literal>,
 ) {
-    for child in children(node) {
+    if !matches!(lang, "python" | "typescript") {
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node
+        .named_children(&mut cursor)
+        .filter(|n| !n.kind().contains("comment"))
+    {
         if matches!(child.kind(), "interpolation" | "template_substitution") {
             for expr in children(child) {
-                collect_literals(expr, source, parse_lang, lang, literals);
+                collect_literals(expr, source, parse_lang, lang, fmt, None, visit, literals);
             }
         } else {
-            interpolations(child, source, parse_lang, lang, literals);
+            interpolations(child, source, parse_lang, lang, fmt, visit, literals);
         }
     }
 }

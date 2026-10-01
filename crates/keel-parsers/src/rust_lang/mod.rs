@@ -70,6 +70,7 @@ impl RustLangResolver {
             Err(e) => {
                 eprintln!("keel: warning: failed to parse {}: {}", path.display(), e);
                 ParseResult {
+                    syntax_tree: None,
                     definitions: vec![],
                     references: vec![],
                     imports: vec![],

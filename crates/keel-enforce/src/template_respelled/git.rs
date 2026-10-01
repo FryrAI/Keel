@@ -2,7 +2,7 @@
 //! `HomeScanner::introduced_many`: here identity is segment + normalized decoded
 //! literal, never a function hash or a source line. Removed copies cancel moves.
 
-use super::{occurrences, TemplateOccurrence};
+use super::{matcher::Matcher, TemplateOccurrence};
 use crate::gitdiff::{self, ChangeStatus, ChangedPath};
 use keel_core::template_homes::TemplateHome;
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,19 +24,24 @@ pub(super) fn subtract(
     head: Vec<TemplateOccurrence>,
     base: Vec<TemplateOccurrence>,
 ) -> Vec<TemplateOccurrence> {
-    let mut counts = BTreeMap::<_, usize>::new();
-    for occurrence in base {
-        *counts.entry(identity(&occurrence)).or_default() += 1;
-    }
-    let mut introduced = Vec::new();
-    for occurrence in head {
-        let count = counts.entry(identity(&occurrence)).or_default();
-        if *count > 0 {
-            *count -= 1;
-        } else {
-            introduced.push(occurrence);
+    let mut introduced = if base.is_empty() {
+        head
+    } else {
+        let mut counts = BTreeMap::<_, usize>::new();
+        for occurrence in base {
+            *counts.entry(identity(&occurrence)).or_default() += 1;
         }
-    }
+        let mut introduced = Vec::new();
+        for occurrence in head {
+            let count = counts.entry(identity(&occurrence)).or_default();
+            if *count > 0 {
+                *count -= 1;
+            } else {
+                introduced.push(occurrence);
+            }
+        }
+        introduced
+    };
     introduced.sort_by(|a, b| {
         (&a.file, a.line, &a.segment, &a.literal).cmp(&(&b.file, b.line, &b.segment, &b.literal))
     });
@@ -49,42 +54,55 @@ pub(super) fn introduced(
     commit: &str,
     paths: &[ChangedPath],
     homes: &[TemplateHome],
-) -> Result<Vec<TemplateOccurrence>, String> {
+    verbose: bool,
+) -> Vec<TemplateOccurrence> {
     let mut head = Vec::new();
     let mut base = Vec::new();
     let mut seen_head = BTreeSet::new();
     let mut seen_base = BTreeSet::new();
-    let mut base_homes = homes.to_vec();
-    for home in &mut base_homes {
-        if let Some(old) = paths
-            .iter()
-            .find(|p| p.path == home.file)
-            .and_then(|p| p.base_path())
-        {
-            home.file = old.into();
-        }
-    }
+    let Some(head_matcher) = Matcher::new(homes) else {
+        return vec![];
+    };
+    let base_matcher = head_matcher.base_side(paths);
     for path in paths {
-        if let Some(old) = path.base_path() {
-            if seen_base.insert(old) && super::ast::language(old).is_some() {
-                if let Some(text) = gitdiff::blob_at_checked(root, commit, old)? {
-                    base.extend(occurrences(old, &text, &base_homes));
+        // Read the entire pair before scanning either side. If one side is
+        // unavailable, dropping both avoids inventing baseline-new copies.
+        let pair = (|| -> Result<_, String> {
+            let old = path
+                .base_path()
+                .filter(|old| super::ast::language(old).is_some() && seen_base.insert(*old));
+            let base = old
+                .map(|old| gitdiff::blob_at_checked(root, commit, old))
+                .transpose()?
+                .flatten();
+            let head = if path.status != ChangeStatus::Deleted
+                && seen_head.insert(&path.path)
+                && super::ast::language(&path.path).is_some()
+            {
+                let file = root.join(&path.path);
+                let meta = std::fs::symlink_metadata(&file).map_err(|e| e.to_string())?;
+                if meta.is_file() {
+                    Some(std::fs::read_to_string(file).map_err(|e| e.to_string())?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            Ok((old, base, head))
+        })();
+        match pair {
+            Ok((old, before, after)) => {
+                if let (Some(old), Some(text)) = (old, before) {
+                    base.extend(base_matcher.occurrences(old, &text));
+                }
+                if let Some(text) = after {
+                    head.extend(head_matcher.occurrences(&path.path, &text));
                 }
             }
+            Err(error) if verbose => eprintln!("keel review: W012 skipping {}: {error}", path.path),
+            Err(_) => {}
         }
-        if path.status == ChangeStatus::Deleted
-            || !seen_head.insert(&path.path)
-            || super::ast::language(&path.path).is_none()
-        {
-            continue;
-        }
-        let file = root.join(&path.path);
-        let meta = std::fs::symlink_metadata(&file).map_err(|e| format!("{}: {e}", path.path))?;
-        if !meta.is_file() {
-            continue;
-        }
-        let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", path.path))?;
-        head.extend(occurrences(&path.path, &text, homes));
     }
-    Ok(subtract(head, base))
+    subtract(head, base)
 }

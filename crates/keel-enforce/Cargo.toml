@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+aho-corasick = "1"
 keel-core = { workspace = true }
 keel-parsers = { workspace = true }
 xxhash-rust = { workspace = true }

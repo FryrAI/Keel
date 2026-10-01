@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enters violations, gates, compile, or the circuit breaker. Independent labels on a
   private production corpus measured conservative precision 0.76, selecting
   advisory-only rollout; the method, counts, decision and keel's own exports
-  live under `docs/studies/template-respelled/`.
+  live under `docs/studies/template-respelled/`. Run `keel map` once after
+  upgrading to populate homes; review stays silent until that first map.
 - **Opt-in expression homes (#80): W011/E007.** Literal patterns in code, strings,
   comments and test source are checked against home/scope globs. Tolerant rules
   preserve unrelated config. Compile compares with HEAD or `--since`; CLI/MCP
