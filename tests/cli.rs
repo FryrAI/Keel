@@ -84,5 +84,7 @@ mod test_call_language_fold;
 mod test_call_language_round2;
 #[path = "cli/test_call_language_round3.rs"]
 mod test_call_language_round3;
+#[path = "cli/test_call_language_round4.rs"]
+mod test_call_language_round4;
 #[path = "cli/test_call_languages.rs"]
 mod test_call_languages;

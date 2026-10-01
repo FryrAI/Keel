@@ -585,18 +585,22 @@ fn sync_one_file(
         }
     };
 
-    // Reuse module definition ids for node writes, but never as call targets.
-    let mut definition_ids: HashMap<String, u64> = existing
+    // Reuse ids only within the module/non-module kind, never modules as call targets.
+    let mut definition_ids: HashMap<(String, bool), u64> = existing
         .iter()
         .filter(|n| n.id != module_id)
-        .map(|n| (n.name.clone(), n.id))
+        .map(|n| ((n.name.clone(), n.kind == NodeKind::Module), n.id))
         .collect();
     let mut local: HashMap<String, u64> = existing
         .iter()
         .filter(|n| n.kind != NodeKind::Module)
         .map(|n| (n.name.clone(), n.id))
         .collect();
-    let current_names: HashSet<&str> = file.definitions.iter().map(|d| d.name.as_str()).collect();
+    let current_names: HashSet<(&str, bool)> = file
+        .definitions
+        .iter()
+        .map(|d| (d.name.as_str(), d.kind == NodeKind::Module))
+        .collect();
 
     // Compile-added nodes carry the package map would give this file (W009's
     // boundary depends on it), whether the module is new or already stored.
@@ -615,7 +619,8 @@ fn sync_one_file(
 
     // Insert nodes for definitions new since the last graph write.
     for def in &file.definitions {
-        if definition_ids.contains_key(&def.name) {
+        let key = (def.name.clone(), def.kind == NodeKind::Module);
+        if definition_ids.contains_key(&key) {
             continue;
         }
         if created_module {
@@ -656,7 +661,7 @@ fn sync_one_file(
             line: def.line_start,
             confidence: 1.0,
         }));
-        definition_ids.insert(def.name.clone(), id);
+        definition_ids.insert(key, id);
         if def.kind != NodeKind::Module {
             local.insert(def.name.clone(), id);
         }
@@ -668,15 +673,16 @@ fn sync_one_file(
     // batch — removing it (and, via FK cascade, its caller edges) would erase
     // the broken contract, so the next compile of this file would see nothing
     // to remove and E004 would stop re-firing while real callers stay broken.
-    for node in existing
-        .iter()
-        .filter(|n| n.id != module_id && !current_names.contains(n.name.as_str()))
-    {
+    for node in existing.iter().filter(|n| {
+        n.id != module_id && !current_names.contains(&(n.name.as_str(), n.kind == NodeKind::Module))
+    }) {
         if has_live_external_callers(store, node.id, batch_files) {
             continue;
         }
         node_changes.push(NodeChange::Remove(node.id));
-        local.remove(&node.name);
+        if node.kind != NodeKind::Module {
+            local.remove(&node.name);
+        }
     }
 
     // Re-resolve this file's outgoing reference edges, then decide per stored
