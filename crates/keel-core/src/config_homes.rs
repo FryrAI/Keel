@@ -6,11 +6,53 @@ use std::sync::{Mutex, OnceLock};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Deserializer, Serialize};
 
-/// A named set of literal expressions permitted only in designated paths.
+/// A case-sensitive substring or a line-local regular expression.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum HomePattern {
+    Literal(String),
+    Regex { regex: String },
+}
+
+impl HomePattern {
+    /// Reject empty literals and invalid, empty, or empty-matching regexes.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Literal(text) if text.is_empty() => Err("missing or empty pattern".into()),
+            Self::Literal(_) => Ok(()),
+            Self::Regex { regex } => {
+                let compiled = regex::Regex::new(regex)
+                    .map_err(|e| format!("invalid regex {regex:?}: {e}"))?;
+                if regex.is_empty() || compiled.is_match("") {
+                    Err(format!("invalid regex {regex:?}: matches the empty string"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+impl From<&str> for HomePattern {
+    fn from(value: &str) -> Self {
+        Self::Literal(value.into())
+    }
+}
+
+impl std::fmt::Display for HomePattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Literal(text) => write!(f, "{text:?}"),
+            Self::Regex { regex } => write!(f, "regex {regex:?}"),
+        }
+    }
+}
+
+/// A named set of expressions permitted only in designated paths.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeRule {
     pub name: String,
-    pub patterns: Vec<String>,
+    pub patterns: Vec<HomePattern>,
     #[serde(default, deserialize_with = "string_or_array")]
     pub home: Vec<String>,
     #[serde(default, deserialize_with = "string_or_array")]
@@ -124,13 +166,17 @@ pub fn deserialize_homes<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<HomeRule
         let reason = match &rule {
             Err(e) => Some(e.to_string()),
             Ok(r) if r.name.trim().is_empty() => Some("empty name".into()),
-            Ok(r) if r.patterns.is_empty() || r.patterns.iter().any(|p| p.is_empty()) => {
-                Some("missing or empty pattern".into())
-            }
-            Ok(r) => path_globs(&r.home)
-                .and_then(|_| path_globs(&r.scope))
-                .err()
-                .map(|e| e.to_string()),
+            Ok(r) if r.patterns.is_empty() => Some("missing or empty pattern".into()),
+            Ok(r) => r
+                .patterns
+                .iter()
+                .find_map(|p| p.validate().err())
+                .or_else(|| {
+                    path_globs(&r.home)
+                        .and_then(|_| path_globs(&r.scope))
+                        .err()
+                        .map(|e| e.to_string())
+                }),
         };
         if let Some(reason) = reason {
             warn_once(

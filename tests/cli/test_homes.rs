@@ -247,9 +247,13 @@ fn homes_review_error_gate_preserves_duplicate_line_findings() {
 #[test]
 fn homes_review_rename_unchanged_symbol_less_source_is_silent() {
     let dir = fixture(true);
-    write(dir.path(), "src/plain.rs", "// CURRENT_DATE\n");
+    write(
+        dir.path(),
+        "src/plain.rs",
+        "const SQL: &str = \"CURRENT_DATE\";\n",
+    );
     git(dir.path(), &["add", "src/plain.rs"]);
-    git(dir.path(), &["commit", "-q", "-m", "comment-only file"]);
+    git(dir.path(), &["commit", "-q", "-m", "symbol-less source"]);
     fs::rename(
         dir.path().join("src/plain.rs"),
         dir.path().join("src/moved.rs"),
@@ -451,6 +455,12 @@ fn homes_committed_source_symlink_is_skipped_and_target_checked_once() {
 
 #[path = "test_homes_fold.rs"]
 mod fold;
+
+#[path = "test_homes_87.rs"]
+mod issue87;
+
+#[path = "test_homes_87_r1.rs"]
+mod issue87_r1;
 
 #[cfg(unix)]
 #[path = "test_homes_base_symlink.rs"]

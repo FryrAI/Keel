@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-pub use crate::config_homes::{HomeRule, HomeSeverity};
+pub use crate::config_homes::{HomePattern, HomeRule, HomeSeverity};
 
 /// Top-level keel configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,7 +34,7 @@ pub struct KeelConfig {
     pub architecture: ArchitectureConfig,
     #[serde(default)]
     pub review: ReviewConfig,
-    /// Opt-in literal expression homes, validated independently per rule.
+    /// Opt-in expression homes, validated independently per rule.
     #[serde(default, deserialize_with = "crate::config_homes::deserialize_homes")]
     pub homes: Vec<HomeRule>,
     /// Stable random identifier for telemetry project deduplication.
