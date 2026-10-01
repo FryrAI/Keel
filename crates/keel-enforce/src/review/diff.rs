@@ -267,9 +267,9 @@ fn scan_paths_inner(
             std::fs::symlink_metadata(dir.join(&changed.path)).is_ok_and(|meta| meta.is_file());
         let head_index = after.ok().flatten().and_then(|content| {
             parser.parse_with(&changed.path, &content, |parsed| {
-                if available && regular_head {
+                if regular_head {
                     if let Some(templates) = templates.as_mut() {
-                        templates.head(&changed.path, &content, parsed);
+                        templates.head(&changed.path, &content, parsed, available);
                     }
                 }
             })

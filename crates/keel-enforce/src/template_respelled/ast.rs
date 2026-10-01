@@ -147,15 +147,11 @@ fn walk_non_test(
 }
 
 /// Scan both current callable spans and non-test literals with one parse.
-pub(super) fn scan(file: &str, source: &str) -> (Vec<HomeSpan>, Vec<Literal>) {
-    let Some(parse_lang) = language(file).filter(|_| !excluded(file)) else {
-        return (vec![], vec![]);
-    };
+pub(super) fn scan(file: &str, source: &str) -> Option<(Vec<HomeSpan>, Vec<Literal>)> {
+    let parse_lang = language(file).filter(|_| !excluded(file))?;
     let mut parser = TreeSitterParser::new();
-    let Ok(tree) = parser.parse(parse_lang, source.as_bytes()) else {
-        return (vec![], vec![]);
-    };
-    scan_tree(file, source, &tree, &[])
+    let tree = parser.parse(parse_lang, source.as_bytes()).ok()?;
+    Some(scan_tree(file, source, &tree, &[]))
 }
 
 /// Scan map/review's already-parsed tree, without constructing a parser.

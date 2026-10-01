@@ -66,13 +66,14 @@ impl Matcher {
 
     /// Scan one Git side, excluding both pure and cached owner bodies.
     pub(super) fn occurrences(&self, file: &str, source: &str) -> Vec<TemplateOccurrence> {
-        self.scan(file, source).occurrences
+        self.scan(file, source)
+            .map_or_else(Vec::new, |scanned| scanned.occurrences)
     }
 
     /// Collect matches and all current callable names with one parse.
-    pub(super) fn scan(&self, file: &str, source: &str) -> ScannedFile {
-        let (current, literals) = ast::scan(file, source);
-        self.match_literals(file, current, literals)
+    pub(super) fn scan(&self, file: &str, source: &str) -> Option<ScannedFile> {
+        let (current, literals) = ast::scan(file, source)?;
+        Some(self.match_literals(file, current, literals))
     }
 
     /// Match one side of the structural review's existing parse.

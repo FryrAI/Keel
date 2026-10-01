@@ -58,12 +58,17 @@ impl ReviewScan {
         }
     }
 
-    /// Match a readable regular head file using its existing structural parse.
-    pub(crate) fn head(&mut self, file: &str, source: &str, parsed: &ParseResult) {
+    /// Record head callables even when its base is unreadable; match only intact pairs.
+    pub(crate) fn head(&mut self, file: &str, source: &str, parsed: &ParseResult, available: bool) {
+        if parsed.syntax_tree.is_none() {
+            return;
+        }
         if let Some(matcher) = &self.head_matcher {
             let scanned = matcher.parsed_occurrences(file, source, parsed);
             self.owners.record(file, scanned.callables);
-            self.head.extend(scanned.occurrences);
+            if available {
+                self.head.extend(scanned.occurrences);
+            }
         }
     }
 

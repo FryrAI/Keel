@@ -85,34 +85,43 @@ pub(super) fn introduced(
         if path.status == ChangeStatus::RenamedToUnreadable {
             continue;
         }
-        // Read the entire pair before scanning either side. If one side is
-        // unavailable, dropping both avoids inventing baseline-new copies.
-        let pair = (|| -> Result<_, String> {
-            let old = path
-                .base_path()
-                .filter(|old| super::ast::language(old).is_some() && seen_base.insert(*old));
-            let base = old
-                .map(|old| gitdiff::blob_at_checked(root, commit, old))
-                .transpose()?
-                .flatten();
-            let head = if path.status != ChangeStatus::Deleted
+        let old = path
+            .base_path()
+            .filter(|old| super::ast::language(old).is_some() && seen_base.insert(*old));
+        let before = old
+            .map(|old| gitdiff::blob_at_checked(root, commit, old))
+            .transpose()
+            .map(Option::flatten);
+        let after = (|| -> Result<_, String> {
+            if path.status != ChangeStatus::Deleted
                 && seen_head.insert(&path.path)
                 && super::ast::language(&path.path).is_some()
             {
                 let file = root.join(&path.path);
                 let meta = std::fs::symlink_metadata(&file).map_err(|e| e.to_string())?;
                 if meta.is_file() {
-                    Some(std::fs::read_to_string(file).map_err(|e| e.to_string())?)
+                    std::fs::read_to_string(file)
+                        .map(Some)
+                        .map_err(|e| e.to_string())
                 } else {
-                    None
+                    Ok(None)
                 }
             } else {
-                None
-            };
-            Ok((old, base, head))
+                Ok(None)
+            }
         })();
-        match pair {
-            Ok((old, before, after)) => {
+        // Head callables are independent of base availability. Literal move
+        // subtraction still needs an intact pair to avoid inventing new copies.
+        let mut scanned = after
+            .as_ref()
+            .ok()
+            .and_then(|text| text.as_deref())
+            .and_then(|text| head_matcher.scan(&path.path, text));
+        if let Some(scanned) = &mut scanned {
+            owners.record(&path.path, std::mem::take(&mut scanned.callables));
+        }
+        match (before, after) {
+            (Ok(before), Ok(_)) => {
                 if let (Some(old), Some(text)) = (old, before) {
                     let mut occurrences = base_matcher.occurrences(old, &text);
                     // A rename's baseline belongs to its head-side destination.
@@ -121,14 +130,14 @@ pub(super) fn introduced(
                     }
                     base.extend(occurrences);
                 }
-                if let Some(text) = after {
-                    let scanned = head_matcher.scan(&path.path, &text);
-                    owners.record(&path.path, scanned.callables);
+                if let Some(scanned) = scanned {
                     head.extend(scanned.occurrences);
                 }
             }
-            Err(error) if verbose => eprintln!("keel review: W012 skipping {}: {error}", path.path),
-            Err(_) => {}
+            (Err(error), _) | (_, Err(error)) if verbose => {
+                eprintln!("keel review: W012 skipping {}: {error}", path.path);
+            }
+            _ => {}
         }
     }
     subtract(head, base)
