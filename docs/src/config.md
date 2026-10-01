@@ -170,13 +170,13 @@ This configuration only fires on structural errors (E001 broken callers, E004 fu
 
 ### Expression homes (W011 / E007)
 
-Opt in to literal, case-sensitive patterns whose meaning belongs in one place:
+Opt in to case-sensitive literal or regex patterns whose meaning belongs in one place:
 
 ```json
 {
   "homes": [{
     "name": "berlin-civil-day",
-    "patterns": ["AT TIME ZONE 'Europe/Berlin'", "date_naive()"],
+    "patterns": ["date_naive()", {"regex": "AT TIME ZONE '[A-Za-z/_]+'"}],
     "home": ["crates/core/src/zeit.rs"],
     "scope": "crates/*/src"
   }],
@@ -200,25 +200,44 @@ Malformed rules are skipped with a named stderr warning without discarding
 other config. Duplicate names keep the first valid rule. Warnings are emitted
 once per identical malformed rule per process, including telemetry reloads.
 
-Matching includes code, string literals (including embedded SQL), comments, and
-test source. Reword a new matching comment or use `keel compile --suppress W011`
-(or E007). There is no regex or semantic/template inference. One violation per
-file/line lists all matching rules, patterns, and homes, with an empty hash.
+String patterns are literal substrings; `{"regex": "…"}` patterns use Rust's
+`regex` syntax and match one line at a time, never across newlines. Invalid,
+empty, or empty-string-matching regexes reject their containing rule with a
+named warning. Regex objects accept only the `regex` key. An explicit
+`keel config homes '…'` write refuses invalid regex objects without changing the file.
+There is no semantic/template inference. One violation per file/line lists all
+matching rules, patterns, and homes, with an empty hash; regexes display as `regex "…"`.
+
+Matching includes code, string literals (including embedded SQL), and test source.
+Comments are excluded by default for Rust (including nested block and doc comments),
+Python, Go, TypeScript, TSX, JavaScript, JSX, and Bash. Syntax-tree comment nodes
+(including JavaScript HTML comments) and hash-bang lines are deleted except for
+newlines, on both sides of the comparison. Blank resulting lines never match.
+Each eligible file is parsed without a raw-match shortcut. Strings still match;
+Python docstrings are strings and remain checked. SQL, Typst, and raw Svelte/Astro
+markup remain unmasked, so their comments still match. Removing comments is silent
+when it preserves which code lands on each line; removing a multi-line comment
+inside a statement can change that line split and produce a finding.
+Uncommenting a matching baselined line introduces a finding.
 
 The baseline is Git text, independent of `graph.db`: compile compares with
 HEAD, or the `--since` commit; review compares with `--base`. Occurrences are
-multisets keyed by rule, pattern, and the complete line with whitespace runs
+multisets keyed by rule, pattern, and the comment-free line with whitespace runs
 collapsed. Moving or reindenting an unchanged line is silent; another identical
 line adds an occurrence; other line edits are checked again. Removed occurrences
 cancel matching additions across the checked file set: review uses all diffed
 files, while compile uses the files selected for that invocation. Compiling only
-a move's destination still reports it. Home or out-of-scope paths contribute no
+a move's destination still reports it unless Git detects a rename. Home or out-of-scope paths contribute no
 removals to this pool. Symlinks are skipped; their targets are checked only when
 selected under their own paths. Base blobs are read only for eligible base paths.
-Review recognizes
-renames and checks home/scope eligibility on both sides, so moving an expression
-out of its permitted home fires. Compile does not detect working-tree renames:
-even a staged pure rename can fire under `compile --changed`; review handles it.
+Compile and review recognize Git renames and check home/scope eligibility on both
+sides, so moving an expression out of its permitted home fires. Compile detects
+renames against the same immutable base used for homes, consuming each renamed
+base once even when the old deletion is selected separately. The destination must
+be indexed: a plain unstaged `mv` leaves only the deletion visible to `--changed`,
+and explicitly compiling its untracked destination reports the occurrence.
+`--since` selects files from `<base>..HEAD` but compares their working-tree text
+against `<base>`, including renames committed in that range.
 Non-Git repos, unborn HEAD, or unresolvable compile bases skip homes with one
 `--verbose` note. Missing base files have an empty baseline; Git read failures
 or non-UTF-8 base blobs skip that file instead of treating it as new.

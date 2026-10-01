@@ -6,6 +6,12 @@ use tempfile::TempDir;
 /// Run a git command in `cwd`, asserting it succeeds.
 fn git(args: &[&str], cwd: &Path) {
     let out = Command::new("git")
+        .args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(cwd)
         .output()
@@ -270,4 +276,104 @@ fn ancestry_against_a_real_repository() {
 fn head_commit_is_none_before_the_first_commit() {
     let dir = init_repo();
     assert!(head_commit(dir.path()).is_none());
+}
+
+#[test]
+fn nul_name_only_paths_survive_every_diff_mode_and_initial_fallback() {
+    let dir = init_repo();
+    git(&["config", "core.quotePath", "true"], dir.path());
+    let mut paths = vec!["ä.rs", "with space.rs"];
+    #[cfg(unix)]
+    paths.extend(["with\ttab.rs", "with\nnewline.rs", "with\"quote.rs"]);
+    paths.sort();
+    for path in &paths {
+        std::fs::write(dir.path().join(path), "fn query() {}\n").unwrap();
+    }
+    git(&["add", "."], dir.path());
+    for mode in [DiffMode::Since(None), DiffMode::Staged] {
+        assert_eq!(
+            changed_files_checked(dir.path(), &mode, true).unwrap(),
+            paths
+        );
+    }
+    git(&["commit", "-m", "base"], dir.path());
+    let base = head_commit(dir.path()).unwrap();
+    for path in &paths {
+        std::fs::write(dir.path().join(path), "fn query() { let _ = 1; }\n").unwrap();
+    }
+    git(&["add", "."], dir.path());
+    for mode in [DiffMode::Since(None), DiffMode::Staged] {
+        assert_eq!(
+            changed_files_checked(dir.path(), &mode, true).unwrap(),
+            paths
+        );
+    }
+    git(&["commit", "-m", "edit"], dir.path());
+    assert_eq!(
+        changed_files_checked(dir.path(), &DiffMode::Range(base), true).unwrap(),
+        paths
+    );
+}
+
+#[test]
+fn nul_name_status_rename_consumes_two_paths_and_keeps_adjacent_records() {
+    let dir = init_repo();
+    std::fs::write(dir.path().join("old.rs"), "fn query() {}\n").unwrap();
+    std::fs::write(dir.path().join("deleted.rs"), "fn removed() {}\n").unwrap();
+    git(&["add", "."], dir.path());
+    git(&["commit", "-m", "base"], dir.path());
+    let renamed = if cfg!(unix) {
+        "größe\tnew.rs"
+    } else {
+        "größe new.rs"
+    };
+    git(&["mv", "old.rs", renamed], dir.path());
+    git(&["rm", "deleted.rs"], dir.path());
+    std::fs::write(dir.path().join("added.rs"), "fn added() {}\n").unwrap();
+    git(&["add", "added.rs"], dir.path());
+    assert_eq!(
+        changed_paths(dir.path(), "HEAD").unwrap(),
+        vec![
+            ChangedPath {
+                path: "added.rs".into(),
+                status: ChangeStatus::Added
+            },
+            ChangedPath {
+                path: "deleted.rs".into(),
+                status: ChangeStatus::Deleted
+            },
+            ChangedPath {
+                path: renamed.into(),
+                status: ChangeStatus::Renamed {
+                    from: "old.rs".into()
+                },
+            },
+        ]
+    );
+}
+
+#[test]
+fn non_utf8_rename_and_copy_records_preserve_only_changed_valid_endpoints() {
+    let bytes = b"R100\0old\xff.rs\0added.rs\0R100\0deleted.rs\0new\xff.rs\0C100\0old\xff.rs\0copied.rs\0C100\0unchanged.rs\0new\xff.rs\0R100\0old\xff.rs\0new\xff.rs\0C100\0old\xff.rs\0new\xff.rs\0A\0ok.rs\0";
+    assert_eq!(
+        parse_name_status(bytes, &KeelIgnore::new(Path::new("."))),
+        vec![
+            ChangedPath {
+                path: "added.rs".into(),
+                status: ChangeStatus::Added,
+            },
+            ChangedPath {
+                path: "deleted.rs".into(),
+                status: ChangeStatus::RenamedToUnreadable,
+            },
+            ChangedPath {
+                path: "copied.rs".into(),
+                status: ChangeStatus::Added,
+            },
+            ChangedPath {
+                path: "ok.rs".into(),
+                status: ChangeStatus::Added,
+            },
+        ]
+    );
 }

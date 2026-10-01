@@ -19,11 +19,16 @@
 //!   (issue #70). Git lists a tracked-but-ignored file in a diff; the walker
 //!   never does.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use keel_parsers::treesitter::detect_language;
 use keel_parsers::walker::KeelIgnore;
+
+#[path = "gitdiff_paths.rs"]
+mod paths;
+use paths::{decode_path, PathRole};
 
 /// Which git diff to compute.
 #[derive(Debug, Clone)]
@@ -39,7 +44,7 @@ pub enum DiffMode {
 /// Run `git -C dir <args>`, distinguishing "git could not run at all" (`Err`)
 /// from "git ran and exited non-zero" (`Ok(None)`), so callers that must not
 /// silently treat a missing git as "no changes" can surface it.
-fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<String>, String> {
+fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<Vec<u8>>, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -49,7 +54,7 @@ fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<String>, String> 
     if !out.status.success() {
         return Ok(None);
     }
-    Ok(Some(String::from_utf8_lossy(&out.stdout).to_string()))
+    Ok(Some(out.stdout))
 }
 
 /// The repository root, which is what git prints its diff paths relative to —
@@ -59,28 +64,40 @@ fn repo_root(dir: &Path) -> PathBuf {
     run_git_checked(dir, &["rev-parse", "--show-toplevel"])
         .ok()
         .flatten()
+        .and_then(|out| String::from_utf8(out).ok())
         .map(|out| PathBuf::from(out.trim()))
         .filter(|root| !root.as_os_str().is_empty())
         .unwrap_or_else(|| dir.to_path_buf())
 }
 
-/// Keep non-empty lines; drop paths the repository's ignore rules exclude, and
+/// Keep non-empty NUL-delimited paths; drop paths the ignore rules exclude, and
 /// when `only_supported`, paths keel cannot parse (per the canonical
 /// `detect_language` extension table).
-fn collect_lines(text: &str, only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
-    text.lines()
+fn collect_paths(bytes: &[u8], only_supported: bool, ignore: &KeelIgnore) -> Vec<String> {
+    let lines: Vec<PathBuf> = bytes
+        .split(|b| *b == b'\0')
         .filter(|l| !l.is_empty())
+        .filter_map(|bytes| decode_path(bytes, ignore, PathRole::Head))
         .filter(|l| !only_supported || detect_language(Path::new(l)).is_some())
-        .filter(|l| !ignore.is_ignored(Path::new(l)))
-        .map(|s| s.to_string())
+        .map(PathBuf::from)
+        .collect();
+    let ignored = ignore.ignored_paths(&lines);
+    lines
+        .into_iter()
+        .filter(|p| !ignored.contains(p))
+        .map(|p| p.to_string_lossy().into_owned())
         .collect()
 }
 
 /// List repo-relative paths of files changed for `mode`, evaluated in `dir`.
 ///
-/// Paths excluded by the repository root's `.keelignore`/`.gitignore` are
-/// dropped, so a git-diff-driven command never checks a file `keel map` refused
-/// to graph — `dir` may be any directory inside the repo.
+/// Paths excluded by the repository's `.keelignore`/`.ignore`/`.gitignore`
+/// files (nested ones included, as `keel map` applies them) are dropped, so a
+/// git-diff-driven command never checks a file `keel map` refused to graph. An
+/// existing path gets the walker's own verdict (hidden entries, `.git/info/exclude`
+/// and non-regular files included); `dir` may be any directory inside the repo.
+/// Non-UTF-8 paths are skipped; eligible source paths warn once per process
+/// on stderr, with their original bytes escaped.
 ///
 /// A `Since` diff whose base is unresolvable (git exits non-zero — e.g. a repo
 /// with no `HEAD` yet) falls back to the staged diff. `Staged` never falls back
@@ -101,10 +118,10 @@ pub fn changed_files_checked(
     only_supported: bool,
 ) -> Result<Vec<String>, String> {
     let raw = match mode {
-        DiffMode::Staged => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+        DiffMode::Staged => run_git_checked(dir, &["diff", "--name-only", "-z", "--cached"])?,
         DiffMode::Range(base) => {
             let range = format!("{}..HEAD", base);
-            match run_git_checked(dir, &["diff", "--name-only", &range])? {
+            match run_git_checked(dir, &["diff", "--name-only", "-z", &range])? {
                 Some(t) => Some(t),
                 // An explicit base that git cannot resolve is a user error, not
                 // an initial-commit repo: `--since typo` must NOT quietly become
@@ -115,15 +132,15 @@ pub fn changed_files_checked(
         }
         DiffMode::Since(base) => {
             let arg = base.as_deref().unwrap_or("HEAD");
-            match run_git_checked(dir, &["diff", "--name-only", arg])? {
+            match run_git_checked(dir, &["diff", "--name-only", "-z", arg])? {
                 Some(t) => Some(t),
                 // Initial commit / unresolvable base: fall back to the index.
-                None => run_git_checked(dir, &["diff", "--name-only", "--cached"])?,
+                None => run_git_checked(dir, &["diff", "--name-only", "-z", "--cached"])?,
             }
         }
     };
     Ok(raw
-        .map(|t| collect_lines(&t, only_supported, &KeelIgnore::new(&repo_root(dir))))
+        .map(|t| collect_paths(&t, only_supported, &KeelIgnore::new(&repo_root(dir))))
         .unwrap_or_default())
 }
 
@@ -172,10 +189,8 @@ pub fn is_ancestor(dir: &Path, commit: &str, rev: &str) -> Ancestry {
 /// no git, no repository, or a repository whose first commit does not exist
 /// yet (`git init` with nothing committed).
 pub fn head_commit(dir: &Path) -> Option<String> {
-    let sha = run_git_checked(dir, &["rev-parse", "HEAD"])
-        .ok()??
-        .trim()
-        .to_string();
+    let raw = run_git_checked(dir, &["rev-parse", "HEAD"]).ok()??;
+    let sha = String::from_utf8(raw).ok()?.trim().to_string();
     (!sha.is_empty()).then_some(sha)
 }
 
@@ -188,6 +203,9 @@ pub enum ChangeStatus {
     Modified,
     /// The file existed on the base side only.
     Deleted,
+    /// The file moved to an unreadable non-UTF-8 path; `path` is its base side.
+    /// Its contracts leave the graph, but its expressions still exist in head.
+    RenamedToUnreadable,
     /// The file moved; `from` is its base-side path. Content may also differ.
     Renamed { from: String },
 }
@@ -213,38 +231,62 @@ impl ChangedPath {
     }
 }
 
-/// Parse one `--name-status -M` record into a [`ChangedPath`].
+/// Parse `--name-status -z -M` records into changed paths.
 ///
-/// Rename/copy records carry two tab-separated paths (`R096\told\tnew`);
+/// Status and paths are NUL-separated; rename/copy records carry two paths,
 /// every other status carries one. Unknown status letters are treated as
 /// modifications, which is the safe direction — the file still gets diffed.
-fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
-    let mut parts = line.split('\t');
-    let code = parts.next()?;
-    let first = parts.next()?;
-    match code.chars().next()? {
-        'A' => Some(ChangedPath {
-            path: first.to_string(),
-            status: ChangeStatus::Added,
-        }),
-        'D' => Some(ChangedPath {
-            path: first.to_string(),
-            status: ChangeStatus::Deleted,
-        }),
-        'R' | 'C' => {
-            let new_path = parts.next()?;
-            Some(ChangedPath {
-                path: new_path.to_string(),
-                status: ChangeStatus::Renamed {
-                    from: first.to_string(),
-                },
-            })
-        }
-        _ => Some(ChangedPath {
-            path: first.to_string(),
-            status: ChangeStatus::Modified,
-        }),
+fn parse_name_status(bytes: &[u8], ignore: &KeelIgnore) -> Vec<ChangedPath> {
+    let mut parts = bytes.split(|b| *b == b'\0');
+    let mut paths = Vec::new();
+    while let Some(code) = parts.next() {
+        let Some(first) = parts.next() else { break };
+        // Consume both rename endpoints even if either fails decoding, so the
+        // next record cannot be mistaken for this record's destination.
+        let (path, status) = match code.first() {
+            Some(b'R' | b'C') => {
+                let Some(new_path) = parts.next() else { break };
+                match (
+                    decode_path(first, ignore, PathRole::Base),
+                    decode_path(new_path, ignore, PathRole::Head),
+                ) {
+                    (Some(from), Some(path)) => (
+                        path,
+                        ChangeStatus::Renamed {
+                            from: from.to_string(),
+                        },
+                    ),
+                    (None, Some(path)) => (path, ChangeStatus::Added),
+                    (Some(from), None) if code.first() == Some(&b'R') => {
+                        (from, ChangeStatus::RenamedToUnreadable)
+                    }
+                    // An unreadable copy destination leaves its source unchanged.
+                    _ => continue,
+                }
+            }
+            code => {
+                let role = if code == Some(&b'D') {
+                    PathRole::Base
+                } else {
+                    PathRole::Head
+                };
+                let Some(path) = decode_path(first, ignore, role) else {
+                    continue;
+                };
+                let status = match code {
+                    Some(b'A') => ChangeStatus::Added,
+                    Some(b'D') => ChangeStatus::Deleted,
+                    _ => ChangeStatus::Modified,
+                };
+                (path, status)
+            }
+        };
+        paths.push(ChangedPath {
+            path: path.to_string(),
+            status,
+        });
     }
+    paths
 }
 
 /// List every path changed between `base` and the working tree, with rename
@@ -256,14 +298,32 @@ fn parse_name_status_line(line: &str) -> Option<ChangedPath> {
 /// what to parse and what to list as unanalyzed. Ignored paths are dropped as
 /// they are everywhere else — a review is measured against the graph, and the
 /// graph has no ignored files to compare against.
+/// A non-UTF-8 endpoint leaves the valid side as an addition or contract removal;
+/// an unreadable copy destination leaves its source unchanged and is dropped.
+/// Invalid source paths warn at most once per process, excluding ignored and
+/// unsupported paths on Unix, where their raw bytes can be filtered.
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
-    let raw = run_git_checked(dir, &["diff", "--name-status", "-M", base])?
+    let raw = run_git_checked(dir, &["diff", "--name-status", "-z", "-M", base])?
         .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
     let ignore = KeelIgnore::new(&repo_root(dir));
-    Ok(raw
-        .lines()
-        .filter_map(parse_name_status_line)
-        .filter_map(|entry| apply_ignore(entry, &ignore))
+    let entries = parse_name_status(&raw, &ignore);
+    // Head-side paths take the walker's verdict; base-side ones (a deletion's
+    // path, a rename's source) are judged by the model, whatever occupies them
+    // now.
+    let head: Vec<PathBuf> = entries
+        .iter()
+        .filter(|e| {
+            !matches!(
+                e.status,
+                ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable
+            )
+        })
+        .map(|e| PathBuf::from(&e.path))
+        .collect();
+    let head_ignored = ignore.ignored_paths(&head);
+    Ok(entries
+        .into_iter()
+        .filter_map(|entry| apply_ignore(entry, &ignore, &head_ignored))
         .collect())
 }
 
@@ -275,27 +335,47 @@ pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String>
 /// symbols scored as merely relocated (cancelling their violations as
 /// pre-existing), and a file moved *into* one would be dropped whole, hiding the
 /// contracts it removed.
-fn apply_ignore(entry: ChangedPath, ignore: &KeelIgnore) -> Option<ChangedPath> {
-    let head_ignored = ignore.is_ignored(Path::new(&entry.path));
+fn apply_ignore(
+    entry: ChangedPath,
+    ignore: &KeelIgnore,
+    head_ignored: &HashSet<PathBuf>,
+) -> Option<ChangedPath> {
+    let head_ignored = head_ignored.contains(Path::new(&entry.path));
     match entry.status {
-        ChangeStatus::Renamed { from } => match (ignore.is_ignored(Path::new(&from)), head_ignored)
-        {
-            (true, true) => None,
-            // Arrived from outside the graph: new code at the new path.
-            (true, false) => Some(ChangedPath {
+        status @ (ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable) => {
+            (!ignore.is_ignored(Path::new(&entry.path))).then_some(ChangedPath {
                 path: entry.path,
-                status: ChangeStatus::Added,
-            }),
-            // Left the graph: its contracts are gone from the old path.
-            (false, true) => Some(ChangedPath {
-                path: from,
+                status,
+            })
+        }
+        ChangeStatus::Renamed { from } => {
+            match (ignore.is_ignored(Path::new(&from)), head_ignored) {
+                (true, true) => None,
+                // Arrived from outside the graph: new code at the new path.
+                (true, false) => Some(ChangedPath {
+                    path: entry.path,
+                    status: ChangeStatus::Added,
+                }),
+                // Left the graph: its contracts are gone from the old path.
+                (false, true) => Some(ChangedPath {
+                    path: from,
+                    status: ChangeStatus::Deleted,
+                }),
+                (false, false) => Some(ChangedPath {
+                    path: entry.path,
+                    status: ChangeStatus::Renamed { from },
+                }),
+            }
+        }
+        // A type change (regular file replaced by a symlink) parses as Modified
+        // but its head side is not a regular file: only the base side is in
+        // the graph, so the contracts it held are gone.
+        ChangeStatus::Modified if head_ignored && !ignore.is_ignored(Path::new(&entry.path)) => {
+            Some(ChangedPath {
+                path: entry.path,
                 status: ChangeStatus::Deleted,
-            }),
-            (false, false) => Some(ChangedPath {
-                path: entry.path,
-                status: ChangeStatus::Renamed { from },
-            }),
-        },
+            })
+        }
         status => (!head_ignored).then_some(ChangedPath {
             path: entry.path,
             status,
@@ -327,7 +407,9 @@ pub fn resolve_commit(dir: &Path, rev: &str) -> Result<String, String> {
     let spec = format!("{}^{{commit}}", rev);
     let out = run_git_checked(dir, &["rev-parse", "--verify", "--end-of-options", &spec])?
         .ok_or_else(|| format!("cannot resolve base ref {rev:?}"))?;
-    Ok(out.trim().to_string())
+    String::from_utf8(out)
+        .map(|out| out.trim().to_string())
+        .map_err(|e| format!("base commit is not UTF-8: {e}"))
 }
 
 /// Read a UTF-8 blob, distinguishing a missing path from Git or decoding failures.

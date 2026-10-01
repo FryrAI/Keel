@@ -37,7 +37,7 @@ pub struct FailureState {
     /// recompiling unfixed code never escalates a genuine ERROR toward
     /// auto-downgrade. Empty when unknown (first sighting, or state persisted
     /// before the fingerprint existed).
-    /// Home codes store a `homes-v2:`-prefixed set of surplus line identities;
+    /// Home codes store a `homes-v3:`-prefixed set of surplus line identities;
     /// strict subsets reset the counter, while added identities advance it.
     pub last_hash: String,
 }
@@ -120,12 +120,13 @@ impl CircuitBreaker {
         // above) or a moved fingerprint (a failed fix attempt). An unchanged
         // fingerprint is a passive recompile and must not escalate.
         let first_sighting = entry.consecutive == 0;
-        if matches!(error_code, "W011" | "E007") && body_hash.starts_with("homes-v2:\n") {
+        if matches!(error_code, "W011" | "E007") && body_hash.starts_with("homes-v3:\n") {
             // Home fingerprints store the file's own surplus line identities,
             // before move pooling. Removing identities is progress, not failure.
             let current: HashSet<_> = body_hash.lines().skip(1).collect();
             let previous: HashSet<_> = entry.last_hash.lines().skip(1).collect();
-            if first_sighting || !entry.last_hash.starts_with("homes-v2:\n") {
+            // Older raw-line identities cannot charge a masked-line attempt.
+            if first_sighting || !entry.last_hash.starts_with("homes-v3:\n") {
                 entry.consecutive = 1;
                 entry.downgraded = false;
             } else if !current.is_subset(&previous) {

@@ -65,6 +65,11 @@ pub(super) fn introduced(
     };
     let base_matcher = head_matcher.base_side(paths);
     for path in paths {
+        // Its base literals survive at an unreadable destination, so neither
+        // side can contribute to template move cancellation.
+        if path.status == ChangeStatus::RenamedToUnreadable {
+            continue;
+        }
         // Read the entire pair before scanning either side. If one side is
         // unavailable, dropping both avoids inventing baseline-new copies.
         let pair = (|| -> Result<_, String> {

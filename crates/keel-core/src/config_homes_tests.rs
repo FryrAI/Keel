@@ -1,4 +1,4 @@
-use crate::config::{HomeSeverity, KeelConfig};
+use crate::config::{HomePattern, HomeSeverity, KeelConfig};
 use serde_json::json;
 
 #[test]
@@ -46,7 +46,7 @@ fn homes_malformed_and_duplicate_rules_preserve_other_settings() {
     assert!(!cfg.enforce.docstrings);
     assert_eq!(cfg.review.gate, ["E007"]);
     assert_eq!(cfg.homes.len(), 1);
-    assert_eq!(cfg.homes[0].patterns, ["first"]);
+    assert_eq!(cfg.homes[0].patterns, [HomePattern::from("first")]);
     let path = dir.path().join("keel.json");
     let mut expected: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -158,4 +158,48 @@ fn homes_wrong_container_preserves_config() {
     .unwrap();
     assert!(cfg.homes.is_empty());
     assert!(!cfg.enforce.placement);
+}
+
+#[test]
+fn homes_regex_roundtrip_preserves_mixed_patterns() {
+    let rules = json!([{"name": "mixed", "patterns": ["CURRENT_DATE", {"regex": "AT TIME ZONE '[A-Za-z/_]+'"}]}]);
+    let cfg: KeelConfig =
+        serde_json::from_value(json!({"version": "test", "languages": ["rust"], "homes": rules}))
+            .unwrap();
+    assert_eq!(cfg.homes.len(), 1);
+    assert_eq!(
+        serde_json::to_value(&cfg.homes).unwrap(),
+        json!([
+            {"name": "mixed", "patterns": ["CURRENT_DATE", {"regex": "AT TIME ZONE '[A-Za-z/_]+'"}], "home": [], "scope": []}
+        ])
+    );
+    assert!(matches!(
+        cfg.homes[0].patterns[1],
+        HomePattern::Regex { .. }
+    ));
+}
+
+#[test]
+fn homes_invalid_regex_rules_skip_only_the_rule() {
+    for pattern in [
+        json!({"regex": "["}),
+        json!({"regex": ""}),
+        json!({"regex": "a*"}),
+        json!({"regex": "^$"}),
+        json!({"re": "x"}),
+        json!({"regex": "x", "extra": true}),
+        json!({"regex": 42}),
+    ] {
+        let cfg: KeelConfig = serde_json::from_value(json!({
+            "version": "test", "languages": ["rust"],
+            "enforce": {"docstrings": false}, "review": {"gate": ["E007"]},
+            "homes": [{"name": "bad", "patterns": ["CURRENT_DATE", pattern]},
+                {"name": "valid", "patterns": ["CURRENT_DATE"]}]
+        }))
+        .unwrap();
+        assert_eq!(cfg.homes.len(), 1, "{pattern}");
+        assert_eq!(cfg.homes[0].name, "valid");
+        assert!(!cfg.enforce.docstrings);
+        assert_eq!(cfg.review.gate, ["E007"]);
+    }
 }

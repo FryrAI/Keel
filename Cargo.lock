@@ -1266,6 +1266,7 @@ name = "keel-core"
 version = "0.6.2"
 dependencies = [
  "globset",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1283,6 +1284,7 @@ dependencies = [
  "ignore",
  "keel-core",
  "keel-parsers",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

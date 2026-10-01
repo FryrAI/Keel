@@ -69,3 +69,60 @@ fn template_review_deleted_home_is_not_an_owner() {
     common::git(dir.path(), &["add", "caller.rs"]);
     assert_eq!(count(&review(dir.path(), true)), 0);
 }
+
+#[cfg(unix)]
+#[test]
+fn template_review_unreadable_rename_retains_removal_without_cancelling_new_copy() {
+    use keel_enforce::gitdiff::{changed_paths, ChangeStatus};
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+    let dir = setup();
+    let root = dir.path();
+    let old = "fn old_copy() { let _ = \"DOMAIN fixed::segment with punctuation\"; }\n";
+    fs::write(root.join("old.rs"), old).unwrap();
+    common::git(root, &["add", "old.rs"]);
+    common::git(root, &["commit", "-qm", "copy baseline"]);
+    map(root);
+    fs::rename(
+        root.join("old.rs"),
+        root.join(OsStr::from_bytes(b"old\xff.rs")),
+    )
+    .unwrap();
+    fs::write(root.join("caller.rs"), COPY).unwrap();
+    common::git(root, &["add", "-A", "."]);
+    let paths = changed_paths(root, "HEAD").unwrap();
+    assert!(
+        paths.iter().any(|path| {
+            path.path == "old.rs" && path.status == ChangeStatus::RenamedToUnreadable
+        }),
+        "{paths:?}"
+    );
+    for gate in [false, true] {
+        let result = review(root, gate);
+        assert_eq!(count(&result), 1, "{result}");
+        let advisory = &result["template_advisories"][0];
+        assert_eq!(advisory["code"], "W012");
+        assert_eq!(advisory["file"], "caller.rs");
+        assert_eq!(advisory["homes"][0]["name"], "home");
+        assert!(
+            result["changes"].as_array().unwrap().iter().any(|change| {
+                change["name"] == "old_copy"
+                    && change["kind"] == "removed"
+                    && change["file"] == "old.rs"
+            }),
+            "{result}"
+        );
+    }
+    // Precision exports and the public advisory API read their own Git pairs.
+    let db = root.join(".keel/graph.db");
+    let store = keel_core::sqlite::SqliteGraphStore::open(db.to_str().unwrap()).unwrap();
+    let commit = keel_enforce::gitdiff::resolve_commit(root, "HEAD").unwrap();
+    let exported =
+        keel_enforce::template_respelled::review_export(&store, root, &commit, &paths).unwrap();
+    assert_eq!(exported.occurrences.len(), 1);
+    assert_eq!(exported.occurrences[0].file, "caller.rs");
+    let advisories =
+        keel_enforce::template_respelled::review_advisories(&store, root, &commit, &paths, true);
+    assert_eq!(advisories.len(), 1);
+    assert_eq!(advisories[0].file, "caller.rs");
+}

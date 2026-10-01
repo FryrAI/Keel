@@ -330,28 +330,39 @@ See [Semantic Reuse](reuse-advisories.md) for scoring, exclusions, and calibrati
 **Severity:** WARNING (W011); ERROR (E007 with `enforce.homes: "error"`).
 **Category:** `home_violation`; confidence 1.0; empty hash; one finding per file/line.
 
-A configured literal pattern occurs in tracked-language source outside its
+A configured literal or line-local regex pattern occurs in tracked-language source outside its
 home and is new relative to Git HEAD (`compile`), the `--since` commit, or the
 review `--base`. The message lists every matching rule, pattern, and home on
-that line. Code, strings and comments match; tests are included according to
-scope. Whitespace-only edits and unchanged line moves cancel against the base
+that line. Code and strings match; tests are included according to scope.
+Comments and hash-bang lines are excluded in Rust, Python, Go, TypeScript, TSX,
+JavaScript, JSX, and Bash. SQL, Typst, and raw Svelte/Astro markup remain unmasked;
+Python docstrings remain strings and match. Comment bytes are deleted on both
+sides, preserving newlines; blank resulting lines never match. Removing comments
+is silent when it preserves which code lands on each line; removing a multi-line
+comment inside a statement can change that line split and produce a finding.
+Uncommenting matching code is a new finding.
+Whitespace-only edits and unchanged line moves cancel against the base
 multiset. Additional identical lines remain distinct findings. Moving text out
 of a home or out-of-scope path introduces a finding.
 Removed occurrences cancel matching additions across all diffed files in review
 or all selected files in compile. Compiling only a move's destination still
-fires. Symlink paths are skipped; a target is checked when selected at its own
+fires unless Git detects a rename. Symlink paths are skipped; a target is checked when selected at its own
 path. Home/scope globs drop leading `/`, empty and `.` components; `..` rejects
 the rule with a named warning. Root scope is allowed; root home is rejected.
 
 **Fix:** Route through the named home instead of re-spelling the pattern, or
-remove it if the rule has no permitted home. Reword a matching new comment or
-suppress the code for a compile run. W011 defers during batch mode; E007 is
+remove it if the rule has no permitted home, or suppress the code for a compile
+run. W011 defers during batch mode; E007 is
 immediate. E007 participates in the ordinary file-level circuit breaker and
 `--delta`, and is not demoted by progressive adoption. Its fingerprint stores
 the set of normalized line identities from the file's own surplus before move
 cancellation: unchanged sets do not advance, strict subsets reset the counter,
 and a new identity counts toward the third-attempt downgrade. Selecting different
-files without editing cannot advance the counter.
+files without editing cannot advance the counter. Older raw-line fingerprints
+reset to the first-sighting count when the masked `homes-v3:` format is first
+seen, without charging a failed fix attempt or retaining a downgrade.
+This can restore ERROR on passive recompilation of a downgraded E007; W011 is
+unreleased, so only development builds have stored `homes-v2:` fingerprints.
 
 The committed ratchet requires `review.gate: ["W011"]` (or `["E007"]`) plus
 `keel review --base origin/main --gate`. Compile alone compares with HEAD and
@@ -359,9 +370,12 @@ therefore stops flagging an addition after commit. A missing Git base skips
 homes; a missing base path makes its baseline empty; unreadable/non-UTF-8 blobs
 skip that file. Server/watch/HTTP/MCP compile do not run homes; MCP review does.
 See [Expression homes](config.md#expression-homes-w011--e007) for configuration
-and the exact CI setup. Regex, template inference, comment exclusion and
-working-tree rename detection in compile are not implemented: a staged pure
-rename can still fire under `compile --changed`, while review handles it.
+and the exact CI setup. Regexes never span lines; invalid, empty, or
+empty-string-matching regexes skip their containing rule. Template inference is
+not implemented. Compile and review use Git rename detection: staged pure
+renames are silent, added occurrences still fire, and each old blob is consumed
+once. A plain unstaged `mv` is not detected; `--changed` sees only its deletion,
+while compiling the untracked destination explicitly fires.
 
 ### W012 — Template Respelled
 

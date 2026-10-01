@@ -59,4 +59,42 @@ mod tests {
         );
         assert_eq!(breaker.export_state(), before);
     }
+
+    #[test]
+    fn test_home_masked_fingerprint_migration_resets_without_downgrade() {
+        for old in ["homes-v2:\nraw-comment-line", "homes-v1:\nold", "legacy"] {
+            for count in [2, 3] {
+                let mut breaker = CircuitBreaker::new();
+                breaker.import_state(&[(
+                    "E007".into(),
+                    "src/q.rs".into(),
+                    count,
+                    count == 3,
+                    "src/q.rs".into(),
+                    old.into(),
+                )]);
+                let action = breaker.record_failure("E007", "", "homes-v3:\nmasked", "src/q.rs");
+                assert_eq!(action, super::super::BreakerAction::FixHint);
+                assert_eq!(breaker.failure_count("E007", "", "src/q.rs"), 1);
+                assert!(!breaker.is_downgraded("E007", "", "src/q.rs"));
+                breaker.record_failure("E007", "", "homes-v3:\nmasked", "src/q.rs");
+                assert_eq!(breaker.failure_count("E007", "", "src/q.rs"), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_home_masked_fingerprints_keep_subset_and_new_identity_semantics() {
+        let mut breaker = CircuitBreaker::new();
+        for (fingerprint, count) in [
+            ("homes-v3:\na\nb", 1),
+            ("homes-v3:\na\nb\nc", 2),
+            ("homes-v3:\na\nb\nc", 2),
+            ("homes-v3:\na\nb", 1),
+            ("homes-v3:\nb\nd", 2),
+        ] {
+            breaker.record_failure("E007", "", fingerprint, "src/q.rs");
+            assert_eq!(breaker.failure_count("E007", "", "src/q.rs"), count);
+        }
+    }
 }

@@ -111,7 +111,10 @@ fn unanalyzed_class(path: &str) -> Option<&'static str> {
 
 /// Read the head-side content of `path`, or `None` when it no longer exists.
 fn head_content(dir: &Path, path: &str, status: &ChangeStatus) -> Result<Option<String>, String> {
-    if *status == ChangeStatus::Deleted {
+    if matches!(
+        status,
+        ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable
+    ) {
         return Ok(None);
     }
     std::fs::read_to_string(dir.join(path))
@@ -239,7 +242,10 @@ fn scan_paths_inner(
             .map(|p| gitdiff::blob_at_checked(dir, base_ref, p))
             .unwrap_or(Ok(None));
         let after = head_content(dir, &changed.path, &changed.status);
-        let available = before.is_ok() && after.is_ok();
+        // Its literals still exist at the unreadable destination, so the
+        // readable source must not credit a template move elsewhere.
+        let available =
+            before.is_ok() && after.is_ok() && changed.status != ChangeStatus::RenamedToUnreadable;
         if let Some(templates) = templates.as_mut() {
             if let Some(error) = before.as_ref().err().or_else(|| after.as_ref().err()) {
                 templates.read_error(&changed.path, error);

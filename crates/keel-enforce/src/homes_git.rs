@@ -42,13 +42,14 @@ impl GitHomes {
     /// Compare every checked file together, including deletions with empty head text.
     /// Symlink paths are skipped; their target text is checked at the target's path.
     pub fn check_many(&mut self, files: &[(&Path, &str, Option<&str>)]) -> Vec<Violation> {
-        let scanned = self.scan_many(files);
+        let scanned = self.scan_many(files, false);
         self.scanner.introduced_many(&scanned)
     }
 
     fn scan_many(
         &mut self,
         files: &[(&Path, &str, Option<&str>)],
+        detect_renames: bool,
     ) -> Vec<(String, Vec<HomeOccurrence>, Vec<HomeOccurrence>)> {
         if !self.enabled {
             return vec![];
@@ -83,9 +84,41 @@ impl GitHomes {
         let Ok(commit) = self.commit.as_ref().expect("resolved base") else {
             return vec![];
         };
+        let mut renames = HashMap::new();
+        if detect_renames {
+            let changes = match gitdiff::changed_paths(&self.root, commit) {
+                Ok(changes) => changes,
+                Err(e) => {
+                    if self.verbose {
+                        eprintln!("keel: homes skipped: {e}");
+                    }
+                    return vec![];
+                }
+            };
+            for change in changes {
+                if let gitdiff::ChangeStatus::Renamed { from } = change.status {
+                    if heads.iter().any(|(path, _, _)| *path == change.path)
+                        && self.scanner.eligible(&change.path)
+                    {
+                        renames.insert(change.path, from);
+                    }
+                }
+            }
+        }
+        let consumed = renames.values().collect::<BTreeSet<_>>();
         let mut scanned = Vec::new();
         for (path, head, base_path) in heads {
-            let base_path = base_path.unwrap_or(&path);
+            // A selected rename destination owns its old blob. A separately
+            // selected old-path deletion must not credit the same blob again.
+            if consumed.contains(&path) && !renames.contains_key(&path) {
+                scanned.push((path, head, vec![]));
+                continue;
+            }
+            let base_path = renames
+                .get(&path)
+                .map(String::as_str)
+                .or(base_path)
+                .unwrap_or(&path);
             if !self.scanner.eligible(base_path) {
                 scanned.push((path, head, vec![]));
                 continue;
@@ -116,7 +149,7 @@ impl GitHomes {
             .iter()
             .map(|(p, text)| (p.as_path(), text.as_str(), None))
             .collect::<Vec<_>>();
-        let scanned = self.scan_many(&inputs);
+        let scanned = self.scan_many(&inputs, true);
         let findings = self.scanner.introduced_many(&scanned);
         let fingerprints = scanned
             .iter()
@@ -131,7 +164,7 @@ impl GitHomes {
                     .into_iter()
                     .collect::<Vec<_>>()
                     .join("\n");
-                (path.as_str(), format!("homes-v2:\n{identities}"))
+                (path.as_str(), format!("homes-v3:\n{identities}"))
             })
             .collect::<HashMap<_, _>>();
         let root = keel_core::paths::project_root(cwd);
@@ -209,13 +242,15 @@ mod tests {
         let file = dir.path().join("src/query.rs");
         for base in ["src/time.rs", "outside/query.rs", "src/readme.md"] {
             assert_eq!(
-                homes.check(&file, "// CURRENT_DATE", Some(base)).len(),
+                homes
+                    .check(&file, "let x = \"CURRENT_DATE\";", Some(base))
+                    .len(),
                 1,
                 "{base}"
             );
         }
         assert!(homes
-            .check(&file, "// CURRENT_DATE", Some("src/old.rs"))
+            .check(&file, "let x = \"CURRENT_DATE\";", Some("src/old.rs"))
             .is_empty());
     }
 }
