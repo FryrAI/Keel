@@ -211,6 +211,11 @@ pub fn review(
         let mut homes = crate::homes_git::GitHomes::new(&root, &commit, config, verbose);
         let mut sources = Vec::new();
         for path in &paths {
+            // The unreadable destination still holds these expressions: its
+            // source can report contract removals, but cannot credit homes moves.
+            if path.status == gitdiff::ChangeStatus::RenamedToUnreadable {
+                continue;
+            }
             let file = root.join(&path.path);
             let text = if path.status == gitdiff::ChangeStatus::Deleted {
                 Ok(String::new())

@@ -111,7 +111,10 @@ fn unanalyzed_class(path: &str) -> Option<&'static str> {
 
 /// Read the head-side content of `path`, or `None` when it no longer exists.
 fn head_content(dir: &Path, path: &str, status: &ChangeStatus) -> Option<String> {
-    if *status == ChangeStatus::Deleted {
+    if matches!(
+        status,
+        ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable
+    ) {
         return None;
     }
     std::fs::read_to_string(dir.join(path)).ok()

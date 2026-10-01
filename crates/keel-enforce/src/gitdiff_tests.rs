@@ -364,7 +364,7 @@ fn non_utf8_rename_and_copy_records_preserve_only_changed_valid_endpoints() {
             },
             ChangedPath {
                 path: "deleted.rs".into(),
-                status: ChangeStatus::Deleted,
+                status: ChangeStatus::RenamedToUnreadable,
             },
             ChangedPath {
                 path: "copied.rs".into(),

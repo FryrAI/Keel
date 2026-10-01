@@ -59,6 +59,7 @@ use keel_core::sqlite::SqliteGraphStore;
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeChange, EdgeKind, GraphEdge, GraphNode, NodeChange, NodeKind};
 use keel_parsers::boundary::BoundaryProvider;
+use keel_parsers::monorepo::MonorepoLayout;
 use keel_parsers::resolver::{Definition, FileIndex, Reference, ReferenceKind};
 use keel_parsers::treesitter::detect_language;
 
@@ -436,8 +437,12 @@ pub fn sync_compiled_files(
     cwd: &Path,
     files: &[FileIndex],
     resolvers: &ResolverSet,
+    monorepo_enabled: bool,
     verbose: bool,
 ) {
+    // Detected once per sync, only when `monorepo.enabled` (the caller's
+    // already-loaded config) — the same gate `keel map` uses to annotate nodes.
+    let layout = monorepo_enabled.then(|| keel_parsers::monorepo::detect_monorepo(cwd));
     let mut next_id = store.max_id() + 1;
     let mut node_changes: Vec<NodeChange> = Vec::new();
     let mut edge_changes: Vec<EdgeChange> = Vec::new();
@@ -468,6 +473,7 @@ pub fn sync_compiled_files(
             sync_one_file(
                 &base,
                 cwd,
+                layout.as_ref(),
                 file,
                 resolvers,
                 &batch_files,
@@ -519,6 +525,7 @@ pub fn sync_compiled_files(
 fn sync_one_file(
     base: &GraphIndexBase,
     cwd: &Path,
+    layout: Option<&MonorepoLayout>,
     file: &FileIndex,
     resolvers: &ResolverSet,
     batch_files: &HashSet<&str>,
@@ -564,13 +571,33 @@ fn sync_one_file(
         .collect();
     let current_names: HashSet<&str> = file.definitions.iter().map(|d| d.name.as_str()).collect();
 
+    // Compile-added nodes carry the package map would give this file (W009's
+    // boundary depends on it), whether the module is new or already stored.
+    let package =
+        layout.and_then(|l| keel_parsers::walker::package_for_path(&cwd.join(rel_path), l));
+
+    // Heal stored nodes of THIS file whose package differs from the layout's
+    // (NULL written by an older binary): one update each, never other files.
+    if layout.is_some() {
+        for node in existing.iter().filter(|n| n.package != package) {
+            let mut healed = node.clone();
+            healed.package = package.clone();
+            node_changes.push(NodeChange::Update(healed));
+        }
+    }
+
     // Insert nodes for definitions new since the last graph write.
     for def in &file.definitions {
         if local.contains_key(&def.name) {
             continue;
         }
         if created_module {
-            node_changes.push(NodeChange::Add(module_node(module_id, rel_path, file)));
+            node_changes.push(NodeChange::Add(module_node(
+                module_id,
+                rel_path,
+                file,
+                package.clone(),
+            )));
             created_module = false;
         }
         let id = *next_id;
@@ -583,7 +610,12 @@ fn sync_one_file(
             assigned_hashes.insert(hash.clone());
         }
         node_changes.push(NodeChange::Add(definition_node(
-            id, hash, def, rel_path, module_id,
+            id,
+            hash,
+            def,
+            rel_path,
+            module_id,
+            package.clone(),
         )));
         // "contains" edge module -> definition, mirroring the map first pass.
         let edge_id = *next_id;
@@ -784,7 +816,7 @@ fn node_hash_for(store: &SqliteGraphStore, def: &Definition, rel_path: &str) -> 
 }
 
 /// Build a module `GraphNode` for a file first seen at compile time.
-fn module_node(id: u64, rel_path: &str, file: &FileIndex) -> GraphNode {
+fn module_node(id: u64, rel_path: &str, file: &FileIndex, package: Option<String>) -> GraphNode {
     let line_end = file
         .definitions
         .iter()
@@ -812,7 +844,7 @@ fn module_node(id: u64, rel_path: &str, file: &FileIndex) -> GraphNode {
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id: 0,
-        package: None,
+        package,
     }
 }
 
@@ -823,6 +855,7 @@ fn definition_node(
     def: &Definition,
     rel_path: &str,
     module_id: u64,
+    package: Option<String>,
 ) -> GraphNode {
     let mut node = GraphNode {
         id,
@@ -848,7 +881,7 @@ fn definition_node(
         external_endpoints: vec![],
         previous_hashes: vec![],
         module_id,
-        package: None,
+        package,
     };
     def.apply_parse_facts(&mut node);
     node

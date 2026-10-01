@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Syntax-tree comments and hash-bang lines are excluded in Rust, Python, Go,
   TypeScript/TSX, JavaScript/JSX, and Bash, while strings and Python docstrings
   remain checked. SQL, Typst, and raw Svelte/Astro markup remain unmasked.
+- `keel compile` (and every git-diff target filter) now honours nested `.keelignore`/`.ignore`/`.gitignore`
+  files exactly as `keel map` does: ignore-file kinds rank `.keelignore` > `.ignore` > `.gitignore`
+  (deepest directory wins within a kind), a nested repository ends `.gitignore` inheritance, and an
+  excluded directory stays excluded (#90).
+  Existing source paths in a git-derived list (`compile --changed`/`--since`, `keel review`) take the
+  walker's own verdict, so hidden, `.git/info/exclude`d and non-regular (symlink) paths are skipped exactly
+  as `keel map` does; deletions and rename sources take the documented model; files keel cannot parse are
+  filtered by explicit ignore rules only.
 - **Opt-in expression homes (#80): W011/E007.** Literal patterns in code, strings,
   and test source are checked against home/scope globs. Tolerant rules
   preserve unrelated config. Compile compares with HEAD or `--since`; CLI/MCP
@@ -27,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   aliases are skipped; their targets are checked under their own paths.
 
 ### Fixed
+- Renames to unreadable non-UTF-8 paths retain contract removals without
+  cancelling newly introduced expression-home occurrences elsewhere.
 - Git diff paths use NUL delimiters, so non-ASCII, tab, newline, and quote-containing
   filenames are checked correctly and indexed renames retain their old paths.
 - JavaScript homes masking preserves JSX text in `.js`, `.mjs`, and `.cjs` files.

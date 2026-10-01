@@ -75,7 +75,14 @@ fn seeded_file(store: &mut SqliteGraphStore, cwd: &Path, resolvers: &ResolverSet
             def_at("caller", "src/a.rs", 10, 12),
         ],
     );
-    sync_compiled_files(store, cwd, std::slice::from_ref(&seed), resolvers, false);
+    sync_compiled_files(
+        store,
+        cwd,
+        std::slice::from_ref(&seed),
+        resolvers,
+        false,
+        false,
+    );
     seed
 }
 
@@ -122,7 +129,7 @@ fn seeded_cross_file_edge(
         caller_only_file(),
         index("lib/b.rs", vec![def_at("target", "lib/b.rs", 1, 3)]),
     ];
-    sync_compiled_files(store, cwd, &files, resolvers, false);
+    sync_compiled_files(store, cwd, &files, resolvers, false, false);
     let caller_id = node_id(store, "src/a.rs", "caller");
     let target_id = node_id(store, "lib/b.rs", "target");
     let edge_id = store.max_id() + 1;
@@ -154,7 +161,7 @@ fn unresolvable_cross_file_call_edge_survives_repeated_compiles() {
     for _ in 0..2 {
         let mut recompiled = caller_only_file();
         recompiled.references = vec![call_ref("target", "src/a.rs", 2, 1)];
-        sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false);
+        sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
 
         let calls: Vec<_> = incoming_of(&store, "lib/b.rs", "target")
             .into_iter()
@@ -189,7 +196,7 @@ fn re_resolved_cross_file_call_replaces_stale_edge_line() {
         line: 1,
         is_relative: true,
     }];
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
 
     let calls: Vec<_> = incoming_of(&store, "lib/b.rs", "target")
         .into_iter()
@@ -222,7 +229,7 @@ fn same_file_deleted_call_site_edge_is_pruned() {
     );
     let mut with_call = without_call.clone();
     with_call.references = vec![call_ref("callee", "src/a.rs", 11, 0)];
-    sync_compiled_files(&mut store, &cwd, &[with_call], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[with_call], &resolvers, false, false);
     assert!(
         incoming_of(&store, "src/a.rs", "callee")
             .iter()
@@ -230,7 +237,7 @@ fn same_file_deleted_call_site_edge_is_pruned() {
         "seed: the same-file call edge exists"
     );
 
-    sync_compiled_files(&mut store, &cwd, &[without_call], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[without_call], &resolvers, false, false);
     assert!(
         !incoming_of(&store, "src/a.rs", "callee")
             .iter()
@@ -253,7 +260,7 @@ fn cross_file_deleted_call_site_edge_lingers_until_map() {
 
     // Recompile the caller with the call site removed entirely.
     let recompiled = caller_only_file();
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
     assert!(
         incoming_of(&store, "lib/b.rs", "target")
             .iter()
@@ -280,7 +287,7 @@ fn cross_file_deleted_value_reference_uses_edge_lingers_until_map() {
 
     // Recompile the caller with the value reference removed entirely.
     let recompiled = caller_only_file();
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
     assert!(
         incoming_of(&store, "lib/b.rs", "target")
             .iter()
@@ -302,7 +309,7 @@ fn zero_definition_parse_leaves_graph_untouched() {
     let edges_before = store.all_edges().len();
 
     let empty_parse = index("src/a.rs", vec![]);
-    sync_compiled_files(&mut store, &cwd, &[empty_parse], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[empty_parse], &resolvers, false, false);
 
     assert_eq!(
         store.get_nodes_in_file("src/a.rs").len(),
@@ -337,7 +344,7 @@ fn calls_resolution_does_not_replace_uses_edge_to_same_target() {
         line: 1,
         is_relative: true,
     }];
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
 
     let incoming = incoming_of(&store, "lib/b.rs", "target");
     assert!(
@@ -366,7 +373,7 @@ fn same_file_value_reference_becomes_a_uses_edge() {
         ],
     );
     file.references = vec![value_ref("handler", "src/a.rs", 11)];
-    sync_compiled_files(&mut store, &cwd, &[file], &empty_resolvers(), false);
+    sync_compiled_files(&mut store, &cwd, &[file], &empty_resolvers(), false, false);
 
     let incoming = incoming_of(&store, "src/a.rs", "handler");
     let uses: Vec<_> = incoming
@@ -395,7 +402,7 @@ fn cross_file_value_reference_resolves_to_a_uses_edge() {
         "src/mod.rs",
         vec![def_at("cross_file_cb", "src/mod.rs", 1, 3)],
     );
-    sync_compiled_files(&mut store, &cwd, &[owner], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[owner], &resolvers, false, false);
 
     // The user's file references it as a value through an import.
     let mut caller = index("src/child.rs", vec![def_at("wire", "src/child.rs", 5, 9)]);
@@ -407,7 +414,7 @@ fn cross_file_value_reference_resolves_to_a_uses_edge() {
         line: 1,
         is_relative: true,
     }];
-    sync_compiled_files(&mut store, &cwd, &[caller], &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &[caller], &resolvers, false, false);
 
     let incoming = incoming_of(&store, "src/mod.rs", "cross_file_cb");
     assert!(
@@ -433,7 +440,7 @@ fn same_batch_identical_defs_get_distinct_hashes() {
         index("src/a.rs", vec![def("twin", "src/a.rs")]),
         index("src/b.rs", vec![def("twin", "src/b.rs")]),
     ];
-    sync_compiled_files(&mut store, &cwd, &files, &resolvers, false);
+    sync_compiled_files(&mut store, &cwd, &files, &resolvers, false, false);
 
     let a_nodes: Vec<_> = store
         .get_nodes_in_file("src/a.rs")
@@ -547,6 +554,7 @@ fn resolve_call_targets_refuses_same_file_ambiguous_names() {
         &cwd,
         std::slice::from_ref(&seed),
         &resolvers,
+        false,
         false,
     );
 

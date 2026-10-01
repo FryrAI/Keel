@@ -414,7 +414,14 @@ pub fn run(
             }
         }
         if need_sync {
-            super::compile_sync::sync_compiled_files(ps, &root, &file_indices, &resolvers, verbose);
+            super::compile_sync::sync_compiled_files(
+                ps,
+                &root,
+                &file_indices,
+                &resolvers,
+                config.monorepo.enabled,
+                verbose,
+            );
         }
     }
 

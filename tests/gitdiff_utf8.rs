@@ -139,7 +139,7 @@ fn non_utf8_rename_endpoints_keep_the_valid_side_and_preserve_adjacent_records()
                     status: if invalid_base {
                         ChangeStatus::Added
                     } else {
-                        ChangeStatus::Deleted
+                        ChangeStatus::RenamedToUnreadable
                     },
                 },
                 ChangedPath {

@@ -92,3 +92,129 @@ fn compile_changed_honors_keelignore() {
         "the ignored tree must stay out of the report: {stdout}"
     );
 }
+
+/// Issue #90: a `.keelignore` nested in a package excludes its subtree from
+/// `keel map`, so `compile --changed` must skip it too — from the repo root and
+/// from inside the package.
+#[test]
+fn compile_changed_honors_nested_keelignore() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let clean = "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n";
+    write(root, "pkg/.keelignore", "thirdparty/\n");
+    write(root, "pkg/thirdparty/v.py", clean);
+    write(root, "pkg/lib.py", clean);
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    // `thirdparty/` is not in the root .keelignore that `keel init` writes.
+    // Missing type hints and docstring: E002 + E003 on any graded file.
+    write(
+        root,
+        "pkg/thirdparty/v.py",
+        "def compute(value):\n    return value\n",
+    );
+    // Positive control: a real violation in a non-ignored changed file IS
+    // reported, so a run that checked nothing cannot pass.
+    for (n, cwd) in [root.to_path_buf(), root.join("pkg")]
+        .into_iter()
+        .enumerate()
+    {
+        // A fresh function each time: a compile remembers what it has seen.
+        let source = format!("def compute_{n}(value):\n    return value\n");
+        write(root, "pkg/lib.py", &source);
+        let out = keel(&cwd, &["compile", "--changed"]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "the non-ignored violation must fire (cwd {}); stdout: {stdout} stderr: {stderr}",
+            cwd.display()
+        );
+        assert!(
+            stdout.contains("lib.py") && stdout.contains("E002"),
+            "the non-ignored file must be reported (cwd {}): {stdout}",
+            cwd.display()
+        );
+        assert!(
+            !stdout.contains("thirdparty/"),
+            "the ignored tree must stay out of the report (cwd {}): {stdout}",
+            cwd.display()
+        );
+    }
+}
+
+/// Issue #90 round 2: `keel map` never indexes hidden paths such as
+/// `.github/scripts/`, so a changed tracked file there must not be checked
+/// either — while a violation in ordinary source still is.
+#[test]
+fn compile_changed_skips_hidden_paths() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let clean = "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n";
+    write(root, ".github/scripts/h.py", clean);
+    write(root, "src/app.py", clean);
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    let violation = "def compute(value):\n    return value\n";
+    write(root, ".github/scripts/h.py", violation);
+    let out = keel(root, &["compile", "--changed"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a hidden path map never indexes must not be checked; stdout: {stdout}"
+    );
+
+    // Positive control: the same violation in ordinary source is reported.
+    write(root, "src/app.py", violation);
+    let out = keel(root, &["compile", "--changed"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "src violation must fire: {stdout}"
+    );
+    assert!(
+        stdout.contains("src/app.py") && !stdout.contains(".github"),
+        "only the non-hidden file is reported: {stdout}"
+    );
+}
+
+/// Issue #90 round 3: a `.proto` keel cannot parse is never indexed wherever it
+/// sits, so the hidden rule must not hide it from the honesty notice.
+#[test]
+fn compile_changed_names_an_unparsed_file_in_a_hidden_directory() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write(root, ".buf/y.proto", "syntax = \"proto3\";\n");
+    write(
+        root,
+        "src/app.py",
+        "def app(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
+    );
+    git(root, &["init", "-q"]);
+    assert!(keel(root, &["init"]).status.success(), "keel init failed");
+    git(root, &["add", "-f", "-A"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "first"]);
+    assert!(keel(root, &["map"]).status.success(), "keel map failed");
+
+    write(root, ".buf/y.proto", "syntax = \"proto3\";\nmessage M {}\n");
+    let out = keel(root, &["compile", "--changed"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert!(stdout.trim().is_empty(), "stdout must stay empty: {stdout}");
+    assert!(
+        stderr.contains(".proto is not a tracked language"),
+        "the notice must fire: {stderr}"
+    );
+}
