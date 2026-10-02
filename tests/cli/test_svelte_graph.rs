@@ -25,10 +25,10 @@ fn make_app() -> TempDir {
         "{\n  \"compilerOptions\": { \"paths\": { \"$lib\": [\"./src/lib\"], \"$lib/*\": [\"./src/lib/*\"] } }\n}\n",
     );
     write(
-        "src/lib/portfolio/model.ts",
+        "src/lib/dashboard/model.ts",
         "export function matchesQuery(q: string): boolean { return q.length > 0; }\n\
          export function completenessPct(v: number): number { return v; }\n\
-         export function fristLabel(v: number): string { return String(v); }\n\
+         export function deadlineLabel(v: number): string { return String(v); }\n\
          export function offenTotal(v: number): number { return v; }\n\
          export function neverUsed(v: number): number { return v; }\n",
     );
@@ -38,17 +38,17 @@ fn make_app() -> TempDir {
            import {\n\
              matchesQuery,\n\
              completenessPct,\n\
-             fristLabel,\n\
+             deadlineLabel,\n\
              offenTotal,\n\
              neverUsed\n\
-           } from '$lib/portfolio/model';\n\
+           } from '$lib/dashboard/model';\n\
            let rows: number[] = [];\n\
            const hits = rows.filter((r) => matchesQuery(String(r)));\n\
          </script>\n\
          \n\
          {#each hits as v}\n\
            {@const pct = completenessPct(v)}\n\
-           <span class=\"lbl\">{fristLabel(v)} — „offen\u{201c}: {pct}</span>\n\
+           <span class=\"lbl\">{deadlineLabel(v)} — „offen\u{201c}: {pct}</span>\n\
          {/each}\n\
          \n\
          {#await load() then value}\n\
@@ -98,7 +98,7 @@ fn markup_only_imported_helpers_report_callers() {
         "script-level call must resolve"
     );
 
-    for name in ["completenessPct", "fristLabel", "offenTotal"] {
+    for name in ["completenessPct", "deadlineLabel", "offenTotal"] {
         let hit = search(&dir, name);
         assert!(
             hit["callers"].as_u64().unwrap() >= 1,

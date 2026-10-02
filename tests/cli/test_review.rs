@@ -346,7 +346,7 @@ fn unresolvable_base_with_annotations_file_writes_no_file() {
 }
 
 /// The perf budget from the plan: < 3s on a ~54-file PR. 60 changed files here
-/// stands in for the 54-file zenzy PR the budget was sized against.
+/// stands in for the 54-file downstream-project PR the budget was sized against.
 ///
 /// The wall-clock ceiling only holds for an optimized binary — tree-sitter is
 /// roughly an order of magnitude slower unoptimized, so a `cargo test` in the

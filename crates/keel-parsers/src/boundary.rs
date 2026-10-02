@@ -20,7 +20,7 @@ use keel_core::types::NodeKind;
 use crate::treesitter::TreeSitterParser;
 
 /// A Tier-1 resolver that can be told which string literals name boundary
-/// symbols, so `run_baml("PlanBerichtSection", ..)` links to the `.baml`
+/// symbols, so `run_baml("PlanReportSection", ..)` links to the `.baml`
 /// function it drives (see [`crate::resolver::ReferenceKind::Literal`]).
 ///
 /// The install logic lives here once; a resolver supplies only its parser

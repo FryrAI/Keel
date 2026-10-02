@@ -230,9 +230,9 @@ fn test_markup_only_imported_helper_yields_a_template_reference() {
 
     let dir = tempfile::tempdir().unwrap();
     make_sveltekit_project(dir.path(), true);
-    std::fs::create_dir_all(dir.path().join("src/lib/portfolio")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/lib/dashboard")).unwrap();
     std::fs::write(
-        dir.path().join("src/lib/portfolio/model.ts"),
+        dir.path().join("src/lib/dashboard/model.ts"),
         "export function completenessPct(v: number): number { return v; }\n\
          export function matchesQuery(q: string): boolean { return q.length > 0; }\n\
          export function unusedHelper(x: number): number { return x; }\n",
@@ -246,7 +246,7 @@ fn test_markup_only_imported_helper_yields_a_template_reference() {
            completenessPct,\n\
            matchesQuery,\n\
            unusedHelper\n\
-         } from '$lib/portfolio/model';\n\
+         } from '$lib/dashboard/model';\n\
          let rows: number[] = [];\n\
          const hits = rows.filter((r) => matchesQuery(String(r)));\n\
          </script>\n\
@@ -258,7 +258,7 @@ fn test_markup_only_imported_helper_yields_a_template_reference() {
     let resolver = TsResolver::with_project_root(dir.path());
     let result = resolver.parse_file(&path, page);
 
-    let model = dir.path().join("src/lib/portfolio/model.ts");
+    let model = dir.path().join("src/lib/dashboard/model.ts");
     let names: Vec<&String> = result
         .imports
         .iter()

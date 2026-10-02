@@ -379,6 +379,6 @@ fn calibrated_helper_extractions_with_a_new_contract_are_not_equivalence_claims(
 
     assert!(
         !signature_compatible(added, &existing),
-        "Bonago's legitimate three-argument rescue helper must not be equated with its one-argument primitive"
+        "A downstream project's legitimate three-argument rescue helper must not be equated with its one-argument primitive"
     );
 }

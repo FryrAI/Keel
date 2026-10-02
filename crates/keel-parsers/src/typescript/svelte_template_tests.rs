@@ -42,7 +42,7 @@ fn at_const_in_markup_references_an_imported_function() {
     // The production shape: `{@const}` inside an `{#each}` body calling a
     // helper that lives in another module.
     let src = "<script lang=\"ts\">\n\
-         import { completenessPct } from '$lib/portfolio/model';\n\
+         import { completenessPct } from '$lib/dashboard/model';\n\
          let rows = [];\n\
          </script>\n\
          {#each rows as v}\n\
@@ -61,18 +61,18 @@ fn at_const_in_markup_references_an_imported_function() {
 #[test]
 fn each_block_body_references_an_imported_function() {
     let src = "<script>\n\
-         import { fristLabel } from '$lib/portfolio/model';\n\
+         import { deadlineLabel } from '$lib/dashboard/model';\n\
          </script>\n\
          {#each rows as r (r.id)}\n\
-           <span>{fristLabel(r)}</span>\n\
+           <span>{deadlineLabel(r)}</span>\n\
          {/each}\n";
-    assert!(names(&imported_refs(src, &["fristLabel"])).contains("fristLabel"));
+    assert!(names(&imported_refs(src, &["deadlineLabel"])).contains("deadlineLabel"));
 }
 
 #[test]
 fn snippet_block_body_references_an_imported_function() {
     let src = "<script>\n\
-         import { typFromAz } from '$lib/portfolio/model';\n\
+         import { typFromAz } from '$lib/dashboard/model';\n\
          </script>\n\
          {#snippet row(v)}\n\
            <td>{typFromAz(v.az)}</td>\n\
@@ -84,7 +84,7 @@ fn snippet_block_body_references_an_imported_function() {
 #[test]
 fn await_block_branches_reference_imported_functions() {
     let src = "<script>\n\
-         import { offenTotal, fristUrgency } from '$lib/portfolio/model';\n\
+         import { offenTotal, fristUrgency } from '$lib/dashboard/model';\n\
          </script>\n\
          {#await promise}\n\
            <p>lädt…</p>\n\
@@ -104,7 +104,7 @@ fn derived_rune_in_markup_references_an_imported_function() {
     // Svelte 5 runes read as ordinary calls to the scan; a `$derived`
     // initializer written inline in markup must still resolve.
     let src = "<script>\n\
-         import { applyView } from '$lib/portfolio/model';\n\
+         import { applyView } from '$lib/dashboard/model';\n\
          </script>\n\
          {#if ready}\n\
            <List rows={applyView(view, today)} />\n\
@@ -117,13 +117,13 @@ fn german_typographic_quotes_do_not_swallow_later_expressions() {
     // „…" and — are multi-byte and must not be mistaken for string delimiters;
     // an ASCII apostrophe in prose sits outside any brace and must not either.
     let src = "<script>\n\
-         import { fristLabel } from '$lib/portfolio/model';\n\
+         import { deadlineLabel } from '$lib/dashboard/model';\n\
          </script>\n\
-         <p>Die Frist „Verfahrenseröffnung\u{201c} — Ben's Notiz — läuft ab.</p>\n\
-         <p>{fristLabel(row)}</p>\n";
-    let refs = imported_refs(src, &["fristLabel"]);
+         <p>The deadline „Kickoff\u{201c} — Ben's Notiz — läuft ab.</p>\n\
+         <p>{deadlineLabel(row)}</p>\n";
+    let refs = imported_refs(src, &["deadlineLabel"]);
     assert!(
-        names(&refs).contains("fristLabel"),
+        names(&refs).contains("deadlineLabel"),
         "expression after typographic quotes must still be scanned: {refs:?}"
     );
 }
@@ -146,19 +146,19 @@ fn a_local_definition_wins_over_an_import_of_the_same_name() {
 
 #[test]
 fn component_tags_are_not_matched() {
-    // Deferred (T3.3): matching `<FristenPanel/>` needs a non-brace scan branch
+    // Deferred (T3.3): matching `<DeadlinePanel/>` needs a non-brace scan branch
     // and adds a route->component edge per child, which moves audit coupling
     // metrics. Only the handler *inside* the braces is a reference today.
     let src = "<script>\n\
-         import FristenPanel from '$lib/graph/FristenPanel.svelte';\n\
+         import DeadlinePanel from '$lib/graph/DeadlinePanel.svelte';\n\
          import { refreshOverview } from '$lib/x';\n\
          </script>\n\
-         <FristenPanel onRejected={refreshOverview} />\n";
-    let refs = imported_refs(src, &["FristenPanel", "refreshOverview"]);
+         <DeadlinePanel onRejected={refreshOverview} />\n";
+    let refs = imported_refs(src, &["DeadlinePanel", "refreshOverview"]);
     let found = names(&refs);
     assert!(found.contains("refreshOverview"), "{found:?}");
     assert!(
-        !found.contains("FristenPanel"),
+        !found.contains("DeadlinePanel"),
         "component tags stay out of the graph until T3.3: {found:?}"
     );
 }
@@ -169,7 +169,7 @@ fn component_tags_are_not_matched() {
 /// only then the handler prop under test — followed by a `<style>` block.
 fn large_component() -> String {
     let mut s = String::from("<script lang=\"ts\">\n");
-    s.push_str("  import { completenessPct, fristLabel } from '$lib/portfolio/model';\n");
+    s.push_str("  import { completenessPct, deadlineLabel } from '$lib/dashboard/model';\n");
     for i in 0..60 {
         s.push_str(&format!(
             "  function helper{i}(x: number): number {{ if (x > {i}) {{ return x; }} return {i}; }}\n"
@@ -180,14 +180,14 @@ fn large_component() -> String {
     for i in 0..80 {
         s.push_str("{#if row.ok}\n");
         s.push_str(&format!(
-            "  <a class=\"chip\" href={{`/verfahren/${{row.id}}/{i}`}} title='Ben\\'s Fall'>{{row.az}}</a>\n"
+            "  <a class=\"chip\" href={{`/projects/${{row.id}}/{i}`}} title='Ben\\'s Fall'>{{row.az}}</a>\n"
         ));
         s.push_str("  {#each rows as r (r.id)}\n");
         s.push_str("    <span class=\"lbl\">„Frist\u{201c} — {r.name} …</span>\n");
         s.push_str("  {/each}\n");
         s.push_str("{/if}\n");
     }
-    s.push_str("<FristenPanel onRejected={refreshOverview} />\n");
+    s.push_str("<DeadlinePanel onRejected={refreshOverview} />\n");
     s.push_str("{#each rows as v}{@const pct = completenessPct(v)}<i>{pct}</i>{/each}\n");
     s.push_str("<style>\n  .chip { color: red; }\n  .lbl { width: 3px; }\n</style>\n");
     s
@@ -203,7 +203,7 @@ fn large_template_still_sees_a_late_local_handler() {
     let refs = extract_template_references(
         &src,
         &set(&["refreshOverview"]),
-        &set(&["completenessPct", "fristLabel"]),
+        &set(&["completenessPct", "deadlineLabel"]),
         "Page.svelte",
     );
     let found = names(&refs);
@@ -216,7 +216,7 @@ fn large_template_still_sees_a_late_local_handler() {
         "imported helper after the handler must still be seen: {found:?}"
     );
     assert!(
-        !found.contains("fristLabel"),
+        !found.contains("deadlineLabel"),
         "an unused import must NOT be invented: {found:?}"
     );
 }

@@ -258,7 +258,7 @@ the metrics that see it and the detectors that catch it at generation time.
   callers ≥ 1, `uses` edges go 56 → 277, `calls` 771 → 830, `imports` edges are
   unchanged at 314, and `keel audit --dimension navigation` reports the same
   seven `high_coupling` and zero `bottleneck_module` findings as before.
-  Component tags (`<FristenPanel />`) are still not edges, and imported
+  Component tags (`<DeadlinePanel />`) are still not edges, and imported
   constants and Svelte stores stay invisible by design — keel's graph holds
   functions and classes, so there is no node for a constant to point at.
 - **Rust macro invocations no longer resolve to same-named functions (T1.2).**
@@ -489,7 +489,7 @@ the metrics that see it and the detectors that catch it at generation time.
   runs in the compile hot path. Requires `fetch-depth: 0` in CI.
 - **A `.baml` function dispatched by string literal now has real callers
   (T1.4).** Code that drives a boundary function through a name string —
-  `run_baml("PlanBerichtSection", input)`, a `match` arm on the same key, a
+  `run_baml("PlanReportSection", input)`, a `match` arm on the same key, a
   handler-table entry — produced no edge at all, so every `baml_src/*.baml`
   function read as dead code with zero callers and zero callees. keel now
   captures string literals in exactly three positions (call argument,

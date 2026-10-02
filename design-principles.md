@@ -70,13 +70,13 @@ Inter-agent interfaces must be defined and frozen in Phase 0. Without frozen con
    - Map JSON schema (PRD 12)
    - Explain JSON schema (PRD 12)
 
-**Contract tests run on EVERY cycle.** Failing contract test = immediate stop. The agent must fix the contract violation before continuing any other work. This is the same pattern as KolBaer's `packages/shared-types/` — but for Rust traits and structs instead of TypeScript types.
+**Contract tests run on EVERY cycle.** Failing contract test = immediate stop. The agent must fix the contract violation before continuing any other work. This is the same pattern as another downstream project's `packages/shared-types/` — but for Rust traits and structs instead of TypeScript types.
 
 ---
 
 ## Principle 3: Decompose by Dependency DAG, Not Feature
 
-KolBaer decomposed by technology layer (frontend / backend / engine). That worked because web app layers have natural isolation — the frontend doesn't import backend code.
+Another downstream project decomposed by technology layer (frontend / backend / engine). That worked because web app layers have natural isolation — the frontend doesn't import backend code.
 
 **Keel's decomposition follows the dependency chain:**
 

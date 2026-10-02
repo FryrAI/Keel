@@ -266,8 +266,8 @@ pub enum ReferenceKind {
     /// a parsed call site.
     Template,
     /// A *string literal* whose text is the name of a known boundary symbol —
-    /// a cross-language dispatch key, e.g. the `"PlanBerichtSection"` in
-    /// `run_baml("PlanBerichtSection", input)` naming a `baml_src/*.baml`
+    /// a cross-language dispatch key, e.g. the `"PlanReportSection"` in
+    /// `run_baml("PlanReportSection", input)` naming a `baml_src/*.baml`
     /// function.
     ///
     /// Only literals in three syntactic positions are considered (call

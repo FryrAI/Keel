@@ -201,7 +201,7 @@ fn test_parse_pnpm_packages_yaml_no_packages_key() {
 #[test]
 fn test_detect_nested_projects_root_less_repo() {
     // No root manifest at all — server/Cargo.toml, frontend/package.json,
-    // worker/pyproject.toml one level down (mirrors the Zenzy_poc layout).
+    // worker/pyproject.toml one level down (mirrors the Acme_poc layout).
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join("server")).unwrap();
     fs::write(

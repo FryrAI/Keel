@@ -35,15 +35,12 @@ and twenty total.
 
 ## History calibration
 
-The thresholds were checked against local histories from the three target
-codebases:
+The thresholds were calibrated against three private repositories, and checked
+against Keel's own history:
 
 | Repository evidence | Expected result | Calibration consequence |
 |---|---|---|
 | Keel `aa69e52`, which introduced shared query/engine-lock helpers while deleting real Type-2 clones | New consolidation helpers are not accused of duplicating the primitives they call | Signature compatibility stays mandatory; graph proximity alone is insufficient |
-| Bonago crawler `96a252c`, which extracted a three-argument WAF-rescue helper around a one-argument primitive | Silent | Preserved as a regression fixture; differing arity blocks replacement and role evidence |
-| Bonago CRM `99dffa4`, which removed a local AGE parser in favor of `clean_agtype` | Preventive reuse discovery is useful; post-hoc W010 is unnecessary because no redundant new function remains | `keel name` and P003 lead, review remains focused on added symbols |
-| Zenzy Atlas `e50a941`, which fixed the second route into extraction without adding a production helper | Surface ledger reports modification rather than helper growth; no W010 | W010 never infers a missing feature boundary from body changes alone |
 
 Positive fixtures use the motivating `parse_timestamp` / `to_unix_seconds`
 case: one proves same-call-site replacement despite different bodies and names;

@@ -118,7 +118,7 @@
 
 ; --- Boundary dispatch keys (string literals) ---
 ; A string literal naming a boundary symbol is a cross-language dispatch:
-; `run_baml("PlanBerichtSection", input)` drives a `baml_src/*.baml` function
+; `run_baml("PlanReportSection", input)` drives a `baml_src/*.baml` function
 ; that no grammar links to its caller. Captured in TWO positions only — call
 ; argument and match-arm pattern (Rust has no object-literal keys; map keys are
 ; call arguments) — and the extractor keeps ONLY literals whose text exactly

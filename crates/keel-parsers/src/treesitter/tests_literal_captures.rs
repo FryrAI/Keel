@@ -49,14 +49,14 @@ fn literal_names(result: &crate::resolver::ParseResult) -> Vec<&str> {
 /// subprocess with its name as a string argument, plus the match-arm form.
 #[test]
 fn rust_literal_positions_are_captured() {
-    let mut parser = parser_with_keys(&["PlanBerichtSection"]);
+    let mut parser = parser_with_keys(&["PlanReportSection"]);
     let source = r#"fn drive(input: &str) -> String {
-    run_baml("PlanBerichtSection", input)
+    run_baml("PlanReportSection", input)
 }
 
 fn route(kind: &str) -> u32 {
     match kind {
-        "PlanBerichtSection" => 1,
+        "PlanReportSection" => 1,
         _ => 0,
     }
 }
@@ -66,7 +66,7 @@ fn route(kind: &str) -> u32 {
         .unwrap();
 
     assert_eq!(
-        literal_lines(&result, "PlanBerichtSection"),
+        literal_lines(&result, "PlanReportSection"),
         vec![2, 7],
         "call-argument and match-arm literals must both be captured"
     );
@@ -76,14 +76,14 @@ fn route(kind: &str) -> u32 {
 /// match arm.
 #[test]
 fn typescript_literal_positions_are_captured() {
-    let mut parser = parser_with_keys(&["PlanBerichtSection"]);
-    let source = r#"const table = { "PlanBerichtSection": 1 };
+    let mut parser = parser_with_keys(&["PlanReportSection"]);
+    let source = r#"const table = { "PlanReportSection": 1 };
 export function drive(input: string): string {
-  return callBaml("PlanBerichtSection", input);
+  return callBaml("PlanReportSection", input);
 }
 export function route(kind: string): number {
   switch (kind) {
-    case "PlanBerichtSection":
+    case "PlanReportSection":
       return 1;
     default:
       return 0;
@@ -95,7 +95,7 @@ export function route(kind: string): number {
         .unwrap();
 
     assert_eq!(
-        literal_lines(&result, "PlanBerichtSection"),
+        literal_lines(&result, "PlanReportSection"),
         vec![1, 3, 7],
         "object key, call argument and switch case must all be captured"
     );
@@ -104,17 +104,17 @@ export function route(kind: string): number {
 /// Python: call argument, dict key, and `match`/`case` pattern.
 #[test]
 fn python_literal_positions_are_captured() {
-    let mut parser = parser_with_keys(&["PlanBerichtSection"]);
-    let source = r#"HANDLERS = {"PlanBerichtSection": 1}
+    let mut parser = parser_with_keys(&["PlanReportSection"]);
+    let source = r#"HANDLERS = {"PlanReportSection": 1}
 
 
 def drive(text: str) -> str:
-    return call_baml("PlanBerichtSection", text)
+    return call_baml("PlanReportSection", text)
 
 
 def route(kind: str) -> int:
     match kind:
-        case "PlanBerichtSection":
+        case "PlanReportSection":
             return 1
     return 0
 "#;
@@ -123,7 +123,7 @@ def route(kind: str) -> int:
         .unwrap();
 
     assert_eq!(
-        literal_lines(&result, "PlanBerichtSection"),
+        literal_lines(&result, "PlanReportSection"),
         vec![1, 5, 10],
         "dict key, call argument and case pattern must all be captured"
     );
@@ -134,7 +134,7 @@ def route(kind: str) -> int:
 /// dropped later. Asserted on the reference vector, not on edge counts.
 #[test]
 fn literal_matching_no_boundary_name_produces_no_reference() {
-    let mut parser = parser_with_keys(&["PlanBerichtSection"]);
+    let mut parser = parser_with_keys(&["PlanReportSection"]);
     let source = r#"fn drive(input: &str) -> String {
     log("starting up");
     run_baml("NotABamlFunction", input)
@@ -162,7 +162,7 @@ fn literal_matching_no_boundary_name_produces_no_reference() {
 fn no_key_set_means_no_literal_references() {
     let mut parser = TreeSitterParser::new();
     let source = r#"fn drive(input: &str) -> String {
-    run_baml("PlanBerichtSection", input)
+    run_baml("PlanReportSection", input)
 }
 "#;
     let result = parser
@@ -176,11 +176,11 @@ fn no_key_set_means_no_literal_references() {
 /// variants are all misses.
 #[test]
 fn literal_matching_is_exact() {
-    let mut parser = parser_with_keys(&["PlanBerichtSection"]);
+    let mut parser = parser_with_keys(&["PlanReportSection"]);
     let source = r#"fn drive(input: &str) -> String {
-    run_baml("planberichtsection", input);
-    run_baml("PlanBerichtSectionV2", input);
-    run_baml(b"PlanBerichtSection", input)
+    run_baml("planreportsection", input);
+    run_baml("PlanReportSectionV2", input);
+    run_baml(b"PlanReportSection", input)
 }
 "#;
     let result = parser
