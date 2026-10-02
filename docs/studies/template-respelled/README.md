@@ -52,7 +52,7 @@ literal/segment pair with all owners attached. Production advisories are
 deduplicated per literal/home **after** baseline subtraction. Multiple copies of
 the same text at different literal nodes are separate occurrences.
 
-The issue's example helper, `berliner_tag_sql`, was detected as a home with 24
+The issue's example helper, `local_day_sql`, was detected as a home with 24
 respelling occurrences at each threshold; all 12 sampled at 24 were judged TRUE.
 
 ## Keel exports

@@ -11,7 +11,7 @@ in [README.md](README.md#method). The private corpus's labelled samples are held
 | keel | 24 | 0 | — | — | — | N = 0 |
 
 Rule (fixed before the study): pick the threshold with the higher p on the private corpus (24: 0.76 > 0.70). WARNING
-needs p ≥ 0.8 — not met. ADVISORY needs p ≥ 0.5 and the issue's own example found — `berliner_tag_sql` is a home
+needs p ≥ 0.8 — not met. ADVISORY needs p ≥ 0.5 and the issue's own example found — `local_day_sql` is a home
 with 24 respellings, 12/12 sampled ones judged TRUE. ⇒ **W012 ships as a `keel review` advisory at
 MIN_SEGMENT_CHARS = 24; it never gates and never enters `keel compile`.**
 

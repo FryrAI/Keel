@@ -85,7 +85,7 @@ fn setup_literal_dispatch_project() -> TempDir {
     fs::create_dir_all(root.join("baml_src")).unwrap();
     fs::write(
         root.join("baml_src/plan.baml"),
-        r##"function PlanBerichtSection(input: string) -> string {
+        r##"function PlanReportSection(input: string) -> string {
   client GPT4
   prompt #"
     Plan the section for {{ input }}.
@@ -106,13 +106,13 @@ pub fn run_baml(function_name: &str, input: &str) -> String {
 
 /// Plan one report section via the BAML boundary.
 pub fn plan_section(input: &str) -> String {
-    run_baml("PlanBerichtSection", input)
+    run_baml("PlanReportSection", input)
 }
 
 /// Route a dispatch key to the handler family that serves it.
 pub fn route(kind: &str) -> &'static str {
     match kind {
-        "PlanBerichtSection" => "planner",
+        "PlanReportSection" => "planner",
         _ => "unknown",
     }
 }
@@ -242,8 +242,8 @@ fn boundary_callers(store: &keel_core::sqlite::SqliteGraphStore) -> (u64, Vec<St
     let node = store
         .get_nodes_in_file("baml_src/plan.baml")
         .into_iter()
-        .find(|n| n.name == "PlanBerichtSection" && n.kind == NodeKind::Function)
-        .expect("PlanBerichtSection boundary node must exist");
+        .find(|n| n.name == "PlanReportSection" && n.kind == NodeKind::Function)
+        .expect("PlanReportSection boundary node must exist");
     let callers = store
         .get_edges(node.id, EdgeDirection::Incoming)
         .into_iter()
@@ -306,7 +306,7 @@ fn test_discover_from_rust_caller_lists_baml_callee() {
     assert!(out.status.success(), "discover exited non-zero");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("PlanBerichtSection") && stdout.contains("baml_src/plan.baml"),
+        stdout.contains("PlanReportSection") && stdout.contains("baml_src/plan.baml"),
         "discover on the Rust caller must list the .baml node as a callee:\n{stdout}"
     );
 }

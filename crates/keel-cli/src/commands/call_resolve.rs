@@ -356,7 +356,7 @@ mod tests {
         let mut boundary = std::collections::HashMap::new();
         if let Some(id) = boundary_id {
             boundary.insert(
-                "PlanBerichtSection".to_string(),
+                "PlanReportSection".to_string(),
                 (id, keel_core::confidence::BAML_BOUNDARY),
             );
         }
@@ -399,7 +399,7 @@ mod tests {
         let hit = resolve_call_reference(
             &trap_index(Some(42)),
             &ctx,
-            &literal_ref("PlanBerichtSection"),
+            &literal_ref("PlanReportSection"),
         )
         .expect("a literal naming a boundary function resolves");
         assert_eq!(hit.target_id, 42);
@@ -409,7 +409,7 @@ mod tests {
         // No boundary entry: the literal resolves to NOTHING, even though the
         // same-directory rung would have matched the name for a real call.
         assert!(
-            resolve_call_reference(&trap_index(None), &ctx, &literal_ref("PlanBerichtSection"))
+            resolve_call_reference(&trap_index(None), &ctx, &literal_ref("PlanReportSection"))
                 .is_none(),
             "a literal must never resolve through a non-boundary rung"
         );

@@ -408,7 +408,7 @@ gate it, even when the config lists W012.
 
 Independent labels on a private production corpus measured conservative precision **38/50 = 0.76** at
 24 characters, versus **35/50 = 0.70** at 16; the keel population at 24 was empty.
-The issue's Berlin helper was found (24 respellings; all 12 sampled judged TRUE).
+The issue's local-day helper was found (24 respellings; all 12 sampled judged TRUE).
 The 0.8 warning threshold was not met. Known false-positive sources are bare
 projection-column tokens, keyword-only prefixes ending before an interpolated
 table name, one conjunct of a different predicate over the same columns,

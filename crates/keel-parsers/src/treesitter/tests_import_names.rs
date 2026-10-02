@@ -47,7 +47,7 @@ fn typescript_multiline_named_import_keeps_every_specifier() {
     let names = import_names(
         "typescript",
         "/x.ts",
-        "import {\n  applyView,\n  completenessPct,\n  matchesQuery,\n  type OverviewRow\n} from '$lib/portfolio/model';\n",
+        "import {\n  applyView,\n  completenessPct,\n  matchesQuery,\n  type OverviewRow\n} from '$lib/dashboard/model';\n",
         "model",
     );
     for want in ["applyView", "completenessPct", "matchesQuery"] {

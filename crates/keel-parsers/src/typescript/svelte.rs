@@ -17,7 +17,7 @@
 //! ## The 400-line file that "desynced" (it did not)
 //!
 //! A 599-line SvelteKit route defined `refreshOverview` in its `<script>` and
-//! used it at line 122 as `<FristenPanel onRejected={refreshOverview} />`, yet
+//! used it at line 122 as `<DeadlinePanel onRejected={refreshOverview} />`, yet
 //! reported zero callers — while the identical shape resolved in a small
 //! fixture. The obvious suspect was this scanner: a brace/quote tokenizer that
 //! desyncs somewhere in a long file would silently stop recognising every
@@ -224,7 +224,7 @@ fn find_tag_end(bytes: &[u8], from: usize) -> Option<usize> {
 /// Scope, deliberately: `defined` is filtered to functions and classes by the
 /// caller, so an imported *constant* or Svelte *store* used from markup stays
 /// invisible — those have no graph node to point at. Markup component tags
-/// (`<FristenPanel/>`) are not matched either; they are not brace expressions
+/// (`<DeadlinePanel/>`) are not matched either; they are not brace expressions
 /// and adding them is a separate change with its own coupling-metric fallout.
 pub(crate) fn extract_template_references(
     content: &str,

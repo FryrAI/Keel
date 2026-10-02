@@ -175,9 +175,9 @@ Opt in to case-sensitive literal or regex patterns whose meaning belongs in one 
 ```json
 {
   "homes": [{
-    "name": "berlin-civil-day",
+    "name": "local-civil-day",
     "patterns": ["date_naive()", {"regex": "AT TIME ZONE '[A-Za-z/_]+'"}],
-    "home": ["crates/core/src/zeit.rs"],
+    "home": ["src/time.rs"],
     "scope": "crates/*/src"
   }],
   "enforce": {"homes": "error"},

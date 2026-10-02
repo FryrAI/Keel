@@ -132,7 +132,7 @@ impl Default for Tier3Config {
 /// only new erosion fires. Both fields below are strictly opt-in additions.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ArchitectureConfig {
-    /// Count type-only references (`use canonical::Verfahren`) as
+    /// Count type-only references (`use canonical::Project`) as
     /// cross-boundary dependencies. Off by default: depending on another
     /// package's *types* is the behaviour you want, and on a workspace sharing
     /// a canonical types crate that pattern dominates. Only `calls` count
