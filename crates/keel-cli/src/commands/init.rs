@@ -294,6 +294,12 @@ pub fn run(
             DetectedTool::GitHubActions => generators::generate_github_actions(&cwd),
         };
         tool_file_count += generators::write_files(&files, verbose);
+        if files.iter().any(|(path, _)| {
+            fs::read_to_string(path)
+                .is_ok_and(|content| content.contains("\"keel hook session-start\""))
+        }) {
+            hook_script::install_session_start_hook(&cwd, verbose);
+        }
     }
 
     // GitHub Actions is CI, not an interactive agent — generate if detected, regardless of prompt

@@ -7,6 +7,85 @@ use crate::commands::init::templates;
 
 const BINARY_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[test]
+fn migrates_exact_hook_tokens_in_all_configs_without_other_byte_changes() {
+    let dir = setup_stale_project();
+    let old = concat!(
+        "{\r\n  \"commands\": [\"timeout 10 keel map --llm --cached\",",
+        "\".keel/hooks/plan-check.sh\",\".keel/hooks/post-edit.sh\",",
+        "\".keel/hooks/post-edit.sh claude-code\",\".keel/hooks/post-edit.sh cursor\",",
+        "\".keel/hooks/post-edit.sh gemini-cli\",\".keel/hooks/post-edit.sh windsurf\",",
+        "\".keel/hooks/post-edit.sh letta-code\"],\r\n",
+        "  \"custom\": [\".keel/hooks/post-edit.sh widget\",",
+        "\"timeout 10 keel map --llm --cached && echo widget\",",
+        "\".keel/hooks/plan-check.sh --custom\"]\r\n}\r\n"
+    );
+    let expected = concat!(
+        "{\r\n  \"commands\": [\"keel hook session-start\",",
+        "\"keel hook plan-check\",\"keel hook post-edit\",",
+        "\"keel hook post-edit claude-code\",\"keel hook post-edit cursor\",",
+        "\"keel hook post-edit gemini-cli\",\"keel hook post-edit windsurf\",",
+        "\"keel hook post-edit letta-code\"],\r\n",
+        "  \"custom\": [\".keel/hooks/post-edit.sh widget\",",
+        "\"timeout 10 keel map --llm --cached && echo widget\",",
+        "\".keel/hooks/plan-check.sh --custom\"]\r\n}\r\n"
+    );
+    let configs = [
+        ".claude/settings.json",
+        ".cursor/hooks.json",
+        ".gemini/settings.json",
+        ".windsurf/hooks.json",
+        ".letta/settings.json",
+    ];
+    for rel in configs {
+        let path = dir.path().join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, old).unwrap();
+    }
+    assert_eq!(run(dir.path(), false), 0);
+    for rel in configs {
+        assert_eq!(fs::read(dir.path().join(rel)).unwrap(), expected.as_bytes());
+    }
+    let script = dir.path().join(".keel/hooks/session-start.sh");
+    assert_eq!(
+        fs::read_to_string(&script).unwrap(),
+        templates::SESSION_START_HOOK
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(script).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+    assert!(!dir.path().join(".keel/hooks/post-edit.sh").exists());
+    assert!(!dir.path().join(".keel/hooks/plan-check.sh").exists());
+}
+
+#[test]
+fn unchanged_configs_are_not_rewritten_and_missing_session_hook_is_installed() {
+    let dir = setup_stale_project();
+    let config = dir.path().join(".claude/settings.json");
+    fs::create_dir_all(config.parent().unwrap()).unwrap();
+    let content = "{\n \"command\" : \"keel hook session-start\", \"custom\": \"widget\"\n}\n";
+    fs::write(&config, content).unwrap();
+    let old_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
+    fs::File::options()
+        .write(true)
+        .open(&config)
+        .unwrap()
+        .set_modified(old_time)
+        .unwrap();
+    assert_eq!(run(dir.path(), false), 0);
+    assert_eq!(fs::read_to_string(&config).unwrap(), content);
+    assert_eq!(fs::metadata(&config).unwrap().modified().unwrap(), old_time);
+    let script = dir.path().join(".keel/hooks/session-start.sh");
+    fs::write(&script, "custom session hook\n").unwrap();
+    assert_eq!(run(dir.path(), false), 0);
+    assert_eq!(fs::read_to_string(script).unwrap(), "custom session hook\n");
+}
+
 /// The exact claim `apply_honest_compile_note` rewrites when the on-edit
 /// hook is not installed (Claude Code / Letta Code phrasing).
 const AUTO_COMPILE_CLAIM: &str =

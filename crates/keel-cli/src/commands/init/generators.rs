@@ -50,7 +50,7 @@ pub const MANAGED_DOCS: &[ManagedDoc] = &[
 /// Inject PostToolUse hook into a JSON settings string (for on-edit mode).
 ///
 /// `client` (e.g. `"claude-code"`) is appended as an argument to the shared
-/// `.keel/hooks/post-edit.sh` command so it can pass `--client` explicitly to
+/// `keel hook post-edit` command so it can pass `--client` explicitly to
 /// `keel compile` — env-var client detection (`CLAUDECODE` etc.) does not
 /// reliably survive into the hook's subprocess, and this one script is shared
 /// verbatim across every Tier 1 tool, so it cannot infer which tool invoked it.
@@ -66,7 +66,7 @@ fn inject_on_edit_hook(json_str: &str, matcher: &str, client: &str) -> String {
                 "matcher": matcher,
                 "hooks": [{
                     "type": "command",
-                    "command": format!(".keel/hooks/post-edit.sh {client}")
+                    "command": format!("keel hook post-edit {client}")
                 }]
             }]);
             hooks.insert("PostToolUse".to_string(), post_tool);

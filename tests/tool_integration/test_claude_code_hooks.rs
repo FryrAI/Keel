@@ -122,7 +122,9 @@ fn test_claude_code_hook_post_tool_use_is_opt_in() {
 #[test]
 fn test_claude_code_hook_output_format_is_llm() {
     let dir = init_project();
-    let settings = dir.path().join(".claude/settings.json");
+    let config = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let settings = dir.path().join(".keel/hooks/session-start.sh");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
         contents.contains("--llm"),
@@ -133,18 +135,22 @@ fn test_claude_code_hook_output_format_is_llm() {
 #[test]
 fn test_claude_code_hook_has_map_command() {
     let dir = init_project();
-    let settings = dir.path().join(".claude/settings.json");
+    let config = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let settings = dir.path().join(".keel/hooks/session-start.sh");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
         contents.contains("keel map"),
-        "should include keel map command in hooks"
+        "session-start script should include keel map command"
     );
 }
 
 #[test]
 fn test_claude_code_hook_uses_cached_map() {
     let dir = init_project();
-    let settings = dir.path().join(".claude/settings.json");
+    let config = fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let settings = dir.path().join(".keel/hooks/session-start.sh");
     let contents = fs::read_to_string(&settings).unwrap();
     assert!(
         contents.contains("keel map --llm --cached"),

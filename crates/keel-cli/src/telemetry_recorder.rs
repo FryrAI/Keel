@@ -261,6 +261,7 @@ pub fn command_name(command: &crate::cli_args::Commands) -> &'static str {
     use crate::cli_args::Commands;
     match command {
         Commands::Init { .. } => "init",
+        Commands::Hook { .. } => "hook",
         Commands::Map { .. } => "map",
         Commands::Discover { .. } => "discover",
         Commands::Search { .. } => "search",
