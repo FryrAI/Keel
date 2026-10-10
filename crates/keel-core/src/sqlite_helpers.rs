@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use rusqlite::{params, Result as SqlResult};
 
@@ -11,18 +11,21 @@ use crate::types::{
 };
 
 impl SqliteGraphStore {
-    /// Remove mapped body rows when a committed re-sync prunes a whole path.
-    pub fn remove_body_rows_in_file(&self, file_path: &str) -> Result<(), GraphError> {
-        self.conn
-            .execute("DELETE FROM body_index WHERE file_path = ?1", [file_path])?;
-        Ok(())
-    }
-
-    /// Remove only the mapped body row of a stored node being removed.
-    pub fn remove_body_row(&self, node_hash: &str, file_path: &str) -> Result<(), GraphError> {
+    /// Delete the body rows of `paths` that no stored node accounts for: a row
+    /// stays while some node in its file has its name, whatever hash the row
+    /// holds. Run once after a committed re-sync's last node write.
+    pub fn remove_body_rows_without_nodes(
+        &self,
+        paths: &BTreeSet<String>,
+    ) -> Result<(), GraphError> {
+        let paths = serde_json::to_string(paths).expect("strings serialize");
         self.conn.execute(
-            "DELETE FROM body_index WHERE node_hash = ?1 AND file_path = ?2",
-            params![node_hash, file_path],
+            "DELETE FROM body_index
+             WHERE file_path IN (SELECT value FROM json_each(?1))
+               AND NOT EXISTS (SELECT 1 FROM nodes n
+                               WHERE n.file_path = body_index.file_path
+                                 AND n.name = body_index.name)",
+            [paths],
         )?;
         Ok(())
     }

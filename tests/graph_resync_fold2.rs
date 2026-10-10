@@ -191,7 +191,7 @@ fn dependent_reresolution_preserves_compiled_working_tree_nodes() {
     assert!(keel(root, &["compile", "pkg/beta.go"]).status.success());
     assert!(keel(root, &["compile", "pkg/widget.go"]).status.success());
     let nodes_before = dependent_nodes(root);
-    let edges_before = dump(root, "SELECT json_array(e.id,e.source_id,e.target_id,e.kind,e.file_path,e.line) FROM edges e JOIN nodes n ON n.id=e.target_id WHERE n.name='Gadget' ORDER BY e.id");
+    let edges_before = dump(root, "SELECT json_array(e.source_id,e.target_id,e.kind,e.file_path,e.line) FROM edges e JOIN nodes n ON n.id=e.target_id WHERE n.name='Gadget' ORDER BY e.source_id, e.target_id, e.kind, e.file_path, e.line");
     assert_eq!(count(root, "SELECT count(*) FROM edges e JOIN nodes n ON n.id=e.target_id WHERE n.name='Gadget' AND e.kind='calls'"), 1);
     write(root, "pkg/alpha.go", GO_BETA);
     write(root, "pkg/gadget.go", GO_ALPHA);
@@ -208,7 +208,7 @@ fn dependent_reresolution_preserves_compiled_working_tree_nodes() {
         nodes_before,
         "dependent nodes must remain exactly unchanged"
     );
-    assert_eq!(dump(root, "SELECT json_array(e.id,e.source_id,e.target_id,e.kind,e.file_path,e.line) FROM edges e JOIN nodes n ON n.id=e.target_id WHERE n.name='Gadget' ORDER BY e.id"), edges_before);
+    assert_eq!(dump(root, "SELECT json_array(e.source_id,e.target_id,e.kind,e.file_path,e.line) FROM edges e JOIN nodes n ON n.id=e.target_id WHERE n.name='Gadget' ORDER BY e.source_id, e.target_id, e.kind, e.file_path, e.line"), edges_before);
     broken_matches_map(
         root,
         "pkg/beta.go",

@@ -203,20 +203,21 @@ Network-filesystem lock semantics are not guaranteed. Deinit deletes the lock
 with `.keel`; an already-open waiter can acquire an orphaned inode after deletion.
 
 ### A Working-Tree Compile Brings the Graph to HEAD
-`last_map_commit` names the graph's baseline, plus compiled working-tree edits; only map and completed re-syncs
-write it. `graph_resync::bring_to_head` (under the graph lock, before batch handling) diffs that commit against
+`last_map_commit` names the graph's baseline plus compiled working-tree edits; only map and completed re-syncs
+write it. `graph_resync::bring_to_head` diffs that commit against
 HEAD, prunes deleted/renamed paths, parses present paths from HEAD's blob (`gitdiff::source_at`, never the
-working tree: the edit under check must not enter its baseline) and syncs with `SyncSource::Committed`, where an empty parse or a
-vanished definition with outside callers is applied, not kept; definitions bind one-to-one by hash evidence,
-then unique leftover name/kind, and survivors refresh from the blob (`engine::refreshed_node`, hash collisions
-keep the stored hash). Dependents re-resolve references from HEAD; their stored nodes stay unchanged.
-Re-synced code is pre-existing; committed refresh preserves session history. New nodes trigger pass 2.
-Then the marker moves; `last_map_at` never does. Limits include recovery paths and dependents: `RESYNC_INLINE_MAX` 15 files for explicit compiles (the 5 s hook budget),
-`RESYNC_MAX_FILES` 500 for bare/`--changed`; above them, a gone stored commit, or any failure compile exits 2 with
-a `NO_USABLE_GRAPH` line; the marker stays unmoved. The next working-tree compile, at whatever HEAD, completes
+working tree: the edit under check stays out of its baseline) and syncs with `SyncSource::Committed`, where an empty parse or a
+vanished definition is applied even with outside callers; definitions bind one-to-one by hash evidence,
+then unique leftover name/kind; survivors refresh from the blob (`engine::refreshed_node`; a hash clash
+keeps the stored hash). Dependents re-resolve references from their working-tree text; stored nodes stay unchanged.
+New nodes trigger pass 2 and add every graph-held modified or untracked file as a dependent.
+Re-synced code is pre-existing; committed refresh keeps session history.
+Then the marker moves (`last_map_at` never). Limits count recovery paths and dependents: `RESYNC_INLINE_MAX` 15 files for explicit compiles (5 s hook),
+`RESYNC_MAX_FILES` 500 for bare/`--changed`; beyond them, a gone stored commit or a failure exits 2 with
+a `NO_USABLE_GRAPH` line; the marker stays put. The next working-tree compile, at any HEAD, completes
 or reverts partial writes; completion atomically clears the record and moves the marker.
-No git/HEAD/marker stays legacy-silent; a stored commit absent from this clone requires `keel map`.
-`compile --since` keeps `graph_staleness`'s ancestor refusal, byte for byte.
+No git/HEAD/marker stays legacy-silent; a stored commit this clone lacks requires `keel map`.
+`compile --since` keeps `graph_staleness`'s ancestor refusal, then refuses while a record is unfinished.
 
 ### Compile Sync Never Deletes on Failed Re-Resolution
 `sync_compiled_files` (keel-cli `compile_sync.rs`) deletes a stored `calls`/`uses` edge only on positive

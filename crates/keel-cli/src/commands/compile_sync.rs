@@ -461,7 +461,8 @@ pub(crate) enum SyncSource {
     /// file's definitions, and a vanished definition is removed whoever still
     /// calls it, because HEAD does not contain it.
     Committed,
-    /// Re-resolve a dependent's references from HEAD without changing stored nodes.
+    /// Re-resolve a dependent's references from its working-tree text without
+    /// changing stored nodes.
     ResolveReferences,
 }
 

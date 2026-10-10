@@ -101,7 +101,9 @@ pub fn run(
     // the stored base graph, so it refuses (exit 2, never 0 — a stale graph
     // must fail loudly); every other compile first brings the graph to HEAD.
     let guard = if since.is_some() {
-        super::graph_staleness::stale_graph_message(&root, &store).map_or(Ok(()), Err)
+        super::graph_staleness::stale_graph_message(&root, &store)
+            .or_else(|| super::graph_resync::unfinished_message(&store))
+            .map_or(Ok(()), Err)
     } else {
         super::graph_resync::bring_to_head(&root, &mut store, explicit_targets, &config, verbose)
     };

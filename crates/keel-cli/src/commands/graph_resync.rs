@@ -19,8 +19,8 @@ use keel_core::config::KeelConfig;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::sqlite_meta::{LAST_MAP_COMMIT, RESYNC_PENDING};
 use keel_core::store::GraphStore;
-use keel_core::types::{EdgeDirection, EdgeKind, NodeChange};
-use keel_enforce::gitdiff;
+use keel_core::types::{EdgeDirection, EdgeKind, NodeChange, NodeKind};
+use keel_enforce::gitdiff::{self, DiffMode};
 use keel_parsers::treesitter::detect_language;
 
 use super::compile_parse::CompileParser;
@@ -63,6 +63,32 @@ fn failed_message(stored: &str, reason: &str) -> String {
     )
 }
 
+/// The paths and dependents recorded by an unfinished re-sync of `stored`; both
+/// empty when nothing is recorded, the value does not parse, or it is keyed to
+/// another commit.
+fn pending_record(store: &SqliteGraphStore, stored: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    store
+        .meta_value(RESYNC_PENDING)
+        .and_then(|saved| {
+            serde_json::from_str::<(String, BTreeSet<String>, BTreeSet<String>)>(&saved).ok()
+        })
+        .filter(|(baseline, ..)| baseline == stored)
+        .map(|(_, paths, dependents)| (paths, dependents))
+        .unwrap_or_default()
+}
+
+/// The `--since` refusal while a re-sync is recorded as unfinished: the graph
+/// holds part of another commit.
+pub(crate) fn unfinished_message(store: &SqliteGraphStore) -> Option<String> {
+    let (paths, dependents) = pending_record(store, &store.meta_value(LAST_MAP_COMMIT)?);
+    (!paths.is_empty() || !dependents.is_empty()).then(|| {
+        format!(
+            "{NO_USABLE_GRAPH}the stored graph has an unfinished re-sync. Run `keel compile` to \
+             finish it; nothing was checked."
+        )
+    })
+}
+
 /// Brings the stored graph to HEAD for a working-tree compile. `Err` is the
 /// one-line refusal.
 pub(crate) fn bring_to_head(
@@ -78,13 +104,7 @@ pub(crate) fn bring_to_head(
     ) else {
         return Ok(());
     };
-    let pending = store.meta_value(RESYNC_PENDING).and_then(|saved| {
-        serde_json::from_str::<(String, BTreeSet<String>, BTreeSet<String>)>(&saved).ok()
-    });
-    let (mut changed, mut dependents) = match pending {
-        Some((baseline, paths, dependents)) if baseline == stored => (paths, dependents),
-        _ => (BTreeSet::new(), BTreeSet::new()),
-    };
+    let (mut changed, mut dependents) = pending_record(store, &stored);
     if stored == head && changed.is_empty() && dependents.is_empty() {
         return Ok(());
     }
@@ -149,15 +169,13 @@ pub(crate) fn bring_to_head(
     // Record every touched path before the first graph write, even without callers.
     save_pending(store, &dependents)?;
     for path in gone_paths {
-        store
-            .remove_body_rows_in_file(&path)
-            .map_err(|e| fail(e.to_string()))?;
         keel_enforce::engine_prune::prune_file(store, &path).map_err(|e| fail(e.to_string()))?;
     }
     // Pass 1 adds the nodes of new definitions; an edge to one of them from a
     // file synced earlier in the same pass cannot resolve until the node is
     // stored, so pass 2 re-resolves the same files. A re-sync that adds no node
     // costs one pass.
+    let mut working_tree_listed = false;
     if !files.is_empty() {
         let resolvers = parser.resolver_set();
         for _ in 0..2 {
@@ -178,17 +196,19 @@ pub(crate) fn bring_to_head(
                 &changed,
                 &mut dependents,
             );
+            // A definition this re-sync adds can be called by a working-tree file
+            // whose call was dropped while the definition was absent.
+            if !working_tree_listed
+                && changes
+                    .node_changes
+                    .iter()
+                    .any(|c| matches!(c, NodeChange::Add(n) if n.kind != NodeKind::Module))
+            {
+                working_tree_listed = true;
+                dependents.extend(working_tree_files(root, store, &changed).map_err(fail)?);
+            }
             check_count(changed.len() + dependents.len())?;
             save_pending(store, &dependents)?;
-            for change in &changes.node_changes {
-                if let NodeChange::Remove(id) = change {
-                    if let Some(node) = store.get_node_by_id(*id) {
-                        store
-                            .remove_body_row(&node.hash, &node.file_path)
-                            .map_err(|e| fail(e.to_string()))?;
-                    }
-                }
-            }
             let nodes_before = store.max_node_id();
             write_compiled_changes(store, changes, false).map_err(fail)?;
             if store.max_node_id() <= nodes_before {
@@ -197,8 +217,10 @@ pub(crate) fn bring_to_head(
         }
     }
     let mut dependent_files = Vec::new();
+    // A dependent's references come from its working-tree text, which already
+    // holds the edits compiled since HEAD; an absent or non-UTF-8 file is skipped.
     for path in &dependents {
-        if let Some(text) = gitdiff::source_at(root, &head, path).map_err(fail)? {
+        if let Ok(text) = std::fs::read_to_string(root.join(path)) {
             dependent_files.extend(parser.parse(&root.join(path), &text));
         }
     }
@@ -214,6 +236,9 @@ pub(crate) fn bring_to_head(
         write_compiled_changes(store, changes, false).map_err(fail)?;
     }
     store
+        .remove_body_rows_without_nodes(&changed)
+        .map_err(|e| fail(e.to_string()))?;
+    store
         .complete_resync(&head)
         .map_err(|e| fail(e.to_string()))?;
     if verbose {
@@ -225,6 +250,22 @@ pub(crate) fn bring_to_head(
         );
     }
     Ok(())
+}
+
+/// Files outside `changed` that the graph holds nodes for and whose working-tree
+/// text differs from HEAD's: modified against HEAD, or untracked.
+fn working_tree_files(
+    root: &Path,
+    store: &SqliteGraphStore,
+    changed: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, String> {
+    let mut paths: BTreeSet<String> =
+        gitdiff::changed_files_checked(root, &DiffMode::Since(None), true)?
+            .into_iter()
+            .collect();
+    paths.extend(gitdiff::untracked_files_checked(root)?);
+    paths.retain(|p| !changed.contains(p) && !store.get_nodes_in_file(p).is_empty());
+    Ok(paths)
 }
 
 fn collect_dependents(

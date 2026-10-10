@@ -73,7 +73,9 @@ working after a branch switch, a squash merge or a pull.
 
 Definitions bind one-to-one by matching hashes, then by a unique remaining
 name and module/non-module kind; ambiguous old nodes are replaced. Unchanged
-callers of removed nodes re-resolve references from `HEAD` without changing stored nodes.
+callers of removed nodes re-resolve references from their working-tree text without changing
+stored nodes. When a re-sync adds a definition, every modified or untracked file the graph
+holds is re-resolved the same way.
 Re-synced code is pre-existing, while committed refresh preserves session history.
 
 It refuses instead, exit 2 with one line starting `keel compile: no usable graph — `,
@@ -97,6 +99,10 @@ and removals would be phantom. Run `keel map` to rebuild the graph.
 ```
 
 This is what makes a poisoned cache fail loudly instead of annotating fiction.
+
+While a re-sync is recorded as unfinished, `--since` also **exits 2**, with stdout empty and
+one line starting `keel compile: no usable graph — `: the stored graph has an unfinished
+re-sync, so run `keel compile` to finish it. Nothing is checked until then.
 
 With no marker (mapped by an older keel, or outside a git repo) or no git/HEAD,
 working-tree compiles stay silent. A stored commit this clone does not have makes

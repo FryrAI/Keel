@@ -22,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and then checks the edit. It refuses (exit 2, `keel compile: no usable graph — …`) only when the
   stored commit is gone, more than 500 source files need re-sync including dependent callers
   and recorded recovery paths (15 for explicit files), or the re-sync failed.
-  `keel compile --since` keeps its ancestor refusal.
+  Dependent files re-resolve from their working-tree text, and a re-sync that adds a definition
+  re-resolves every modified or untracked file the graph holds. `keel compile --since` keeps its
+  ancestor refusal and also refuses (exit 2) while a re-sync is unfinished.
 
 ## [0.7.0] - 2026-10-10
 

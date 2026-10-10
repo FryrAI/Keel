@@ -144,6 +144,20 @@ pub fn changed_files_checked(
         .unwrap_or_default())
 }
 
+/// Untracked, not ignored source files (repo-relative): the ones
+/// [`changed_files`] cannot list because `git diff` never sees them.
+pub fn untracked_files_checked(dir: &Path) -> Result<Vec<String>, String> {
+    let args = [
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "--full-name",
+        "-z",
+    ];
+    let raw = run_git_checked(dir, &args)?.ok_or("git ls-files failed")?;
+    Ok(collect_paths(&raw, true, &KeelIgnore::new(&repo_root(dir))))
+}
+
 /// Whether one commit is contained in another revision's history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ancestry {
