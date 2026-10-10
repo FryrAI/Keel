@@ -216,13 +216,62 @@ fn file_names_order_as_a_migration_runner_applies_them() {
     assert_eq!(natural_cmp("V1__a.sql", "V1.1__b.sql"), Ordering::Less);
     assert_eq!(natural_cmp("V2_1__b.sql", "V2__a.sql"), Ordering::Greater);
     assert_eq!(natural_cmp("V2_1__b.sql", "V2_2__a.sql"), Ordering::Less);
-    // … but `__` is no version end beside a name that carries no version.
-    assert_eq!(natural_cmp("items.sql", "items__fix.sql"), Ordering::Less);
+    // The rule is the same for every name: `__` sorts before any other byte.
+    assert_eq!(natural_cmp("items__fix.sql", "items.sql"), Ordering::Less);
     assert_eq!(natural_cmp("1_a.sql", "1_a.sql"), Ordering::Equal);
     assert_eq!(
         natural_cmp("20240102_a.sql", "20240101_b.sql"),
         Ordering::Greater
     );
+}
+
+#[test]
+fn file_name_order_is_total() {
+    // A comparator with a cycle makes the replay order depend on how the
+    // directory happens to be listed.
+    let names = [
+        "items.sql",
+        "items__fix.sql",
+        "items.2.sql",
+        "items_2.sql",
+        "items_Up.sql",
+        "items",
+        "V1__a.sql",
+        "V1.1__b.sql",
+        "V1_1__c.sql",
+        "V1_2__d.sql",
+        "V2__e.sql",
+        "V10__f.sql",
+        "1.sql",
+        "01.sql",
+        "2.sql",
+        "10.sql",
+        "9_a.sql",
+        "10_a.sql",
+        "a__b.sql",
+        "a_b.sql",
+        "a.sql",
+        "a___b.sql",
+        "a__.sql",
+        "a_1.sql",
+        "a.1.sql",
+        "R__r.sql",
+        "",
+        "_",
+        "__",
+        "___",
+    ];
+    for a in names {
+        assert_eq!(natural_cmp(a, a), Ordering::Equal, "{a}");
+        for b in names {
+            assert_eq!(natural_cmp(a, b), natural_cmp(b, a).reverse(), "{a} / {b}");
+            for c in names {
+                if natural_cmp(a, b) == Ordering::Less && natural_cmp(b, c) == Ordering::Less {
+                    assert_eq!(natural_cmp(a, c), Ordering::Less, "{a} < {b} < {c}");
+                }
+            }
+        }
+    }
 }
 
 #[test]

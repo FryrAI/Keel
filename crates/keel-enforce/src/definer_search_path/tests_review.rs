@@ -307,6 +307,14 @@ fn a_mode_marker_turns_the_full_list_lookup_off() {
          ALTER FUNCTION f(int, OUT text) RESET search_path;"
     );
     assert_eq!(flagged(&sql), [("f".to_string(), 2)]);
+    // The same for procedures: with a marker, `(int, OUT text)` is the input
+    // `int`, not the full list of the first procedure.
+    let sql = format!(
+        "CREATE PROCEDURE p(OUT a int, b text) LANGUAGE plpgsql SECURITY DEFINER {SAFE} AS $$ BEGIN NULL; END $$;\n\
+         CREATE PROCEDURE p(c int) LANGUAGE plpgsql SECURITY DEFINER {SAFE} AS $$ BEGIN NULL; END $$;\n\
+         ALTER PROCEDURE p(int, OUT text) RESET search_path;"
+    );
+    assert_eq!(flagged(&sql), [("p".to_string(), 2)]);
     // A FUNCTION statement naming two inputs does not reach a one-input function.
     let sql = "CREATE FUNCTION f(a int, OUT b int) SECURITY DEFINER AS $$ SELECT 1 $$;\n\
                ALTER FUNCTION f(int, int) SET search_path = public, pg_temp;";
