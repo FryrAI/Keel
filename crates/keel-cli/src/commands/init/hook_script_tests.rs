@@ -243,3 +243,56 @@ fn test_rejected_in_tree_path_surfaces_without_blocking() {
     );
     assert!(!dir.path().join("keel-ran").exists());
 }
+
+/// keel's refusal to check against a graph nobody mapped is the one exit 2 the
+/// agent can act on (run `keel map`); the hook must pass it on as a block with
+/// the message, not swallow it as a non-blocking internal error.
+#[test]
+fn test_no_usable_graph_blocks_and_carries_the_message() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let line =
+        "keel compile: no usable graph — this repository has never been mapped. Run keel map.";
+    let dir = fixture(2, line);
+    let out = run_hook(dir.path(), &target(dir.path()));
+
+    let stderr = stderr_of(&out);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "an unmapped graph must reach the agent: {stderr}"
+    );
+    assert!(
+        stderr.contains("keel compile: no usable graph — this repository has never been mapped"),
+        "the refusal line must reach stderr: {stderr}"
+    );
+}
+
+/// Control: any other exit 2 text stays non-blocking, even when it mentions the
+/// graph — only the stable prefix at the start of the output blocks.
+#[test]
+fn test_other_exit_2_text_stays_non_blocking() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    for text in [
+        "keel compile: graph lock busy",
+        "note: keel compile: no usable graph — mentioned mid-line",
+    ] {
+        let dir = fixture(2, text);
+        let out = run_hook(dir.path(), &target(dir.path()));
+        let stderr = stderr_of(&out);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "only the stable prefix may block: {stderr}"
+        );
+        assert!(
+            stderr.contains(text),
+            "the text must reach stderr: {stderr}"
+        );
+    }
+}
