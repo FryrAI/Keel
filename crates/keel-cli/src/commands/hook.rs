@@ -41,11 +41,12 @@ pub fn run(name: &str, args: &[OsString]) -> i32 {
         eprintln!("keel hook: script not found: {}", local.display());
         return 1;
     }
-    // A Windows process cannot start a `.sh` file directly; bash runs it.
+    // On Windows, `sh` resolves through PATH; a bare `bash` finds the WSL launcher.
+    // Let `sh` exec the script so its shebang selects the interpreter.
     #[cfg(windows)]
     let mut command = {
-        let mut command = Command::new("bash");
-        command.arg(&script);
+        let mut command = Command::new("sh");
+        command.args(["-c", "exec \"$0\" \"$@\""]).arg(&script);
         command
     };
     #[cfg(not(windows))]
