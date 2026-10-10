@@ -73,7 +73,7 @@ working after a branch switch, a squash merge or a pull.
 
 Definitions bind one-to-one by matching hashes, then by a unique remaining
 name and module/non-module kind; ambiguous old nodes are replaced. Unchanged
-callers of removed nodes are re-synced from `HEAD` after the changed files.
+callers of removed nodes re-resolve references from `HEAD` without changing stored nodes.
 Re-synced code is pre-existing, while committed refresh preserves session history.
 
 It refuses instead, exit 2 with one line starting `keel compile: no usable graph — `,
@@ -81,8 +81,10 @@ when the move cannot be bridged: the stored commit is gone from this clone (run
 `keel map`), more than 500 source files differ from `HEAD` (run `keel map`), more than
 15 differ and the compile named explicit files (run `keel compile` with no arguments),
 or the re-sync itself failed (run `keel map`). These limits include dependent caller
-files. A refusal leaves the marker unmoved and nothing is checked; partial graph
-writes may remain, and the next compile completes them.
+files and recorded recovery paths. A refusal leaves the marker unmoved and nothing
+is checked; partial graph writes may remain. The next working-tree compile, at
+whatever `HEAD`, completes or reverts them using the recorded paths. Completion
+clears the record and moves the marker atomically.
 
 `keel compile --since <ref>` keeps the old guard, because it checks a committed range
 against the stored base graph and a re-sync would erase the differences it reports. If

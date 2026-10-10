@@ -461,6 +461,8 @@ pub(crate) enum SyncSource {
     /// file's definitions, and a vanished definition is removed whoever still
     /// calls it, because HEAD does not contain it.
     Committed,
+    /// Re-resolve a dependent's references from HEAD without changing stored nodes.
+    ResolveReferences,
 }
 
 /// Refresh the graph for the compiled files. Best-effort: a failure is logged
@@ -497,7 +499,8 @@ pub(super) fn compiled_file_changes(
 ) -> CompiledChanges {
     // Detected once per sync, only when `monorepo.enabled` (the caller's
     // already-loaded config) — the same gate `keel map` uses to annotate nodes.
-    let layout = monorepo_enabled.then(|| keel_parsers::monorepo::detect_monorepo(cwd));
+    let layout = (monorepo_enabled && source != SyncSource::ResolveReferences)
+        .then(|| keel_parsers::monorepo::detect_monorepo(cwd));
     let mut next_id = store.max_id() + 1;
     let mut node_changes: Vec<NodeChange> = Vec::new();
     let mut edge_changes: Vec<EdgeChange> = Vec::new();
@@ -543,6 +546,9 @@ pub(super) fn compiled_file_changes(
         }
     }
 
+    if source == SyncSource::ResolveReferences {
+        node_tiers.clear();
+    }
     CompiledChanges {
         node_changes,
         edge_changes,
@@ -643,6 +649,33 @@ fn sync_one_file(
     let store = base.store;
     let rel_path = &file.file_path;
     let existing = store.get_nodes_in_file(rel_path);
+
+    if source == SyncSource::ResolveReferences {
+        let Some(module) = existing
+            .iter()
+            .find(|n| n.kind == NodeKind::Module && n.name == *rel_path)
+        else {
+            return;
+        };
+        let local = existing
+            .iter()
+            .filter(|n| n.kind != NodeKind::Module)
+            .map(|n| (n.name.clone(), n.id))
+            .collect();
+        refresh_reference_edges(
+            base,
+            cwd,
+            file,
+            resolvers,
+            &local,
+            module.id,
+            next_id,
+            edge_changes,
+            node_tiers,
+            edge_removals,
+        );
+        return;
+    }
 
     // Resolve (or create) the module node for this file.
     let (module_id, mut created_module) = match existing
@@ -869,6 +902,34 @@ fn sync_one_file(
         }
     }
 
+    refresh_reference_edges(
+        base,
+        cwd,
+        file,
+        resolvers,
+        &local,
+        module_id,
+        next_id,
+        edge_changes,
+        node_tiers,
+        edge_removals,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn refresh_reference_edges(
+    base: &GraphIndexBase,
+    cwd: &Path,
+    file: &FileIndex,
+    resolvers: &ResolverSet,
+    local: &HashMap<String, u64>,
+    module_id: u64,
+    next_id: &mut u64,
+    edge_changes: &mut Vec<EdgeChange>,
+    node_tiers: &mut HashMap<u64, String>,
+    edge_removals: &mut Vec<u64>,
+) {
+    let rel_path = &file.file_path;
     // Re-resolve this file's outgoing reference edges, then decide per stored
     // edge whether the fresh result replaces it (see the module docs): delete
     // a stored edge only when this pass re-added the same
@@ -876,14 +937,14 @@ fn sync_one_file(
     // never because a cross-file reference failed to re-resolve. The
     // deletions land in the WRITE phase (after node writes succeed), so a
     // failed node write can never leave the file edge-less.
-    let stored = store.reference_edges_from_file(rel_path);
+    let stored = base.store.reference_edges_from_file(rel_path);
     let fresh_start = edge_changes.len();
     resolve_outgoing_edges(
         base,
         cwd,
         file,
         resolvers,
-        &local,
+        local,
         module_id,
         next_id,
         edge_changes,

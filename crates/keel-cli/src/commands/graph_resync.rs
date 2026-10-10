@@ -12,22 +12,19 @@
 //! starting with [`NO_USABLE_GRAPH`]: enforcing against nodes from code this
 //! checkout does not contain would report phantom removals and callers.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use keel_core::config::KeelConfig;
 use keel_core::sqlite::SqliteGraphStore;
-use keel_core::sqlite_meta::LAST_MAP_COMMIT;
+use keel_core::sqlite_meta::{LAST_MAP_COMMIT, RESYNC_PENDING};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeChange};
-use keel_enforce::gitdiff::{self, ChangeStatus, ChangedPath};
+use keel_enforce::gitdiff;
 use keel_parsers::treesitter::detect_language;
 
 use super::compile_parse::CompileParser;
 use super::compile_sync::{compiled_file_changes, write_compiled_changes, SyncSource};
-
-// Callers must survive a retry after node-removal cascades erased their edges.
-const PENDING_DEPENDENTS: &str = "resync_pending_dependents";
 
 /// The stable prefix of every "cannot check" refusal line.
 pub(crate) const NO_USABLE_GRAPH: &str = "keel compile: no usable graph — ";
@@ -81,7 +78,14 @@ pub(crate) fn bring_to_head(
     ) else {
         return Ok(());
     };
-    if stored == head {
+    let pending = store.meta_value(RESYNC_PENDING).and_then(|saved| {
+        serde_json::from_str::<(String, BTreeSet<String>, BTreeSet<String>)>(&saved).ok()
+    });
+    let (mut changed, mut dependents) = match pending {
+        Some((baseline, paths, dependents)) if baseline == stored => (paths, dependents),
+        _ => (BTreeSet::new(), BTreeSet::new()),
+    };
+    if stored == head && changed.is_empty() && dependents.is_empty() {
         return Ok(());
     }
     let base = gitdiff::resolve_commit(root, &stored).map_err(|_| gone_message(&stored))?;
@@ -103,48 +107,33 @@ pub(crate) fn bring_to_head(
             Ok(())
         }
     };
-    check_count(paths.len())?;
-    let changed: HashSet<String> = paths
-        .iter()
-        .flat_map(|c| std::iter::once(c.path.clone()).chain(c.base_path().map(str::to_owned)))
-        .collect();
-    let mut dependents = BTreeSet::new();
-    if let Some(saved) = store.meta_value(PENDING_DEPENDENTS) {
-        let (baseline, pending): (String, BTreeSet<String>) =
-            serde_json::from_str(&saved).map_err(|e| fail(e.to_string()))?;
-        if baseline == stored {
-            dependents.extend(pending);
-        }
-    }
+    changed.extend(
+        paths
+            .iter()
+            .flat_map(|c| std::iter::once(c.path.clone()).chain(c.base_path().map(str::to_owned))),
+    );
     dependents.retain(|p| !changed.contains(p));
-    let save_dependents = |store: &SqliteGraphStore, pending: &BTreeSet<String>| {
+    check_count(changed.len() + dependents.len())?;
+    let save_pending = |store: &SqliteGraphStore, dependents: &BTreeSet<String>| {
         store
             .set_meta_value(
-                PENDING_DEPENDENTS,
-                &serde_json::to_string(&(&stored, pending)).expect("strings serialize"),
+                RESYNC_PENDING,
+                &serde_json::to_string(&(&stored, &changed, dependents))
+                    .expect("strings serialize"),
             )
             .map_err(|e| fail(e.to_string()))
     };
 
     let mut gone_paths = BTreeSet::new();
-    for change in &paths {
-        let gone = match &change.status {
-            ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable => &change.path,
-            ChangeStatus::Renamed { from } => from,
-            ChangeStatus::Added | ChangeStatus::Modified => continue,
-        };
-        gone_paths.insert(gone.clone());
-    }
-
     // Everything present at HEAD is rebuilt from HEAD's blob.
     let literal_keys = super::map_boundary::persisted_literal_keys(root, store);
     let mut parser = CompileParser::new(root, literal_keys);
     let mut files = Vec::new();
-    for change in paths.iter().filter(|c| present_at_head(c)) {
-        match gitdiff::source_at(root, &head, &change.path).map_err(fail)? {
-            Some(text) => files.extend(parser.parse(&root.join(&change.path), &text)),
+    for path in &changed {
+        match gitdiff::source_at(root, &head, path).map_err(fail)? {
+            Some(text) => files.extend(parser.parse(&root.join(path), &text)),
             None => {
-                gone_paths.insert(change.path.clone());
+                gone_paths.insert(path.clone());
             }
         }
     }
@@ -156,12 +145,13 @@ pub(crate) fn bring_to_head(
             &mut dependents,
         );
     }
-    check_count(paths.len() + dependents.len())?;
-    if !dependents.is_empty() {
-        save_dependents(store, &dependents)?;
-    }
-    // Prune only after callers have been collected and saved for recovery.
+    check_count(changed.len() + dependents.len())?;
+    // Record every touched path before the first graph write, even without callers.
+    save_pending(store, &dependents)?;
     for path in gone_paths {
+        store
+            .remove_body_rows_in_file(&path)
+            .map_err(|e| fail(e.to_string()))?;
         keel_enforce::engine_prune::prune_file(store, &path).map_err(|e| fail(e.to_string()))?;
     }
     // Pass 1 adds the nodes of new definitions; an edge to one of them from a
@@ -188,9 +178,16 @@ pub(crate) fn bring_to_head(
                 &changed,
                 &mut dependents,
             );
-            check_count(paths.len() + dependents.len())?;
-            if !dependents.is_empty() {
-                save_dependents(store, &dependents)?;
+            check_count(changed.len() + dependents.len())?;
+            save_pending(store, &dependents)?;
+            for change in &changes.node_changes {
+                if let NodeChange::Remove(id) = change {
+                    if let Some(node) = store.get_node_by_id(*id) {
+                        store
+                            .remove_body_row(&node.hash, &node.file_path)
+                            .map_err(|e| fail(e.to_string()))?;
+                    }
+                }
             }
             let nodes_before = store.max_node_id();
             write_compiled_changes(store, changes, false).map_err(fail)?;
@@ -212,18 +209,15 @@ pub(crate) fn bring_to_head(
             &dependent_files,
             &parser.resolver_set(),
             config.monorepo.enabled,
-            SyncSource::Committed,
+            SyncSource::ResolveReferences,
         );
         write_compiled_changes(store, changes, false).map_err(fail)?;
     }
-    if !dependents.is_empty() {
-        save_dependents(store, &BTreeSet::new())?;
-    }
     store
-        .set_meta_value(LAST_MAP_COMMIT, &head)
+        .complete_resync(&head)
         .map_err(|e| fail(e.to_string()))?;
     if verbose {
-        let count = paths.len() + dependents.len();
+        let count = changed.len() + dependents.len();
         eprintln!(
             "keel compile: re-synced {count} file(s) from {} to {}",
             short(&stored),
@@ -236,7 +230,7 @@ pub(crate) fn bring_to_head(
 fn collect_dependents(
     store: &SqliteGraphStore,
     removed: impl Iterator<Item = u64>,
-    changed: &HashSet<String>,
+    changed: &BTreeSet<String>,
     dependents: &mut BTreeSet<String>,
 ) {
     for id in removed {
@@ -250,14 +244,6 @@ fn collect_dependents(
             }
         }
     }
-}
-
-/// Whether the change leaves a file at `path` in HEAD's tree, and one keel parses.
-fn present_at_head(change: &ChangedPath) -> bool {
-    !matches!(
-        change.status,
-        ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable
-    ) && detect_language(Path::new(&change.path)).is_some()
 }
 
 #[cfg(test)]

@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now re-syncs the files that differ from `HEAD`'s committed blobs, moves `last_map_commit` to `HEAD`
   and then checks the edit. It refuses (exit 2, `keel compile: no usable graph — …`) only when the
   stored commit is gone, more than 500 source files need re-sync including dependent callers
-  (15 for explicit files), or the re-sync
-  failed. `keel compile --since` keeps its ancestor refusal.
+  and recorded recovery paths (15 for explicit files), or the re-sync failed.
+  `keel compile --since` keeps its ancestor refusal.
 
 ## [0.7.0] - 2026-10-10
 

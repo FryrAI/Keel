@@ -11,6 +11,22 @@ use crate::types::{
 };
 
 impl SqliteGraphStore {
+    /// Remove mapped body rows when a committed re-sync prunes a whole path.
+    pub fn remove_body_rows_in_file(&self, file_path: &str) -> Result<(), GraphError> {
+        self.conn
+            .execute("DELETE FROM body_index WHERE file_path = ?1", [file_path])?;
+        Ok(())
+    }
+
+    /// Remove only the mapped body row of a stored node being removed.
+    pub fn remove_body_row(&self, node_hash: &str, file_path: &str) -> Result<(), GraphError> {
+        self.conn.execute(
+            "DELETE FROM body_index WHERE node_hash = ?1 AND file_path = ?2",
+            params![node_hash, file_path],
+        )?;
+        Ok(())
+    }
+
     /// Rebuild the body-hash index from `entries` in a single transaction.
     ///
     /// Backs [`GraphStore::replace_body_index`]. The delete and the inserts
