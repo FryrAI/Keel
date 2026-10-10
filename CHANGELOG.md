@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-10
+
+Four new codes — opt-in expression homes (W011/E007), template-respelling
+advisories (W012) and the SECURITY DEFINER `search_path` check (W013) — plus
+graph-integrity fixes: one kernel-backed lock for every graph writer, one
+project root whatever the cwd, and call resolution that never binds a bare
+call to a member or across languages.
+
+**Upgrading.** Run `keel map` once after installing: it populates the W012
+template homes and rebuilds edges under the corrected resolution and package
+rules. Upgrade every keel that writes the same `.keel` graph together —
+0.6.2 and older writers do not reliably exclude 0.7.0 writers under the new
+lock. Building from source needs Rust 1.89.
+
 ### Added
 - **SECURITY DEFINER `search_path` rule (#104): W013.** `keel compile` warns on every SQL routine
   declared `SECURITY DEFINER` whose effective `search_path` is missing or does not end with `pg_temp`
