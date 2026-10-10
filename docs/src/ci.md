@@ -64,8 +64,23 @@ that under the merge-base key would poison every later PR sharing that base.
 
 ## The staleness guard
 
-`keel map` records the commit it mapped in `keel_meta` (`last_map_commit`). If that
-commit is not an ancestor of `HEAD`, `keel compile` **exits 2** with:
+`keel map` records the commit it mapped in `keel_meta` (`last_map_commit`). When `HEAD`
+has moved off that commit, a working-tree `keel compile` (explicit files, `--changed`,
+or bare) **brings the graph to `HEAD` first**, from `HEAD`'s committed files, moves the
+marker to `HEAD`, and then checks. Nothing is printed on success (with `--verbose`, one
+line: `re-synced N file(s) from <old> to <new>`). It is what keeps a post-edit hook
+working after a branch switch, a squash merge or a pull.
+
+It refuses instead, exit 2 with one line starting `keel compile: no usable graph — `,
+when the move cannot be bridged: the stored commit is gone from this clone (run
+`keel map`), more than 500 source files differ from `HEAD` (run `keel map`), more than
+30 differ and the compile named explicit files (run `keel compile` with no arguments),
+or the re-sync itself failed (run `keel map`). The graph and the marker stay as they
+were and nothing is checked.
+
+`keel compile --since <ref>` keeps the old guard, because it checks a committed range
+against the stored base graph and a re-sync would erase the differences it reports. If
+the stored commit is not an ancestor of `HEAD`, it **exits 2** with:
 
 ```
 keel compile: the stored graph was built at commit 4f1c0a9b2d3e, which is not an
@@ -73,9 +88,7 @@ ancestor of HEAD — it describes code this checkout does not contain, so its ca
 and removals would be phantom. Run `keel map` to rebuild the graph.
 ```
 
-This is what makes a poisoned cache fail loudly instead of annotating fiction. It also
-fires locally after a rebase, an amend, or a branch switch away from the mapped
-history — the fix is the same: `keel map`.
+This is what makes a poisoned cache fail loudly instead of annotating fiction.
 
 The guard stays silent whenever it cannot be certain: a graph with no marker (mapped
 by an older keel, or outside a git repo), no git, or a commit this clone does not

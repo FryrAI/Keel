@@ -202,6 +202,20 @@ pre-existing migration race as any nominal reader.
 Network-filesystem lock semantics are not guaranteed. Deinit deletes the lock
 with `.keel`; an already-open waiter can acquire an orphaned inode after deletion.
 
+### A Working-Tree Compile Brings the Graph to HEAD
+`last_map_commit` names the commit whose tree the graph's nodes describe, plus working-tree edits compiled
+since; `keel map` and a completed re-sync are the only writers. `graph_resync::bring_to_head` (under the graph
+lock, before batch handling) diffs that commit against HEAD, prunes deleted/renamed paths, parses every present
+path from HEAD's blob (`gitdiff::source_at`, never the working tree: the edit under check must not enter its own
+baseline) and writes them with `sync_compiled_files(.., SyncSource::Committed)`, where an empty parse or a
+vanished definition with outside callers is applied, not kept, and definitions that still exist are refreshed from
+the blob (`engine::refreshed_node`, shared with the engine, hash collisions keep the stored hash). Edges to
+definitions the re-sync itself adds resolve in a second pass, run only when the first added a node. Only then does
+the marker move; `last_map_at` never does. Limits, no config key: `RESYNC_INLINE_MAX` 30 files for explicit-file compiles (the 5 s hook budget),
+`RESYNC_MAX_FILES` 500 for bare/`--changed`; above them, a gone stored commit, or any failure compile exits 2 with
+a `NO_USABLE_GRAPH` line and leaves graph and marker untouched. No git/HEAD/marker stays legacy-silent.
+`compile --since` keeps `graph_staleness`'s ancestor refusal, byte for byte.
+
 ### Compile Sync Never Deletes on Failed Re-Resolution
 `sync_compiled_files` (keel-cli `compile_sync.rs`) deletes a stored `calls`/`uses` edge only on positive
 evidence: this pass re-added the same `(source_id, target_id, kind)`, or the target lives inside the

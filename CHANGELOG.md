@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `KEEL_NO_TELEMETRY=1`, the documented opt-out, no longer makes every command exit 2: any value except an empty or a false-like one (`0`, `false`, `no`, `off`) opts out.
+- **`keel compile` brings a stale graph to HEAD instead of refusing (#107).** When `HEAD` moved off
+  the commit the graph was mapped at (branch checkout, squash merge, pull), a working-tree compile
+  now re-syncs the files that differ from `HEAD`'s committed blobs, moves `last_map_commit` to `HEAD`
+  and then checks the edit. It refuses (exit 2, `keel compile: no usable graph — …`) only when the
+  stored commit is gone, more than 500 source files differ (30 for explicit files), or the re-sync
+  failed. `keel compile --since` keeps its ancestor refusal.
 
 ## [0.7.0] - 2026-10-10
 

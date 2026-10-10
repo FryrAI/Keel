@@ -303,8 +303,29 @@ fn parse_name_status(bytes: &[u8], ignore: &KeelIgnore) -> Vec<ChangedPath> {
 /// Invalid source paths warn at most once per process, excluding ignored and
 /// unsupported paths on Unix, where their raw bytes can be filtered.
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
-    let raw = run_git_checked(dir, &["diff", "--name-status", "-z", "-M", base])?
-        .ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
+    name_status_paths(dir, &["diff", "--name-status", "-z", "-M", base], base)
+}
+
+/// Like [`changed_paths`], but between two revisions: `git diff --name-status
+/// -z -M <base> <head>`. Parsing and ignore handling are identical; the
+/// ignore rules are those of the current checkout, as the walker applies them.
+pub fn changed_paths_between(
+    dir: &Path,
+    base: &str,
+    head: &str,
+) -> Result<Vec<ChangedPath>, String> {
+    name_status_paths(
+        dir,
+        &["diff", "--name-status", "-z", "-M", base, head],
+        base,
+    )
+}
+
+/// Run a `--name-status -z -M` diff and parse it, naming `base` when git
+/// cannot resolve it.
+fn name_status_paths(dir: &Path, args: &[&str], base: &str) -> Result<Vec<ChangedPath>, String> {
+    let raw =
+        run_git_checked(dir, args)?.ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
     let ignore = KeelIgnore::new(&repo_root(dir));
     let entries = parse_name_status(&raw, &ignore);
     // Head-side paths take the walker's verdict; base-side ones (a deletion's
@@ -412,10 +433,18 @@ pub fn resolve_commit(dir: &Path, rev: &str) -> Result<String, String> {
         .map_err(|e| format!("base commit is not UTF-8: {e}"))
 }
 
-/// Read a UTF-8 blob, distinguishing a missing path from Git or decoding failures.
-/// Symlink entries return `None`: their link text is not base-side source.
-/// `rev` should be a resolved commit id, so all reads use the same snapshot.
-pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<String>, String> {
+/// What `git ls-tree` + `git cat-file` found at one path of one revision.
+enum Blob {
+    /// Nothing is stored at the path.
+    Missing,
+    /// A symlink entry: its link text is not source.
+    Symlink,
+    /// A tree or a submodule commit: no file content to read.
+    Opaque,
+    Bytes(Vec<u8>),
+}
+
+fn read_blob(dir: &Path, rev: &str, path: &str) -> Result<Blob, String> {
     let listing = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -426,7 +455,7 @@ pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<Strin
         return Err("cannot read base tree".into());
     }
     if listing.stdout.is_empty() {
-        return Ok(None);
+        return Ok(Blob::Missing);
     }
     let header = listing
         .stdout
@@ -436,10 +465,10 @@ pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<Strin
     let header = std::str::from_utf8(header).map_err(|e| e.to_string())?;
     let mut fields = header.split_whitespace();
     if fields.next() == Some("120000") {
-        return Ok(None);
+        return Ok(Blob::Symlink);
     }
     if fields.next() != Some("blob") {
-        return Err("base path is not a blob".into());
+        return Ok(Blob::Opaque);
     }
     let oid = fields.next().ok_or("missing base blob id")?;
     let blob = Command::new("git")
@@ -451,9 +480,30 @@ pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<Strin
     if !blob.status.success() {
         return Err("cannot read base blob".into());
     }
-    String::from_utf8(blob.stdout)
-        .map(Some)
-        .map_err(|e| format!("base blob is not UTF-8: {e}"))
+    Ok(Blob::Bytes(blob.stdout))
+}
+
+/// Read a UTF-8 blob, distinguishing a missing path from Git or decoding failures.
+/// Symlink entries return `None`: their link text is not base-side source.
+/// `rev` should be a resolved commit id, so all reads use the same snapshot.
+pub fn blob_at_checked(dir: &Path, rev: &str, path: &str) -> Result<Option<String>, String> {
+    match read_blob(dir, rev, path)? {
+        Blob::Missing | Blob::Symlink => Ok(None),
+        Blob::Opaque => Err("base path is not a blob".into()),
+        Blob::Bytes(bytes) => String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|e| format!("base blob is not UTF-8: {e}")),
+    }
+}
+
+/// The text of `path` at `rev`, or `None` when there is no source keel can
+/// parse there: the path is absent, a symlink, not a blob (a submodule), or
+/// its bytes are not UTF-8. Only a failing git is an `Err`.
+pub fn source_at(dir: &Path, rev: &str, path: &str) -> Result<Option<String>, String> {
+    Ok(match read_blob(dir, rev, path)? {
+        Blob::Bytes(bytes) => String::from_utf8(bytes).ok(),
+        Blob::Missing | Blob::Symlink | Blob::Opaque => None,
+    })
 }
 
 #[cfg(test)]

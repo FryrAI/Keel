@@ -47,6 +47,36 @@ pub struct EnforcementEngine {
     pub(crate) project_root: Option<std::path::PathBuf>,
 }
 
+/// `node` brought to the freshly parsed `def` under `new_hash`: the one place
+/// that knows which stored facts move with a definition's hash. The old hash is
+/// recorded so "modified since last map" survives (a full map re-baselines).
+///
+/// Every parse-derived fact (incl. `kind`) must move with the hash, or
+/// hook-driven compiles serve stale metric inputs until the next full map.
+/// Facts that move WITHOUT the hash — wrapping a mod in `#[cfg(test)]`, moving
+/// a fn into an impl — stay stale until then: bounded, same class as
+/// compile-sync's kept edges.
+pub fn refreshed_node(
+    node: &keel_core::types::GraphNode,
+    def: &keel_parsers::resolver::Definition,
+    new_hash: String,
+) -> keel_core::types::GraphNode {
+    let mut updated = node.clone();
+    if updated.hash != new_hash {
+        updated.previous_hashes.push(node.hash.clone());
+    }
+    updated.hash = new_hash;
+    updated.signature = def.signature.clone();
+    updated.docstring = def.docstring.clone();
+    updated.has_docstring = def.docstring.is_some();
+    updated.type_hints_present = def.type_hints_present;
+    updated.is_public = def.is_public;
+    updated.line_start = def.line_start;
+    updated.line_end = def.line_end;
+    def.apply_parse_facts(&mut updated);
+    updated
+}
+
 impl EnforcementEngine {
     /// Create an enforcement engine with default configuration.
     pub fn new(store: Box<dyn GraphStore + Send>) -> Self {
@@ -401,24 +431,7 @@ impl EnforcementEngine {
                         // Persist updated hash; record the old one so
                         // "modified since last map" survives the sync (see
                         // progressive adoption — a full map re-baselines).
-                        let mut updated_node = node.clone();
-                        updated_node.previous_hashes.push(node.hash.clone());
-                        updated_node.hash = target_hash;
-                        updated_node.signature = def.signature.clone();
-                        updated_node.docstring = def.docstring.clone();
-                        updated_node.has_docstring = def.docstring.is_some();
-                        updated_node.type_hints_present = def.type_hints_present;
-                        updated_node.is_public = def.is_public;
-                        updated_node.line_start = def.line_start;
-                        updated_node.line_end = def.line_end;
-                        // Every parse-derived fact (incl. `kind`) must move
-                        // with the hash, or hook-driven compiles serve stale
-                        // metric inputs until the next full map. Facts that
-                        // move WITHOUT the hash — wrapping a mod in
-                        // `#[cfg(test)]`, moving a fn into an impl — stay
-                        // stale until then: bounded, same class as
-                        // compile-sync's kept edges.
-                        def.apply_parse_facts(&mut updated_node);
+                        let updated_node = refreshed_node(node, def, target_hash);
                         node_changes.push(keel_core::types::NodeChange::Update(updated_node));
                     }
                 } else {
@@ -567,42 +580,10 @@ impl EnforcementEngine {
     /// Remove every node (and its edges) belonging to a deleted file.
     ///
     /// The file watcher calls this on `Remove` events so deleted files stop
-    /// accreting in the shared graph between full `keel map` runs. Works
-    /// entirely through the frozen [`GraphStore`] trait: collect the file's
-    /// nodes, drop children before their modules, then drop remaining edges.
-    /// Returns the number of nodes removed.
+    /// accreting in the shared graph between full `keel map` runs. Returns the
+    /// number of nodes removed.
     pub fn prune_file(&mut self, file_path: &str) -> Result<usize, keel_core::types::GraphError> {
-        use keel_core::types::{EdgeChange, EdgeDirection, NodeChange};
-
-        let mut nodes = self.store.get_nodes_in_file(file_path);
-        if nodes.is_empty() {
-            return Ok(0);
-        }
-
-        // Collect before deleting nodes: stores without cascades still need
-        // an explicit edge-removal pass after the node transaction succeeds.
-        let mut seen_edges = HashSet::new();
-        let mut edge_changes = Vec::new();
-        for node in &nodes {
-            for edge in self.store.get_edges(node.id, EdgeDirection::Both) {
-                if seen_edges.insert(edge.id) {
-                    edge_changes.push(EdgeChange::Remove(edge.id));
-                }
-            }
-        }
-        let count = nodes.len();
-        crate::engine_prune::order_file_nodes_for_removal(&mut nodes);
-        let node_changes = nodes
-            .into_iter()
-            .map(|n| NodeChange::Remove(n.id))
-            .collect();
-        self.store.update_nodes(node_changes)?;
-        // SQLite cascades edges in the node transaction, so a failed node
-        // removal leaves nodes and edges intact. This pass is then a no-op.
-        if !edge_changes.is_empty() {
-            self.store.update_edges(edge_changes)?;
-        }
-        Ok(count)
+        crate::engine_prune::prune_file(&mut *self.store, file_path)
     }
 
     // -- Private helpers --

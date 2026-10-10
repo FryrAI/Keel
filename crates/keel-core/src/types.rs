@@ -90,7 +90,7 @@ pub fn sql_in_list(kinds: &[EdgeKind]) -> String {
 }
 
 /// A node in the structural graph (function, class, or module).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: u64,
     pub hash: String,
@@ -139,7 +139,7 @@ pub struct GraphNode {
 }
 
 /// An external endpoint (HTTP, gRPC, GraphQL, etc.) associated with a function.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExternalEndpoint {
     pub kind: String,
     pub method: String,

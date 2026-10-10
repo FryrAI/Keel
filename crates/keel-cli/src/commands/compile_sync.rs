@@ -450,16 +450,31 @@ fn resolve_reference(
     resolve_call_reference(idx, ctx, reference).map(|resolved| (resolved, false))
 }
 
+/// Where a synced file's content came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncSource {
+    /// A compiled working-tree file: a parse with no definitions or a vanished
+    /// definition that outside callers still use is treated as in-progress
+    /// editing, so the graph keeps what it had.
+    WorkingTree,
+    /// A committed blob, authoritative as parsed: an empty parse removes the
+    /// file's definitions, and a vanished definition is removed whoever still
+    /// calls it, because HEAD does not contain it.
+    Committed,
+}
+
 /// Refresh the graph for the compiled files. Best-effort: a failure is logged
-/// (when `verbose`) and never blocks the compile result.
+/// (when `verbose`) and never blocks the compile result. Returns whether every
+/// write succeeded.
 pub fn sync_compiled_files(
     store: &mut SqliteGraphStore,
     cwd: &Path,
     files: &[FileIndex],
     resolvers: &ResolverSet,
     monorepo_enabled: bool,
+    source: SyncSource,
     verbose: bool,
-) {
+) -> bool {
     // Detected once per sync, only when `monorepo.enabled` (the caller's
     // already-loaded config) — the same gate `keel map` uses to annotate nodes.
     let layout = monorepo_enabled.then(|| keel_parsers::monorepo::detect_monorepo(cwd));
@@ -496,6 +511,7 @@ pub fn sync_compiled_files(
                 layout.as_ref(),
                 file,
                 resolvers,
+                source,
                 &batch_files,
                 &mut next_id,
                 &mut node_changes,
@@ -515,9 +531,10 @@ pub fn sync_compiled_files(
             if verbose {
                 eprintln!("keel compile: graph sync (nodes) failed: {}", e);
             }
-            return;
+            return false;
         }
     }
+    let mut complete = true;
     if !edge_removals.is_empty() || !edge_changes.is_empty() {
         // Removals FIRST: `update_edges` applies changes in order and adds
         // are INSERT OR IGNORE, so an add for an unchanged call site (same
@@ -532,13 +549,16 @@ pub fn sync_compiled_files(
             if verbose {
                 eprintln!("keel compile: graph sync (edges) failed: {}", e);
             }
+            complete = false;
         }
     }
     if let Err(e) = store.set_node_resolution_tiers(&node_tiers) {
         if verbose {
             eprintln!("keel compile: graph sync (tiers) failed: {}", e);
         }
+        complete = false;
     }
+    complete
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -548,6 +568,7 @@ fn sync_one_file(
     layout: Option<&MonorepoLayout>,
     file: &FileIndex,
     resolvers: &ResolverSet,
+    source: SyncSource,
     batch_files: &HashSet<&str>,
     next_id: &mut u64,
     node_changes: &mut Vec<NodeChange>,
@@ -563,8 +584,9 @@ fn sync_one_file(
     // successful compile or `keel map` supplies the real state. E004/E001
     // already ran against the pre-sync graph, so detection loses nothing.
     // (With no definitions there is also no containing def to attribute any
-    // reference edge to, so nothing below could produce output anyway.)
-    if file.definitions.is_empty() {
+    // reference edge to, so nothing below could produce output anyway.) A
+    // committed blob is not mid-edit: its empty parse is the file's real state.
+    if source == SyncSource::WorkingTree && file.definitions.is_empty() {
         return;
     }
 
@@ -667,6 +689,16 @@ fn sync_one_file(
         }
     }
 
+    if source == SyncSource::Committed {
+        node_changes.extend(committed_refreshes(
+            store,
+            &existing,
+            module_id,
+            &file.definitions,
+            assigned_hashes,
+        ));
+    }
+
     // Remove nodes for definitions that vanished from the file. E004 already
     // ran against the pre-sync graph, so pruning here does not hide removals.
     // Exception: keep a vanished node that still has live callers OUTSIDE this
@@ -676,7 +708,9 @@ fn sync_one_file(
     for node in existing.iter().filter(|n| {
         n.id != module_id && !current_names.contains(&(n.name.as_str(), n.kind == NodeKind::Module))
     }) {
-        if has_live_external_callers(store, node.id, batch_files) {
+        if source == SyncSource::WorkingTree
+            && has_live_external_callers(store, node.id, batch_files)
+        {
             continue;
         }
         node_changes.push(NodeChange::Remove(node.id));
@@ -721,6 +755,47 @@ fn sync_one_file(
             })
             .map(|(e, _)| e.id),
     );
+}
+
+/// Updates bringing the stored nodes of `definitions` to what a committed blob
+/// parsed to; empty when nothing differs. The blob is authoritative for the
+/// definitions it still has (the working-tree path leaves that to the engine,
+/// which runs before the sync). A hash another node already owns, or one
+/// assigned earlier in this batch, is not taken: the stored hash stays and the
+/// other fields still move, leaving the full disambiguation to the engine's
+/// ladder at the next compile or map.
+fn committed_refreshes(
+    store: &SqliteGraphStore,
+    existing: &[GraphNode],
+    module_id: u64,
+    definitions: &[Definition],
+    assigned_hashes: &mut HashSet<String>,
+) -> Vec<NodeChange> {
+    let mut claimed: HashSet<u64> = HashSet::new();
+    let mut changes = Vec::new();
+    for def in definitions {
+        let is_module = def.kind == NodeKind::Module;
+        let Some(node) = existing.iter().find(|n| {
+            n.id != module_id
+                && n.name == def.name
+                && (n.kind == NodeKind::Module) == is_module
+                && claimed.insert(n.id)
+        }) else {
+            continue;
+        };
+        let fresh = def.hash();
+        let taken = store
+            .get_node(&fresh)
+            .is_some_and(|owner| owner.id != node.id)
+            || assigned_hashes.contains(&fresh);
+        let hash = if taken { node.hash.clone() } else { fresh };
+        let updated = keel_enforce::engine::refreshed_node(node, def, hash);
+        if updated != *node {
+            assigned_hashes.insert(updated.hash.clone());
+            changes.push(NodeChange::Update(updated));
+        }
+    }
+    changes
 }
 
 /// Resolve the compiled file's call references into `calls` edges, running the

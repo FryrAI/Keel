@@ -115,7 +115,9 @@ fn a_graph_behind_head_still_compiles() {
 }
 
 /// The poisoned-cache shape: the graph describes a commit that is no longer in
-/// HEAD's history. Exit 2, not annotations.
+/// HEAD's history. `compile --since` checks a committed range against the
+/// stored base graph, so it keeps the refusal: exit 2, not annotations. (A
+/// working-tree compile re-syncs instead; see tests/graph_resync.rs.)
 #[test]
 fn a_graph_from_a_rewritten_history_exits_two() {
     let dir = fixture();
@@ -138,7 +140,7 @@ fn a_graph_from_a_rewritten_history_exits_two() {
     git(root, &["add", "-A"]);
     git(root, &["commit", "-q", "--no-verify", "-m", "divergent"]);
 
-    let out = keel(root, &["compile", "--changed"]);
+    let out = keel(root, &["compile", "--since", &first]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
