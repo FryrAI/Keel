@@ -11,6 +11,7 @@
 //! - W005-W007: economy checks (dead code, duplicate impls, oversized files)
 //! - W009: new cross-boundary dependency (+ opt-in E006 layer violation)
 //! - W010/P003: advisory-only semantic-reuse candidates
+//! - W013: SECURITY DEFINER routine whose search_path does not end with pg_temp
 
 pub mod analyze;
 pub mod audit;
@@ -18,6 +19,7 @@ pub mod batch;
 pub mod check;
 pub mod checkpoint;
 pub mod circuit_breaker;
+pub mod definer_search_path;
 pub mod engine;
 mod engine_prune;
 pub mod file_class;

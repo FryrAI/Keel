@@ -362,6 +362,7 @@ pub fn run(
 
     let mut engine = keel_enforce::engine::EnforcementEngine::with_config(Box::new(store), &config);
     engine.import_circuit_breaker(&cb_state);
+    engine.set_project_root(&root);
 
     // Apply suppressions
     if let Some(code) = &suppress {

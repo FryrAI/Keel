@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SECURITY DEFINER `search_path` rule (#104): W013.** `keel compile` warns on every SQL routine
+  declared `SECURITY DEFINER` whose effective `search_path` is missing or does not end with `pg_temp`
+  (PostgreSQL searches the temporary schema first otherwise). The effective list follows later
+  `ALTER FUNCTION … SET/RESET search_path`, replacement and `DROP` statements across the directory's
+  SQL files in migration order. Additive: no config, exit code unchanged without `--strict`; the
+  compile JSON `category` enum gains `definer_search_path`.
 - **Template respelling advisories (#87): W012.** `keel review` and MCP review
   report baseline-new literals containing at least 24 characters of a pure
   template function's fixed expression text, once per literal/home. Human, LLM,

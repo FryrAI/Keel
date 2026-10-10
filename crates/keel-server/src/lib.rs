@@ -56,7 +56,8 @@ impl KeelServer {
         // Each write request acquires the graph lock separately.
         let store = SqliteGraphStore::open(db_path)?;
         let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(&root_dir));
-        let engine = EnforcementEngine::with_config(Box::new(store), &config);
+        let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
+        engine.set_project_root(&root_dir);
         Ok(Self {
             engine: SharedEngine::new(engine, keel_dir),
             root_dir,
@@ -82,3 +83,6 @@ mod writer_test_support;
 
 #[cfg(test)]
 mod checkpoint_writer_tests;
+
+#[cfg(test)]
+mod definer_search_path_tests;

@@ -77,6 +77,7 @@
             "oversized_file",
             "new_cross_boundary_dep",
             "home_violation",
+            "definer_search_path",
             "suppressed"
           ],
           "description": "Violation category"
