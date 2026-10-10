@@ -14,6 +14,8 @@ mod test_broken_callers;
 mod test_circuit_breaker;
 #[path = "enforcement/test_clean_compile.rs"]
 mod test_clean_compile;
+#[path = "enforcement/test_definer_search_path.rs"]
+mod test_definer_search_path;
 #[path = "enforcement/test_docstrings.rs"]
 mod test_docstrings;
 #[path = "enforcement/test_duplicate_detection.rs"]
