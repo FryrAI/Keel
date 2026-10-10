@@ -650,6 +650,12 @@ fn sync_one_file(
     let rel_path = &file.file_path;
     let existing = store.get_nodes_in_file(rel_path);
 
+    let mut local: HashMap<String, u64> = existing
+        .iter()
+        .filter(|n| n.kind != NodeKind::Module)
+        .map(|n| (n.name.clone(), n.id))
+        .collect();
+
     if source == SyncSource::ResolveReferences {
         let Some(module) = existing
             .iter()
@@ -657,11 +663,6 @@ fn sync_one_file(
         else {
             return;
         };
-        let local = existing
-            .iter()
-            .filter(|n| n.kind != NodeKind::Module)
-            .map(|n| (n.name.clone(), n.id))
-            .collect();
         refresh_reference_edges(
             base,
             cwd,
@@ -706,11 +707,6 @@ fn sync_one_file(
         .iter()
         .filter(|n| n.id != module_id)
         .map(|n| ((n.name.clone(), n.kind == NodeKind::Module), n.id))
-        .collect();
-    let mut local: HashMap<String, u64> = existing
-        .iter()
-        .filter(|n| n.kind != NodeKind::Module)
-        .map(|n| (n.name.clone(), n.id))
         .collect();
     let current_names: HashSet<(&str, bool)> = file
         .definitions
