@@ -1,7 +1,7 @@
 //! `KEEL_NO_TELEMETRY` is the documented opt-out. No value of it may make a
 //! keel command fail: a hook that runs `keel` with the variable set would
 //! otherwise exit 2 on every call, which agent tools treat as non-blocking.
-//! Any value except a false-like one opts out.
+//! Any value except an empty or a false-like one opts out.
 
 #[path = "common/mod.rs"]
 mod common;
@@ -60,6 +60,6 @@ fn a_false_like_value_or_no_variable_keeps_telemetry_on() {
 }
 
 #[test]
-fn an_empty_value_does_not_fail() {
-    records_telemetry(Some(""));
+fn an_empty_value_is_not_an_opt_out() {
+    assert!(records_telemetry(Some("")));
 }
