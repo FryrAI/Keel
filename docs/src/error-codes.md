@@ -418,6 +418,64 @@ home's complete semantics before substituting a call.
 See the [precision study](../studies/template-respelled/README.md) for the method,
 counts and decision.
 
+### W013 — Definer Search Path
+
+**Severity:** WARNING
+
+A SQL routine declared `SECURITY DEFINER` runs with its owner's rights. PostgreSQL searches the
+session's temporary schema **first** unless `pg_temp` is listed in the routine's `search_path`, so a
+caller who may create temporary tables can shadow a relation the routine names without a schema.
+W013 fires for every such routine whose effective `search_path` is missing or does not end with
+`pg_temp`.
+
+```json
+{
+  "code": "W013",
+  "message": "SECURITY DEFINER routine `touch_item` has search_path `public`, which does not end with pg_temp: the caller's temporary schema is searched first",
+  "file": "migrations/0001_items.sql",
+  "line": 5,
+  "hash": "K9hcGu3hkYe",
+  "fix_hint": "append pg_temp as the last search_path entry, e.g. `SET search_path = pg_catalog, public, pg_temp`",
+  "confidence": 0.9,
+  "resolution_tier": "heuristic"
+}
+```
+
+**Fix:** end the list with `pg_temp` — in the routine's own `SET search_path` clause, or with
+`ALTER FUNCTION … SET search_path = …, pg_temp` in a later migration.
+
+The effective list is the one PostgreSQL would store after every SQL file of the routine's directory
+has run, in the order a migration runner applies them (file names compare with digit runs as numbers,
+so `9_x.sql` precedes `10_x.sql`):
+
+- A later `ALTER FUNCTION|PROCEDURE|ROUTINE … SET search_path` replaces the list; `RESET search_path`,
+  `RESET ALL` and `SET search_path TO DEFAULT` remove it. The message names the statement that did.
+- A later `CREATE [OR REPLACE]` of the same signature replaces the earlier definition (and discards
+  what was altered on it); `DROP` removes it; `ALTER … SECURITY INVOKER|DEFINER`, `RENAME TO` and
+  `SET SCHEMA` are followed. Only the definition that is still live is judged.
+- `TO` and `=` are the same. Unquoted identifiers fold to lower case and quoted ones are verbatim
+  (`"PG_TEMP"` is another schema). Each string constant is one schema name, so `'public, pg_temp'`
+  names a single schema and is flagged. A repeated schema counts where it first appears:
+  `pg_temp, public, pg_temp` is flagged. An empty list (`''`) is flagged.
+- `ALTER`/`DROP` with argument types targets the overload with those input types (argument names,
+  defaults, `OUT` arguments and built-in aliases such as `int`/`integer` do not matter); without an
+  argument list it targets every routine of that name. An unqualified name matches the name in any
+  schema.
+- `SECURITY INVOKER` routines (explicit or by default) are never flagged. Text in comments, string
+  constants and routine bodies is not a clause.
+
+Left unflagged, because the file does not hold the answer: `SET search_path FROM CURRENT` (the
+creating session's value), a routine named by a statement inside a `DO` block (it may not have run),
+and overloads of one arity when an `ALTER`/`DROP` spells types that match none of them.
+
+Not seen: dynamic SQL (`EXECUTE`), SQL files of other directories, `DROP SCHEMA … CASCADE`, and a
+session-level `SET search_path` before an unqualified `CREATE`. The finding sits on the `CREATE` statement, so a
+later migration that weakens an earlier routine is reported when the earlier file is compiled — a
+full `keel compile`, not `--changed` over the new file alone. W013 defers in batch mode, is
+suppressed with `--suppress W013`, and is not part of `keel review`'s baseline diff. It needs a
+project root on disk: CLI compile, `keel serve`/`watch` and MCP compile and checkpoint run it. CLI
+`keel checkpoint` and `keel fix` do not parse SQL files, so they never report it.
+
 ## Plan findings
 
 `P001`, `P002`, and `P003` live in a deliberately separate namespace. They are produced by [`keel validate-plan`](commands.md) only — never by `keel compile` — because they describe claims about code that does not exist yet. They never appear in the compile stream or affect a compile's exit code. `P003` is always advisory; `--strict` applies only to live P001/P002 findings.

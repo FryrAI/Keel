@@ -5,6 +5,7 @@ use keel_parsers::resolver::FileIndex;
 
 use crate::batch::is_deferrable;
 use crate::circuit_breaker::{BreakerAction, CircuitBreaker};
+use crate::definer_search_path::DefinerSearchPath;
 use crate::progressive::apply_progressive_adoption;
 use crate::suppress::SuppressionManager;
 use crate::types::{CompileInfo, CompileResult, Violation};
@@ -41,6 +42,9 @@ pub struct EnforcementEngine {
     /// boundary checks off.
     pub(crate) architecture: keel_core::config::ArchitectureConfig,
     pub(crate) packages_declared: bool,
+    /// Where graph paths live on disk. W013 replays SQL files from here; an
+    /// engine without it leaves that check off.
+    pub(crate) project_root: Option<std::path::PathBuf>,
 }
 
 impl EnforcementEngine {
@@ -54,6 +58,7 @@ impl EnforcementEngine {
             enforce_config: keel_core::config::EnforceConfig::default(),
             architecture: keel_core::config::ArchitectureConfig::default(),
             packages_declared: false,
+            project_root: None,
         }
     }
 
@@ -70,7 +75,14 @@ impl EnforcementEngine {
             enforce_config: config.enforce.clone(),
             architecture: config.architecture.clone(),
             packages_declared: config.monorepo.enabled && !config.monorepo.packages.is_empty(),
+            project_root: None,
         }
+    }
+
+    /// Tell the engine where graph paths live on disk, enabling the checks
+    /// that read files beside the compiled ones (W013).
+    pub fn set_project_root(&mut self, root: &std::path::Path) {
+        self.project_root = Some(root.to_path_buf());
     }
 
     /// Compile (validate) a set of files. Returns violations.
@@ -115,6 +127,8 @@ impl EnforcementEngine {
         // than once per file.
         let boundary_ctx =
             BoundaryContext::new(&*self.store, &self.architecture, self.packages_declared);
+        // W013 replays each SQL directory once per compile.
+        let mut definer = self.project_root.as_deref().map(DefinerSearchPath::new);
 
         for file in files {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
@@ -173,6 +187,12 @@ impl EnforcementEngine {
                 &existing_nodes,
                 &boundary_ctx,
             ));
+
+            // W013: a SECURITY DEFINER routine whose search_path does not end
+            // with pg_temp, judged with the later ALTER FUNCTION statements.
+            if let Some(definer) = definer.as_mut() {
+                file_violations.extend(definer.check_file(file, &existing_nodes));
+            }
 
             // Fixup: use graph-stored hashes so `keel explain <hash>` works.
             // The codes in `DEF_HASH_CODES` compute hashes freshly, which may

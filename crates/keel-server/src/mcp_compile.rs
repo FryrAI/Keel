@@ -17,6 +17,7 @@ pub(crate) fn handle_compile(
     params: Option<Value>,
 ) -> Result<Value, JsonRpcError> {
     let mut engine = engine.writer().map_err(internal_err)?;
+    engine.set_project_root(root);
     let files: Vec<String> = params
         .as_ref()
         .and_then(|p| p.get("files").cloned())

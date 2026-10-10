@@ -17,6 +17,7 @@
 | W010 | semantic_reuse — review-time advisory only; an added function may overlap an existing graph role |
 | W012 | template_respelled — review-only advisory; a literal re-spells a template home's fixed text; never gating |
 | W011 | home_violation — new configured expression outside its home (Git-base comparison) |
+| W013 | definer_search_path — SECURITY DEFINER SQL routine whose search_path does not end with pg_temp |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
 | P001 | unknown_symbol — plan-time only: the plan calls a symbol the graph does not have |
 | P002 | signature_mismatch — plan-time only: the plan's call does not match the stored signature |

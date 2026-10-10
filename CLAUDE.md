@@ -110,6 +110,7 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 | W007 | oversized_file | WARNING |
 | W009 | new_cross_boundary_dep | WARNING |
 | W011 | home_violation | WARNING (opt-in) |
+| W013 | definer_search_path | WARNING |
 | S001 | suppressed | INFO |
 | P001 | unknown_symbol | WARNING (plan-time only) |
 | P002 | signature_mismatch | WARNING (plan-time only) |
@@ -241,6 +242,17 @@ and only a new identity charges another attempt. Selecting different files alone
 Older raw-line fingerprints reset to first sighting on migration to masked `homes-v3:` identities.
 Server/watch/HTTP/MCP **compile** do not run homes; CLI and MCP **review** do.
 
+### W013 Replays a Directory's SQL Files From Disk
+`definer_search_path` (keel-enforce) judges a `SECURITY DEFINER` routine by the `search_path` PostgreSQL would
+store after every `.sql` file of its directory ran in migration order (digit runs compare as numbers): later
+`ALTER … SET/RESET`, replacement, `DROP`, `RENAME TO` and `SET SCHEMA` statements are replayed, and only the
+live definition is judged. The graph stores no statement text, so the check reads disk and needs the engine's
+`set_project_root`; an engine without it skips W013 silently (CLI `fix`/`checkpoint` parse no SQL). Its lexer is its own: the
+parser's `sql_tokens` drops string constants, which are `search_path` values here. Undecidable cases stay
+unflagged (`FROM CURRENT`, statements inside `DO` blocks, argument types matching none of several overloads).
+The finding's line is the `CREATE` keyword; a stored SQL node starts at the previous statement's end, so the
+hash is bound by name and line span, not by `DEF_HASH_CODES`.
+
 ### Compile-Added Nodes Carry Map's Package
 `compile_sync` stamps every module/definition node it adds with `keel_parsers::walker::package_for_path` over the
 monorepo layout (detected once per sync, only when `monorepo.enabled`; absolute path = root joined to the graph path,
@@ -292,7 +304,7 @@ real duplicated machinery (`check_missing_docstring` vs `check_missing_type_hint
 `format_*` pair) but the tail is dispatch boilerplate, which is why #66 landed as a trend metric and not
 as a W006 variant.
 
-The one exception is **honesty about files keel cannot parse**: compiling a `.sql`, `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .sql is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
+The one exception is **honesty about files keel cannot parse**: compiling a `.baml`, `.proto` or `.graphql` file (named explicitly or matched by `--changed`) prints one stderr line — `keel: .baml is not a tracked language — no checks ran`. Exit stays 0, stdout stays empty. Never fires for `.md`/`.json`/`.lock`. Owned by `keel_enforce::file_class`.
 
 ### What the Audit Grades
 `keel audit` grades size and naming smells (`function_size`, `god_file`, `public_ratio`, `cryptic_name`, `trivial_wrapper`) on **hand-written source only**. `FileClass` (keel-enforce `file_class.rs`) classifies every path as Source / Boundary (`.baml`, `.proto`, `.graphql`) / Generated (`baml_client`, `baml_sdk`) / Data (`.sql`) / Test (`violations_util::is_test_file`), deriving Source from the canonical `detect_language` table so the two can't drift. Only Source is graded; `orphan_file` deliberately still applies to `.baml` (T1.4 gives those files real edges — real edges beat exemptions).
@@ -414,6 +426,7 @@ project vault/notes directory is optional and entirely user-side.)
 | W010 | semantic_reuse — review-time advisory only; an added function may overlap an existing graph role |
 | W012 | template_respelled — review-only advisory; a literal re-spells a template home's fixed text; never gating |
 | W011 | home_violation — new configured expression outside its home (Git-base comparison) |
+| W013 | definer_search_path — SECURITY DEFINER SQL routine whose search_path does not end with pg_temp |
 | S001 | suppressed — violation suppressed via `--suppress` or circuit breaker |
 | P001 | unknown_symbol — plan-time only: the plan calls a symbol the graph does not have |
 | P002 | signature_mismatch — plan-time only: the plan's call does not match the stored signature |

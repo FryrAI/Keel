@@ -215,6 +215,7 @@ JSON output schemas are API surfaces. They are frozen and versioned.
 | W007 | oversized_file | WARNING | File exceeds the configured line budget and grew in this change |
 | W009 | new_cross_boundary_dep | WARNING | File depends on a package it did not depend on at the last `keel map` |
 | W011 | home_violation | WARNING | New configured expression outside its home (Git-base comparison, opt-in) |
+| W013 | definer_search_path | WARNING | `SECURITY DEFINER` SQL routine whose effective `search_path` does not end with `pg_temp` |
 | S001 | suppressed | INFO | Violation suppressed via inline or config |
 
 W005-W007 are the v0.5 "economy" additions — additive only; existing codes, severities, and exit codes are unchanged.

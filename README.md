@@ -320,6 +320,7 @@ scripts/
 | W009 | New cross-boundary dependency | WARNING |
 | W010 | Semantic reuse candidate (`keel review`, advisory-only) | WARNING |
 | W011 | New expression outside its configured home | WARNING |
+| W013 | `SECURITY DEFINER` SQL routine whose `search_path` does not end with `pg_temp` | WARNING |
 | S001 | Suppressed | INFO |
 | P001 | Unknown symbol (plan-time, `keel validate-plan` only) | WARNING |
 | P002 | Signature mismatch (plan-time, `keel validate-plan` only) | WARNING |

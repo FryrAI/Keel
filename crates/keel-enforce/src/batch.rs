@@ -112,8 +112,10 @@ fn now_unix() -> u64 {
 // reach across boundaries before the façade they will go through exists. E006
 // does not: an explicitly denied pair is an error at any point in the scaffold.
 // Likewise W011 defers while E007 remains immediate.
+// W013 defers: the ALTER FUNCTION that completes a routine's search_path is
+// often the next file of the scaffold.
 const DEFERRABLE_CODES: &[&str] = &[
-    "E002", "E003", "W001", "W002", "W005", "W006", "W007", "W009", "W011",
+    "E002", "E003", "W001", "W002", "W005", "W006", "W007", "W009", "W011", "W013",
 ];
 
 /// Returns true if this code should be deferred in batch mode.
