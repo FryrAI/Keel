@@ -606,8 +606,7 @@ pub(super) fn write_compiled_changes(
         }
     }
     if let Err(e) = store.set_node_resolution_tiers(&node_tiers) {
-        let reason = failure("tiers", e);
-        error.get_or_insert(reason);
+        error.get_or_insert(failure("tiers", e));
     }
     error.map_or(Ok(()), Err)
 }

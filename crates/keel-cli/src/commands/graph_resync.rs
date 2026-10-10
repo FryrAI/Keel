@@ -169,12 +169,13 @@ pub(crate) fn bring_to_head(
     // stored, so pass 2 re-resolves the same files. A re-sync that adds no node
     // costs one pass.
     if !files.is_empty() {
+        let resolvers = parser.resolver_set();
         for _ in 0..2 {
             let changes = compiled_file_changes(
                 store,
                 root,
                 &files,
-                &parser.resolver_set(),
+                &resolvers,
                 config.monorepo.enabled,
                 SyncSource::Committed,
             );
