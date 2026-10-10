@@ -26,22 +26,19 @@ pub fn run_cached(
         return (2, EventMetrics::default());
     }
 
-    let stale = if let (Some(head), Some(stored)) = (
+    let stale = match (
         keel_enforce::gitdiff::head_commit(root),
         store.meta_value(keel_core::sqlite_meta::LAST_MAP_COMMIT),
     ) {
-        if stored != head {
+        (Some(head), Some(stored)) if stored != head => {
             eprintln!(
                 "keel map --cached: the stored graph was built at commit {}, HEAD is {}. Run `keel map` to rebuild it.",
                 stored.chars().take(12).collect::<String>(),
                 head.chars().take(12).collect::<String>()
             );
             true
-        } else {
-            false
         }
-    } else {
-        false
+        _ => false,
     };
 
     if !stale {
