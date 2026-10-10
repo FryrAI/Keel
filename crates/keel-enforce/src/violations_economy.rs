@@ -396,6 +396,7 @@ fn trait_pair_exempt(
 /// deliberate dispatch pattern (trait impls, `format_*` fan-out), while a copy
 /// in another file is the drift risk worth flagging.
 fn cross_file_twin(
+    store: &dyn GraphStore,
     matches: Vec<BodyIndexEntry>,
     seen: &HashMap<String, (String, String, u32)>,
     fingerprint: &str,
@@ -404,6 +405,11 @@ fn cross_file_twin(
     matches
         .into_iter()
         .filter(|m| m.file_path != own_file)
+        .filter(|m| {
+            store
+                .get_node(&m.node_hash)
+                .is_some_and(|n| n.hash == m.node_hash && n.file_path == m.file_path)
+        })
         .find(|m| !is_test_file(&m.file_path))
         .map(|m| (m.name, m.file_path, m.line))
         .or_else(|| {
@@ -489,6 +495,7 @@ pub fn check_duplicate_implementation(
             None
         } else {
             cross_file_twin(
+                store,
                 store.find_body_matches(body_hash),
                 &seen.t1,
                 body_hash,
@@ -516,6 +523,7 @@ pub fn check_duplicate_implementation(
                 None
             } else {
                 cross_file_twin(
+                    store,
                     store.find_t2_body_matches(t2),
                     &seen.t2,
                     t2,

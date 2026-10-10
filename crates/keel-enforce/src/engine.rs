@@ -48,8 +48,8 @@ pub struct EnforcementEngine {
 }
 
 /// `node` brought to the freshly parsed `def` under `new_hash`: the one place
-/// that knows which stored facts move with a definition's hash. The old hash is
-/// recorded so "modified since last map" survives (a full map re-baselines).
+/// that knows which stored facts move with a definition's hash. The caller
+/// decides history: ordinary compiles record it; committed re-sync preserves it.
 ///
 /// Every parse-derived fact (incl. `kind`) must move with the hash, or
 /// hook-driven compiles serve stale metric inputs until the next full map.
@@ -62,9 +62,6 @@ pub fn refreshed_node(
     new_hash: String,
 ) -> keel_core::types::GraphNode {
     let mut updated = node.clone();
-    if updated.hash != new_hash {
-        updated.previous_hashes.push(node.hash.clone());
-    }
     updated.hash = new_hash;
     updated.signature = def.signature.clone();
     updated.docstring = def.docstring.clone();
@@ -431,7 +428,8 @@ impl EnforcementEngine {
                         // Persist updated hash; record the old one so
                         // "modified since last map" survives the sync (see
                         // progressive adoption — a full map re-baselines).
-                        let updated_node = refreshed_node(node, def, target_hash);
+                        let mut updated_node = refreshed_node(node, def, target_hash);
+                        updated_node.previous_hashes.push(node.hash.clone());
                         node_changes.push(keel_core::types::NodeChange::Update(updated_node));
                     }
                 } else {

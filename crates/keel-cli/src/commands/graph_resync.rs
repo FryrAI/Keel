@@ -12,23 +12,27 @@
 //! starting with [`NO_USABLE_GRAPH`]: enforcing against nodes from code this
 //! checkout does not contain would report phantom removals and callers.
 
+use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
 use keel_core::config::KeelConfig;
 use keel_core::sqlite::SqliteGraphStore;
 use keel_core::sqlite_meta::LAST_MAP_COMMIT;
 use keel_core::store::GraphStore;
+use keel_core::types::{EdgeDirection, EdgeKind, NodeChange};
 use keel_enforce::gitdiff::{self, ChangeStatus, ChangedPath};
 use keel_parsers::treesitter::detect_language;
 
 use super::compile_parse::CompileParser;
-use super::compile_sync::{sync_compiled_files, SyncSource};
+use super::compile_sync::{compiled_file_changes, write_compiled_changes, SyncSource};
+
+// Callers must survive a retry after node-removal cascades erased their edges.
+const PENDING_DEPENDENTS: &str = "resync_pending_dependents";
 
 /// The stable prefix of every "cannot check" refusal line.
 pub(crate) const NO_USABLE_GRAPH: &str = "keel compile: no usable graph — ";
-/// Most files an explicit-file compile re-syncs: it is the per-edit hook path,
-/// which runs under a 5 s budget a killed re-sync would repeat on every edit.
-pub(crate) const RESYNC_INLINE_MAX: usize = 30;
+/// Under load: about 1.2 s fixed + 0.09 s/file, within the hook's 5 s budget.
+pub(crate) const RESYNC_INLINE_MAX: usize = 15;
 /// Most files a bare or `--changed` compile re-syncs; beyond it a full map is
 /// comparable in time and better in fidelity.
 pub(crate) const RESYNC_MAX_FILES: usize = 500;
@@ -54,6 +58,7 @@ fn too_many_message(stored: &str, count: usize, fix: &str) -> String {
 }
 
 fn failed_message(stored: &str, reason: &str) -> String {
+    let reason = reason.replace(['\r', '\n'], " ");
     format!(
         "{NO_USABLE_GRAPH}the stored graph was built at commit {} and could not be brought up \
          to date ({reason}). Run `keel map` to rebuild it; nothing was checked.",
@@ -85,27 +90,50 @@ pub(crate) fn bring_to_head(
     let known = |path: &str| detect_language(Path::new(path)).is_some();
     let mut paths = gitdiff::changed_paths_between(root, &base, &head).map_err(fail)?;
     paths.retain(|c| known(&c.path) || c.base_path().is_some_and(known));
-    let count = paths.len();
-    if count > RESYNC_MAX_FILES {
-        return Err(too_many_message(&stored, count, "`keel map` to rebuild it"));
+    let check_count = |count| {
+        if count > RESYNC_MAX_FILES {
+            Err(too_many_message(&stored, count, "`keel map` to rebuild it"))
+        } else if explicit_targets && count > RESYNC_INLINE_MAX {
+            Err(too_many_message(
+                &stored,
+                count,
+                "`keel compile` to bring it up to date",
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    check_count(paths.len())?;
+    let changed: HashSet<String> = paths
+        .iter()
+        .flat_map(|c| std::iter::once(c.path.clone()).chain(c.base_path().map(str::to_owned)))
+        .collect();
+    let mut dependents = BTreeSet::new();
+    if let Some(saved) = store.meta_value(PENDING_DEPENDENTS) {
+        let (baseline, pending): (String, BTreeSet<String>) =
+            serde_json::from_str(&saved).map_err(|e| fail(e.to_string()))?;
+        if baseline == stored {
+            dependents.extend(pending);
+        }
     }
-    if explicit_targets && count > RESYNC_INLINE_MAX {
-        return Err(too_many_message(
-            &stored,
-            count,
-            "`keel compile` to bring it up to date",
-        ));
-    }
+    dependents.retain(|p| !changed.contains(p));
+    let save_dependents = |store: &SqliteGraphStore, pending: &BTreeSet<String>| {
+        store
+            .set_meta_value(
+                PENDING_DEPENDENTS,
+                &serde_json::to_string(&(&stored, pending)).expect("strings serialize"),
+            )
+            .map_err(|e| fail(e.to_string()))
+    };
 
-    // Removals first: a path that left the tree and came back under another
-    // name is rebuilt below rather than pruned after it.
+    let mut gone_paths = BTreeSet::new();
     for change in &paths {
         let gone = match &change.status {
             ChangeStatus::Deleted | ChangeStatus::RenamedToUnreadable => &change.path,
             ChangeStatus::Renamed { from } => from,
             ChangeStatus::Added | ChangeStatus::Modified => continue,
         };
-        keel_enforce::engine_prune::prune_file(store, gone).map_err(|e| fail(e.to_string()))?;
+        gone_paths.insert(gone.clone());
     }
 
     // Everything present at HEAD is rebuilt from HEAD's blob.
@@ -116,41 +144,85 @@ pub(crate) fn bring_to_head(
         match gitdiff::source_at(root, &head, &change.path).map_err(fail)? {
             Some(text) => files.extend(parser.parse(&root.join(&change.path), &text)),
             None => {
-                keel_enforce::engine_prune::prune_file(store, &change.path)
-                    .map_err(|e| fail(e.to_string()))?;
+                gone_paths.insert(change.path.clone());
             }
         }
+    }
+    for path in &gone_paths {
+        collect_dependents(
+            store,
+            store.get_nodes_in_file(path).iter().map(|n| n.id),
+            &changed,
+            &mut dependents,
+        );
+    }
+    check_count(paths.len() + dependents.len())?;
+    if !dependents.is_empty() {
+        save_dependents(store, &dependents)?;
+    }
+    // Prune only after callers have been collected and saved for recovery.
+    for path in gone_paths {
+        keel_enforce::engine_prune::prune_file(store, &path).map_err(|e| fail(e.to_string()))?;
     }
     // Pass 1 adds the nodes of new definitions; an edge to one of them from a
     // file synced earlier in the same pass cannot resolve until the node is
     // stored, so pass 2 re-resolves the same files. A re-sync that adds no node
     // costs one pass.
-    let resolvers = parser.resolver_set();
     if !files.is_empty() {
-        let sync = |store: &mut SqliteGraphStore| {
-            sync_compiled_files(
+        for _ in 0..2 {
+            let changes = compiled_file_changes(
                 store,
                 root,
                 &files,
-                &resolvers,
+                &parser.resolver_set(),
                 config.monorepo.enabled,
                 SyncSource::Committed,
-                verbose,
-            )
-        };
-        let nodes_before = store.max_node_id();
-        let mut done = sync(store);
-        if done && store.max_node_id() > nodes_before {
-            done = sync(store);
+            );
+            collect_dependents(
+                store,
+                changes.node_changes.iter().filter_map(|c| match c {
+                    NodeChange::Remove(id) => Some(*id),
+                    _ => None,
+                }),
+                &changed,
+                &mut dependents,
+            );
+            check_count(paths.len() + dependents.len())?;
+            if !dependents.is_empty() {
+                save_dependents(store, &dependents)?;
+            }
+            let nodes_before = store.max_node_id();
+            write_compiled_changes(store, changes, false).map_err(fail)?;
+            if store.max_node_id() <= nodes_before {
+                break;
+            }
         }
-        if !done {
-            return Err(fail("graph write failed".into()));
+    }
+    let mut dependent_files = Vec::new();
+    for path in &dependents {
+        if let Some(text) = gitdiff::source_at(root, &head, path).map_err(fail)? {
+            dependent_files.extend(parser.parse(&root.join(path), &text));
         }
+    }
+    if !dependent_files.is_empty() {
+        let changes = compiled_file_changes(
+            store,
+            root,
+            &dependent_files,
+            &parser.resolver_set(),
+            config.monorepo.enabled,
+            SyncSource::Committed,
+        );
+        write_compiled_changes(store, changes, false).map_err(fail)?;
+    }
+    if !dependents.is_empty() {
+        save_dependents(store, &BTreeSet::new())?;
     }
     store
         .set_meta_value(LAST_MAP_COMMIT, &head)
         .map_err(|e| fail(e.to_string()))?;
     if verbose {
+        let count = paths.len() + dependents.len();
         eprintln!(
             "keel compile: re-synced {count} file(s) from {} to {}",
             short(&stored),
@@ -158,6 +230,25 @@ pub(crate) fn bring_to_head(
         );
     }
     Ok(())
+}
+
+fn collect_dependents(
+    store: &SqliteGraphStore,
+    removed: impl Iterator<Item = u64>,
+    changed: &HashSet<String>,
+    dependents: &mut BTreeSet<String>,
+) {
+    for id in removed {
+        for edge in store.get_edges(id, EdgeDirection::Incoming) {
+            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::Uses) {
+                if let Some(caller) = store.get_node_by_id(edge.source_id) {
+                    if !changed.contains(&caller.file_path) {
+                        dependents.insert(caller.file_path);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Whether the change leaves a file at `path` in HEAD's tree, and one keel parses.

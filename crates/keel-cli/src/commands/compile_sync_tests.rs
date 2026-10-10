@@ -476,7 +476,7 @@ fn changed_signature_file() -> FileIndex {
 }
 
 /// A committed blob brings a surviving definition's stored signature and hash
-/// to the parsed one and records the old hash; a working-tree sync leaves that
+/// to the parsed one and preserves history; a working-tree sync leaves that
 /// to the engine and keeps the node as stored.
 #[test]
 fn committed_sync_refreshes_a_surviving_definition_and_working_tree_does_not() {
@@ -490,6 +490,15 @@ fn committed_sync_refreshes_a_surviving_definition_and_working_tree_does_not() {
             index("src/a.rs", vec![def_at("callee", "src/a.rs", 1, 3)]),
             SyncSource::WorkingTree,
         );
+        let mut historical = store
+            .get_nodes_in_file("src/a.rs")
+            .into_iter()
+            .find(|n| n.name == "callee")
+            .unwrap();
+        historical.previous_hashes.push("olderhash11".into());
+        store
+            .update_nodes(vec![NodeChange::Update(historical)])
+            .unwrap();
         let before = store.get_nodes_in_file("src/a.rs");
         let before = before.iter().find(|n| n.name == "callee").unwrap();
 
@@ -501,11 +510,88 @@ fn committed_sync_refreshes_a_surviving_definition_and_working_tree_does_not() {
         assert_eq!(after.signature == "fn callee(extra: u32)", refreshed);
         assert_eq!(after.hash != before.hash, refreshed);
         assert_eq!(
-            after.previous_hashes == vec![before.hash.clone()],
-            refreshed,
-            "the replaced hash is recorded, as the engine does"
+            after.previous_hashes, before.previous_hashes,
+            "committed sync leaves history unchanged"
         );
     }
+}
+
+fn same_named_pair() -> (SqliteGraphStore, Definition, Definition, u64, u64) {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let mut alpha = def_at("same", "src/a.rs", 1, 3);
+    alpha.body_text = "1".into();
+    let mut beta = def_at("same", "src/a.rs", 10, 12);
+    beta.body_text = "2".into();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![alpha.clone()]),
+        SyncSource::WorkingTree,
+    );
+    let alpha_id = node_id(&store, "src/a.rs", "same");
+    let module_id = store
+        .get_nodes_in_file("src/a.rs")
+        .iter()
+        .find(|n| n.kind == NodeKind::Module)
+        .unwrap()
+        .id;
+    let beta_id = store.max_id() + 1;
+    store
+        .update_nodes(vec![NodeChange::Add(definition_node(
+            beta_id,
+            beta.hash(),
+            &beta,
+            "src/a.rs",
+            module_id,
+            None,
+        ))])
+        .unwrap();
+    (store, alpha, beta, alpha_id, beta_id)
+}
+
+#[test]
+fn committed_binding_uses_unique_leftovers_after_hash_evidence() {
+    let (mut store, alpha, mut beta, alpha_id, beta_id) = same_named_pair();
+    beta.body_text = "3".into();
+    let expected_beta = beta.hash();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![beta, alpha.clone()]),
+        SyncSource::Committed,
+    );
+    assert_eq!(
+        store.get_node_by_id(alpha_id).unwrap().hash,
+        alpha.hash(),
+        "hash-bound sibling must retain its identity regardless of parse order"
+    );
+    assert_eq!(
+        store.get_node_by_id(beta_id).unwrap().hash,
+        expected_beta,
+        "unique remaining pair must refresh"
+    );
+}
+
+#[test]
+fn committed_binding_never_guesses_between_ambiguous_leftovers() {
+    let (mut store, mut alpha, mut beta, alpha_id, beta_id) = same_named_pair();
+    alpha.body_text = "3".into();
+    beta.body_text = "4".into();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![alpha, beta]),
+        SyncSource::Committed,
+    );
+    assert!(
+        store.get_node_by_id(alpha_id).is_none() && store.get_node_by_id(beta_id).is_none(),
+        "ambiguous old nodes must be removed rather than positionally refreshed"
+    );
+    assert_eq!(
+        store
+            .get_nodes_in_file("src/a.rs")
+            .iter()
+            .filter(|n| n.name == "same")
+            .count(),
+        2
+    );
 }
 
 /// A definition whose parse equals its stored node produces no update at all,
@@ -525,8 +611,7 @@ fn committed_refresh_emits_an_update_only_when_something_differs() {
     let refresh = |definitions: &[Definition]| {
         committed_refreshes(
             &store,
-            &existing,
-            module_id,
+            &[existing.iter().find(|n| n.id != module_id)],
             definitions,
             &mut HashSet::new(),
         )
@@ -556,7 +641,12 @@ fn committed_refresh_keeps_the_stored_hash_on_a_collision() {
     let mut taken = HashSet::new();
     taken.insert(changed[0].hash());
 
-    let updates = committed_refreshes(&store, &existing, module_id, &changed, &mut taken);
+    let updates = committed_refreshes(
+        &store,
+        &[existing.iter().find(|n| n.id != module_id)],
+        &changed,
+        &mut taken,
+    );
 
     let [NodeChange::Update(node)] = updates.as_slice() else {
         panic!("one update expected");

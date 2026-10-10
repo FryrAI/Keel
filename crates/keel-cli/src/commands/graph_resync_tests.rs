@@ -59,7 +59,7 @@ fn refusal_messages_carry_prefix_commit_and_fix() {
     let stored = "0123456789abcdef0123";
     let gone = gone_message(stored);
     let many = too_many_message(stored, 700, "`keel map` to rebuild it");
-    let inline = too_many_message(stored, 31, "`keel compile` to bring it up to date");
+    let inline = too_many_message(stored, 16, "`keel compile` to bring it up to date");
     let failed = failed_message(stored, "disk full");
     for line in [&gone, &many, &inline, &failed] {
         assert!(line.starts_with(NO_USABLE_GRAPH), "{line}");
@@ -68,7 +68,7 @@ fn refusal_messages_carry_prefix_commit_and_fix() {
     }
     assert!(gone.contains("`keel map`") && gone.contains("no longer has"));
     assert!(many.contains("700 source files") && many.contains("`keel map`"));
-    assert!(inline.contains("31 source files") && inline.contains("`keel compile`"));
+    assert!(inline.contains("16 source files") && inline.contains("`keel compile`"));
     assert!(failed.contains("(disk full)") && failed.contains("`keel map`"));
 }
 
@@ -114,7 +114,7 @@ fn the_inline_limit_refuses_explicit_files_but_not_a_bare_compile() {
 
     assert_eq!(resync(dir.path(), &mut store, false), Ok(()));
     assert_eq!(store.meta_value(LAST_MAP_COMMIT), Some(head));
-    assert!(!store.get_nodes_in_file("more_30.rs").is_empty());
+    assert!(!store.get_nodes_in_file("more_15.rs").is_empty());
 }
 
 /// A completed re-sync indexes an added file from HEAD's blob, whatever the

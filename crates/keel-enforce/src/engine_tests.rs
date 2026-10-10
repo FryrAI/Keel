@@ -84,6 +84,8 @@ mod economy;
 mod module_identity;
 #[path = "engine_tests_prune.rs"]
 mod prune;
+#[path = "engine_tests_resync_history.rs"]
+mod resync_history;
 
 #[test]
 fn test_prune_file_removes_nodes_and_edges() {

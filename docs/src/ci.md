@@ -71,12 +71,18 @@ marker to `HEAD`, and then checks. Nothing is printed on success (with `--verbos
 line: `re-synced N file(s) from <old> to <new>`). It is what keeps a post-edit hook
 working after a branch switch, a squash merge or a pull.
 
+Definitions bind one-to-one by matching hashes, then by a unique remaining
+name and module/non-module kind; ambiguous old nodes are replaced. Unchanged
+callers of removed nodes are re-synced from `HEAD` after the changed files.
+Re-synced code is pre-existing, while committed refresh preserves session history.
+
 It refuses instead, exit 2 with one line starting `keel compile: no usable graph — `,
 when the move cannot be bridged: the stored commit is gone from this clone (run
 `keel map`), more than 500 source files differ from `HEAD` (run `keel map`), more than
-30 differ and the compile named explicit files (run `keel compile` with no arguments),
-or the re-sync itself failed (run `keel map`). The graph and the marker stay as they
-were and nothing is checked.
+15 differ and the compile named explicit files (run `keel compile` with no arguments),
+or the re-sync itself failed (run `keel map`). These limits include dependent caller
+files. A refusal leaves the marker unmoved and nothing is checked; partial graph
+writes may remain, and the next compile completes them.
 
 `keel compile --since <ref>` keeps the old guard, because it checks a committed range
 against the stored base graph and a re-sync would erase the differences it reports. If
@@ -90,9 +96,10 @@ and removals would be phantom. Run `keel map` to rebuild the graph.
 
 This is what makes a poisoned cache fail loudly instead of annotating fiction.
 
-The guard stays silent whenever it cannot be certain: a graph with no marker (mapped
-by an older keel, or outside a git repo), no git, or a commit this clone does not
-have. Existing graphs never start failing because of it.
+With no marker (mapped by an older keel, or outside a git repo) or no git/HEAD,
+working-tree compiles stay silent. A stored commit this clone does not have makes
+them refuse until `keel map` rebuilds the graph. The `--since` guard retains its
+legacy silence when it cannot resolve the stored commit.
 
 ## One sticky comment
 

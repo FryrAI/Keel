@@ -475,6 +475,26 @@ pub fn sync_compiled_files(
     source: SyncSource,
     verbose: bool,
 ) -> bool {
+    let changes = compiled_file_changes(store, cwd, files, resolvers, monorepo_enabled, source);
+    write_compiled_changes(store, changes, verbose).is_ok()
+}
+
+/// Deferred writes let committed re-sync collect callers before removals cascade.
+pub(super) struct CompiledChanges {
+    pub node_changes: Vec<NodeChange>,
+    edge_changes: Vec<EdgeChange>,
+    node_tiers: HashMap<u64, String>,
+    edge_removals: Vec<u64>,
+}
+
+pub(super) fn compiled_file_changes(
+    store: &SqliteGraphStore,
+    cwd: &Path,
+    files: &[FileIndex],
+    resolvers: &ResolverSet,
+    monorepo_enabled: bool,
+    source: SyncSource,
+) -> CompiledChanges {
     // Detected once per sync, only when `monorepo.enabled` (the caller's
     // already-loaded config) — the same gate `keel map` uses to annotate nodes.
     let layout = monorepo_enabled.then(|| keel_parsers::monorepo::detect_monorepo(cwd));
@@ -503,7 +523,7 @@ pub fn sync_compiled_files(
     // compiled file against it, collecting node/edge changes. Scoped so the
     // immutable borrow of `store` ends before the mutable write phase below.
     {
-        let base = GraphIndexBase::build(&*store, cwd);
+        let base = GraphIndexBase::build(store, cwd);
         for file in files {
             sync_one_file(
                 &base,
@@ -523,18 +543,54 @@ pub fn sync_compiled_files(
         }
     }
 
+    CompiledChanges {
+        node_changes,
+        edge_changes,
+        node_tiers,
+        edge_removals,
+    }
+}
+
+pub(super) fn write_compiled_changes(
+    store: &mut SqliteGraphStore,
+    changes: CompiledChanges,
+    verbose: bool,
+) -> Result<(), String> {
+    let CompiledChanges {
+        node_changes,
+        mut edge_changes,
+        node_tiers,
+        edge_removals,
+    } = changes;
+    let removed: HashSet<u64> = node_changes
+        .iter()
+        .filter_map(|c| match c {
+            NodeChange::Remove(id) => Some(*id),
+            _ => None,
+        })
+        .collect();
+    // Resolution read the pre-removal graph; those endpoints cannot be written.
+    edge_changes.retain(|c| {
+        !matches!(c, EdgeChange::Add(e)
+        if removed.contains(&e.source_id) || removed.contains(&e.target_id))
+    });
+    let failure = |stage: &str, error: keel_core::types::GraphError| {
+        let reason = format!("graph sync ({stage}) failed: {error}");
+        if verbose {
+            eprintln!("keel compile: {reason}");
+        }
+        reason
+    };
+
     // Write phase (same handle, now mutable). Modules/definitions land first
     // (module_id + Contains FK) — `update_nodes` sorts, but node inserts must
     // precede edges.
     if !node_changes.is_empty() {
         if let Err(e) = store.update_nodes(node_changes) {
-            if verbose {
-                eprintln!("keel compile: graph sync (nodes) failed: {}", e);
-            }
-            return false;
+            return Err(failure("nodes", e));
         }
     }
-    let mut complete = true;
+    let mut error = None;
     if !edge_removals.is_empty() || !edge_changes.is_empty() {
         // Removals FIRST: `update_edges` applies changes in order and adds
         // are INSERT OR IGNORE, so an add for an unchanged call site (same
@@ -546,19 +602,14 @@ pub fn sync_compiled_files(
             .chain(edge_changes)
             .collect();
         if let Err(e) = store.update_edges(changes) {
-            if verbose {
-                eprintln!("keel compile: graph sync (edges) failed: {}", e);
-            }
-            complete = false;
+            error = Some(failure("edges", e));
         }
     }
     if let Err(e) = store.set_node_resolution_tiers(&node_tiers) {
-        if verbose {
-            eprintln!("keel compile: graph sync (tiers) failed: {}", e);
-        }
-        complete = false;
+        let reason = failure("tiers", e);
+        error.get_or_insert(reason);
     }
-    complete
+    error.map_or(Ok(()), Err)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -606,6 +657,17 @@ fn sync_one_file(
             (id, true)
         }
     };
+    // One read repairs the node/edge transaction gap on a committed retry.
+    let contains: HashSet<u64> = if source == SyncSource::Committed {
+        store
+            .get_edges(module_id, keel_core::types::EdgeDirection::Outgoing)
+            .into_iter()
+            .filter(|e| e.kind == EdgeKind::Contains)
+            .map(|e| e.target_id)
+            .collect()
+    } else {
+        HashSet::new()
+    };
 
     // Reuse ids only within the module/non-module kind, never modules as call targets.
     let mut definition_ids: HashMap<(String, bool), u64> = existing
@@ -624,6 +686,48 @@ fn sync_one_file(
         .map(|d| (d.name.as_str(), d.kind == NodeKind::Module))
         .collect();
 
+    // Committed blobs are authoritative: claim each stored definition once,
+    // first by hash evidence, then only by a unique leftover name/kind pair.
+    // This makes violations_util's evidence rule total without guessing order.
+    let mut bindings = vec![None; file.definitions.len()];
+    let mut bound_ids = HashSet::new();
+    if source == SyncSource::Committed {
+        for (slot, def) in bindings.iter_mut().zip(&file.definitions) {
+            if let Some(node) = existing.iter().find(|n| {
+                n.id != module_id
+                    && n.name == def.name
+                    && (n.kind == NodeKind::Module) == (def.kind == NodeKind::Module)
+                    && !bound_ids.contains(&n.id)
+                    && keel_enforce::violations_util::node_hash_matches(n, def, rel_path)
+            }) {
+                bound_ids.insert(node.id);
+                *slot = Some(node);
+            }
+        }
+        for idx in 0..file.definitions.len() {
+            if bindings[idx].is_some() {
+                continue;
+            }
+            let def = &file.definitions[idx];
+            let same_kind = |name: &str, kind: &NodeKind| {
+                name == def.name && (*kind == NodeKind::Module) == (def.kind == NodeKind::Module)
+            };
+            let remaining_defs = file
+                .definitions
+                .iter()
+                .zip(&bindings)
+                .filter(|(d, slot)| slot.is_none() && same_kind(&d.name, &d.kind))
+                .count();
+            let mut nodes = existing.iter().filter(|n| {
+                n.id != module_id && !bound_ids.contains(&n.id) && same_kind(&n.name, &n.kind)
+            });
+            if let (1, Some(node), None) = (remaining_defs, nodes.next(), nodes.next()) {
+                bindings[idx] = Some(node);
+                bound_ids.insert(node.id);
+            }
+        }
+    }
+
     // Compile-added nodes carry the package map would give this file (W009's
     // boundary depends on it), whether the module is new or already stored.
     let package =
@@ -631,6 +735,7 @@ fn sync_one_file(
 
     // Heal stored nodes of THIS file whose package differs from the layout's
     // (NULL written by an older binary): one update each, never other files.
+    let updates_start = node_changes.len();
     if layout.is_some() {
         for node in existing.iter().filter(|n| n.package != package) {
             let mut healed = node.clone();
@@ -640,9 +745,28 @@ fn sync_one_file(
     }
 
     // Insert nodes for definitions new since the last graph write.
-    for def in &file.definitions {
+    for (def, bound) in file.definitions.iter().zip(&bindings) {
         let key = (def.name.clone(), def.kind == NodeKind::Module);
-        if definition_ids.contains_key(&key) {
+        if let (SyncSource::Committed, Some(node)) = (source, bound) {
+            let id = node.id;
+            if !contains.contains(&id) {
+                edge_changes.push(EdgeChange::Add(GraphEdge {
+                    id: *next_id,
+                    source_id: module_id,
+                    target_id: id,
+                    kind: EdgeKind::Contains,
+                    file_path: rel_path.clone(),
+                    line: def.line_start,
+                    confidence: 1.0,
+                }));
+                *next_id += 1;
+            }
+            if def.kind != NodeKind::Module {
+                local.insert(def.name.clone(), id);
+            }
+            continue;
+        }
+        if source == SyncSource::WorkingTree && definition_ids.contains_key(&key) {
             continue;
         }
         if created_module {
@@ -657,7 +781,19 @@ fn sync_one_file(
         let id = *next_id;
         *next_id += 1;
         let mut hash = node_hash_for(store, def, rel_path);
-        if !assigned_hashes.insert(hash.clone()) {
+        if source == SyncSource::Committed {
+            let mut ordinal = 0;
+            while store.get_node(&hash).is_some_and(|n| n.hash == hash)
+                || assigned_hashes.contains(&hash)
+            {
+                ordinal += 1;
+                hash = keel_enforce::violations_util::definition_hash_salted(
+                    def,
+                    &keel_core::hash::disambiguation_salt(rel_path, ordinal),
+                );
+            }
+            assigned_hashes.insert(hash.clone());
+        } else if !assigned_hashes.insert(hash.clone()) {
             // Same-batch collision: an identical new def in another compiled
             // file already claimed this hash; disambiguate by file path.
             hash = def.hash_disambiguated(rel_path);
@@ -690,13 +826,21 @@ fn sync_one_file(
     }
 
     if source == SyncSource::Committed {
-        node_changes.extend(committed_refreshes(
-            store,
-            &existing,
-            module_id,
-            &file.definitions,
-            assigned_hashes,
-        ));
+        for refresh in committed_refreshes(store, &bindings, &file.definitions, assigned_hashes) {
+            let NodeChange::Update(updated) = refresh else {
+                unreachable!("refresh only updates");
+            };
+            if let Some(NodeChange::Update(healed)) = node_changes[updates_start..]
+                .iter_mut()
+                .find(|c| matches!(c, NodeChange::Update(n) if n.id == updated.id))
+            {
+                let package = healed.package.clone();
+                *healed = updated;
+                healed.package = package;
+            } else {
+                node_changes.push(NodeChange::Update(updated));
+            }
+        }
     }
 
     // Remove nodes for definitions that vanished from the file. E004 already
@@ -706,7 +850,12 @@ fn sync_one_file(
     // the broken contract, so the next compile of this file would see nothing
     // to remove and E004 would stop re-firing while real callers stay broken.
     for node in existing.iter().filter(|n| {
-        n.id != module_id && !current_names.contains(&(n.name.as_str(), n.kind == NodeKind::Module))
+        n.id != module_id
+            && if source == SyncSource::Committed {
+                !bound_ids.contains(&n.id)
+            } else {
+                !current_names.contains(&(n.name.as_str(), n.kind == NodeKind::Module))
+            }
     }) {
         if source == SyncSource::WorkingTree
             && has_live_external_callers(store, node.id, batch_files)
@@ -714,7 +863,9 @@ fn sync_one_file(
             continue;
         }
         node_changes.push(NodeChange::Remove(node.id));
-        if node.kind != NodeKind::Module {
+        if node.kind != NodeKind::Module
+            && (source == SyncSource::WorkingTree || local.get(&node.name) == Some(&node.id))
+        {
             local.remove(&node.name);
         }
     }
@@ -766,21 +917,13 @@ fn sync_one_file(
 /// ladder at the next compile or map.
 fn committed_refreshes(
     store: &SqliteGraphStore,
-    existing: &[GraphNode],
-    module_id: u64,
+    bindings: &[Option<&GraphNode>],
     definitions: &[Definition],
     assigned_hashes: &mut HashSet<String>,
 ) -> Vec<NodeChange> {
-    let mut claimed: HashSet<u64> = HashSet::new();
     let mut changes = Vec::new();
-    for def in definitions {
-        let is_module = def.kind == NodeKind::Module;
-        let Some(node) = existing.iter().find(|n| {
-            n.id != module_id
-                && n.name == def.name
-                && (n.kind == NodeKind::Module) == is_module
-                && claimed.insert(n.id)
-        }) else {
+    for (def, bound) in definitions.iter().zip(bindings) {
+        let Some(node) = *bound else {
             continue;
         };
         let fresh = def.hash();

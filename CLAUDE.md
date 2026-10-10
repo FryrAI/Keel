@@ -208,12 +208,14 @@ since; `keel map` and a completed re-sync are the only writers. `graph_resync::b
 lock, before batch handling) diffs that commit against HEAD, prunes deleted/renamed paths, parses every present
 path from HEAD's blob (`gitdiff::source_at`, never the working tree: the edit under check must not enter its own
 baseline) and writes them with `sync_compiled_files(.., SyncSource::Committed)`, where an empty parse or a
-vanished definition with outside callers is applied, not kept, and definitions that still exist are refreshed from
-the blob (`engine::refreshed_node`, shared with the engine, hash collisions keep the stored hash). Edges to
-definitions the re-sync itself adds resolve in a second pass, run only when the first added a node. Only then does
-the marker move; `last_map_at` never does. Limits, no config key: `RESYNC_INLINE_MAX` 30 files for explicit-file compiles (the 5 s hook budget),
+vanished definition with outside callers is applied, not kept; definitions bind one-to-one by hash evidence,
+then unique leftover name/kind, and survivors refresh from the blob (`engine::refreshed_node`, hash collisions
+keep the stored hash). Unchanged callers of removed nodes re-sync from HEAD after the changed files.
+Re-synced code is pre-existing; committed refresh preserves session history. Added nodes trigger a second pass.
+Only then does the marker move; `last_map_at` never does. Limits include dependents: `RESYNC_INLINE_MAX` 15 files for explicit-file compiles (the 5 s hook budget),
 `RESYNC_MAX_FILES` 500 for bare/`--changed`; above them, a gone stored commit, or any failure compile exits 2 with
-a `NO_USABLE_GRAPH` line and leaves graph and marker untouched. No git/HEAD/marker stays legacy-silent.
+a `NO_USABLE_GRAPH` line; the marker stays unmoved, and partial graph writes are completed by the next compile.
+No git/HEAD/marker stays legacy-silent; a stored commit absent from this clone requires `keel map`.
 `compile --since` keeps `graph_staleness`'s ancestor refusal, byte for byte.
 
 ### Compile Sync Never Deletes on Failed Re-Resolution

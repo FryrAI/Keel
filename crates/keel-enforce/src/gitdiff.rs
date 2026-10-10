@@ -303,7 +303,12 @@ fn parse_name_status(bytes: &[u8], ignore: &KeelIgnore) -> Vec<ChangedPath> {
 /// Invalid source paths warn at most once per process, excluding ignored and
 /// unsupported paths on Unix, where their raw bytes can be filtered.
 pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
-    name_status_paths(dir, &["diff", "--name-status", "-z", "-M", base], base)
+    name_status_paths(
+        dir,
+        &["diff", "--name-status", "-z", "-M", base],
+        base,
+        true,
+    )
 }
 
 /// Like [`changed_paths`], but between two revisions: `git diff --name-status
@@ -318,12 +323,18 @@ pub fn changed_paths_between(
         dir,
         &["diff", "--name-status", "-z", "-M", base, head],
         base,
+        false,
     )
 }
 
 /// Run a `--name-status -z -M` diff and parse it, naming `base` when git
 /// cannot resolve it.
-fn name_status_paths(dir: &Path, args: &[&str], base: &str) -> Result<Vec<ChangedPath>, String> {
+fn name_status_paths(
+    dir: &Path,
+    args: &[&str],
+    base: &str,
+    working_tree: bool,
+) -> Result<Vec<ChangedPath>, String> {
     let raw =
         run_git_checked(dir, args)?.ok_or_else(|| format!("cannot resolve base ref '{}'", base))?;
     let ignore = KeelIgnore::new(&repo_root(dir));
@@ -341,7 +352,12 @@ fn name_status_paths(dir: &Path, args: &[&str], base: &str) -> Result<Vec<Change
         })
         .map(|e| PathBuf::from(&e.path))
         .collect();
-    let head_ignored = ignore.ignored_paths(&head);
+    let head_ignored = if working_tree {
+        ignore.ignored_paths(&head)
+    } else {
+        // Between commits, file types come only from source_at's tree entry.
+        head.into_iter().filter(|p| ignore.is_ignored(p)).collect()
+    };
     Ok(entries
         .into_iter()
         .filter_map(|entry| apply_ignore(entry, &ignore, &head_ignored))
