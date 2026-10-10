@@ -37,7 +37,12 @@ pub(crate) struct Cli {
     pub max_tokens: Option<usize>,
 
     /// Disable telemetry for this invocation (also: KEEL_NO_TELEMETRY=1)
-    #[arg(long, global = true, env = "KEEL_NO_TELEMETRY")]
+    #[arg(
+        long,
+        global = true,
+        env = "KEEL_NO_TELEMETRY",
+        value_parser = clap::builder::FalseyValueParser::new()
+    )]
     pub no_telemetry: bool,
 
     /// Explicit calling-agent name for telemetry attribution, e.g. "claude-code"
