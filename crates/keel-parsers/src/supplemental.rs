@@ -597,4 +597,14 @@ mod tests {
         );
         assert_eq!(ranges.len(), 2);
     }
+
+    #[test]
+    fn unterminated_quoted_identifier_does_not_panic() {
+        // The closing quote is missing, so "one byte before the end" may fall
+        // inside a multi-byte character, or before the opening quote.
+        for sql in ["SELECT \"é", "SELECT \"", "SELECT \"items\" FROM \"é"] {
+            let parsed = parse_sql(Path::new("migrations/001.sql"), sql);
+            assert!(parsed.definitions.is_empty(), "{sql}");
+        }
+    }
 }

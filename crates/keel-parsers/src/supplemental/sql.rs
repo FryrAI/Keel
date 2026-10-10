@@ -253,10 +253,13 @@ fn sql_tokens(content: &str, base: usize) -> Vec<LexToken> {
             index = quoted_end(bytes, index, b'\'');
         } else if bytes[index] == b'"' {
             let end = quoted_end(bytes, index, b'"');
-            tokens.push(LexToken {
-                text: content[index + 1..end.saturating_sub(1)].to_string(),
-                offset: base + index,
-            });
+            // An unterminated identifier has no closing quote to cut off.
+            if let Some(text) = content.get(index + 1..end.saturating_sub(1)) {
+                tokens.push(LexToken {
+                    text: text.to_string(),
+                    offset: base + index,
+                });
+            }
             index = end;
         } else if bytes[index] == b'$' {
             if let Some(tag_end) = dollar_tag_end(bytes, index) {
