@@ -115,7 +115,7 @@ fn test_init_installs_the_exit_plan_mode_hook() {
         .iter()
         .find(|e| e["matcher"] == "ExitPlanMode")
         .expect("matcher must be ExitPlanMode");
-    assert_eq!(entry["hooks"][0]["command"], ".keel/hooks/plan-check.sh");
+    assert_eq!(entry["hooks"][0]["command"], "keel hook plan-check");
 
     // Claude Code only — no sibling scaffolding for other tools.
     for other in [".cursor/hooks.json", ".gemini/settings.json"] {

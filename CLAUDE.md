@@ -63,6 +63,7 @@ Tier 3: LSP/SCIP (on-demand, optional, >95%)
 
 | Command | Purpose | Performance Target |
 |---------|---------|-------------------|
+| `keel hook <name>` | Run an agent hook from any project directory | — |
 | `keel init` | Initialize keel in a repo | <10s for 50k LOC |
 | `keel map` | Full re-map | <5s for 100k LOC |
 | `keel compile [file...]` | Incremental validate | <200ms single file |
@@ -153,6 +154,12 @@ project root. A full `keel map` always walks that entire root, even from a packa
 subdirectory, because it replaces the shared graph. Directory aliases resolve to
 canonical parents; source symlink leaves retain their own identity. `keel init`
 keeps tool detection, agent documents, ignore files and hooks local to its cwd.
+
+`keel hook` runs the script of the nearest directory from the cwd up to the worktree
+root that holds `.keel/hooks/<name>.sh` (with that directory as its cwd), and falls
+back to the main checkout's script only when none exists. It exits before graph or telemetry setup.
+Capture its name and arguments as one trailing clap positional: splitting them
+lets global flags consume script arguments before trailing capture starts.
 
 ### Every Disk-Backed Graph Writer Shares the Graph Lock
 `keel-core::graph_lock` holds an OS lock on an open `.keel/compile.lock` handle

@@ -18,6 +18,10 @@ use cli_args::{Cli, Commands};
 fn main() {
     let cli = Cli::parse();
 
+    if let Commands::Hook { args } = &cli.command {
+        std::process::exit(commands::hook::run(&args[0].to_string_lossy(), &args[1..]));
+    }
+
     // Extract depth values before creating formatter (needed for LLM depth-awareness)
     let (map_depth, compile_depth) = match &cli.command {
         Commands::Map { depth, .. } => (*depth, 1),
@@ -64,6 +68,7 @@ fn main() {
         .or_else(telemetry_recorder::detect_client);
 
     let (exit_code, metrics) = match cli.command {
+        Commands::Hook { .. } => unreachable!("hooks exit before command setup"),
         Commands::Init {
             merge,
             yes,

@@ -66,7 +66,9 @@ fn test_cursor_hooks_json_generation() {
 fn test_cursor_hooks_json_has_map_command() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
-    let contents = fs::read_to_string(&hooks).unwrap();
+    let config = fs::read_to_string(&hooks).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let contents = fs::read_to_string(dir.path().join(".keel/hooks/session-start.sh")).unwrap();
     assert!(
         contents.contains("keel map"),
         "should include keel map command in hooks"
@@ -131,7 +133,9 @@ fn test_cursor_hooks_json_merges_with_existing() {
 fn test_cursor_hooks_output_format() {
     let dir = init_project();
     let hooks = dir.path().join(".cursor/hooks.json");
-    let contents = fs::read_to_string(&hooks).unwrap();
+    let config = fs::read_to_string(&hooks).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let contents = fs::read_to_string(dir.path().join(".keel/hooks/session-start.sh")).unwrap();
     assert!(contents.contains("--llm"), "output should use LLM format");
 }
 

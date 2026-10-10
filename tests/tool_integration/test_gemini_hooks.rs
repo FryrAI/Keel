@@ -102,7 +102,9 @@ fn test_gemini_md_includes_error_handling() {
 fn test_gemini_settings_has_map_command() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
-    let contents = fs::read_to_string(&settings).unwrap();
+    let config = fs::read_to_string(&settings).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let contents = fs::read_to_string(dir.path().join(".keel/hooks/session-start.sh")).unwrap();
     assert!(
         contents.contains("keel map"),
         "should include keel map command in hooks"
@@ -151,7 +153,9 @@ fn test_gemini_settings_merges_with_existing() {
 fn test_gemini_hooks_output_format_is_llm() {
     let dir = init_project();
     let settings = dir.path().join(".gemini/settings.json");
-    let contents = fs::read_to_string(&settings).unwrap();
+    let config = fs::read_to_string(&settings).unwrap();
+    assert!(config.contains("keel hook session-start"));
+    let contents = fs::read_to_string(dir.path().join(".keel/hooks/session-start.sh")).unwrap();
     assert!(contents.contains("--llm"), "should use LLM output format");
 }
 

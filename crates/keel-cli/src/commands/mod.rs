@@ -19,6 +19,7 @@ pub(crate) mod file_display;
 pub mod fix;
 pub mod focus;
 pub(crate) mod graph_staleness;
+pub mod hook;
 pub mod init;
 pub mod input_detect;
 pub(crate) mod json_helpers;

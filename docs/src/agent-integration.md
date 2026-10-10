@@ -6,10 +6,12 @@ keel is designed to be called by LLM coding agents after every code modification
 
 The integration pattern is the same across all tools:
 
-1. **Session start** -- run `keel map --llm` to give the agent structural context about the codebase.
+1. **Session start** -- run `keel hook session-start` to give the agent structural context about the codebase.
 2. **After every file edit** -- run `keel compile <file> --llm` to validate the change and surface violations immediately.
 
 `keel init` detects which AI tool directories are present (`.cursor/`, `.windsurf/`, `.aider/`, `.continue/`) and logs what it finds. The configs shown below can be generated manually or via post-init tooling.
+
+Generated hook commands run from any directory inside the project. `keel hook` runs the script from the nearest directory, from the current one up to the worktree root, that holds `.keel/hooks/<name>.sh` (with that directory as its working directory), falling back to the main checkout's script when none exists. Session start prints the cached map and diagnostics on stdout and always succeeds. Run `keel init --update-docs` to migrate existing generated JSON commands and install a missing session-start script; custom commands stay unchanged.
 
 ## Claude Code
 
@@ -19,19 +21,19 @@ Claude Code supports lifecycle hooks via `.claude/settings.json`:
 {
   "hooks": {
     "SessionStart": [
-      { "command": "keel map --llm --depth 1" }
+      { "command": "keel hook session-start" }
     ],
     "PostToolUse": [
       {
         "tools": ["Edit", "Write", "MultiEdit"],
-        "command": "bash scripts/post-edit.sh $FILE"
+        "command": "keel hook post-edit claude-code"
       }
     ]
   }
 }
 ```
 
-The `post-edit.sh` script runs `keel compile` on the changed file and outputs violations in LLM format. See the [Hook Workflow](#hook-workflow) section below.
+The `.keel/hooks/post-edit.sh` script runs `keel compile` on the changed file and outputs violations in LLM format. See the [Hook Workflow](#hook-workflow) section below.
 
 ## Cursor
 
@@ -42,12 +44,12 @@ Cursor uses `.cursor/hooks.json` for lifecycle hooks and `.cursor/rules/` for in
 {
   "hooks": {
     "session_start": [
-      { "command": "keel map --llm --depth 1" }
+      { "command": "keel hook session-start" }
     ],
     "post_tool_use": [
       {
         "tools": ["edit_file", "create_file"],
-        "command": "bash scripts/post-edit.sh $FILE"
+        "command": "keel hook post-edit cursor"
       }
     ]
   }
@@ -75,10 +77,10 @@ Gemini CLI uses `.gemini/settings.json` for hooks and `GEMINI.md` for instructio
 {
   "hooks": {
     "session_start": [
-      { "command": "keel map --llm --depth 1" }
+      { "command": "keel hook session-start" }
     ],
     "post_edit": [
-      { "command": "bash scripts/post-edit.sh $FILE" }
+      { "command": "keel hook post-edit gemini-cli" }
     ]
   }
 }
@@ -103,10 +105,10 @@ Windsurf uses `.windsurf/hooks.json` for hooks and `.windsurfrules` for instruct
 {
   "hooks": {
     "session_start": [
-      { "command": "keel map --llm --depth 1" }
+      { "command": "keel hook session-start" }
     ],
     "post_edit": [
-      { "command": "bash scripts/post-edit.sh $FILE" }
+      { "command": "keel hook post-edit windsurf" }
     ]
   }
 }
@@ -160,8 +162,8 @@ Letta Code uses `settings.json` and an instruction file:
 ```json
 {
   "hooks": {
-    "session_start": ["keel map --llm --depth 1"],
-    "post_edit": ["bash scripts/post-edit.sh $FILE"]
+    "session_start": ["keel hook session-start"],
+    "post_edit": ["keel hook post-edit letta-code"]
   }
 }
 ```
@@ -210,7 +212,7 @@ The standard hook pattern uses two lifecycle events:
 
 ### SessionStart
 
-Runs `keel map --llm --depth 1` once at the start of the session. This gives the agent a structural overview: modules, hotspots, and the graph shape. Costs roughly 200-500 tokens depending on project size.
+Runs `keel hook session-start` once at the start of the session. Its script runs `timeout 10 keel map --llm --cached 2>&1` and always exits 0 so the cached map or diagnostics reach the agent on stdout. This gives the agent a structural overview: modules, hotspots, and the graph shape. Costs roughly 200-500 tokens depending on project size.
 
 ### PreToolUse (ExitPlanMode plan check)
 
@@ -223,7 +225,7 @@ Runs `keel map --llm --depth 1` once at the start of the session. This gives the
     "PreToolUse": [
       {
         "matcher": "ExitPlanMode",
-        "hooks": [{ "type": "command", "command": ".keel/hooks/plan-check.sh" }]
+        "hooks": [{ "type": "command", "command": "keel hook plan-check" }]
       }
     ]
   }
@@ -250,10 +252,10 @@ reads as a clean bill of health.
 
 ### PostToolUse (post-edit)
 
-Runs after every file edit. The `scripts/post-edit.sh` hook:
+Runs after every file edit. The `.keel/hooks/post-edit.sh` hook:
 
-1. Receives the changed file path as `$FILE`
-2. Runs `keel compile "$FILE" --llm --depth 1`
+1. Receives the editor's JSON payload on stdin and extracts `tool_input.file_path`
+2. Runs `keel compile --delta --llm` on that file with the explicit client argument and a five-second timeout
 3. If exit 0 (clean compile): outputs nothing
 4. If exit 1 (violations): outputs the violations in LLM format and exits 2, the
    blocking code — the agent fixes them before proceeding

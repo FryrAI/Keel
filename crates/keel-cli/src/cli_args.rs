@@ -50,6 +50,16 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Commands {
+    /// Run an agent hook from any directory in the project
+    #[command(override_usage = "keel hook [OPTIONS] <NAME> [ARGS]...")]
+    Hook {
+        /// Hook name (post-edit, plan-check, session-start), then script arguments
+        // Capture from the name so global flags after it belong to the script.
+        #[arg(required = true, num_args = 1.., trailing_var_arg = true,
+              allow_hyphen_values = true, value_name = "NAME_OR_ARG")]
+        args: Vec<std::ffi::OsString>,
+    },
+
     /// Initialize keel in a repository
     Init {
         /// Merge with existing .keel/ configuration instead of failing
@@ -59,7 +69,8 @@ pub(crate) enum Commands {
         #[arg(long, short)]
         yes: bool,
         /// Rewrite the keel-managed block in existing agent doc files,
-        /// regenerate `.keel/hooks/post-edit.sh`, and sync `.keel/keel.json`'s
+        /// migrate generated JSON hook commands, regenerate installed hooks,
+        /// and sync `.keel/keel.json`'s
         /// pinned version — the authorized fix for the drift `map`/`compile`
         /// warn about. Does not merge config or touch tool detection.
         #[arg(long)]

@@ -2,7 +2,8 @@
 //! drift `map`/`compile` detect (see `commands::version_drift`).
 //!
 //! Rewrites the keel-managed `<!-- keel:start -->`/`<!-- keel:end -->` block
-//! in every agent doc file already present, refreshes
+//! in every agent doc file already present, migrates generated JSON hook
+//! commands, installs a missing session-start script when wired, refreshes
 //! `.keel/hooks/post-edit.sh` only if it is already installed, and syncs
 //! `.keel/keel.json`'s pinned version to this binary. Deliberately narrower
 //! than a full `keel init --merge`:
@@ -10,6 +11,7 @@
 //! reset, and it never creates a doc file for a tool that wasn't already
 //! integrated — only refreshes what `keel init` previously wrote.
 
+use std::fs;
 use std::path::Path;
 
 use super::compile_note::apply_honest_compile_note;
@@ -35,9 +37,7 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     let on_edit = hooks_dir.join("post-edit.sh").exists();
 
     // `generators::MANAGED_DOCS` is the shared table: whatever `keel init`
-    // can create, this refreshes. settings.json/hooks.json files are not on
-    // it — this command only touches docs and the on-edit hook script, per its
-    // own doc comment.
+    // can create, this refreshes. Hook configs are migrated separately below.
     let mut file_count = 0;
     for (rel, template) in generators::MANAGED_DOCS {
         let path = cwd.join(rel);
@@ -54,6 +54,8 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
             ),
         }
     }
+
+    migrate_hook_commands(cwd, verbose);
 
     // Refresh, never create: a post-edit or ExitPlanMode hook the user never
     // installed has nothing in `.claude/settings.json` pointing at it, so
@@ -79,6 +81,79 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
          and keel.json version -> {binary_version}"
     );
     0
+}
+
+pub(super) fn migrate_hook_commands(cwd: &Path, verbose: bool) {
+    for rel in [
+        ".claude/settings.json",
+        ".cursor/hooks.json",
+        ".gemini/settings.json",
+        ".windsurf/hooks.json",
+        ".letta/settings.json",
+    ] {
+        let path = cwd.join(rel);
+        if !path.exists() {
+            continue;
+        }
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("keel init --update-docs: warning: cannot read {rel}: {e}");
+                continue;
+            }
+        };
+        let mut migrated = replace_token(
+            &content,
+            "timeout 10 keel map --llm --cached",
+            "keel hook session-start",
+        );
+        migrated = replace_token(
+            &migrated,
+            ".keel/hooks/plan-check.sh",
+            "keel hook plan-check",
+        );
+        migrated = replace_token(&migrated, ".keel/hooks/post-edit.sh", "keel hook post-edit");
+        // These client names match the five generators' explicit arguments.
+        for client in [
+            "claude-code",
+            "cursor",
+            "gemini-cli",
+            "windsurf",
+            "letta-code",
+        ] {
+            migrated = replace_token(
+                &migrated,
+                &format!(".keel/hooks/post-edit.sh {client}"),
+                &format!("keel hook post-edit {client}"),
+            );
+        }
+        if migrated != content {
+            if let Err(e) = fs::write(&path, &migrated) {
+                eprintln!("keel init --update-docs: warning: cannot write {rel}: {e}");
+                continue;
+            }
+        }
+        if migrated.contains("\"keel hook session-start\"")
+            && !cwd.join(".keel/hooks/session-start.sh").exists()
+        {
+            hook_script::install_session_start_hook(cwd, verbose);
+        }
+    }
+}
+
+/// Replace each JSON string token `"from"` with `"to"`, skipping a token whose
+/// opening quote is escaped (`\"`): that quote sits inside a user's own string.
+fn replace_token(text: &str, from: &str, to: &str) -> String {
+    let (from, to) = (format!("\"{from}\""), format!("\"{to}\""));
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(&from) {
+        out.push_str(&rest[..i]);
+        out.push_str(if out.ends_with('\\') { &from } else { &to });
+        rest = &rest[i + from.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]

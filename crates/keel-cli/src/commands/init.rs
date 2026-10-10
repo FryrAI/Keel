@@ -79,6 +79,12 @@ pub fn run(
         return 2;
     }
 
+    // Rewrite the old generated hook commands first, so the config merge below
+    // finds the current ones and does not append a second copy beside them.
+    if merge {
+        update_docs::migrate_hook_commands(&cwd, verbose);
+    }
+
     // Detect languages present in the repo
     let languages = detect_languages(&cwd);
 
@@ -294,6 +300,12 @@ pub fn run(
             DetectedTool::GitHubActions => generators::generate_github_actions(&cwd),
         };
         tool_file_count += generators::write_files(&files, verbose);
+        if files
+            .iter()
+            .any(|(_, c)| c.contains("\"keel hook session-start\""))
+        {
+            hook_script::install_session_start_hook(&cwd, verbose);
+        }
     }
 
     // GitHub Actions is CI, not an interactive agent — generate if detected, regardless of prompt

@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "timeout 10 keel map --llm --cached"
+            "command": "keel hook session-start"
           }
         ]
       }
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".keel/hooks/plan-check.sh"
+            "command": "keel hook plan-check"
           }
         ]
       }

@@ -20,6 +20,15 @@ jobs:
       - name: Kernel lock lifecycle and stale diagnostic PID
         run: cargo test -p keel-core graph_lock::tests
 
+  windows-hook:
+    name: Windows hook command
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Hook scripts start through a POSIX shell on PATH
+        run: cargo test -p keel-cli --test hook_windows
+
   check:
     name: Check
     runs-on: ubuntu-latest

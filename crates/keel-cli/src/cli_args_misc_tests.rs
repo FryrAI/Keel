@@ -7,6 +7,29 @@
 use super::{Cli, Commands};
 use clap::Parser;
 
+#[test]
+fn hook_passes_trailing_flags_unchanged() {
+    let cli = parse(&[
+        "keel",
+        "hook",
+        "post-edit",
+        "--llm",
+        "--client",
+        "widget",
+        "--",
+        "a b",
+    ]);
+    let Commands::Hook { args } = cli.command else {
+        panic!("expected hook command");
+    };
+    assert_eq!(
+        args,
+        ["post-edit", "--llm", "--client", "widget", "--", "a b"]
+    );
+    assert!(!cli.llm);
+    assert!(cli.client.is_none());
+}
+
 fn parse(args: &[&str]) -> Cli {
     Cli::try_parse_from(args).expect("failed to parse CLI args")
 }

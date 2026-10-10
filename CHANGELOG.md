@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `keel hook <name>` runs agent hooks from any directory, using the nearest `.keel/hooks` script up to the project root, with a main-checkout fallback for linked worktrees.
+
+### Changed
+- Generated hook commands work from any directory inside the project.
+- `keel init --update-docs` migrates existing generated JSON hook commands and installs a missing session-start script.
+
 ## [0.7.0] - 2026-10-10
 
 Four new codes — opt-in expression homes (W011/E007), template-respelling

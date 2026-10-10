@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "timeout 10 keel map --llm --cached",
+        "command": "keel hook session-start",
         "type": "command"
       }
     ]

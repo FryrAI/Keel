@@ -3,6 +3,7 @@
 //! Installs:
 //! - `.keel/hooks/post-edit.sh` — shared hook for Tier 1 tools (opt-in)
 //! - `.keel/hooks/plan-check.sh` — Claude Code `ExitPlanMode` advisory hook
+//! - `.keel/hooks/session-start.sh` — cached map and diagnostics for agents
 //! - `.git/hooks/pre-commit` — git pre-commit hook
 
 use std::fs;
@@ -17,6 +18,16 @@ use super::HookSelection;
 /// Install the shared post-edit hook script to `.keel/hooks/post-edit.sh`.
 pub fn install_post_edit_hook(root: &Path, verbose: bool) {
     write_hook(root, "post-edit.sh", templates::POST_EDIT_HOOK, verbose);
+}
+
+/// Install the session-start hook to `.keel/hooks/session-start.sh`.
+pub fn install_session_start_hook(root: &Path, verbose: bool) {
+    write_hook(
+        root,
+        "session-start.sh",
+        templates::SESSION_START_HOOK,
+        verbose,
+    );
 }
 
 /// Install the Claude Code plan-check hook to `.keel/hooks/plan-check.sh`.

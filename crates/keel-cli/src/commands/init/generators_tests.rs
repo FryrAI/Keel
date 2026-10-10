@@ -79,7 +79,7 @@ fn test_claude_code_gets_exit_plan_mode_hook_and_others_do_not() {
         .find(|e| e["matcher"] == "ExitPlanMode")
         .expect("matcher must be ExitPlanMode");
     assert_eq!(entry["hooks"][0]["type"], "command");
-    assert_eq!(entry["hooks"][0]["command"], ".keel/hooks/plan-check.sh");
+    assert_eq!(entry["hooks"][0]["command"], "keel hook plan-check");
 
     let others: &[(&str, GeneratorFn, &str)] = &[
         ("gemini", generate_gemini_cli, "settings.json"),
@@ -161,10 +161,38 @@ fn test_on_edit_hook_command_passes_client_argument() {
     for (tool, generate, file, client) in cases {
         let files = generate(root.path(), &hooks_with_on_edit(true));
         let content = content_for(&files, file);
-        let expected = format!(".keel/hooks/post-edit.sh {client}");
+        let expected = format!("keel hook post-edit {client}");
         assert!(
             content.contains(&expected),
             "{tool}: on-edit hook command must pass `{expected}`, got: {content}"
+        );
+    }
+}
+
+/// The on-edit hook command must be plain argv that works from any working
+/// directory: `keel hook post-edit <client>`, never a cwd-relative script path.
+#[test]
+fn test_on_edit_hook_command_is_keel_hook_post_edit() {
+    let root = tempfile::tempdir().unwrap();
+    let cases: &[(&str, GeneratorFn, &str, &str)] = &[
+        (
+            "claude-code",
+            generate_claude_code,
+            "settings.json",
+            "claude-code",
+        ),
+        ("gemini", generate_gemini_cli, "settings.json", "gemini-cli"),
+        ("letta", generate_letta_code, "settings.json", "letta-code"),
+        ("cursor", generate_cursor, "hooks.json", "cursor"),
+        ("windsurf", generate_windsurf, "hooks.json", "windsurf"),
+    ];
+    for (tool, generate, file, client) in cases {
+        let files = generate(root.path(), &hooks_with_on_edit(true));
+        let content = content_for(&files, file);
+        let expected = format!("\"command\": \"keel hook post-edit {client}\"");
+        assert!(
+            content.contains(&expected),
+            "{tool}: on-edit hook command must be `{expected}`, got: {content}"
         );
     }
 }
