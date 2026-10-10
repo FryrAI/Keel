@@ -1,7 +1,9 @@
 use std::ffi::OsString;
+use std::path::Path;
 use std::process::Command;
 
-/// Run a known agent hook at the current worktree's project root.
+/// Run a known agent hook: the script of the nearest directory, from the
+/// current one up to the project root, that holds `.keel/hooks/<name>.sh`.
 pub fn run(name: &str, args: &[OsString]) -> i32 {
     if !matches!(name, "post-edit" | "plan-check" | "session-start") {
         eprintln!("keel hook: unknown hook {name:?}");
@@ -16,17 +18,39 @@ pub fn run(name: &str, args: &[OsString]) -> i32 {
     };
     let root = keel_core::paths::project_root(&cwd);
     let relative = format!("hooks/{name}.sh");
+    // `try_exists`: an unreadable hooks directory counts as present, so the
+    // spawn fails loudly instead of silently running another checkout's copy.
+    let nearest = cwd
+        .canonicalize()
+        .unwrap_or(cwd)
+        .ancestors()
+        .take_while(|dir| dir.starts_with(&root))
+        .find(|dir| {
+            dir.join(".keel")
+                .join(&relative)
+                .try_exists()
+                .unwrap_or(true)
+        })
+        .map(Path::to_path_buf);
     let local = root.join(".keel").join(&relative);
-    let script = if local.exists() {
-        local.clone()
-    } else {
-        keel_core::paths::keel_dir(&root).join(relative)
+    let (script, dir) = match nearest {
+        Some(dir) => (dir.join(".keel").join(&relative), dir),
+        None => (keel_core::paths::keel_dir(&root).join(relative), root),
     };
-    if !script.exists() {
+    if !script.try_exists().unwrap_or(true) {
         eprintln!("keel hook: script not found: {}", local.display());
         return 1;
     }
-    match Command::new(&script).args(args).current_dir(root).status() {
+    // A Windows process cannot start a `.sh` file directly; bash runs it.
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = Command::new("bash");
+        command.arg(&script);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = Command::new(&script);
+    match command.args(args).current_dir(dir).status() {
         Ok(status) => status.code().unwrap_or_else(|| {
             eprintln!("keel hook: script terminated by a signal");
             1

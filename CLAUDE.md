@@ -155,8 +155,9 @@ subdirectory, because it replaces the shared graph. Directory aliases resolve to
 canonical parents; source symlink leaves retain their own identity. `keel init`
 keeps tool detection, agent documents, ignore files and hooks local to its cwd.
 
-`keel hook` runs at the current worktree root and falls back to the main checkout's
-script only when its own copy is missing. It exits before graph or telemetry setup.
+`keel hook` runs the script of the nearest directory from the cwd up to the worktree
+root that holds `.keel/hooks/<name>.sh` (with that directory as its cwd), and falls
+back to the main checkout's script only when none exists. It exits before graph or telemetry setup.
 Capture its name and arguments as one trailing clap positional: splitting them
 lets global flags consume script arguments before trailing capture starts.
 

@@ -332,3 +332,23 @@ fn is_idempotent_on_a_second_run() {
     let second = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
     assert_eq!(first, second);
 }
+
+#[test]
+fn escaped_quotes_inside_a_users_command_are_not_token_boundaries() {
+    let dir = setup_stale_project();
+    let path = dir.path().join(".claude/settings.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let content = concat!(
+        "[\"\\\"$CLAUDE_PROJECT_DIR/\\\".keel/hooks/post-edit.sh claude-code\",",
+        "\"echo \\\".keel/hooks/plan-check.sh\",",
+        "\".keel/hooks/plan-check.sh\"]\n"
+    );
+    let expected = content.replacen(
+        ",\".keel/hooks/plan-check.sh\"]",
+        ",\"keel hook plan-check\"]",
+        1,
+    );
+    fs::write(&path, content).unwrap();
+    assert_eq!(run(dir.path(), false), 0);
+    assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+}

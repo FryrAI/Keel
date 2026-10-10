@@ -79,6 +79,12 @@ pub fn run(
         return 2;
     }
 
+    // Rewrite the old generated hook commands first, so the config merge below
+    // finds the current ones and does not append a second copy beside them.
+    if merge {
+        update_docs::migrate_hook_commands(&cwd, verbose);
+    }
+
     // Detect languages present in the repo
     let languages = detect_languages(&cwd);
 

@@ -83,7 +83,7 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     0
 }
 
-fn migrate_hook_commands(cwd: &Path, verbose: bool) {
+pub(super) fn migrate_hook_commands(cwd: &Path, verbose: bool) {
     for rel in [
         ".claude/settings.json",
         ".cursor/hooks.json",
@@ -102,13 +102,17 @@ fn migrate_hook_commands(cwd: &Path, verbose: bool) {
                 continue;
             }
         };
-        let mut migrated = content
-            .replace(
-                "\"timeout 10 keel map --llm --cached\"",
-                "\"keel hook session-start\"",
-            )
-            .replace("\".keel/hooks/plan-check.sh\"", "\"keel hook plan-check\"")
-            .replace("\".keel/hooks/post-edit.sh\"", "\"keel hook post-edit\"");
+        let mut migrated = replace_token(
+            &content,
+            "timeout 10 keel map --llm --cached",
+            "keel hook session-start",
+        );
+        migrated = replace_token(
+            &migrated,
+            ".keel/hooks/plan-check.sh",
+            "keel hook plan-check",
+        );
+        migrated = replace_token(&migrated, ".keel/hooks/post-edit.sh", "keel hook post-edit");
         // These client names match the five generators' explicit arguments.
         for client in [
             "claude-code",
@@ -117,9 +121,10 @@ fn migrate_hook_commands(cwd: &Path, verbose: bool) {
             "windsurf",
             "letta-code",
         ] {
-            migrated = migrated.replace(
-                &format!("\".keel/hooks/post-edit.sh {client}\""),
-                &format!("\"keel hook post-edit {client}\""),
+            migrated = replace_token(
+                &migrated,
+                &format!(".keel/hooks/post-edit.sh {client}"),
+                &format!("keel hook post-edit {client}"),
             );
         }
         if migrated != content {
@@ -134,6 +139,21 @@ fn migrate_hook_commands(cwd: &Path, verbose: bool) {
             hook_script::install_session_start_hook(cwd, verbose);
         }
     }
+}
+
+/// Replace each JSON string token `"from"` with `"to"`, skipping a token whose
+/// opening quote is escaped (`\"`): that quote sits inside a user's own string.
+fn replace_token(text: &str, from: &str, to: &str) -> String {
+    let (from, to) = (format!("\"{from}\""), format!("\"{to}\""));
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(&from) {
+        out.push_str(&rest[..i]);
+        out.push_str(if out.ends_with('\\') { &from } else { &to });
+        rest = &rest[i + from.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]

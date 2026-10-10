@@ -11,7 +11,7 @@ The integration pattern is the same across all tools:
 
 `keel init` detects which AI tool directories are present (`.cursor/`, `.windsurf/`, `.aider/`, `.continue/`) and logs what it finds. The configs shown below can be generated manually or via post-init tooling.
 
-Generated hook commands run from any directory inside the project. `keel hook` runs the script at the current worktree root, falling back to the main checkout's script when necessary. Session start prints the cached map and diagnostics on stdout and always succeeds. Run `keel init --update-docs` to migrate existing generated JSON commands and install a missing session-start script; custom commands stay unchanged.
+Generated hook commands run from any directory inside the project. `keel hook` runs the script from the nearest directory, from the current one up to the worktree root, that holds `.keel/hooks/<name>.sh` (with that directory as its working directory), falling back to the main checkout's script when none exists. Session start prints the cached map and diagnostics on stdout and always succeeds. Run `keel init --update-docs` to migrate existing generated JSON commands and install a missing session-start script; custom commands stay unchanged.
 
 ## Claude Code
 
