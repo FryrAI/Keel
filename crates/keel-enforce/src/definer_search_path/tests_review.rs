@@ -188,3 +188,70 @@ fn many_statements_keep_their_lines() {
         hits.last()
     );
 }
+
+#[test]
+fn only_procedures_are_found_by_their_full_list() {
+    // Two safe functions: `f(int, int)` names the second, never the one whose
+    // OUT argument makes its full list read the same.
+    let functions = format!(
+        "CREATE FUNCTION f(a int, OUT b int) SECURITY DEFINER {SAFE} AS $$ SELECT 1 $$;\n\
+         CREATE FUNCTION f(a int, b int) RETURNS int SECURITY DEFINER {SAFE} RETURN 1;\n"
+    );
+    let reset = format!("{functions}ALTER FUNCTION f(int, int) RESET search_path;");
+    assert_eq!(flagged(&reset), [("f".to_string(), 2)]);
+    let dropped =
+        format!("{functions}ALTER FUNCTION f(int) RESET search_path;\nDROP FUNCTION f(int, int);");
+    assert_eq!(flagged(&dropped), [("f".to_string(), 1)]);
+    // Two safe procedures of one full arity are told apart by their full types.
+    let procedures = format!(
+        "CREATE PROCEDURE p(a int, OUT b int) LANGUAGE plpgsql SECURITY DEFINER {SAFE} AS $$ BEGIN b := a; END $$;\n\
+         CREATE PROCEDURE p(a int, b text) LANGUAGE plpgsql SECURITY DEFINER {SAFE} AS $$ BEGIN NULL; END $$;\n"
+    );
+    let reset = format!("{procedures}ALTER PROCEDURE p(int, int) RESET search_path;");
+    assert_eq!(flagged(&reset), [("p".to_string(), 1)]);
+    let reset = format!("{procedures}ALTER ROUTINE p(int, text) RESET search_path;");
+    assert_eq!(flagged(&reset), [("p".to_string(), 2)]);
+}
+
+#[test]
+fn a_function_is_replaced_by_its_input_types() {
+    let sql = format!(
+        "{G}
+         CREATE FUNCTION f(IN p int, OUT result int) LANGUAGE sql SECURITY DEFINER AS $$ SELECT p $$;
+         CREATE OR REPLACE FUNCTION f(p int) RETURNS int LANGUAGE sql SECURITY INVOKER AS $$ SELECT p $$;"
+    );
+    assert_eq!(names(&sql), ["g"]);
+}
+
+#[test]
+fn drop_if_exists_of_another_signature_drops_nothing() {
+    let sql = "CREATE FUNCTION f(p_id int) RETURNS int SECURITY DEFINER RETURN 1;\n\
+               DROP FUNCTION IF EXISTS f(uuid);\n\
+               DROP ROUTINE IF EXISTS f(text), missing();";
+    assert_eq!(flagged(sql), [("f".to_string(), 1)]);
+    // The same signature under an alias is dropped.
+    assert!(flagged(&format!("{sql}\nDROP FUNCTION IF EXISTS f(int4);")).is_empty());
+}
+
+#[test]
+fn brackets_keep_a_default_in_one_argument() {
+    let sql = format!(
+        "{G}
+         CREATE FUNCTION f(ids int[] DEFAULT ARRAY[1, 2], note text DEFAULT '') RETURNS int
+             SECURITY DEFINER RETURN 1;
+         CREATE FUNCTION f(x int) RETURNS int SECURITY DEFINER {SAFE} RETURN 1;
+         ALTER FUNCTION f(integer[], text) {SAFE};"
+    );
+    assert_eq!(names(&sql), ["g"]);
+}
+
+#[test]
+fn a_down_marker_is_a_whole_directive() {
+    // A comment that merely starts like a marker ends nothing.
+    let sql =
+        format!("{G}\n-- migrate:downstream changes are forward-only\nALTER FUNCTION g() {SAFE};");
+    assert!(names(&sql).is_empty());
+    // dbmate options may follow the marker.
+    let sql = format!("{G}\n-- migrate:down transaction:false\nDROP FUNCTION g();");
+    assert_eq!(names(&sql), ["g"]);
+}

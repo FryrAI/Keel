@@ -9,6 +9,12 @@ pub(super) struct RoutineRef {
     pub name: String,
     /// `None` when the statement gives no argument list.
     pub args: Option<Args>,
+    /// Named with `PROCEDURE` or `ROUTINE`: PostgreSQL then also accepts the
+    /// full argument list, `OUT` types included, and identifies a procedure
+    /// by it.
+    pub by_full_list: bool,
+    /// `IF EXISTS`: naming no routine is not an error.
+    pub if_exists: bool,
 }
 
 /// A routine's canonical argument types.
@@ -16,17 +22,20 @@ pub(super) struct RoutineRef {
 pub(super) struct Args {
     /// What identifies a function: `OUT` arguments left out.
     pub inputs: Vec<String>,
-    /// Every argument. PostgreSQL also finds a procedure by this list.
+    /// Every argument.
     pub all: Vec<String>,
 }
 
 impl Args {
-    pub fn same_arity(&self, other: &Args) -> bool {
-        self.inputs.len() == other.inputs.len() || self.all.len() == other.all.len()
+    /// Whether the list `named` in a statement has this routine's arity.
+    pub fn same_arity(&self, named: &Args, by_full_list: bool) -> bool {
+        self.inputs.len() == named.inputs.len()
+            || (by_full_list && self.all.len() == named.all.len())
     }
 
-    pub fn same_types(&self, other: &Args) -> bool {
-        self.inputs == other.inputs || self.all == other.all
+    /// Whether the list `named` in a statement spells this routine's types.
+    pub fn same_types(&self, named: &Args, by_full_list: bool) -> bool {
+        self.inputs == named.inputs || (by_full_list && self.all == named.all)
     }
 }
 
@@ -78,11 +87,13 @@ const DOWN_MARKERS: &[&str] = &["-- migrate:down", "-- +goose down", "-- +migrat
 fn forward_part(sql: &str) -> &str {
     let mut end = 0;
     for line in sql.split_inclusive('\n') {
-        let line_start = line.trim_start().to_ascii_lowercase();
-        if DOWN_MARKERS
-            .iter()
-            .any(|marker| line_start.starts_with(marker))
-        {
+        // A directive is the marker alone, or the marker and its options.
+        let lower = line.to_ascii_lowercase();
+        let is_directive = |marker: &&str| {
+            let rest = lower.strip_prefix(*marker);
+            rest.is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+        };
+        if DOWN_MARKERS.iter().any(is_directive) {
             return &sql[..end];
         }
         end += line.len();
@@ -153,8 +164,9 @@ fn event(tokens: &[Token]) -> Option<Event> {
         if cursor.eat_word("or") {
             cursor.eat_word("replace");
         }
-        cursor.eat_any(&["function", "procedure"])?;
-        let routine = cursor.routine()?;
+        let routine = cursor
+            .routine_kind()
+            .and_then(|kind| cursor.routine(kind))?;
         let (definer, path) = cursor.create_clauses();
         Some(Event::Create {
             routine,
@@ -162,15 +174,16 @@ fn event(tokens: &[Token]) -> Option<Event> {
             path,
         })
     } else if verb.is_word("alter") {
-        cursor.eat_any(&["function", "procedure", "routine"])?;
-        let routine = cursor.routine()?;
+        let routine = cursor
+            .routine_kind()
+            .and_then(|kind| cursor.routine(kind))?;
         let actions = cursor.alter_actions();
         Some(Event::Alter { routine, actions })
     } else if verb.is_word("drop") {
-        cursor.eat_any(&["function", "procedure", "routine"])?;
-        let mut routines = vec![cursor.routine()?];
+        let kind = cursor.routine_kind()?;
+        let mut routines = vec![cursor.routine(kind)?];
         while cursor.eat_punct(',') {
-            routines.push(cursor.routine()?);
+            routines.push(cursor.routine(kind)?);
         }
         Some(Event::Drop(routines))
     } else {
@@ -200,8 +213,13 @@ impl<'a> Cursor<'a> {
         hit
     }
 
-    fn eat_any(&mut self, words: &[&str]) -> Option<()> {
-        words.iter().any(|word| self.eat_word(word)).then_some(())
+    /// The routine keyword: false for `FUNCTION`, true for `PROCEDURE` and
+    /// `ROUTINE`, which name a routine by its full argument list too.
+    fn routine_kind(&mut self) -> Option<bool> {
+        if self.eat_word("function") {
+            return Some(false);
+        }
+        (self.eat_word("procedure") || self.eat_word("routine")).then_some(true)
     }
 
     fn eat_punct(&mut self, punct: char) -> bool {
@@ -224,10 +242,8 @@ impl<'a> Cursor<'a> {
     }
 
     /// `[IF EXISTS] [schema.]name [(arguments)]`.
-    fn routine(&mut self) -> Option<RoutineRef> {
-        if self.eat_word("if") {
-            self.eat_word("exists");
-        }
+    fn routine(&mut self, by_full_list: bool) -> Option<RoutineRef> {
+        let if_exists = self.eat_word("if") && self.eat_word("exists");
         let mut parts = vec![self.next()?.ident()?.to_string()];
         while self.eat_punct('.') {
             parts.push(self.next()?.ident()?.to_string());
@@ -248,6 +264,8 @@ impl<'a> Cursor<'a> {
             schema: parts.pop(),
             name,
             args,
+            by_full_list,
+            if_exists,
         })
     }
 
@@ -255,8 +273,8 @@ impl<'a> Cursor<'a> {
     fn create_clauses(&mut self) -> (bool, Setting) {
         let (mut definer, mut path) = (false, Setting::Unset);
         while let Some(token) = self.next() {
-            if token.is_word("begin") || token.is_word("return") {
-                break; // a SQL-standard body: no clause follows it
+            if token.is_word("begin") {
+                break; // `BEGIN ATOMIC`: the body, and no clause after it
             } else if token.is_punct('(') {
                 self.group();
             } else if token.is_word("security") {

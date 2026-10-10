@@ -447,9 +447,11 @@ W013 fires for every such routine whose effective `search_path` is missing or do
 The effective list is the one PostgreSQL would store after a forward migration run over the SQL files
 of the routine's directory, assuming they apply without error:
 
-- **Order.** Files apply by name with digit runs compared as numbers (`9_x.sql` before `10_x.sql`);
-  Flyway's repeatable `R__*.sql` files apply last. The `.down.sql` half of an up/down pair and
-  everything after a `-- migrate:down`, `-- +goose Down` or `-- +migrate Down` line is not applied.
+- **Order.** Files apply by name with digit runs compared as numbers (`9_x.sql` before `10_x.sql`)
+  and a version ending at `__` (`V1__a.sql` before `V1.1__b.sql`); Flyway's repeatable `R__*.sql`
+  files apply last. The `.down.sql` half of an up/down pair and
+  everything after a `-- migrate:down`, `-- +goose Down` or `-- +migrate Down` directive line is not
+  applied.
 - **Later statements.** `ALTER FUNCTION|PROCEDURE|ROUTINE … SET search_path` replaces the list;
   `RESET search_path`, `RESET ALL` and `SET search_path TO DEFAULT` remove it; the message names the
   statement that did. A later `CREATE [OR REPLACE]` of the same signature replaces the earlier
@@ -463,21 +465,25 @@ of the routine's directory, assuming they apply without error:
   (`''`) is flagged.
 - **Which routine.** `ALTER`/`DROP` with argument types targets the overload with those input types;
   argument names, defaults, array dimensions and common built-in aliases (`int`/`integer`,
-  `float`/`double precision`, …) do not matter, and a procedure is also found by its full list with
-  `OUT` types. Without an argument list every routine of that name is the target. An unqualified
+  `float`/`double precision`, …) do not matter. `ALTER|DROP PROCEDURE|ROUTINE` also accept the full
+  list with `OUT` types. Without an argument list every routine of that name is the target; a
+  `DROP … IF EXISTS` whose types no routine has drops nothing. An unqualified
   name means `public`; only when `public` has no such routine does an `ALTER`/`DROP` reach the
   routine of that name in another schema.
 - `SECURITY INVOKER` routines (explicit or by default) are never flagged. Text in comments, string
-  constants and routine bodies is not a clause; a byte-order mark and psql `\` lines are skipped.
+  constants and routine bodies is not a clause; a byte-order mark and whole-line psql `\` commands
+  are skipped.
 
 Left unflagged, because the file does not hold the answer: `SET search_path FROM CURRENT` (the
 creating session's value), a routine named by a statement inside a `DO` block (it may not have run),
 and overloads of one arity when an `ALTER`/`DROP` spells types that match none of them.
 
-Not interpreted: dynamic SQL (`EXECUTE`), `\i` includes, transaction control (`ROLLBACK`),
-`DROP SCHEMA … CASCADE`, a session-level `SET search_path` before an unqualified `CREATE`, SQL files
-of other directories, escape sequences inside `E'…'`/`U&'…'` constants, and undo conventions other
-than those above. Argument types are compared without their schema.
+Not interpreted, among other rare forms: dynamic SQL (`EXECUTE`), psql `\i` and `\g`,
+`COPY … FROM stdin` data, transaction control (`ROLLBACK`), `DROP SCHEMA … CASCADE`, a session-level
+`SET search_path` before an unqualified name, SQL files of other directories, undo conventions other
+than those above, escape sequences inside `E'…'`/`U&'…'` constants and adjacent string constants.
+Argument types are compared without their schema, their modifiers (`float(24)`) or their quoting.
+A file keel does not parse (an upper-case `.SQL` extension) gets no findings of its own.
 
 The finding sits on the `CREATE` statement, so a later migration that weakens an earlier routine is
 reported only when the earlier file is among the compiled files (`keel compile <file>`); compiling

@@ -91,8 +91,8 @@ fn replay(dir: &Path) -> Replay {
         .filter(|name| is_applied(name))
         .collect();
     names.sort_by(|a, b| applied_order(a, b));
-    // Statements are ASCII: a file in another encoding still yields them. An
-    // unreadable file contributes none and keeps its place.
+    // Statements are ASCII: a file in another ASCII-compatible encoding still
+    // yields them. An unreadable file contributes none and keeps its place.
     let texts: Vec<String> = names
         .iter()
         .map(|name| fs::read(dir.join(name)).unwrap_or_default())
@@ -126,6 +126,11 @@ fn applied_order(a: &str, b: &str) -> Ordering {
 fn natural_cmp(a: &str, b: &str) -> Ordering {
     let (mut left, mut right) = (a.as_bytes(), b.as_bytes());
     while let (Some(x), Some(y)) = (left.first(), right.first()) {
+        // A version ends at `__`: `V1__a` precedes `V1.1__b` and `V1_1__b`.
+        let (ended, other_ended) = (left.starts_with(b"__"), right.starts_with(b"__"));
+        if ended != other_ended {
+            return other_ended.cmp(&ended);
+        }
         if x.is_ascii_digit() && y.is_ascii_digit() {
             let (number, rest) = split_number(left);
             let (other, other_rest) = split_number(right);

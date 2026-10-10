@@ -54,6 +54,14 @@ fn lexer_survives_unterminated_input() {
     assert_eq!(words("$$open"), [(Kind::Str, "open".to_string())]);
     assert_eq!(words("/* open"), []);
     assert_eq!(words("größe$x"), [(Kind::Word, "größe$x".to_string())]);
+    // Only a glued `E` is a prefix: here `e` is a name and `\` is literal.
+    assert_eq!(
+        words("e 'a\\'"),
+        [
+            (Kind::Word, "e".to_string()),
+            (Kind::Str, "a\\".to_string())
+        ]
+    );
 }
 
 #[test]
@@ -204,6 +212,10 @@ fn file_names_order_as_a_migration_runner_applies_them() {
         ]
     );
     assert_eq!(natural_cmp("01_a.sql", "1_a.sql"), Ordering::Less);
+    // A version ends at `__`: 1 precedes 1.1 and 1_1.
+    assert_eq!(natural_cmp("V1__a.sql", "V1.1__b.sql"), Ordering::Less);
+    assert_eq!(natural_cmp("V2_1__b.sql", "V2__a.sql"), Ordering::Greater);
+    assert_eq!(natural_cmp("V2_1__b.sql", "V2_2__a.sql"), Ordering::Less);
     assert_eq!(natural_cmp("1_a.sql", "1_a.sql"), Ordering::Equal);
     assert_eq!(
         natural_cmp("20240102_a.sql", "20240101_b.sql"),

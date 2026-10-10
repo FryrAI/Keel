@@ -169,8 +169,13 @@ fn targets(live: &[Routine], event: &Event) -> (Vec<usize>, bool) {
     match event {
         // A definition replaces exactly the routine of its own signature.
         Event::Create { routine, .. } => {
+            // A function is its input types; a procedure, its full list.
+            let args = routine.args.clone().unwrap_or_default();
             let mut same = named(live, routine, false);
-            same.retain(|index| Some(&live[*index].args) == routine.args.as_ref());
+            same.retain(|index| match routine.by_full_list {
+                true => live[*index].args.all == args.all,
+                false => live[*index].args.inputs == args.inputs,
+            });
             (same, true)
         }
         Event::Alter { routine, .. } => resolve(live, routine),
@@ -192,18 +197,20 @@ fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
     let Some(args) = &routine.args else {
         return (same_arity, true);
     };
-    same_arity.retain(|index| live[*index].args.same_arity(args));
-    // One candidate is the target however its types are spelled. Several are
-    // told apart by type; when no spelling matches, any of them may be meant.
-    if same_arity.len() < 2 {
+    same_arity.retain(|index| live[*index].args.same_arity(args, routine.by_full_list));
+    // One candidate is the target however its types are spelled: the statement
+    // would not have applied otherwise. `IF EXISTS` applies either way, so it
+    // names a routine by its types alone.
+    if same_arity.len() < 2 && !routine.if_exists {
         return (same_arity, true);
     }
     let same_types: Vec<usize> = same_arity
         .iter()
         .copied()
-        .filter(|index| live[*index].args.same_types(args))
+        .filter(|index| live[*index].args.same_types(args, routine.by_full_list))
         .collect();
-    if same_types.is_empty() {
+    // Several candidates and no spelling matches: any of them may be meant.
+    if same_types.is_empty() && !routine.if_exists {
         (same_arity, false)
     } else {
         (same_types, true)
