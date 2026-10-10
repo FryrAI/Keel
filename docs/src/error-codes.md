@@ -465,9 +465,10 @@ of the routine's directory, assuming they apply without error:
   (`''`) is flagged.
 - **Which routine.** `ALTER`/`DROP` with argument types targets the overload with those input types;
   argument names, defaults, array dimensions and common built-in aliases (`int`/`integer`,
-  `float`/`double precision`, …) do not matter. `ALTER|DROP PROCEDURE|ROUTINE` also accept the full
-  list with `OUT` types. Without an argument list every routine of that name is the target; a
-  `DROP … IF EXISTS` whose types no routine has drops nothing. An unqualified
+  `float`/`double precision`, …) do not matter. A `FUNCTION` statement reaches functions and a
+  `PROCEDURE` statement procedures; `PROCEDURE` and `ROUTINE` statements also accept the full list
+  with `OUT` types when no argument carries a mode marker. Without an argument list every routine
+  of that name and kind is the target; a `DROP … IF EXISTS` whose types no routine has drops nothing. An unqualified
   name means `public`; only when `public` has no such routine does an `ALTER`/`DROP` reach the
   routine of that name in another schema.
 - `SECURITY INVOKER` routines (explicit or by default) are never flagged. Text in comments, string

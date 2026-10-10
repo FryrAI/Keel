@@ -127,9 +127,11 @@ fn natural_cmp(a: &str, b: &str) -> Ordering {
     let (mut left, mut right) = (a.as_bytes(), b.as_bytes());
     while let (Some(x), Some(y)) = (left.first(), right.first()) {
         // A version ends at `__`: `V1__a` precedes `V1.1__b` and `V1_1__b`.
-        let (ended, other_ended) = (left.starts_with(b"__"), right.starts_with(b"__"));
-        if ended != other_ended {
-            return other_ended.cmp(&ended);
+        if left.starts_with(b"__") && continues_version(right) {
+            return Ordering::Less;
+        }
+        if right.starts_with(b"__") && continues_version(left) {
+            return Ordering::Greater;
         }
         if x.is_ascii_digit() && y.is_ascii_digit() {
             let (number, rest) = split_number(left);
@@ -146,6 +148,11 @@ fn natural_cmp(a: &str, b: &str) -> Ordering {
         }
     }
     left.len().cmp(&right.len()).then(a.cmp(b))
+}
+
+/// Whether `rest` goes on with a sub-version (`.1`, `_1`).
+fn continues_version(rest: &[u8]) -> bool {
+    matches!(rest, [b'.' | b'_', digit, ..] if digit.is_ascii_digit())
 }
 
 /// A leading run of digits without its leading zeros, and what follows it.

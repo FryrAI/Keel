@@ -15,25 +15,34 @@ const PHRASES: &[&str] = &[
     "time without time zone",
 ];
 
-/// The canonical type of one argument, and whether it is an input: an `OUT`
-/// argument is not part of a function's identity.
-pub(super) fn argument_type(argument: &[Token]) -> (String, bool) {
+/// How an argument is marked. An `OUT` argument is not part of a routine's
+/// identity; `In` stands for every other marker (`IN`, `INOUT`, `VARIADIC`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Mode {
+    Unmarked,
+    In,
+    Out,
+}
+
+/// The canonical type of one argument, and its mode.
+pub(super) fn argument_type(argument: &[Token]) -> (String, Mode) {
     let end = argument
         .iter()
         .position(|token| token.is_word("default") || token.is_punct('='))
         .unwrap_or(argument.len());
     let mut argument = &argument[..end];
-    let mut input = true;
+    let mut mode = Mode::Unmarked;
     match argument.first() {
-        Some(mode) if mode.is_word("out") => {
-            input = false;
+        Some(word) if word.is_word("out") => {
+            mode = Mode::Out;
             argument = &argument[1..];
         }
-        Some(mode)
+        Some(word)
             if ["in", "inout", "variadic"]
                 .iter()
-                .any(|word| mode.is_word(word)) =>
+                .any(|marker| word.is_word(marker)) =>
         {
+            mode = Mode::In;
             argument = &argument[1..];
             if argument.first().is_some_and(|token| token.is_word("out")) {
                 argument = &argument[1..]; // `IN OUT`
@@ -66,7 +75,7 @@ pub(super) fn argument_type(argument: &[Token]) -> (String, bool) {
     if words.len() > 1 && !PHRASES.contains(&words.join(" ").as_str()) {
         words.remove(0);
     }
-    (canonical(&words.join(" ")).to_string() + suffix, input)
+    (canonical(&words.join(" ")).to_string() + suffix, mode)
 }
 
 fn canonical(name: &str) -> &str {

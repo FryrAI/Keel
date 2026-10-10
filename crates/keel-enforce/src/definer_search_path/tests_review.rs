@@ -255,3 +255,82 @@ fn a_down_marker_is_a_whole_directive() {
     let sql = format!("{G}\n-- migrate:down transaction:false\nDROP FUNCTION g();");
     assert_eq!(names(&sql), ["g"]);
 }
+
+/// Two safe functions and two safe procedures, each pair with one full list
+/// that reads like the other's input list.
+fn out_twins() -> String {
+    format!(
+        "CREATE FUNCTION f(a int, OUT b int) SECURITY DEFINER {SAFE} AS $$ SELECT 1 $$;\n\
+         CREATE FUNCTION f(a int, b int) RETURNS int SECURITY DEFINER {SAFE} RETURN 1;\n\
+         CREATE PROCEDURE p(a int, OUT b int) LANGUAGE plpgsql SECURITY DEFINER {SAFE} AS $$ BEGIN b := a; END $$;\n\
+         CREATE PROCEDURE p(a int, b int) LANGUAGE plpgsql SECURITY DEFINER {SAFE} AS $$ BEGIN NULL; END $$;\n"
+    )
+}
+
+#[test]
+fn a_routine_is_its_input_types_whatever_its_kind() {
+    // Both procedures exist side by side: `p(int)` and `p(int, int)`.
+    let twins = out_twins();
+    assert!(flagged(&twins).is_empty());
+    let sql = format!("{twins}ALTER PROCEDURE p(IN int, IN int) RESET search_path;");
+    assert_eq!(flagged(&sql), [("p".to_string(), 4)]);
+    // A procedure of the same inputs replaces the first one.
+    let sql = format!(
+        "{twins}CREATE OR REPLACE PROCEDURE p(a int, OUT b int) LANGUAGE plpgsql \
+         SECURITY DEFINER AS $$ BEGIN b := 1; END $$;"
+    );
+    assert_eq!(flagged(&sql), [("p".to_string(), 5)]);
+}
+
+#[test]
+fn a_mode_marker_turns_the_full_list_lookup_off() {
+    let twins = out_twins();
+    // With a marker the list is read as inputs only: `(int)`.
+    let sql = format!("{twins}ALTER ROUTINE f(int, OUT int) RESET search_path;");
+    assert_eq!(flagged(&sql), [("f".to_string(), 1)]);
+    let sql = format!("{twins}ALTER PROCEDURE p(int, OUT int) RESET search_path;");
+    assert_eq!(flagged(&sql), [("p".to_string(), 3)]);
+    // A FUNCTION list never reads as a full list: `(int, int)` is two inputs.
+    let sql = format!("{twins}ALTER FUNCTION f(int, int) RESET search_path;");
+    assert_eq!(flagged(&sql), [("f".to_string(), 2)]);
+    // Markers leave a lone procedure's full list unmatched: nothing is dropped.
+    let lone = "CREATE PROCEDURE p(a int, OUT b int) LANGUAGE plpgsql SECURITY DEFINER \
+                AS $$ BEGIN b := a; END $$;\n";
+    let kept = format!("{lone}DROP PROCEDURE IF EXISTS p(IN int, int);");
+    assert_eq!(flagged(&kept), [("p".to_string(), 1)]);
+    assert!(flagged(&format!("{lone}DROP PROCEDURE IF EXISTS p(int, int);")).is_empty());
+    // A FUNCTION statement naming two inputs does not reach a one-input function.
+    let sql = "CREATE FUNCTION f(a int, OUT b int) SECURITY DEFINER AS $$ SELECT 1 $$;\n\
+               ALTER FUNCTION f(int, int) SET search_path = public, pg_temp;";
+    assert_eq!(flagged(sql), [("f".to_string(), 1)]);
+}
+
+#[test]
+fn if_exists_covers_every_name_of_a_drop() {
+    let sql = "CREATE FUNCTION f(p_id int) RETURNS int SECURITY DEFINER RETURN 1;\n\
+               CREATE FUNCTION g(p_id int) RETURNS int SECURITY DEFINER RETURN 1;\n\
+               DROP FUNCTION IF EXISTS missing(), g(text), f(bigint);";
+    assert_eq!(flagged(sql), [("f".to_string(), 1), ("g".to_string(), 2)]);
+    // `if` is also a legal routine name.
+    assert_eq!(
+        names("CREATE FUNCTION if(p_id int) RETURNS int SECURITY DEFINER RETURN 1;"),
+        ["if"]
+    );
+}
+
+#[test]
+fn a_statement_reaches_only_routines_of_its_kind() {
+    let both = "CREATE FUNCTION r(a int) RETURNS int SECURITY DEFINER RETURN a;\n\
+                CREATE PROCEDURE r(a int, b int) LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN NULL; END $$;\n";
+    assert_eq!(
+        flagged(&format!("{both}DROP PROCEDURE r;")),
+        [("r".to_string(), 1)]
+    );
+    assert_eq!(
+        flagged(&format!("{both}DROP FUNCTION r;")),
+        [("r".to_string(), 2)]
+    );
+    assert!(flagged(&format!("{both}DROP ROUTINE r(int), r(int, int);")).is_empty());
+    // `ROUTINE` is not something one creates.
+    assert!(names("CREATE ROUTINE r() SECURITY DEFINER RETURN 1;").is_empty());
+}

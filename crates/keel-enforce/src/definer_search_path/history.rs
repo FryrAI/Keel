@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use super::statements::{statements, Action, Args, Event, RoutineRef, Setting};
+use super::statements::{statements, Action, Args, Event, RoutineKind, RoutineRef, Setting};
 
 /// A statement's position: index into the replayed sources, 1-based line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +29,7 @@ struct Routine {
     schema: Option<String>,
     name: String,
     args: Args,
+    procedure: bool,
     definer: bool,
     path: Setting,
     changed_at: Option<Site>,
@@ -129,6 +130,7 @@ fn apply(live: &mut Vec<Routine>, event: Event, hit: &[usize], site: Site) {
                 created_as: routine.name.clone(),
                 name: routine.name,
                 args: routine.args.unwrap_or_default(),
+                procedure: routine.kind == RoutineKind::Procedure,
                 definer,
                 path,
                 changed_at: None,
@@ -167,15 +169,12 @@ fn remove(live: &mut Vec<Routine>, indices: &[usize]) {
 /// The live routines `event` names, and whether that reading is certain.
 fn targets(live: &[Routine], event: &Event) -> (Vec<usize>, bool) {
     match event {
-        // A definition replaces exactly the routine of its own signature.
+        // A definition replaces the routine of its own signature: the input
+        // types, for functions and procedures alike.
         Event::Create { routine, .. } => {
-            // A function is its input types; a procedure, its full list.
-            let args = routine.args.clone().unwrap_or_default();
+            let inputs = routine.args.as_ref().map(|args| &args.inputs);
             let mut same = named(live, routine, false);
-            same.retain(|index| match routine.by_full_list {
-                true => live[*index].args.all == args.all,
-                false => live[*index].args.inputs == args.inputs,
-            });
+            same.retain(|index| Some(&live[*index].args.inputs) == inputs);
             (same, true)
         }
         Event::Alter { routine, .. } => resolve(live, routine),
@@ -190,14 +189,25 @@ fn targets(live: &[Routine], event: &Event) -> (Vec<usize>, bool) {
     }
 }
 
-/// The live routines `routine` names, as PostgreSQL picks them: by name alone
-/// without an argument list, else by the input argument types.
+/// The live routines `routine` names, as PostgreSQL looks them up: among those
+/// of the statement's kind, by name alone without an argument list, else by
+/// the input types. A list with no mode marker after `PROCEDURE` or `ROUTINE`
+/// may also be the full list, `OUT` types included.
 fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
     let mut same_arity = named(live, routine, true);
+    same_arity.retain(|index| match routine.kind {
+        RoutineKind::Function => !live[*index].procedure,
+        RoutineKind::Procedure => live[*index].procedure,
+        RoutineKind::Routine => true,
+    });
     let Some(args) = &routine.args else {
         return (same_arity, true);
     };
-    same_arity.retain(|index| live[*index].args.same_arity(args, routine.by_full_list));
+    let or_full = routine.kind != RoutineKind::Function && !args.marked;
+    same_arity.retain(|index| {
+        let have = &live[*index].args;
+        have.inputs.len() == args.inputs.len() || (or_full && have.all.len() == args.all.len())
+    });
     // One candidate is the target however its types are spelled: the statement
     // would not have applied otherwise. `IF EXISTS` applies either way, so it
     // names a routine by its types alone.
@@ -207,7 +217,10 @@ fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
     let same_types: Vec<usize> = same_arity
         .iter()
         .copied()
-        .filter(|index| live[*index].args.same_types(args, routine.by_full_list))
+        .filter(|index| {
+            let have = &live[*index].args;
+            have.inputs == args.inputs || (or_full && have.all == args.all)
+        })
         .collect();
     // Several candidates and no spelling matches: any of them may be meant.
     if same_types.is_empty() && !routine.if_exists {

@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use super::history::findings;
 use super::lex::{lex, Kind};
 use super::statements::{statements, Action, Event, Setting};
-use super::types::argument_type;
+use super::types::{argument_type, Mode};
 use super::{applied_order, is_applied, natural_cmp};
 
 fn words(sql: &str) -> Vec<(Kind, String)> {
@@ -27,8 +27,8 @@ fn flagged(sql: &str) -> Vec<String> {
 
 /// The canonical type of an input argument; `None` for an `OUT` one.
 fn argument(sql: &str) -> Option<String> {
-    let (name, input) = argument_type(&lex(sql));
-    input.then_some(name)
+    let (name, mode) = argument_type(&lex(sql));
+    (mode != Mode::Out).then_some(name)
 }
 
 #[test]
@@ -216,6 +216,8 @@ fn file_names_order_as_a_migration_runner_applies_them() {
     assert_eq!(natural_cmp("V1__a.sql", "V1.1__b.sql"), Ordering::Less);
     assert_eq!(natural_cmp("V2_1__b.sql", "V2__a.sql"), Ordering::Greater);
     assert_eq!(natural_cmp("V2_1__b.sql", "V2_2__a.sql"), Ordering::Less);
+    // … but `__` is no version end beside a name that carries no version.
+    assert_eq!(natural_cmp("items.sql", "items__fix.sql"), Ordering::Less);
     assert_eq!(natural_cmp("1_a.sql", "1_a.sql"), Ordering::Equal);
     assert_eq!(
         natural_cmp("20240102_a.sql", "20240101_b.sql"),

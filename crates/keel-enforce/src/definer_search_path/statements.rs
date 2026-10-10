@@ -1,6 +1,7 @@
 //! The statements that create, alter or drop a routine, read from one SQL file.
 
 use super::lex::{lex, Kind, Token};
+use super::types::{argument_type, Mode};
 
 /// A routine as a statement names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,34 +10,29 @@ pub(super) struct RoutineRef {
     pub name: String,
     /// `None` when the statement gives no argument list.
     pub args: Option<Args>,
-    /// Named with `PROCEDURE` or `ROUTINE`: PostgreSQL then also accepts the
-    /// full argument list, `OUT` types included, and identifies a procedure
-    /// by it.
-    pub by_full_list: bool,
+    pub kind: RoutineKind,
     /// `IF EXISTS`: naming no routine is not an error.
     pub if_exists: bool,
+}
+
+/// The keyword a statement names a routine with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RoutineKind {
+    Function,
+    Procedure,
+    /// Either of the two.
+    Routine,
 }
 
 /// A routine's canonical argument types.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Args {
-    /// What identifies a function: `OUT` arguments left out.
+    /// What identifies a routine: `OUT` arguments left out.
     pub inputs: Vec<String>,
     /// Every argument.
     pub all: Vec<String>,
-}
-
-impl Args {
-    /// Whether the list `named` in a statement has this routine's arity.
-    pub fn same_arity(&self, named: &Args, by_full_list: bool) -> bool {
-        self.inputs.len() == named.inputs.len()
-            || (by_full_list && self.all.len() == named.all.len())
-    }
-
-    /// Whether the list `named` in a statement spells this routine's types.
-    pub fn same_types(&self, named: &Args, by_full_list: bool) -> bool {
-        self.inputs == named.inputs || (by_full_list && self.all == named.all)
-    }
+    /// Whether any argument carries a mode (`IN`, `OUT`, …).
+    pub marked: bool,
 }
 
 /// A routine's stored `search_path` setting.
@@ -164,9 +160,11 @@ fn event(tokens: &[Token]) -> Option<Event> {
         if cursor.eat_word("or") {
             cursor.eat_word("replace");
         }
-        let routine = cursor
-            .routine_kind()
-            .and_then(|kind| cursor.routine(kind))?;
+        let kind = cursor.routine_kind()?;
+        if kind == RoutineKind::Routine {
+            return None; // not something one creates
+        }
+        let routine = cursor.routine(kind)?;
         let (definer, path) = cursor.create_clauses();
         Some(Event::Create {
             routine,
@@ -174,9 +172,8 @@ fn event(tokens: &[Token]) -> Option<Event> {
             path,
         })
     } else if verb.is_word("alter") {
-        let routine = cursor
-            .routine_kind()
-            .and_then(|kind| cursor.routine(kind))?;
+        let kind = cursor.routine_kind()?;
+        let routine = cursor.routine(kind)?;
         let actions = cursor.alter_actions();
         Some(Event::Alter { routine, actions })
     } else if verb.is_word("drop") {
@@ -184,6 +181,11 @@ fn event(tokens: &[Token]) -> Option<Event> {
         let mut routines = vec![cursor.routine(kind)?];
         while cursor.eat_punct(',') {
             routines.push(cursor.routine(kind)?);
+        }
+        // `IF EXISTS` is written once and covers every name.
+        let if_exists = routines[0].if_exists;
+        for routine in &mut routines {
+            routine.if_exists = if_exists;
         }
         Some(Event::Drop(routines))
     } else {
@@ -213,13 +215,14 @@ impl<'a> Cursor<'a> {
         hit
     }
 
-    /// The routine keyword: false for `FUNCTION`, true for `PROCEDURE` and
-    /// `ROUTINE`, which name a routine by its full argument list too.
-    fn routine_kind(&mut self) -> Option<bool> {
+    fn routine_kind(&mut self) -> Option<RoutineKind> {
         if self.eat_word("function") {
-            return Some(false);
+            Some(RoutineKind::Function)
+        } else if self.eat_word("procedure") {
+            Some(RoutineKind::Procedure)
+        } else {
+            self.eat_word("routine").then_some(RoutineKind::Routine)
         }
-        (self.eat_word("procedure") || self.eat_word("routine")).then_some(true)
     }
 
     fn eat_punct(&mut self, punct: char) -> bool {
@@ -242,8 +245,11 @@ impl<'a> Cursor<'a> {
     }
 
     /// `[IF EXISTS] [schema.]name [(arguments)]`.
-    fn routine(&mut self, by_full_list: bool) -> Option<RoutineRef> {
-        let if_exists = self.eat_word("if") && self.eat_word("exists");
+    fn routine(&mut self, kind: RoutineKind) -> Option<RoutineRef> {
+        // `if` alone is a name.
+        let if_exists = matches!(&self.tokens[self.at..],
+            [first, second, ..] if first.is_word("if") && second.is_word("exists"));
+        self.at += 2 * usize::from(if_exists);
         let mut parts = vec![self.next()?.ident()?.to_string()];
         while self.eat_punct('.') {
             parts.push(self.next()?.ident()?.to_string());
@@ -252,9 +258,10 @@ impl<'a> Cursor<'a> {
         let args = self.eat_punct('(').then(|| {
             let mut args = Args::default();
             for argument in arguments(self.group()) {
-                let (name, input) = super::types::argument_type(argument);
+                let (name, mode) = argument_type(argument);
+                args.marked |= mode != Mode::Unmarked;
                 args.all.push(name.clone());
-                if input {
+                if mode != Mode::Out {
                     args.inputs.push(name);
                 }
             }
@@ -264,7 +271,7 @@ impl<'a> Cursor<'a> {
             schema: parts.pop(),
             name,
             args,
-            by_full_list,
+            kind,
             if_exists,
         })
     }
