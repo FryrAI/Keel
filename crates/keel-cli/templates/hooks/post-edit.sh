@@ -11,13 +11,14 @@ set -euo pipefail
 #
 # Exit codes (as the Tier 1 tools read them):
 #   0 = nothing to report.
-#   2 = blocking: keel found violations; stderr is shown to the LLM to fix.
+#   2 = blocking: violations or no usable graph; stderr reaches the LLM.
 #   1 = non-blocking error: keel could not check the file (internal error,
 #       timeout, a path this script will not pass along). Surfaced to the
 #       user, not as "fix before proceeding" — no edit to this file can
-#       resolve a stale graph or a timeout.
+#       resolve an internal error or a timeout.
 # A non-zero exit ALWAYS carries a reason on stderr; a silent block is a bug.
 CLIENT="${1:-}"
+NO_USABLE_GRAPH='keel compile: no usable graph — '
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$FILE_PATH" ] && exit 0
@@ -68,7 +69,11 @@ if [ -z "$RESULT" ]; then
 fi
 echo "$RESULT" >&2
 
-# keel exit 1 = violations, which the agent fixes by editing. Anything else
-# (2 = internal error, 124 = timeout) is not the agent's to fix.
+# Match the start of ANY line, even after a version-drift warning.
+if [ "$EXIT_CODE" -eq 2 ] && grep -q "^$NO_USABLE_GRAPH" <<< "$RESULT"; then
+  exit 2
+fi
+
+# keel exit 1 = violations. Other internal errors and timeouts stay non-blocking.
 [ "$EXIT_CODE" -eq 1 ] && exit 2
 exit 1

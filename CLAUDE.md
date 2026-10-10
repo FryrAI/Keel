@@ -216,8 +216,10 @@ Then the marker moves (`last_map_at` never). Limits count recovery paths and dep
 `RESYNC_MAX_FILES` 500 for bare/`--changed`; beyond them, a gone stored commit or a failure exits 2 with
 a `NO_USABLE_GRAPH` line; the marker stays put. The next working-tree compile, at any HEAD, completes
 or reverts partial writes; completion atomically clears the record and moves the marker.
-No git/HEAD/marker stays legacy-silent; a stored commit this clone lacks requires `keel map`.
+No git/HEAD needs no re-sync; a stored commit this clone lacks requires `keel map`.
 `compile --since` keeps `graph_staleness`'s ancestor refusal, then refuses while a record is unfinished.
+
+Every compile mode refuses an unfinished map (no `last_map_at`, or HEAD exists without `last_map_commit`): exit 2, `NO_USABLE_GRAPH`, no graph or snapshot writes. Run `keel map`. `map --cached` never maps or locks: it refuses an unfinished map and warns with both commits when stale. The post-edit hook blocks (exit 2) on a refusal prefix at any line start. Only `compile --delta` advances `last_compile.json`; a full map deletes it. Details: `docs/src/ci.md`.
 
 ### Compile Sync Never Deletes on Failed Re-Resolution
 `sync_compiled_files` (keel-cli `compile_sync.rs`) deletes a stored `calls`/`uses` edge only on positive

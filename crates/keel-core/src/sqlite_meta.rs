@@ -11,14 +11,10 @@
 //!
 //! The map markers are a different matter. `keel map` wipes the graph and
 //! re-stamps [`LAST_MAP_AT`]/[`LAST_MAP_COMMIT`] only when it finishes, so a
-//! crash in between would leave markers describing HEAD over an empty graph —
-//! and `keel compile`'s staleness guard, seeing a `last_map_commit` that IS an
-//! ancestor of HEAD, would wave the compile through to enforce against
-//! nothing. So `keel map` calls [`SqliteGraphStore::clear_map_markers`] as part
-//! of its clearing step: a crashed map then reads as never-mapped, which is
-//! both true and a state every consumer already handles (the staleness guard
-//! and the W009 bootstrap guard are each documented to stay silent without a
-//! marker).
+//! crash in between must not leave markers describing HEAD over a partial
+//! graph. So `keel map` calls [`SqliteGraphStore::clear_map_markers`] BEFORE
+//! clearing graph data: an interrupted map reads as never-mapped. Every CLI
+//! compile mode refuses that state, as does `keel map --cached`.
 //!
 //! Keys live here rather than next to their readers so the set is enumerable:
 //! a key defined in the module that happens to read it is invisible to everyone
@@ -38,12 +34,10 @@ pub const LAST_MAP_AT: &str = "last_map_at";
 
 /// `keel_meta` key holding the git commit `keel map` last built the graph from.
 ///
-/// `keel compile` refuses to run (exit 2) when this commit is not an ancestor
-/// of `HEAD`: the graph then describes code the checkout does not contain, and
-/// `compile --changed` against it manufactures phantom `E001`/`E004` —
-/// renamed functions read as removed, live callers read as broken. A graph
-/// with no marker (mapped by an older keel, or mapped outside a git repo) is
-/// never treated as stale, so pre-existing graphs keep working.
+/// Working-tree compiles re-sync from this commit to `HEAD`; `--since` retains
+/// its ancestor guard. When `HEAD` exists but this marker does not, every CLI
+/// compile mode refuses until `keel map` rebuilds the graph. Outside git or
+/// before the first commit, a completed map needs only [`LAST_MAP_AT`].
 pub const LAST_MAP_COMMIT: &str = "last_map_commit";
 
 /// Baseline commit, changed paths and dependents of an unfinished re-sync.
@@ -106,10 +100,8 @@ impl SqliteGraphStore {
 
     /// Drop both map markers, declaring the graph never-mapped.
     ///
-    /// `keel map` calls this immediately after `clear_all`, so the window in
-    /// which the graph is empty is also a window in which no marker claims
-    /// otherwise. See the module documentation for why a crash inside that
-    /// window has to read as "never mapped" rather than "mapped at HEAD".
+    /// `keel map` calls this before `clear_all`, so an interrupted graph clear
+    /// cannot leave old completion markers over empty or partial graph data.
     pub fn clear_map_markers(&self) -> Result<(), GraphError> {
         self.clear_meta_value(LAST_MAP_AT)?;
         self.clear_meta_value(LAST_MAP_COMMIT)
@@ -149,9 +141,8 @@ mod tests {
 
     #[test]
     fn map_clear_phase_erases_only_the_map_markers() {
-        // `keel map`'s clearing step, in miniature: wipe the graph, then drop
-        // the markers. A crash from here on must read as never-mapped, or the
-        // staleness guard passes an empty graph off as current.
+        // Both clearing operations leave a never-mapped graph; the CLI pins
+        // their failure-safe ordering separately.
         let mut store = SqliteGraphStore::in_memory().unwrap();
         let version = store.schema_version().unwrap();
         store.set_meta_value(LAST_MAP_AT, "1700000000").unwrap();

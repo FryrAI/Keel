@@ -52,6 +52,26 @@ fn resync(dir: &Path, store: &mut SqliteGraphStore, explicit_targets: bool) -> R
     bring_to_head(dir, store, explicit_targets, &KeelConfig::default(), false)
 }
 
+#[test]
+fn never_mapped_predicate_distinguishes_missing_completion_and_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteGraphStore::in_memory().unwrap();
+    let unfinished = "this repository has never been mapped (or the last `keel map` did not finish). Run `keel map` to build the graph; nothing was checked.";
+    let unrecorded = "the stored graph does not record the commit it was built at (it was mapped before the first commit, or by an older keel). Run `keel map` to rebuild it; nothing was checked.";
+    assert_eq!(never_mapped_reason(dir.path(), &store), Some(unfinished));
+    store.set_meta_value(LAST_MAP_AT, "1700000000").unwrap();
+    assert_eq!(never_mapped_reason(dir.path(), &store), None);
+    git(dir.path(), &["init", "-q"]);
+    assert_eq!(never_mapped_reason(dir.path(), &store), None);
+    let head = commit_files(dir.path(), 1, "alpha");
+    assert_eq!(never_mapped_reason(dir.path(), &store), Some(unrecorded));
+    store.set_meta_value(LAST_MAP_COMMIT, &head).unwrap();
+    assert_eq!(never_mapped_reason(dir.path(), &store), None);
+    store.clear_map_markers().unwrap();
+    store.set_meta_value(LAST_MAP_COMMIT, &head).unwrap();
+    assert_eq!(never_mapped_reason(dir.path(), &store), Some(unfinished));
+}
+
 /// The three refusal shapes share the prefix and the 12-char commit, and name
 /// the command that fixes each state.
 #[test]

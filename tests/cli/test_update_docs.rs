@@ -52,6 +52,8 @@ fn compile_reports_stale_keel_json_exactly_once_and_modifies_nothing() {
     let config_before = fs::read_to_string(&config_path).unwrap();
     let agents_before = fs::read_to_string(&agents_path).unwrap();
 
+    crate::common::keel(dir.path(), &["map"]);
+
     let out = Command::new(keel_bin())
         .arg("compile")
         .current_dir(dir.path())

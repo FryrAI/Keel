@@ -48,14 +48,15 @@ pub fn run(
     // One config load serves both the drift check and the walk below.
     let config = keel_core::config::KeelConfig::load(&keel_dir);
 
-    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
-    // At most one line, emitted once per invocation.
-    super::version_drift::warn(&cwd, &config);
-
     // --cached: read from existing graph.db instead of re-parsing
     if cached {
-        return super::map_cached::run_cached(&store, formatter, verbose, _depth);
+        return super::map_cached::run_cached(
+            &root, &cwd, &config, &store, formatter, verbose, _depth,
+        );
     }
+
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
+    super::version_drift::warn(&cwd, &config);
 
     let mut paths = ProjectPathBatch::new(&root);
 
@@ -95,7 +96,21 @@ pub fn run(
         Vec::new()
     };
 
-    // Full re-map: clear existing graph data so IDs start fresh
+    // Invalidate the baseline BEFORE clearing any graph data. A killed or
+    // failed map must never leave completion markers over a partial graph.
+    if let Err(e) = store.clear_map_markers() {
+        eprintln!("keel map: failed to clear stale map markers: {}", e);
+        return (2, EventMetrics::default());
+    }
+
+    if let Err(e) = std::fs::remove_file(keel_dir.join("last_compile.json")) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("keel map: failed to reset delta baseline: {e}");
+            return (2, EventMetrics::default());
+        }
+    }
+
+    // Full re-map: clear existing graph data so IDs start fresh.
     if let Err(e) = store.clear_all() {
         eprintln!("keel map: failed to clear graph database: {}", e);
         return (2, EventMetrics::default());
@@ -104,16 +119,6 @@ pub fn run(
     // The full map replaces everything an unfinished re-sync's record describes.
     if let Err(e) = store.clear_resync_pending() {
         eprintln!("keel map: failed to clear graph database: {}", e);
-        return (2, EventMetrics::default());
-    }
-
-    // The graph is now empty, so the previous run's map markers describe
-    // nothing. Drop them before doing any work: if this run dies partway, the
-    // graph must read as never-mapped rather than as freshly mapped at HEAD —
-    // the latter satisfies `keel compile`'s staleness guard and would let a
-    // compile enforce against an empty graph. They are re-stamped at the end.
-    if let Err(e) = store.clear_map_markers() {
-        eprintln!("keel map: failed to clear stale map markers: {}", e);
         return (2, EventMetrics::default());
     }
 
@@ -405,6 +410,16 @@ pub fn run(
 
     let _ = store.set_foreign_keys(true);
 
+    match store.cleanup_orphaned_edges() {
+        Ok(n) if n > 0 && verbose => {
+            eprintln!("keel map: cleaned up {} orphaned edges", n);
+        }
+        Err(e) => {
+            eprintln!("keel map: orphaned edge cleanup failed: {}", e);
+        }
+        _ => {}
+    }
+
     // Stamp "this graph has been mapped". W009's bootstrap guard reads it to
     // tell an empty edge set apart from a graph that was never built — without
     // the marker, the first compile after `keel init` would report every
@@ -420,26 +435,14 @@ pub fn run(
         }
     }
 
-    // Stamp WHICH commit the graph describes. `keel compile`'s staleness guard
-    // reads it and refuses to enforce once HEAD has moved somewhere this
-    // commit is not an ancestor of. Outside a git repo (or before the first
-    // commit) there is nothing to stamp and no staleness to detect.
+    // Stamp WHICH commit the completed graph describes. Outside a git repo
+    // (or before the first commit) there is no commit to stamp.
     if let Some(head) = keel_enforce::gitdiff::head_commit(&cwd) {
         if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_COMMIT, &head) {
             if verbose {
                 eprintln!("keel map: failed to record map commit: {}", e);
             }
         }
-    }
-
-    match store.cleanup_orphaned_edges() {
-        Ok(n) if n > 0 && verbose => {
-            eprintln!("keel map: cleaned up {} orphaned edges", n);
-        }
-        Err(e) => {
-            eprintln!("keel map: orphaned edge cleanup failed: {}", e);
-        }
-        _ => {}
     }
 
     if verbose {
