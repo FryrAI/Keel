@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use super::statements::{statements, Action, Event, RoutineRef, Setting};
+use super::statements::{statements, Action, Args, Event, RoutineRef, Setting};
 
 /// A statement's position: index into the replayed sources, 1-based line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +28,7 @@ pub(super) struct Finding {
 struct Routine {
     schema: Option<String>,
     name: String,
-    args: Vec<String>,
+    args: Args,
     definer: bool,
     path: Setting,
     changed_at: Option<Site>,
@@ -38,21 +38,38 @@ struct Routine {
     undetermined: bool,
 }
 
-impl Routine {
-    /// An unqualified name is resolved through the session's own path, which
-    /// no file records: it matches the name in any schema.
-    fn is_named(&self, routine: &RoutineRef) -> bool {
-        self.name == routine.name
-            && (self.schema.is_none() || routine.schema.is_none() || self.schema == routine.schema)
+/// The live routines called as `routine` is. An unqualified name means
+/// `public`, where the default path creates and finds it. `or_elsewhere` lets
+/// it mean another schema when `public` has no such routine: the session's own
+/// path decides, and no file records it.
+fn named(live: &[Routine], routine: &RoutineRef, or_elsewhere: bool) -> Vec<usize> {
+    let schema = |schema: &Option<String>| schema.clone().unwrap_or_else(|| "public".to_string());
+    let called: Vec<usize> = (0..live.len())
+        .filter(|index| live[*index].name == routine.name)
+        .collect();
+    let exact: Vec<usize> = called
+        .iter()
+        .copied()
+        .filter(|index| schema(&live[*index].schema) == schema(&routine.schema))
+        .collect();
+    if !exact.is_empty() || !or_elsewhere {
+        return exact;
     }
+    called
+        .into_iter()
+        .filter(|index| live[*index].schema.is_none() || routine.schema.is_none())
+        .collect()
 }
 
 /// The findings of `sources` (file texts in applied order), keyed by source index.
 pub(super) fn findings(sources: &[&str]) -> HashMap<usize, Vec<Finding>> {
     let mut live: Vec<Routine> = Vec::new();
     for (source, sql) in sources.iter().enumerate() {
+        // Statements come in file order, so lines are counted once.
+        let (mut counted, mut line) = (0, 1);
         for statement in statements(sql) {
-            let line = 1 + sql[..statement.offset].matches('\n').count() as u32;
+            line += sql[counted..statement.offset].matches('\n').count() as u32;
+            counted = statement.offset;
             let site = Site { source, line };
             let (hit, certain) = targets(&live, &statement.event);
             if statement.conditional || !certain {
@@ -152,10 +169,9 @@ fn targets(live: &[Routine], event: &Event) -> (Vec<usize>, bool) {
     match event {
         // A definition replaces exactly the routine of its own signature.
         Event::Create { routine, .. } => {
-            let same = (0..live.len())
-                .filter(|index| live[*index].is_named(routine))
-                .filter(|index| Some(&live[*index].args) == routine.args.as_ref());
-            (same.collect(), true)
+            let mut same = named(live, routine, false);
+            same.retain(|index| Some(&live[*index].args) == routine.args.as_ref());
+            (same, true)
         }
         Event::Alter { routine, .. } => resolve(live, routine),
         Event::Drop(routines) => {
@@ -172,13 +188,11 @@ fn targets(live: &[Routine], event: &Event) -> (Vec<usize>, bool) {
 /// The live routines `routine` names, as PostgreSQL picks them: by name alone
 /// without an argument list, else by the input argument types.
 fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
-    let named = (0..live.len()).filter(|index| live[*index].is_named(routine));
+    let mut same_arity = named(live, routine, true);
     let Some(args) = &routine.args else {
-        return (named.collect(), true);
+        return (same_arity, true);
     };
-    let same_arity: Vec<usize> = named
-        .filter(|index| live[*index].args.len() == args.len())
-        .collect();
+    same_arity.retain(|index| live[*index].args.same_arity(args));
     // One candidate is the target however its types are spelled. Several are
     // told apart by type; when no spelling matches, any of them may be meant.
     if same_arity.len() < 2 {
@@ -187,7 +201,7 @@ fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
     let same_types: Vec<usize> = same_arity
         .iter()
         .copied()
-        .filter(|index| live[*index].args == *args)
+        .filter(|index| live[*index].args.same_types(args))
         .collect();
     if same_types.is_empty() {
         (same_arity, false)

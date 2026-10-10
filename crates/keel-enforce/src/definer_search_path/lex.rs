@@ -37,13 +37,15 @@ impl Token {
 pub(super) fn lex(sql: &str) -> Vec<Token> {
     let bytes = sql.as_bytes();
     let mut tokens: Vec<Token> = Vec::new();
-    let mut at = 0;
+    // A byte-order mark is not part of the first statement.
+    let mut at = if sql.starts_with('\u{feff}') { 3 } else { 0 };
     while at < bytes.len() {
         let start = at;
         let (kind, text) = if bytes[at].is_ascii_whitespace() {
             at += 1;
             continue;
-        } else if bytes[at..].starts_with(b"--") {
+        } else if bytes[at..].starts_with(b"--") || bytes[at] == b'\\' {
+            // A comment, or a psql meta-command: neither is SQL.
             at = bytes[at..]
                 .iter()
                 .position(|byte| *byte == b'\n')
@@ -53,17 +55,12 @@ pub(super) fn lex(sql: &str) -> Vec<Token> {
             at = block_comment_end(bytes, at);
             continue;
         } else if bytes[at] == b'\'' {
-            // `E'…'` reads backslash escapes; the prefix belongs to the constant.
-            let escapes = tokens
-                .last()
-                .is_some_and(|token| token.is_word("e") && token.offset + 1 == at);
-            if escapes {
-                tokens.pop();
-            }
+            let escapes = take_prefix(&mut tokens, at);
             let (text, end) = quoted(bytes, at, b'\'', escapes);
             at = end;
             (Kind::Str, text)
         } else if bytes[at] == b'"' {
+            take_prefix(&mut tokens, at);
             let (text, end) = quoted(bytes, at, b'"', false);
             at = end;
             (Kind::Quoted, text)
@@ -86,6 +83,25 @@ pub(super) fn lex(sql: &str) -> Vec<Token> {
         });
     }
     tokens
+}
+
+/// Drops an `E` or `U&` prefix glued to the quote at `at`: it belongs to the
+/// constant, not to the statement. True for `E`, whose constant reads backslash
+/// escapes (a quote among them; the other sequences are kept undecoded).
+fn take_prefix(tokens: &mut Vec<Token>, at: usize) -> bool {
+    let ends_at = |token: &Token, end: usize| token.offset + token.text.len() == end;
+    if let [.., last] = tokens.as_slice() {
+        if last.is_word("e") && ends_at(last, at) {
+            tokens.pop();
+            return true;
+        }
+    }
+    if let [.., u, amp] = tokens.as_slice() {
+        if u.is_word("u") && ends_at(u, amp.offset) && amp.is_punct('&') && ends_at(amp, at) {
+            tokens.truncate(tokens.len() - 2);
+        }
+    }
+    false
 }
 
 /// Identifier bytes; every non-ASCII byte counts, as PostgreSQL has it.

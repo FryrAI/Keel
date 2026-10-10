@@ -7,8 +7,27 @@ use super::lex::{lex, Kind, Token};
 pub(super) struct RoutineRef {
     pub schema: Option<String>,
     pub name: String,
-    /// Canonical input argument types; `None` when the statement lists none.
-    pub args: Option<Vec<String>>,
+    /// `None` when the statement gives no argument list.
+    pub args: Option<Args>,
+}
+
+/// A routine's canonical argument types.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct Args {
+    /// What identifies a function: `OUT` arguments left out.
+    pub inputs: Vec<String>,
+    /// Every argument. PostgreSQL also finds a procedure by this list.
+    pub all: Vec<String>,
+}
+
+impl Args {
+    pub fn same_arity(&self, other: &Args) -> bool {
+        self.inputs.len() == other.inputs.len() || self.all.len() == other.all.len()
+    }
+
+    pub fn same_types(&self, other: &Args) -> bool {
+        self.inputs == other.inputs || self.all == other.all
+    }
 }
 
 /// A routine's stored `search_path` setting.
@@ -51,16 +70,36 @@ pub(super) struct Statement {
     pub conditional: bool,
 }
 
+/// Comment lines that open the section a forward run does not apply (dbmate,
+/// goose, sql-migrate).
+const DOWN_MARKERS: &[&str] = &["-- migrate:down", "-- +goose down", "-- +migrate down"];
+
+/// The part of `sql` a forward migration run applies.
+fn forward_part(sql: &str) -> &str {
+    let mut end = 0;
+    for line in sql.split_inclusive('\n') {
+        let line_start = line.trim_start().to_ascii_lowercase();
+        if DOWN_MARKERS
+            .iter()
+            .any(|marker| line_start.starts_with(marker))
+        {
+            return &sql[..end];
+        }
+        end += line.len();
+    }
+    sql
+}
+
 /// Every routine statement of `sql`, in order.
 pub(super) fn statements(sql: &str) -> Vec<Statement> {
-    let tokens = lex(sql);
+    let tokens = lex(forward_part(sql));
     let mut found = Vec::new();
     for chunk in tokens.split(|token| token.is_punct(';')) {
         if chunk.first().is_some_and(|token| token.is_word("do")) {
             let body = chunk.iter().find(|token| token.kind == Kind::Str);
             found.extend(
                 body.into_iter()
-                    .flat_map(|body| block_statements(&body.text)),
+                    .flat_map(|body| block_statements(&body.text, chunk[0].offset)),
             );
         } else if let Some(event) = event(chunk) {
             found.push(Statement {
@@ -73,18 +112,37 @@ pub(super) fn statements(sql: &str) -> Vec<Statement> {
     found
 }
 
-/// Routine statements anywhere in a procedural block, each conditional.
-fn block_statements(body: &str) -> Vec<Statement> {
+/// Routine statements anywhere in the procedural block at `offset`, each conditional.
+fn block_statements(body: &str, offset: usize) -> Vec<Statement> {
     let tokens = lex(body);
     let mut found = Vec::new();
     for chunk in tokens.split(|token| token.is_punct(';')) {
         let hit = (0..chunk.len()).find_map(|start| event(&chunk[start..]));
         found.extend(hit.map(|event| Statement {
             event,
-            offset: 0,
+            offset,
             conditional: true,
         }));
     }
+    found
+}
+
+/// The arguments of a parenthesised list: split at its own commas only, not
+/// at those of a type modifier or a default expression.
+fn arguments(group: &[Token]) -> Vec<&[Token]> {
+    let (mut found, mut start, mut depth) = (Vec::new(), 0, 0usize);
+    for (index, token) in group.iter().enumerate() {
+        if token.is_punct('(') || token.is_punct('[') {
+            depth += 1;
+        } else if token.is_punct(')') || token.is_punct(']') {
+            depth = depth.saturating_sub(1);
+        } else if depth == 0 && token.is_punct(',') {
+            found.push(&group[start..index]);
+            start = index + 1;
+        }
+    }
+    found.push(&group[start..]);
+    found.retain(|argument| !argument.is_empty());
     found
 }
 
@@ -176,12 +234,15 @@ impl<'a> Cursor<'a> {
         }
         let name = parts.pop()?;
         let args = self.eat_punct('(').then(|| {
-            let group = self.group();
-            group
-                .split(|token| token.is_punct(','))
-                .filter(|argument| !argument.is_empty())
-                .filter_map(super::types::input_type)
-                .collect()
+            let mut args = Args::default();
+            for argument in arguments(self.group()) {
+                let (name, input) = super::types::argument_type(argument);
+                args.all.push(name.clone());
+                if input {
+                    args.inputs.push(name);
+                }
+            }
+            args
         });
         Some(RoutineRef {
             schema: parts.pop(),
@@ -212,18 +273,17 @@ impl<'a> Cursor<'a> {
         while let Some(token) = self.next() {
             let action = if token.is_word("security") {
                 self.security().map(Action::Definer)
-            } else if token.is_word("set") && self.eat_word("schema") {
-                self.ident().map(Action::SetSchema)
             } else if token.is_word("set") {
-                self.search_path().map(Action::Path)
+                match self.search_path() {
+                    Some(path) => Some(Action::Path(path)),
+                    None if self.eat_word("schema") => self.ident().map(Action::SetSchema),
+                    None => None,
+                }
             } else if token.is_word("reset") {
                 let all = self.eat_word("all");
                 (all || self.eat_search_path()).then_some(Action::Path(Setting::Unset))
             } else if token.is_word("rename") && self.eat_word("to") {
                 self.ident().map(Action::Rename)
-            } else if token.is_word("owner") && self.eat_word("to") {
-                self.at += 1; // a role name is never a clause
-                None
             } else {
                 None
             };
@@ -256,6 +316,13 @@ impl<'a> Cursor<'a> {
 
     /// After `SET`: the setting, when the parameter is `search_path`.
     fn search_path(&mut self) -> Option<Setting> {
+        // `SET SCHEMA 'name'` is PostgreSQL's alias for a one-schema list.
+        if let [schema, name, ..] = &self.tokens[self.at..] {
+            if schema.is_word("schema") && name.kind == Kind::Str {
+                self.at += 2;
+                return Some(Setting::List(vec![name.text.clone()]));
+            }
+        }
         if !self.eat_search_path() {
             return None;
         }

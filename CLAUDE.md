@@ -244,7 +244,8 @@ Server/watch/HTTP/MCP **compile** do not run homes; CLI and MCP **review** do.
 
 ### W013 Replays a Directory's SQL Files From Disk
 `definer_search_path` (keel-enforce) judges a `SECURITY DEFINER` routine by the `search_path` PostgreSQL would
-store after every `.sql` file of its directory ran in migration order (digit runs compare as numbers): later
+store after a FORWARD run of its directory's `.sql` files in migration order (digit runs as numbers, Flyway `R__`
+last, no `.down.sql`, nothing after a `-- migrate:down`/`+goose Down`/`+migrate Down` line): later
 `ALTER … SET/RESET`, replacement, `DROP`, `RENAME TO` and `SET SCHEMA` statements are replayed, and only the
 live definition is judged. The graph stores no statement text, so the check reads disk and needs the engine's
 `set_project_root`; an engine without it skips W013 silently (CLI `fix`/`checkpoint` parse no SQL). Its lexer is its own: the

@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 
 use super::history::findings;
 use super::lex::{lex, Kind};
-use super::natural_cmp;
 use super::statements::{statements, Action, Event, Setting};
-use super::types::input_type;
+use super::types::argument_type;
+use super::{applied_order, is_applied, natural_cmp};
 
 fn words(sql: &str) -> Vec<(Kind, String)> {
     lex(sql)
@@ -25,8 +25,10 @@ fn flagged(sql: &str) -> Vec<String> {
     names
 }
 
+/// The canonical type of an input argument; `None` for an `OUT` one.
 fn argument(sql: &str) -> Option<String> {
-    input_type(&lex(sql))
+    let (name, input) = argument_type(&lex(sql));
+    input.then_some(name)
 }
 
 #[test]
@@ -81,12 +83,20 @@ fn argument_types_drop_names_modes_defaults_and_aliases() {
     );
     assert_eq!(argument("INOUT p_total bigint").as_deref(), Some("bigint"));
     assert_eq!(argument("OUT p_total bigint"), None);
+    assert_eq!(argument_type(&lex("OUT p_total bigint")).0, "bigint");
+    assert_eq!(argument("p_x float").as_deref(), Some("double precision"));
+    assert_eq!(argument("p_n dec(10, 2)").as_deref(), Some("numeric"));
+    assert_eq!(argument("p_ids int[3][3]").as_deref(), Some("integer[]"));
+    assert_eq!(
+        argument("p_ids integer ARRAY[3]").as_deref(),
+        Some("integer[]")
+    );
 }
 
 #[test]
 fn statements_read_each_alter_action() {
     let found = statements(
-        "ALTER FUNCTION app.f(int) OWNER TO security SET SCHEMA other \
+        "ALTER FUNCTION app.f(int, OUT text) OWNER TO app_owner SET SCHEMA other \
          SECURITY INVOKER RENAME TO g RESET ALL SET work_mem = '1MB';",
     );
     let [statement] = found.as_slice() else {
@@ -96,7 +106,9 @@ fn statements_read_each_alter_action() {
         panic!("{statement:?}");
     };
     assert_eq!(routine.schema.as_deref(), Some("app"));
-    assert_eq!(routine.args, Some(vec!["integer".to_string()]));
+    let args = routine.args.as_ref().unwrap();
+    assert_eq!(args.inputs, ["integer"]);
+    assert_eq!(args.all, ["integer", "text"]);
     assert_eq!(
         actions,
         &[
@@ -197,4 +209,33 @@ fn file_names_order_as_a_migration_runner_applies_them() {
         natural_cmp("20240102_a.sql", "20240101_b.sql"),
         Ordering::Greater
     );
+}
+
+#[test]
+fn flyway_repeatable_files_apply_after_versioned_ones() {
+    let mut names = [
+        "R__routines.sql",
+        "V1__items.sql",
+        "V2__more.sql",
+        "README.sql",
+    ];
+    names.sort_by(|a, b| applied_order(a, b));
+    assert_eq!(
+        names,
+        [
+            "README.sql",
+            "V1__items.sql",
+            "V2__more.sql",
+            "R__routines.sql"
+        ]
+    );
+}
+
+#[test]
+fn only_forward_sql_files_are_replayed() {
+    assert!(is_applied("0001_items.sql"));
+    assert!(is_applied("0001_items.up.sql"));
+    assert!(is_applied("0002_MORE.SQL"));
+    assert!(!is_applied("0001_items.down.sql"));
+    assert!(!is_applied("notes.md"));
 }

@@ -444,37 +444,47 @@ W013 fires for every such routine whose effective `search_path` is missing or do
 **Fix:** end the list with `pg_temp` — in the routine's own `SET search_path` clause, or with
 `ALTER FUNCTION … SET search_path = …, pg_temp` in a later migration.
 
-The effective list is the one PostgreSQL would store after every SQL file of the routine's directory
-has run, in the order a migration runner applies them (file names compare with digit runs as numbers,
-so `9_x.sql` precedes `10_x.sql`):
+The effective list is the one PostgreSQL would store after a forward migration run over the SQL files
+of the routine's directory, assuming they apply without error:
 
-- A later `ALTER FUNCTION|PROCEDURE|ROUTINE … SET search_path` replaces the list; `RESET search_path`,
-  `RESET ALL` and `SET search_path TO DEFAULT` remove it. The message names the statement that did.
-- A later `CREATE [OR REPLACE]` of the same signature replaces the earlier definition (and discards
-  what was altered on it); `DROP` removes it; `ALTER … SECURITY INVOKER|DEFINER`, `RENAME TO` and
-  `SET SCHEMA` are followed. Only the definition that is still live is judged.
-- `TO` and `=` are the same. Unquoted identifiers fold to lower case and quoted ones are verbatim
-  (`"PG_TEMP"` is another schema). Each string constant is one schema name, so `'public, pg_temp'`
-  names a single schema and is flagged. A repeated schema counts where it first appears:
-  `pg_temp, public, pg_temp` is flagged. An empty list (`''`) is flagged.
-- `ALTER`/`DROP` with argument types targets the overload with those input types (argument names,
-  defaults, `OUT` arguments and built-in aliases such as `int`/`integer` do not matter); without an
-  argument list it targets every routine of that name. An unqualified name matches the name in any
-  schema.
+- **Order.** Files apply by name with digit runs compared as numbers (`9_x.sql` before `10_x.sql`);
+  Flyway's repeatable `R__*.sql` files apply last. The `.down.sql` half of an up/down pair and
+  everything after a `-- migrate:down`, `-- +goose Down` or `-- +migrate Down` line is not applied.
+- **Later statements.** `ALTER FUNCTION|PROCEDURE|ROUTINE … SET search_path` replaces the list;
+  `RESET search_path`, `RESET ALL` and `SET search_path TO DEFAULT` remove it; the message names the
+  statement that did. A later `CREATE [OR REPLACE]` of the same signature replaces the earlier
+  definition and discards what was altered on it, `DROP` removes it, and
+  `ALTER … SECURITY INVOKER|DEFINER`, `RENAME TO` and `SET SCHEMA` are followed. Only the definition
+  that is still live is judged.
+- **The list.** `TO` and `=` are the same, and `SET SCHEMA 'name'` is a one-schema list. Unquoted
+  identifiers fold to lower case and quoted ones are verbatim (`"PG_TEMP"` is another schema). Each
+  string constant is one schema name, so `'public, pg_temp'` names a single schema and is flagged. A
+  repeated schema counts where it first appears: `pg_temp, public, pg_temp` is flagged. An empty list
+  (`''`) is flagged.
+- **Which routine.** `ALTER`/`DROP` with argument types targets the overload with those input types;
+  argument names, defaults, array dimensions and common built-in aliases (`int`/`integer`,
+  `float`/`double precision`, …) do not matter, and a procedure is also found by its full list with
+  `OUT` types. Without an argument list every routine of that name is the target. An unqualified
+  name means `public`; only when `public` has no such routine does an `ALTER`/`DROP` reach the
+  routine of that name in another schema.
 - `SECURITY INVOKER` routines (explicit or by default) are never flagged. Text in comments, string
-  constants and routine bodies is not a clause.
+  constants and routine bodies is not a clause; a byte-order mark and psql `\` lines are skipped.
 
 Left unflagged, because the file does not hold the answer: `SET search_path FROM CURRENT` (the
 creating session's value), a routine named by a statement inside a `DO` block (it may not have run),
 and overloads of one arity when an `ALTER`/`DROP` spells types that match none of them.
 
-Not seen: dynamic SQL (`EXECUTE`), SQL files of other directories, `DROP SCHEMA … CASCADE`, and a
-session-level `SET search_path` before an unqualified `CREATE`. The finding sits on the `CREATE` statement, so a
-later migration that weakens an earlier routine is reported when the earlier file is compiled — a
-full `keel compile`, not `--changed` over the new file alone. W013 defers in batch mode, is
-suppressed with `--suppress W013`, and is not part of `keel review`'s baseline diff. It needs a
-project root on disk: CLI compile, `keel serve`/`watch` and MCP compile and checkpoint run it. CLI
-`keel checkpoint` and `keel fix` do not parse SQL files, so they never report it.
+Not interpreted: dynamic SQL (`EXECUTE`), `\i` includes, transaction control (`ROLLBACK`),
+`DROP SCHEMA … CASCADE`, a session-level `SET search_path` before an unqualified `CREATE`, SQL files
+of other directories, escape sequences inside `E'…'`/`U&'…'` constants, and undo conventions other
+than those above. Argument types are compared without their schema.
+
+The finding sits on the `CREATE` statement, so a later migration that weakens an earlier routine is
+reported only when the earlier file is among the compiled files (`keel compile <file>`); compiling
+the new file alone, as `--changed` does, shows nothing. W013 defers in batch mode, is suppressed with
+`--suppress W013`, and is not part of `keel review`'s baseline diff. It needs a project root on disk:
+CLI compile, `keel serve`/`watch` and MCP compile and checkpoint run it. CLI `keel checkpoint` and
+`keel fix` do not parse SQL files, so they never report it.
 
 ## Plan findings
 

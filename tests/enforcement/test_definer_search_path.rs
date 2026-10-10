@@ -4,6 +4,8 @@
 // flagged, so a build that never emits the code cannot pass it.
 use crate::common::{compile_json, keel, mapped_project, violations_with_code};
 
+#[path = "test_definer_search_path_layouts.rs"]
+mod layouts;
 #[path = "test_definer_search_path_readings.rs"]
 mod readings;
 

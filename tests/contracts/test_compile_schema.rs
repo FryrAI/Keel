@@ -144,3 +144,40 @@ fn compile_output_with_warnings_matches_schema() {
     let schema_str = include_str!("../schemas/compile_output.schema.json");
     validate_against_schema(&json_value, schema_str);
 }
+
+#[test]
+fn compile_output_with_definer_search_path_matches_schema() {
+    let result = CompileResult {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        command: "compile".to_string(),
+        status: "warning".to_string(),
+        files_analyzed: vec!["migrations/0001_items.sql".to_string()],
+        errors: vec![],
+        warnings: vec![Violation {
+            code: "W013".to_string(),
+            severity: "WARNING".to_string(),
+            category: "definer_search_path".to_string(),
+            message: "SECURITY DEFINER routine `touch_item` sets no search_path".to_string(),
+            file: "migrations/0001_items.sql".to_string(),
+            line: 5,
+            hash: "K9hcGu3hkYe".to_string(),
+            confidence: 0.9,
+            resolution_tier: "tier1".to_string(),
+            fix_hint: Some("append pg_temp as the last search_path entry".to_string()),
+            suppressed: false,
+            suppress_hint: None,
+            affected: vec![],
+            suggested_module: None,
+            existing: None,
+        }],
+        info: CompileInfo {
+            nodes_updated: 0,
+            edges_updated: 0,
+            hashes_changed: vec![],
+        },
+    };
+
+    let json_value = serde_json::to_value(&result).unwrap();
+    let schema_str = include_str!("../schemas/compile_output.schema.json");
+    validate_against_schema(&json_value, schema_str);
+}

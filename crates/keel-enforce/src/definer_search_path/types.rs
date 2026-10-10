@@ -15,16 +15,20 @@ const PHRASES: &[&str] = &[
     "time without time zone",
 ];
 
-/// The canonical type of one argument, or `None` for an `OUT` argument, which
-/// is not part of a routine's identity.
-pub(super) fn input_type(argument: &[Token]) -> Option<String> {
+/// The canonical type of one argument, and whether it is an input: an `OUT`
+/// argument is not part of a function's identity.
+pub(super) fn argument_type(argument: &[Token]) -> (String, bool) {
     let end = argument
         .iter()
         .position(|token| token.is_word("default") || token.is_punct('='))
         .unwrap_or(argument.len());
     let mut argument = &argument[..end];
+    let mut input = true;
     match argument.first() {
-        Some(mode) if mode.is_word("out") => return None,
+        Some(mode) if mode.is_word("out") => {
+            input = false;
+            argument = &argument[1..];
+        }
         Some(mode)
             if ["in", "inout", "variadic"]
                 .iter()
@@ -38,12 +42,12 @@ pub(super) fn input_type(argument: &[Token]) -> Option<String> {
         _ => {}
     }
 
-    let (mut words, mut suffix, mut depth) = (Vec::<&str>::new(), String::new(), 0usize);
+    let (mut words, mut suffix, mut depth) = (Vec::<&str>::new(), "", 0usize);
     for token in argument {
         // A modifier (`(10, 2)`) or an array bound is not part of the identity.
         if token.is_punct('(') || token.is_punct('[') {
             if depth == 0 && token.is_punct('[') {
-                suffix.push_str("[]");
+                suffix = "[]"; // PostgreSQL does not keep the number of dimensions
             }
             depth += 1;
         } else if token.is_punct(')') || token.is_punct(']') {
@@ -52,6 +56,8 @@ pub(super) fn input_type(argument: &[Token]) -> Option<String> {
             continue;
         } else if token.is_punct('.') {
             words.pop(); // a schema qualifier
+        } else if token.is_word("array") {
+            suffix = "[]";
         } else if token.kind != Kind::Punct {
             words.push(&token.text);
         }
@@ -60,7 +66,7 @@ pub(super) fn input_type(argument: &[Token]) -> Option<String> {
     if words.len() > 1 && !PHRASES.contains(&words.join(" ").as_str()) {
         words.remove(0);
     }
-    Some(canonical(&words.join(" ")).to_string() + &suffix)
+    (canonical(&words.join(" ")).to_string() + suffix, input)
 }
 
 fn canonical(name: &str) -> &str {
@@ -69,11 +75,11 @@ fn canonical(name: &str) -> &str {
         "int8" => "bigint",
         "int2" => "smallint",
         "bool" => "boolean",
-        "float8" => "double precision",
+        "float8" | "float" => "double precision",
         "float4" => "real",
         "varchar" => "character varying",
         "char" | "bpchar" => "character",
-        "decimal" => "numeric",
+        "decimal" | "dec" => "numeric",
         "timestamptz" => "timestamp with time zone",
         "timestamp" => "timestamp without time zone",
         "timetz" => "time with time zone",

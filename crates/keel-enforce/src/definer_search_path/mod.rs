@@ -14,6 +14,8 @@ mod lex;
 mod statements;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_review;
 mod types;
 
 use std::cmp::Ordering;
@@ -86,19 +88,37 @@ fn replay(dir: &Path) -> Replay {
         .flatten()
         .flatten()
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| is_sql(Path::new(name)))
+        .filter(|name| is_applied(name))
         .collect();
-    names.sort_by(|a, b| natural_cmp(a, b));
-    // An unreadable file contributes no statement and keeps its place.
+    names.sort_by(|a, b| applied_order(a, b));
+    // Statements are ASCII: a file in another encoding still yields them. An
+    // unreadable file contributes none and keeps its place.
     let texts: Vec<String> = names
         .iter()
-        .map(|name| fs::read_to_string(dir.join(name)).unwrap_or_default())
+        .map(|name| fs::read(dir.join(name)).unwrap_or_default())
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .collect();
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
     Replay {
         found: history::findings(&texts),
         names,
     }
+}
+
+/// Whether a forward migration run applies the file called `name`: any SQL
+/// file but the `.down.sql` half of an up/down pair.
+fn is_applied(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.ends_with(".sql") && !name.ends_with(".down.sql")
+}
+
+/// The order a migration runner applies two files in: by name, except that
+/// Flyway's repeatable `R__` files run after every versioned one.
+fn applied_order(a: &str, b: &str) -> Ordering {
+    let repeatable = |name: &str| name.starts_with("R__");
+    repeatable(a)
+        .cmp(&repeatable(b))
+        .then_with(|| natural_cmp(a, b))
 }
 
 /// File names in the order a migration runner applies them: a run of digits
