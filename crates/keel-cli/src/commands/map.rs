@@ -430,18 +430,16 @@ pub fn run(
         .unwrap_or(0)
         .to_string();
     if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_AT, &mapped_at) {
-        if verbose {
-            eprintln!("keel map: failed to record map timestamp: {}", e);
-        }
+        eprintln!("keel map: failed to record map timestamp: {}", e);
+        return (2, EventMetrics::default());
     }
 
     // Stamp WHICH commit the completed graph describes. Outside a git repo
     // (or before the first commit) there is no commit to stamp.
     if let Some(head) = keel_enforce::gitdiff::head_commit(&cwd) {
         if let Err(e) = store.set_meta_value(keel_core::sqlite_meta::LAST_MAP_COMMIT, &head) {
-            if verbose {
-                eprintln!("keel map: failed to record map commit: {}", e);
-            }
+            eprintln!("keel map: failed to record map commit: {}", e);
+            return (2, EventMetrics::default());
         }
     }
 

@@ -41,7 +41,7 @@ pub(crate) fn never_mapped_reason(root: &Path, store: &dyn GraphStore) -> Option
             "this repository has never been mapped (or the last `keel map` did not finish). \
              Run `keel map` to build the graph; nothing was checked.",
         )
-    } else if gitdiff::head_commit(root).is_some() && store.meta_value(LAST_MAP_COMMIT).is_none() {
+    } else if store.meta_value(LAST_MAP_COMMIT).is_none() && gitdiff::head_commit(root).is_some() {
         Some(
             "the stored graph does not record the commit it was built at (it was mapped before \
              the first commit, or by an older keel). Run `keel map` to rebuild it; nothing was checked.",
@@ -307,57 +307,3 @@ fn collect_dependents(
 #[cfg(test)]
 #[path = "graph_resync_tests.rs"]
 mod tests;
-
-#[test]
-fn hook_prefix_matches_the_rust_constant() {
-    let template = include_str!("../../templates/hooks/post-edit.sh");
-    let literal = template
-        .lines()
-        .find_map(|line| {
-            line.strip_prefix("NO_USABLE_GRAPH='")
-                .and_then(|s| s.strip_suffix('\''))
-        })
-        .expect("hook prefix literal");
-    assert_eq!(literal, NO_USABLE_GRAPH);
-}
-
-#[cfg(unix)]
-#[test]
-fn hook_blocks_a_refusal_after_a_version_warning() {
-    use std::io::Write;
-    use std::os::unix::fs::PermissionsExt;
-    use std::process::{Command, Stdio};
-
-    let dir = tempfile::tempdir().unwrap();
-    let fake = dir.path().join("keel");
-    std::fs::write(
-        &fake,
-        format!(
-            "#!/bin/sh\nprintf 'keel: version drift\\n{NO_USABLE_GRAPH}Run keel map.\\n'\nexit 2\n"
-        ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut child = Command::new("bash")
-        .args(["-c", include_str!("../../templates/hooks/post-edit.sh")])
-        .current_dir(dir.path())
-        .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(br#"{"tool_input":{"file_path":"widget.rs"}}"#)
-        .unwrap();
-    let out = child.wait_with_output().unwrap();
-    assert_eq!(out.status.code(), Some(2));
-    assert!(out.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8(out.stderr).unwrap(),
-        format!("keel: version drift\n{NO_USABLE_GRAPH}Run keel map.\n")
-    );
-}

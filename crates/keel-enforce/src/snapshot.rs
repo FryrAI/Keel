@@ -1,7 +1,7 @@
 //! Violation snapshot for compile delta diffing.
 //!
-//! Every compile saves a lightweight violation snapshot to `.keel/last_compile.json`.
-//! With `--delta`, we diff current result against previous snapshot.
+//! A `--delta` compile saves a lightweight violation snapshot to `.keel/last_compile.json`
+//! and diffs the current result against the previous one; `keel map` deletes it.
 //!
 //! The diff is keyed on `ViolationKey::stable` — `(code, hash, file)` for a
 //! violation that carries a hash, so a pure line shift is not a new violation;

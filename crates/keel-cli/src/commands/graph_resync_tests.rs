@@ -216,3 +216,16 @@ fn the_second_pass_runs_only_when_the_first_added_a_node() {
         "no node was added, so exactly one pass re-added the edge"
     );
 }
+
+#[test]
+fn hook_prefix_matches_the_rust_constant() {
+    let template = include_str!("../../templates/hooks/post-edit.sh");
+    let literal = template
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("NO_USABLE_GRAPH='")
+                .and_then(|s| s.strip_suffix('\''))
+        })
+        .expect("hook prefix literal");
+    assert_eq!(literal, NO_USABLE_GRAPH);
+}

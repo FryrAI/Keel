@@ -296,3 +296,70 @@ fn test_other_exit_2_text_stays_non_blocking() {
         );
     }
 }
+
+/// A version-drift line may precede the refusal; the hook must still block on
+/// it, and pass both lines through unchanged.
+#[test]
+fn hook_blocks_a_refusal_after_a_version_warning() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let prefix = crate::commands::graph_resync::NO_USABLE_GRAPH;
+    let dir = fixture(2, &format!("keel: version drift\n{prefix}Run keel map."));
+    let out = run_hook(dir.path(), &target(dir.path()));
+
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert_eq!(
+        stderr_of(&out),
+        format!("keel: version drift\n{prefix}Run keel map.\n")
+    );
+}
+
+/// The pre-commit hook blocks on every non-zero keel exit, but only exit 1 is
+/// "violations"; any other exit (a refusal, an internal error) says keel could
+/// not check the commit.
+#[test]
+fn test_pre_commit_labels_the_block_by_keel_exit_code() {
+    if !have("bash") {
+        eprintln!("skipping: bash not available");
+        return;
+    }
+    for (code, label) in [
+        (1, "keel: commit blocked — violations found"),
+        (
+            2,
+            "keel: commit blocked — keel could not check this commit (see above)",
+        ),
+    ] {
+        let dir = fixture(code, "keel says something");
+        fs::write(
+            dir.path().join("pre-commit.sh"),
+            super::templates::PRE_COMMIT_HOOK,
+        )
+        .unwrap();
+        let path = format!(
+            "{}:{}",
+            dir.path().join("fakebin").display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let out = Command::new("bash")
+            .arg("pre-commit.sh")
+            .current_dir(dir.path())
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        let stderr = stderr_of(&out);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "exit {code} must block: {stderr}"
+        );
+        assert_eq!(
+            stderr.trim_end(),
+            label,
+            "exit {code} must carry its own label"
+        );
+    }
+}

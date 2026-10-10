@@ -445,7 +445,8 @@ pub fn run(
     }
 
     // Compute adoption metrics: resolved/persisted/new vs previous snapshot.
-    // This runs on every compile, not just --delta, so telemetry always has the data.
+    // This runs on every compile, not just --delta, against the last snapshot a
+    // --delta compile saved (a map deletes it), so telemetry has data once one exists.
     {
         use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};
         if let Some(prev) = ViolationSnapshot::load(&keel_dir) {

@@ -18,7 +18,8 @@
 //! The guard is deliberately silent in every case where it cannot be certain:
 //! a graph with no `last_map_commit` marker (mapped by a pre-0.5 keel, or
 //! mapped outside a git repo), a checkout with no git, or a marker naming an
-//! object this clone does not have. Those must keep working exactly as before.
+//! object this clone does not have. This guard says nothing there; a missing
+//! marker under a HEAD commit is refused by `graph_resync::never_mapped_reason`.
 
 use std::path::Path;
 

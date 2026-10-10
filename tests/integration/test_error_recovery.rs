@@ -122,8 +122,8 @@ fn test_missing_graph_db_triggers_init_suggestion() {
         "Process should not be killed by signal"
     );
 
-    // Should still work (compile creates/opens a new db) or fail gracefully
-    // Either exit 0 (empty graph = clean) or exit 2 (can't open)
+    // compile opens a fresh, empty db and refuses it as never mapped (exit 2);
+    // this test also tolerates exit 0
     let code = output.status.code().unwrap();
     assert!(
         code == 0 || code == 2,
