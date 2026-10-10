@@ -99,6 +99,11 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Drop the unfinished re-sync record; a full map replaces what it describes.
+    pub fn clear_resync_pending(&self) -> Result<(), GraphError> {
+        self.clear_meta_value(RESYNC_PENDING)
+    }
+
     /// Drop both map markers, declaring the graph never-mapped.
     ///
     /// `keel map` calls this immediately after `clear_all`, so the window in

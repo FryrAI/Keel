@@ -507,3 +507,55 @@ fn failed_pending_clear_rolls_back_marker_and_keeps_record() {
         0
     );
 }
+
+#[test]
+fn full_map_voids_pending_resync_record() {
+    let dir = fixture(&[
+        ("go.mod", "module pkg\n\ngo 1.21\n"),
+        ("pkg/alpha.go", &format!("{GO_ALPHA}{GO_BETA}")),
+        ("pkg/beta.go", GO_CALLER),
+    ]);
+    let root = dir.path();
+    let mapped = marker(root);
+    git(root, &["checkout", "-q", "-b", "alpha"]);
+    write(root, "pkg/alpha.go", GO_BETA);
+    write(root, "pkg/gadget.go", GO_ALPHA);
+    commit(root);
+    fail_resync(root, &mapped);
+    git(root, &["checkout", "-q", "base"]);
+    let committed = format!("{GO_ALPHA}{GO_BETA}");
+    let extra = "\n// Delta.\nfunc Delta(value int) int {\n    return value\n}\n";
+    let caller = "\n// Epsilon.\nfunc Epsilon() int {\n    return Delta(1)\n}\n";
+    write(root, "pkg/alpha.go", &format!("{committed}{extra}"));
+    write(root, "pkg/beta.go", &format!("{GO_CALLER}{caller}"));
+    map(root);
+    let pending = "SELECT count(*) FROM keel_meta WHERE key='resync_pending'";
+    assert_eq!(count(root, pending), 0, "a full map must void the record");
+    let delta = "SELECT count(*) FROM nodes WHERE name='Delta'";
+    assert_eq!(
+        count(root, delta),
+        1,
+        "map indexes the working-tree function"
+    );
+    assert_eq!(
+        keel(root, &["compile", "pkg/beta.go"]).status.code(),
+        Some(0)
+    );
+    assert_eq!(count(root, delta), 1, "compile must keep the map's node");
+    let edit = format!(
+        "{committed}{}",
+        extra.replace("Delta(value int)", "Delta(value int, extra int)")
+    );
+    write(root, "pkg/alpha.go", &edit);
+    let synced = keel(root, &["compile", "pkg/alpha.go"]);
+    assert_eq!(synced.status.code(), Some(1), "E001 expected: {synced:?}");
+    let stdout = String::from_utf8_lossy(&synced.stdout);
+    assert!(
+        stdout.contains("E001") && stdout.contains("callers: pkg/beta.go"),
+        "{stdout}"
+    );
+    write(root, "pkg/alpha.go", &format!("{committed}{extra}"));
+    map(root);
+    write(root, "pkg/alpha.go", &edit);
+    same_output(&synced, &keel(root, &["compile", "pkg/alpha.go"]));
+}
