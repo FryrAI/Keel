@@ -20,8 +20,8 @@ pub fn run(name: &str, args: &[OsString]) -> i32 {
     let relative = format!("hooks/{name}.sh");
     // `try_exists`: an unreadable hooks directory counts as present, so the
     // spawn fails loudly instead of silently running another checkout's copy.
-    let nearest = cwd
-        .canonicalize()
+    // Portable form: a plain canonicalize adds a Windows verbatim prefix the root lacks.
+    let nearest = keel_core::paths::canonicalize_portable(&cwd)
         .unwrap_or(cwd)
         .ancestors()
         .take_while(|dir| dir.starts_with(&root))
