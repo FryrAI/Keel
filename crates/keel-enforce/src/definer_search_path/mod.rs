@@ -96,7 +96,10 @@ fn replay(dir: &Path) -> Replay {
     let texts: Vec<String> = names
         .iter()
         .map(|name| fs::read(dir.join(name)).unwrap_or_default())
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .map(|bytes| {
+            String::from_utf8(bytes)
+                .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+        })
         .collect();
     let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
     Replay {
@@ -178,19 +181,17 @@ fn finding_file(path: &Path, name: &str) -> String {
 }
 
 fn violation(path: &Path, finding: &Finding, names: &[String], nodes: &[GraphNode]) -> Violation {
-    let state = match &finding.list {
-        None => "sets no search_path".to_string(),
-        Some(list) => format!(
-            "has search_path `{}`, which does not end with pg_temp",
-            list.join(", ")
+    let (state, verb) = match &finding.list {
+        None => ("sets no search_path".to_string(), "reset"),
+        Some(list) => (
+            format!(
+                "has search_path `{}`, which does not end with pg_temp",
+                list.join(", ")
+            ),
+            "set",
         ),
     };
     let changed = finding.changed_at.map_or(String::new(), |site| {
-        let verb = if finding.list.is_some() {
-            "set"
-        } else {
-            "reset"
-        };
         // Graph paths use `/` on every platform.
         let file = finding_file(path, &names[site.source]);
         format!(" ({verb} at {file}:{})", site.line)

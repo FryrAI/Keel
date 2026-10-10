@@ -299,6 +299,14 @@ fn a_mode_marker_turns_the_full_list_lookup_off() {
     let kept = format!("{lone}DROP PROCEDURE IF EXISTS p(IN int, int);");
     assert_eq!(flagged(&kept), [("p".to_string(), 1)]);
     assert!(flagged(&format!("{lone}DROP PROCEDURE IF EXISTS p(int, int);")).is_empty());
+    // Two one-input functions whose full lists read alike: the marked list
+    // names the one whose INPUT is `int`.
+    let sql = format!(
+        "CREATE FUNCTION f(OUT a int, b text) SECURITY DEFINER {SAFE} AS $$ SELECT 1 $$;\n\
+         CREATE FUNCTION f(a int, OUT b text) SECURITY DEFINER {SAFE} AS $$ SELECT 'x'::text $$;\n\
+         ALTER FUNCTION f(int, OUT text) RESET search_path;"
+    );
+    assert_eq!(flagged(&sql), [("f".to_string(), 2)]);
     // A FUNCTION statement naming two inputs does not reach a one-input function.
     let sql = "CREATE FUNCTION f(a int, OUT b int) SECURITY DEFINER AS $$ SELECT 1 $$;\n\
                ALTER FUNCTION f(int, int) SET search_path = public, pg_temp;";

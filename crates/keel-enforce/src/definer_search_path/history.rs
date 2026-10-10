@@ -43,8 +43,8 @@ struct Routine {
 /// `public`, where the default path creates and finds it. `or_elsewhere` lets
 /// it mean another schema when `public` has no such routine: the session's own
 /// path decides, and no file records it.
-fn named(live: &[Routine], routine: &RoutineRef, or_elsewhere: bool) -> Vec<usize> {
-    let schema = |schema: &Option<String>| schema.clone().unwrap_or_else(|| "public".to_string());
+fn named<'a>(live: &'a [Routine], routine: &'a RoutineRef, or_elsewhere: bool) -> Vec<usize> {
+    let schema = |schema: &'a Option<String>| schema.as_deref().unwrap_or("public");
     let called: Vec<usize> = (0..live.len())
         .filter(|index| live[*index].name == routine.name)
         .collect();
@@ -85,8 +85,10 @@ pub(super) fn findings(sources: &[&str]) -> HashMap<usize, Vec<Finding>> {
 
     let mut found: HashMap<usize, Vec<Finding>> = HashMap::new();
     for routine in live {
+        if !routine.definer || routine.undetermined {
+            continue;
+        }
         let list = match routine.path {
-            _ if !routine.definer || routine.undetermined => continue,
             Setting::FromCurrent => continue,
             Setting::List(list) if ends_with_pg_temp(&list) => continue,
             Setting::List(list) => Some(list),
@@ -140,16 +142,16 @@ fn apply(live: &mut Vec<Routine>, event: Event, hit: &[usize], site: Site) {
         }
         Event::Alter { actions, .. } => {
             for &index in hit {
+                let routine = &mut live[index];
                 for action in &actions {
-                    let routine = &mut live[index];
-                    match action.clone() {
+                    match action {
                         Action::Path(path) => {
-                            routine.path = path;
+                            routine.path = path.clone();
                             routine.changed_at = Some(site);
                         }
-                        Action::Definer(definer) => routine.definer = definer,
-                        Action::Rename(name) => routine.name = name,
-                        Action::SetSchema(schema) => routine.schema = Some(schema),
+                        Action::Definer(definer) => routine.definer = *definer,
+                        Action::Rename(name) => routine.name = name.clone(),
+                        Action::SetSchema(schema) => routine.schema = Some(schema.clone()),
                     }
                 }
             }
@@ -179,12 +181,9 @@ fn targets(live: &[Routine], event: &Event) -> (Vec<usize>, bool) {
         }
         Event::Alter { routine, .. } => resolve(live, routine),
         Event::Drop(routines) => {
-            let resolved: Vec<_> = routines.iter().map(|one| resolve(live, one)).collect();
-            let certain = resolved.iter().all(|(_, certain)| *certain);
-            (
-                resolved.into_iter().flat_map(|(hit, _)| hit).collect(),
-                certain,
-            )
+            let (hits, certain): (Vec<_>, Vec<_>) =
+                routines.iter().map(|one| resolve(live, one)).unzip();
+            (hits.concat(), certain.into_iter().all(|certain| certain))
         }
     }
 }
@@ -208,12 +207,6 @@ fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
         let have = &live[*index].args;
         have.inputs.len() == args.inputs.len() || (or_full && have.all.len() == args.all.len())
     });
-    // One candidate is the target however its types are spelled: the statement
-    // would not have applied otherwise. `IF EXISTS` applies either way, so it
-    // names a routine by its types alone.
-    if same_arity.len() < 2 && !routine.if_exists {
-        return (same_arity, true);
-    }
     let same_types: Vec<usize> = same_arity
         .iter()
         .copied()
@@ -222,10 +215,13 @@ fn resolve(live: &[Routine], routine: &RoutineRef) -> (Vec<usize>, bool) {
             have.inputs == args.inputs || (or_full && have.all == args.all)
         })
         .collect();
-    // Several candidates and no spelling matches: any of them may be meant.
-    if same_types.is_empty() && !routine.if_exists {
-        (same_arity, false)
-    } else {
-        (same_types, true)
+    // `IF EXISTS` applies whether or not it names a routine, so only a type
+    // match counts.
+    if routine.if_exists || !same_types.is_empty() {
+        return (same_types, true);
     }
+    // No spelling matches. One candidate is still the target: the statement
+    // would not have applied otherwise. Of several, any may be meant.
+    let certain = same_arity.len() < 2;
+    (same_arity, certain)
 }

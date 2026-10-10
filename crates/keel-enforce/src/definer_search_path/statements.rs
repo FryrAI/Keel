@@ -84,7 +84,11 @@ fn forward_part(sql: &str) -> &str {
     let mut end = 0;
     for line in sql.split_inclusive('\n') {
         // A directive is the marker alone, or the marker and its options.
-        let lower = line.to_ascii_lowercase();
+        let lower = if line.starts_with("--") {
+            line.to_ascii_lowercase()
+        } else {
+            String::new()
+        };
         let is_directive = |marker: &&str| {
             let rest = lower.strip_prefix(*marker);
             rest.is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
@@ -209,10 +213,15 @@ impl<'a> Cursor<'a> {
         Some(token)
     }
 
-    fn eat_word(&mut self, word: &str) -> bool {
-        let hit = self.peek().is_some_and(|token| token.is_word(word));
+    /// Consumes the next token when it `is` what the caller looks for.
+    fn eat(&mut self, is: impl Fn(&Token) -> bool) -> bool {
+        let hit = self.peek().is_some_and(is);
         self.at += usize::from(hit);
         hit
+    }
+
+    fn eat_word(&mut self, word: &str) -> bool {
+        self.eat(|token| token.is_word(word))
     }
 
     fn routine_kind(&mut self) -> Option<RoutineKind> {
@@ -226,9 +235,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn eat_punct(&mut self, punct: char) -> bool {
-        let hit = self.peek().is_some_and(|token| token.is_punct(punct));
-        self.at += usize::from(hit);
-        hit
+        self.eat(|token| token.is_punct(punct))
     }
 
     /// The tokens of a parenthesised group whose `(` was just consumed.
@@ -250,9 +257,9 @@ impl<'a> Cursor<'a> {
         let if_exists = matches!(&self.tokens[self.at..],
             [first, second, ..] if first.is_word("if") && second.is_word("exists"));
         self.at += 2 * usize::from(if_exists);
-        let mut parts = vec![self.next()?.ident()?.to_string()];
+        let mut parts = vec![self.ident()?];
         while self.eat_punct('.') {
-            parts.push(self.next()?.ident()?.to_string());
+            parts.push(self.ident()?);
         }
         let name = parts.pop()?;
         let args = self.eat_punct('(').then(|| {
@@ -331,12 +338,8 @@ impl<'a> Cursor<'a> {
     }
 
     fn eat_search_path(&mut self) -> bool {
-        let hit = self
-            .peek()
-            .and_then(Token::ident)
-            .is_some_and(|name| name.eq_ignore_ascii_case("search_path"));
-        self.at += usize::from(hit);
-        hit
+        let is_name = |name: &str| name.eq_ignore_ascii_case("search_path");
+        self.eat(|token| token.ident().is_some_and(is_name))
     }
 
     /// After `SET`: the setting, when the parameter is `search_path`.

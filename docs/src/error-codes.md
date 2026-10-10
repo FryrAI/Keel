@@ -480,7 +480,8 @@ creating session's value), a routine named by a statement inside a `DO` block (i
 and overloads of one arity when an `ALTER`/`DROP` spells types that match none of them.
 
 Not interpreted, among other rare forms: dynamic SQL (`EXECUTE`), psql `\i` and `\g`,
-`COPY … FROM stdin` data, transaction control (`ROLLBACK`), `DROP SCHEMA … CASCADE`, a session-level
+`COPY … FROM stdin` data, transaction control (`ROLLBACK`), what a `CASCADE` drops besides the object
+named, `RETURNS TABLE` columns as part of a full argument list, a session-level
 `SET search_path` before an unqualified name, SQL files of other directories, undo conventions other
 than those above, escape sequences inside `E'…'`/`U&'…'` constants and adjacent string constants.
 Argument types are compared without their schema, their modifiers (`float(24)`) or their quoting.
