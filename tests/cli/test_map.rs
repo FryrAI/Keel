@@ -190,11 +190,8 @@ fn test_map_uninitialized_error() {
 }
 
 #[test]
-/// `keel map --cached` on a project that was `keel init`-ed but never
-/// `keel map`-ped (graph.db exists but is empty) must fall back to a full
-/// map instead of erroring — this is exactly the cold-start state a fresh
-/// clone/worktree is in when a session-start hook first fires.
-fn test_map_cached_fresh_init_falls_back() {
+/// A cached read must refuse a fresh init without starting a full map.
+fn test_map_cached_fresh_init_refuses() {
     let dir = init_ts_project(3, 2);
     let keel = keel_bin();
 
@@ -204,20 +201,109 @@ fn test_map_cached_fresh_init_falls_back() {
         .output()
         .expect("Failed to run keel map --cached");
 
-    assert!(
-        output.status.success(),
-        "keel map --cached on an empty graph should fall back to a full map, not error:\nstdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert!(stderr.starts_with("keel map --cached: no usable graph — "));
+    assert!(stderr.contains("Run `keel map`"));
+    let conn = rusqlite::Connection::open(dir.path().join(".keel/graph.db")).unwrap();
+    let nodes: u64 = conn
+        .query_row("SELECT count(*) FROM nodes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(nodes, 0, "cached read must not seed a partial graph");
+}
 
-    let db_size = fs::metadata(dir.path().join(".keel/graph.db"))
-        .unwrap()
-        .len();
-    assert!(
-        db_size > 4096,
-        "fallback full map should have populated graph.db"
+#[test]
+fn test_map_clears_both_markers_before_a_failed_graph_clear() {
+    let dir = init_ts_project(3, 2);
+    let keel = keel_bin();
+    let mapped = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(mapped.status.success());
+    let conn = rusqlite::Connection::open(dir.path().join(".keel/graph.db")).unwrap();
+    conn.execute_batch(
+        "INSERT INTO keel_meta (key, value) VALUES ('last_map_commit', 'abcdef');
+         CREATE TRIGGER widget BEFORE DELETE ON edges BEGIN
+             SELECT RAISE(ABORT, 'widget');
+         END;",
+    )
+    .unwrap();
+    let failed = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("failed to clear graph database"));
+    let markers: u64 = conn
+        .query_row(
+            "SELECT count(*) FROM keel_meta WHERE key IN ('last_map_at', 'last_map_commit')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        markers, 0,
+        "a failed clear must invalidate both markers first"
     );
+    let nodes: u64 = conn
+        .query_row("SELECT count(*) FROM nodes", [], |r| r.get(0))
+        .unwrap();
+    assert!(nodes > 0, "the graph clear was interrupted");
+}
+
+#[test]
+fn test_map_cached_unknown_commit_warns_once_with_version_drift() {
+    let dir = init_ts_project(3, 2);
+    let root = dir.path();
+    crate::common::git(root, &["init", "-q"]);
+    crate::common::git(root, &["add", "src"]);
+    crate::common::git(root, &["commit", "-q", "-m", "baseline"]);
+    let keel = keel_bin();
+    let mapped = Command::new(&keel)
+        .arg("map")
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(mapped.status.success());
+    let cached = |args: &[&str]| {
+        Command::new(&keel)
+            .args(args)
+            .current_dir(root)
+            .output()
+            .unwrap()
+    };
+    let before = cached(&["map", "--cached", "--llm"]);
+    assert!(before.status.success() && before.stderr.is_empty());
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    let head = String::from_utf8(head.stdout).unwrap();
+    let conn = rusqlite::Connection::open(root.join(".keel/graph.db")).unwrap();
+    let stored = "f".repeat(40);
+    conn.execute(
+        "UPDATE keel_meta SET value = ?1 WHERE key = 'last_map_commit'",
+        [&stored],
+    )
+    .unwrap();
+    let config_path = root.join(".keel/keel.json");
+    let mut config: serde_json::Value =
+        serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    config["version"] = serde_json::json!("0.0.1");
+    fs::write(config_path, config.to_string()).unwrap();
+    let after = cached(&["map", "--cached", "--llm", "--verbose"]);
+    assert!(after.status.success());
+    assert_eq!(after.stdout, before.stdout);
+    let stderr = String::from_utf8_lossy(&after.stderr);
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert!(stderr.contains(&stored[..12]) && stderr.contains(&head[..12]));
+    assert!(stderr.contains("Run `keel map`"));
 }
 
 #[test]

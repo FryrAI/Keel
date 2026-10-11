@@ -17,7 +17,7 @@ use std::path::Path;
 
 use keel_core::config::KeelConfig;
 use keel_core::sqlite::SqliteGraphStore;
-use keel_core::sqlite_meta::{LAST_MAP_COMMIT, RESYNC_PENDING};
+use keel_core::sqlite_meta::{LAST_MAP_AT, LAST_MAP_COMMIT, RESYNC_PENDING};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeChange, NodeKind};
 use keel_enforce::gitdiff::{self, DiffMode};
@@ -33,6 +33,23 @@ pub(crate) const RESYNC_INLINE_MAX: usize = 15;
 /// Most files a bare or `--changed` compile re-syncs; beyond it a full map is
 /// comparable in time and better in fidelity.
 pub(crate) const RESYNC_MAX_FILES: usize = 500;
+
+/// A partial graph is not a baseline, even if it contains nodes.
+pub(crate) fn never_mapped_reason(root: &Path, store: &dyn GraphStore) -> Option<&'static str> {
+    if store.meta_value(LAST_MAP_AT).is_none() {
+        Some(
+            "this repository has never been mapped (or the last `keel map` did not finish). \
+             Run `keel map` to build the graph; nothing was checked.",
+        )
+    } else if store.meta_value(LAST_MAP_COMMIT).is_none() && gitdiff::head_commit(root).is_some() {
+        Some(
+            "the stored graph does not record the commit it was built at (it was mapped before \
+             the first commit, or by an older keel). Run `keel map` to rebuild it; nothing was checked.",
+        )
+    } else {
+        None
+    }
+}
 
 fn short(commit: &str) -> String {
     commit.chars().take(12).collect()

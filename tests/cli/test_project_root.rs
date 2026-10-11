@@ -139,7 +139,7 @@ fn compile_subdirectory_delta_matches_root_snapshot_keys() {
     )
     .unwrap();
     assert_eq!(
-        keel(dir.path(), &["compile", "src/lib.rs", "--json"])
+        keel(dir.path(), &["compile", "src/lib.rs", "--delta", "--json"])
             .status
             .code(),
         Some(1)

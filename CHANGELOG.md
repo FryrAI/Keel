@@ -11,10 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `keel hook <name>` runs agent hooks from any directory, using the nearest `.keel/hooks` script up to the project root, with a main-checkout fallback for linked worktrees.
 
 ### Changed
+- `keel map --cached` refuses an unfinished map without parsing or locking, and warns with both commits when the stored graph differs from HEAD.
 - Generated hook commands work from any directory inside the project.
 - `keel init --update-docs` migrates existing generated JSON hook commands and installs a missing session-start script.
 
 ### Fixed
+- Every `keel compile` mode refuses a never-mapped or interrupted graph with exit 2 and a `no usable graph` diagnostic; the post-edit hook surfaces that refusal as a blocking exit 2.
+- Full maps invalidate both completion markers before clearing the graph and stamp them after the final graph write; a map that cannot record a marker now exits 2 with a `keel map: failed to record …` line.
+- Only `keel compile --delta` advances its violation snapshot; a full map resets it so ordinary compiles cannot silence the next hook.
 - `KEEL_NO_TELEMETRY=1`, the documented opt-out, no longer makes every command exit 2: any value except an empty or a false-like one (`0`, `false`, `no`, `off`) opts out.
 - **`keel compile` brings a stale graph to HEAD instead of refusing (#107).** When `HEAD` moved off
   the commit the graph was mapped at (branch checkout, squash merge, pull), a working-tree compile

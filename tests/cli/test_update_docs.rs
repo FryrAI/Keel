@@ -52,6 +52,8 @@ fn compile_reports_stale_keel_json_exactly_once_and_modifies_nothing() {
     let config_before = fs::read_to_string(&config_path).unwrap();
     let agents_before = fs::read_to_string(&agents_path).unwrap();
 
+    crate::common::keel(dir.path(), &["map"]);
+
     let out = Command::new(keel_bin())
         .arg("compile")
         .current_dir(dir.path())
@@ -102,6 +104,7 @@ fn matching_version_is_silent() {
     let dir = setup_initialized_project();
     // Freshly initialized by this build — keel.json and the AGENTS.md stamp
     // both already match the running binary.
+    crate::common::keel(dir.path(), &["map"]);
     let out = Command::new(keel_bin())
         .arg("compile")
         .current_dir(dir.path())
@@ -150,6 +153,7 @@ fn update_docs_rewrites_the_block_and_syncs_the_version() {
     );
 
     // Detection must now be silent.
+    crate::common::keel(dir.path(), &["map"]);
     let compile_out = Command::new(keel_bin())
         .arg("compile")
         .current_dir(dir.path())

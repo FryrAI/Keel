@@ -28,7 +28,7 @@ fn keel_bin() -> std::path::PathBuf {
     fallback
 }
 
-fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
+fn init_project(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();
     for (path, content) in files {
         let full = dir.path().join(path);
@@ -50,7 +50,11 @@ fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let out = Command::new(&keel)
+    dir
+}
+
+fn map_project(dir: &TempDir) {
+    let out = Command::new(keel_bin())
         .arg("map")
         .current_dir(dir.path())
         .output()
@@ -60,7 +64,11 @@ fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
         "map failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
 
+fn init_and_map_project(files: &[(&str, &str)]) -> TempDir {
+    let dir = init_project(files);
+    map_project(&dir);
     dir
 }
 
@@ -422,7 +430,7 @@ fn git_init_and_commit(dir: &TempDir) {
 /// untouched file's own (pre-existing) violation must NOT appear, only the
 /// edited file's.
 fn test_bare_compile_in_git_repo_scopes_to_changed_files() {
-    let dir = init_and_map_project(&[
+    let dir = init_project(&[
         (
             "src/a.py",
             "def a(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
@@ -433,6 +441,7 @@ fn test_bare_compile_in_git_repo_scopes_to_changed_files() {
         ),
     ]);
     git_init_and_commit(&dir);
+    map_project(&dir);
 
     // Edit only a.py — drop its docstring, a fresh (not pre-existing) E003.
     fs::write(
@@ -579,13 +588,14 @@ fn test_compile_no_notice_for_docs_and_config() {
 #[test]
 /// A `.sql` file reached via `--changed` is parsed without an unsupported-file notice.
 fn test_compile_changed_parses_sql() {
-    let dir = init_and_map_project(&[(
+    let dir = init_project(&[(
         "src/a.py",
         "def a(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x\n",
     )]);
     fs::create_dir_all(dir.path().join("migrations")).unwrap();
     fs::write(dir.path().join("migrations/001_init.sql"), "SELECT 1;\n").unwrap();
     git_init_and_commit(&dir);
+    map_project(&dir);
 
     fs::write(
         dir.path().join("migrations/001_init.sql"),

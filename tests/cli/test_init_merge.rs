@@ -129,6 +129,13 @@ fn test_init_merge_resets_circuit_breaker() {
     let dir = setup_initialized_project();
     let keel = keel_bin();
 
+    let mapped = Command::new(&keel)
+        .arg("map")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(mapped.status.success());
+
     let _ = Command::new(&keel)
         .arg("compile")
         .current_dir(dir.path())

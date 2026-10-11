@@ -71,10 +71,6 @@ pub fn run(
     // One config load serves both the drift check and the engine below.
     let config = keel_core::config::KeelConfig::load(&keel_dir);
 
-    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
-    // At most one line, emitted once per invocation.
-    super::version_drift::warn(&root, &config);
-
     // Acquire the shared graph lock to prevent concurrent map/compile writes.
     let _lock = match super::writer_lock::acquire("compile", &keel_dir) {
         Ok(lock) => lock,
@@ -90,6 +86,15 @@ pub fn run(
             return (2, EventMetrics::default());
         }
     };
+
+    // Every mode requires a completed map, before batch state or parsing.
+    if let Some(reason) = super::graph_resync::never_mapped_reason(&root, &store) {
+        eprintln!("{}{reason}", super::graph_resync::NO_USABLE_GRAPH);
+        return (2, EventMetrics::default());
+    }
+
+    // Detect (never rewrite — Principle 7) a binary/docs version mismatch.
+    super::version_drift::warn(&root, &config);
 
     // Whether the user explicitly named the target files (not --changed/--since,
     // not a bare full-repo compile). Only then is a missing file a hard error;
@@ -440,7 +445,8 @@ pub fn run(
     }
 
     // Compute adoption metrics: resolved/persisted/new vs previous snapshot.
-    // This runs on every compile, not just --delta, so telemetry always has the data.
+    // This runs on every compile, not just --delta, against the last snapshot a
+    // --delta compile saved (a map deletes it), so telemetry has data once one exists.
     {
         use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};
         if let Some(prev) = ViolationSnapshot::load(&keel_dir) {
@@ -492,15 +498,6 @@ pub fn run(
         // No previous snapshot: fall through to normal output
         if verbose {
             eprintln!("keel compile: no previous snapshot, showing full results");
-        }
-    } else {
-        // Always save snapshot even without --delta for future use
-        use keel_enforce::snapshot::ViolationSnapshot;
-        let snapshot = ViolationSnapshot::from_compile_result(&result);
-        if let Err(e) = snapshot.save(&keel_dir) {
-            if verbose {
-                eprintln!("keel compile: failed to save snapshot: {}", e);
-            }
         }
     }
 

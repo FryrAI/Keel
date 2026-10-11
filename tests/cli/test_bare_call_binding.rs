@@ -22,9 +22,9 @@ pub(super) fn fixture(files: &[(&str, &str)]) -> TempDir {
     }
     git(dir.path(), &["init", "-q"]);
     assert!(keel(dir.path(), &["init", "--yes"]).status.success());
-    assert!(keel(dir.path(), &["map"]).status.success());
     git(dir.path(), &["add", "src"]);
     git(dir.path(), &["commit", "-q", "-m", "baseline"]);
+    assert!(keel(dir.path(), &["map"]).status.success());
     dir
 }
 

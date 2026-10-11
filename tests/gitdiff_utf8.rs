@@ -171,6 +171,7 @@ fn assert_warning_once(out: &std::process::Output) {
 
 fn assert_cli_skips_invalid(alias: bool) {
     let dir = fixture();
+    keel(dir.path(), &["map"]);
     stage_invalid(dir.path(), alias);
     let out = keel(dir.path(), &["compile", "--changed", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
@@ -286,6 +287,7 @@ fn matching_sibling_fixture() -> TempDir {
     fs::write(dir.path().join("src/lib.rs"), MOVED).unwrap();
     git(dir.path(), &["add", "src/lib.rs"]);
     git(dir.path(), &["commit", "-q", "-m", "homes baseline"]);
+    keel(dir.path(), &["map"]);
     fs::write(dir.path().join("src/lib.rs"), format!("{MOVED}\n")).unwrap();
     dir
 }

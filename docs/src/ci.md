@@ -104,10 +104,53 @@ While a re-sync is recorded as unfinished, `--since` also **exits 2**, with stdo
 one line starting `keel compile: no usable graph — `: the stored graph has an unfinished
 re-sync, so run `keel compile` to finish it. Nothing is checked until then.
 
-With no marker (mapped by an older keel, or outside a git repo) or no git/HEAD,
-working-tree compiles stay silent. A stored commit this clone does not have makes
-them refuse until `keel map` rebuilds the graph. The `--since` guard retains its
-legacy silence when it cannot resolve the stored commit.
+Every compile mode requires a completed map: explicit files, `--changed`, bare,
+`--since`, `--delta`, and batch start/end. A repository is **never mapped** when
+`last_map_at` is absent, or when `HEAD` exists and `last_map_commit` is absent. That
+includes fresh clones, fresh `keel init`, interrupted maps, and a map made before
+the first commit. Compile exits 2, writes no nodes, edges, markers or snapshot,
+leaves stdout empty, and prints one stderr line. Without `last_map_at`:
+
+```
+keel compile: no usable graph — this repository has never been mapped (or the last `keel map` did not finish). Run `keel map` to build the graph; nothing was checked.
+```
+
+With `last_map_at` but no `last_map_commit`, when `HEAD` exists:
+
+```
+keel compile: no usable graph — the stored graph does not record the commit it was built at (it was mapped before the first commit, or by an older keel). Run `keel map` to rebuild it; nothing was checked.
+```
+
+`keel map` removes both markers before clearing the graph, and stamps them only
+after the last graph write. Outside git, or before the first commit, a completed
+map needs only `last_map_at`; compile can then run without a commit re-sync.
+A stored commit this clone does not have makes working-tree compiles refuse until
+`keel map` rebuilds the graph. The `--since` guard retains its legacy silence when
+it cannot resolve an otherwise recorded commit.
+
+## Cached maps and post-edit hooks
+
+`keel map --cached` never runs a full map or takes the graph lock. On a never-mapped
+repository it exits 2 with empty stdout and one stderr line starting
+`keel map --cached: no usable graph — ` followed by the same reason and fix above. If its
+stored commit differs from `HEAD` (including a commit missing from this clone),
+it still prints the stored map and exits 0, with one stderr line naming both
+commits by their first 12 characters and recommending `keel map`. A map at `HEAD`
+keeps the same output.
+
+The generated post-edit hook exits **2** when any line of compile output starts
+with `keel compile: no usable graph — `, so the refusal reaches the agent even if
+a version-drift warning precedes it. A prefix mentioned mid-line does not block.
+Violations also block; other keel exit-2 errors and timeouts remain non-blocking
+(hook exit 1), with their diagnostic on stderr.
+
+## The delta baseline
+
+Only `keel compile --delta` writes `.keel/last_compile.json`. Ordinary compiles
+leave that baseline intact, so a whole-tree or background check cannot silence
+the next post-edit hook's findings. A full `keel map` deletes the snapshot; the
+next delta compile reports its full results and establishes a new baseline.
+Repeating the same delta compile then reports only changes from that baseline.
 
 ## One sticky comment
 

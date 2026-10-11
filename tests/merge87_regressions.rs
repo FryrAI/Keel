@@ -129,6 +129,7 @@ mod unix {
     fn unreadable_head_paths_use_walker_verdict_for_warning_eligibility() {
         let dir = fixture();
         let root = dir.path();
+        assert!(keel(root, &["map"]).status.success());
         write(root, ".git/info/exclude", "src/excluded*.rs\n");
         // The hand model would keep this path, but the walker skips symlink leaves.
         std::os::unix::fs::symlink(
