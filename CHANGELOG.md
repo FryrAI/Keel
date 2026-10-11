@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
+
 ## [0.7.1] - 2026-10-11
 
 **Read first.** Linked git worktrees on diverged branches still share one graph in this
@@ -47,7 +50,6 @@ together.
   Dependent files re-resolve from their working-tree text, and a re-sync that adds a definition
   re-resolves every modified or untracked file the graph holds. `keel compile --since` keeps its
   ancestor refusal and also refuses (exit 2) while a re-sync is unfinished.
-- A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
 
 ## [0.7.0] - 2026-10-10
 
