@@ -292,8 +292,10 @@ fn resolve_links(path: &Path) -> std::io::Result<std::path::PathBuf> {
 /// The temporary file is created exclusively as `.<name>.<pid>.<n>.tmp` (n from a
 /// process-wide counter; the next n is tried when the name is taken, at most 16
 /// times), so an existing entry is never opened, followed or removed. It takes the
-/// destination's permissions; a read-only destination is refused with
-/// `PermissionDenied`, as an in-place write would be. A symlink destination is
+/// destination's permissions. An existing destination is first opened for
+/// writing (no truncation, no creation) before any temporary file is created; if
+/// that open fails its error is returned unchanged, so the refusal is decided by
+/// what the caller may write, as an in-place write would be. A symlink destination is
 /// published beside its target and stays a link. On any error the temporary file
 /// is removed and the error returned.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
@@ -303,8 +305,8 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<
 
     let path = resolve_links(path)?;
     let permissions = std::fs::metadata(&path).ok().map(|m| m.permissions());
-    if permissions.as_ref().is_some_and(|p| p.readonly()) {
-        return Err(std::io::ErrorKind::PermissionDenied.into());
+    if permissions.is_some() {
+        std::fs::OpenOptions::new().write(true).open(&path)?;
     }
     let mut attempt = 0;
     let (tmp, mut file) = loop {
