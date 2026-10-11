@@ -209,7 +209,9 @@ HEAD, prunes deleted/renamed paths, parses present paths from HEAD's blob (`gitd
 working tree: the edit under check stays out of its baseline) and syncs with `SyncSource::Committed`, where an empty parse or a
 vanished definition is applied even with outside callers; definitions bind one-to-one by hash evidence,
 then unique leftover name/kind; survivors refresh from the blob (`engine::refreshed_node`; a hash clash
-keeps the stored hash). Dependents re-resolve references from their working-tree text; stored nodes stay unchanged.
+keeps the stored hash). A dependent resolves from HEAD's blob and, unless it is a target of this compile, from its working-tree text
+(where both yield the same call, the working-tree line is kept);
+a reference-only pass removes no edge it does not re-add; stored nodes stay unchanged.
 New nodes trigger pass 2 and add every graph-held modified or untracked file as a dependent.
 Re-synced code is pre-existing; committed refresh keeps session history.
 Then the marker moves (`last_map_at` never). Limits count recovery paths and dependents: `RESYNC_INLINE_MAX` 15 files for explicit compiles (5 s hook),
