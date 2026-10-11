@@ -164,6 +164,7 @@ every other case, submodules and broken pointers included, gets `keel_dir`. `kee
 every opener, readers too, unless `.keel` is absent (no command creates it); a failure is
 one stderr line naming the path, exit 2. A linked worktree without a graph is never
 mapped (`keel map` there). `keel deinit` there removes only its `graph_dir`.
+Every `keel.json` writer goes through `keel_core::config::write_atomic` (temp file + rename).
 
 `keel hook` runs the script of the nearest directory from the cwd up to the worktree
 root that holds `.keel/hooks/<name>.sh` (with that directory as its cwd), and falls
