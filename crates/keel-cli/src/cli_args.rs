@@ -75,7 +75,7 @@ pub(crate) enum Commands {
         yes: bool,
         /// Rewrite the keel-managed block in existing agent doc files,
         /// migrate generated JSON hook commands, regenerate installed hooks,
-        /// and sync `.keel/keel.json`'s
+        /// add missing `.gitignore` entries, and sync `.keel/keel.json`'s
         /// pinned version — the authorized fix for the drift `map`/`compile`
         /// warn about. Does not merge config or touch tool detection.
         #[arg(long)]

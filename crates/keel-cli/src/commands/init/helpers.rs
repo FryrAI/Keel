@@ -31,6 +31,7 @@ pub fn update_gitignore(root: &Path, verbose: bool) {
         ".keel/last_compile.json",
         ".keel/compile.lock",
         ".keel/cache/",
+        ".keel/checkpoint.md",
     ];
 
     let mut missing: Vec<&str> = Vec::new();
