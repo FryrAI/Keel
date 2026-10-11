@@ -71,8 +71,10 @@ fn t1_violation_in_worktree_is_invisible_to_main() {
 #[test]
 fn t2_map_in_worktree_builds_its_graph_under_the_worktree_git_dir() {
     let p = pair_new_worktree();
-    let main_files = entries(&p.main.join(".keel"));
+    // The dump first: a read-only connection to a WAL database leaves its
+    // `-wal`/`-shm` files behind, which must not read as files the map added.
     let main_before = main_state(&p);
+    let main_files = entries(&p.main.join(".keel"));
     keel_ok(&p.wt, &["map"]);
     let own = abs_git_dir(&p.wt).join("keel").join("graph.db");
     assert!(
