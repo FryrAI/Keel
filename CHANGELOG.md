@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-11
+
+**Read first.** Each linked git worktree now has its own graph. After upgrading, every existing
+linked worktree needs one `keel map`, run in that worktree: until then its compiles are refused
+and its post-edit hook blocks, with that remedy in the line. A script that maps in the
+background must start the map in the linked worktree, not in the main checkout. And `keel map`
+on a tree with uncommitted source files now prints one line on stderr: a caller that treats any
+stderr output of `keel map` as a failure must stop doing so.
+
+Linked worktrees stop sharing one graph (#107), and `keel map` says when it made uncommitted
+edits the baseline (#114). The main checkout keeps its graph; nothing changes in a repository
+without linked worktrees.
+
 ### Added
 - `keel map` prints one stderr line when uncommitted source files were mapped as they are (`keel map: <m> modified and <u> untracked source file(s) were mapped as they are — …`); if git cannot list the files it prints `keel map: could not list uncommitted files: <error>` instead; nothing else changes (#114).
 
