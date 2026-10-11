@@ -99,14 +99,19 @@ pub(crate) fn ensure_graph_dir(cmd: &str, start: &Path) -> Result<PathBuf, i32> 
     if !keel_core::paths::keel_dir(start).is_dir() {
         return Ok(dir);
     }
-    std::fs::create_dir_all(&dir).map_err(|e| {
+    create_graph_dir(cmd, &dir)?;
+    Ok(dir)
+}
+
+/// Create `dir` (the graph directory); failing prints ONE line naming it.
+pub(crate) fn create_graph_dir(cmd: &str, dir: &Path) -> Result<(), i32> {
+    std::fs::create_dir_all(dir).map_err(|e| {
         eprintln!(
             "keel {cmd}: cannot create graph directory {}: {e}",
             dir.display()
         );
         2
-    })?;
-    Ok(dir)
+    })
 }
 
 /// Resolve the current directory, the worktree-aware `.keel` dir, the graph

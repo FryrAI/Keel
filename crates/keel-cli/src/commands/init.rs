@@ -73,6 +73,12 @@ pub fn run(
         return 2;
     }
 
+    // The graph directory first: when it cannot be created nothing else is written.
+    let graph_dir = keel_core::paths::graph_dir(&cwd);
+    if let Err(code) = super::create_graph_dir("init", &graph_dir) {
+        return code;
+    }
+
     // Create .keel directory structure
     if let Err(e) = fs::create_dir_all(keel_dir.join("cache")) {
         eprintln!("keel init: failed to create .keel/cache: {}", e);
@@ -173,10 +179,6 @@ pub fn run(
     };
 
     let config_path = keel_dir.join("keel.json");
-    let graph_dir = match super::ensure_graph_dir("init", &cwd) {
-        Ok(dir) => dir,
-        Err(code) => return code,
-    };
     let db_path = graph_dir.join("graph.db");
     // Prompts above and hook/config generation below must never hold the graph
     // lock. Only config read/write, schema opening, and breaker reset need it.
