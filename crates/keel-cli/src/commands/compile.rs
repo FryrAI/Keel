@@ -4,13 +4,8 @@ use std::time::Instant;
 
 use keel_enforce::batch::PersistentBatch;
 use keel_output::OutputFormatter;
-use keel_parsers::boundary::BoundaryLiterals;
-use keel_parsers::go::GoResolver;
-use keel_parsers::python::PyResolver;
-use keel_parsers::resolver::{FileIndex, LanguageResolver};
-use keel_parsers::rust_lang::RustLangResolver;
-use keel_parsers::treesitter::{detect_language, SupplementalResolver};
-use keel_parsers::typescript::TsResolver;
+use keel_parsers::resolver::FileIndex;
+use keel_parsers::treesitter::detect_language;
 
 use super::compile_metrics::build_compile_metrics;
 use crate::telemetry_recorder::EventMetrics;
@@ -87,7 +82,8 @@ pub fn run(
     };
 
     let db_path = keel_dir.join("graph.db");
-    let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
+    let mut store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
+    {
         Ok(s) => s,
         Err(e) => {
             eprintln!("keel compile: failed to open graph database: {}", e);
@@ -95,12 +91,24 @@ pub fn run(
         }
     };
 
-    // Refuse to enforce against a graph built on a commit this checkout does
-    // not contain: every caller and every removal it reports would be phantom.
-    // Exit 2 (internal error), never 0 — a stale graph must fail loudly, which
-    // is the one thing "no graph" already does for free.
-    if let Some(msg) = super::graph_staleness::stale_graph_message(&root, &store) {
-        eprintln!("{msg}");
+    // Whether the user explicitly named the target files (not --changed/--since,
+    // not a bare full-repo compile). Only then is a missing file a hard error;
+    // git-deleted paths under --changed/--since must still skip silently.
+    let explicit_targets = !changed && since.is_none() && !files.is_empty();
+
+    // A graph built on a commit this checkout does not contain would make every
+    // caller and removal phantom. `--since` checks a committed range against
+    // the stored base graph, so it refuses (exit 2, never 0 — a stale graph
+    // must fail loudly); every other compile first brings the graph to HEAD.
+    let guard = if since.is_some() {
+        super::graph_staleness::stale_graph_message(&root, &store)
+            .or_else(|| super::graph_resync::unfinished_message(&store))
+            .map_or(Ok(()), Err)
+    } else {
+        super::graph_resync::bring_to_head(&root, &mut store, explicit_targets, &config, verbose)
+    };
+    if let Err(line) = guard {
+        eprintln!("{line}");
         return (2, EventMetrics::default());
     }
 
@@ -148,11 +156,6 @@ pub fn run(
     // literal edge it cannot reproduce would be deleted until the next map.
     let literal_keys = super::map_boundary::persisted_literal_keys(&root, &store);
 
-    // Whether the user explicitly named the target files (not --changed/--since,
-    // not a bare full-repo compile). Only then is a missing file a hard error;
-    // git-deleted paths under --changed/--since must still skip silently.
-    let explicit_targets = !changed && since.is_none() && !files.is_empty();
-
     // A bare `keel compile` — no explicit files, no --changed, no --since —
     // used to fall through to an unscoped walk of the ENTIRE repo: every file
     // re-parsed and re-checked against the stored graph with no caching
@@ -199,11 +202,7 @@ pub fn run(
     }
 
     // Parse target files into FileIndex entries.
-    let mut ts: Option<TsResolver> = None;
-    let mut py: Option<PyResolver> = None;
-    let mut go_resolver: Option<GoResolver> = None;
-    let mut rs: Option<RustLangResolver> = None;
-    let mut supplemental: Option<SupplementalResolver> = None;
+    let mut parser = super::compile_parse::CompileParser::new(&root, literal_keys);
 
     // Only a non-git bare compile is full-repo; an empty git diff is no work.
     // Skip incremental sync there rather than weaken the map-built edge graph.
@@ -278,10 +277,9 @@ pub fn run(
 
     for file_str in &target_files {
         let file_path = Path::new(file_str);
-        let lang = match detect_language(file_path) {
-            Some(l) => l,
-            None => continue,
-        };
+        if detect_language(file_path).is_none() {
+            continue;
+        }
         let content = match fs::read_to_string(file_path) {
             Ok(c) => c,
             Err(e) => {
@@ -300,34 +298,14 @@ pub fn run(
             }
         };
 
-        // Each resolver is built on first use for its language, with the
-        // boundary key set installed before it parses anything (empty for a
-        // repo with no boundary surface, which disables literals entirely).
-        let resolver: &dyn LanguageResolver = match lang {
-            l if keel_parsers::treesitter::is_typescript_family(l) => ts.get_or_insert_with(|| {
-                TsResolver::with_project_root(&root).with_boundary_literals(literal_keys.clone())
-            }),
-            "python" => py.get_or_insert_with(|| {
-                PyResolver::detect().with_boundary_literals(literal_keys.clone())
-            }),
-            "go" => go_resolver.get_or_insert_with(GoResolver::new),
-            "rust" => rs.get_or_insert_with(|| {
-                RustLangResolver::new().with_boundary_literals(literal_keys.clone())
-            }),
-            "typst" | "astro" | "bash" | "sql" => supplemental.get_or_insert_with(|| {
-                SupplementalResolver::with_project_root(&root)
-                    .with_boundary_literals(literal_keys.clone())
-            }),
-            _ => continue,
+        let Some(file_index) = parser.parse(file_path, &content) else {
+            continue;
         };
-
-        let result = resolver.parse_file(file_path, &content);
-        let rel_path = make_relative(&root, file_path);
 
         if homes.is_some() {
             home_sources.insert(file_path.to_path_buf(), content.clone());
         }
-        file_indices.push(FileIndex::from_parse(&rel_path, &content, result));
+        file_indices.push(file_index);
     }
 
     if let Some(homes) = &mut homes {
@@ -344,16 +322,9 @@ pub fn run(
         eprintln!("keel compile: checking {} file(s)", file_indices.len());
     }
 
-    // The same `ResolverSet` the map uses; `keel compile` only constructs
-    // resolvers for the languages it touched, so the untouched fields stay
-    // `None`. Shared by the pre-enforcement resolution pass here and the
-    // post-enforcement edge sync below.
-    let resolvers = super::map_lang_resolve::ResolverSet {
-        ts: ts.as_ref().map(|r| r as &dyn LanguageResolver),
-        py: py.as_ref().map(|r| r as &dyn LanguageResolver),
-        go: go_resolver.as_ref().map(|r| r as &dyn LanguageResolver),
-        rs: rs.as_ref().map(|r| r as &dyn LanguageResolver),
-    };
+    // The same `ResolverSet` the map uses, shared by the pre-enforcement
+    // resolution pass here and the post-enforcement edge sync below.
+    let resolvers = parser.resolver_set();
 
     // Resolve call references against the pre-edit graph so E005 arity
     // checking has real targets — before the engine takes ownership of the
@@ -421,6 +392,7 @@ pub fn run(
                 &file_indices,
                 &resolvers,
                 config.monorepo.enabled,
+                super::compile_sync::SyncSource::WorkingTree,
                 verbose,
             );
         }

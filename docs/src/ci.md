@@ -64,8 +64,33 @@ that under the merge-base key would poison every later PR sharing that base.
 
 ## The staleness guard
 
-`keel map` records the commit it mapped in `keel_meta` (`last_map_commit`). If that
-commit is not an ancestor of `HEAD`, `keel compile` **exits 2** with:
+`keel map` records the commit it mapped in `keel_meta` (`last_map_commit`). When `HEAD`
+has moved off that commit, a working-tree `keel compile` (explicit files, `--changed`,
+or bare) **brings the graph to `HEAD` first**, from `HEAD`'s committed files, moves the
+marker to `HEAD`, and then checks. Nothing is printed on success (with `--verbose`, one
+line: `re-synced N file(s) from <old> to <new>`). It is what keeps a post-edit hook
+working after a branch switch, a squash merge or a pull.
+
+Definitions bind one-to-one by matching hashes, then by a unique remaining
+name and module/non-module kind; ambiguous old nodes are replaced. Unchanged
+callers of removed nodes re-resolve references from their working-tree text without changing
+stored nodes. When a re-sync adds a definition, every modified or untracked file the graph
+holds is re-resolved the same way.
+Re-synced code is pre-existing, while committed refresh preserves session history.
+
+It refuses instead, exit 2 with one line starting `keel compile: no usable graph — `,
+when the move cannot be bridged: the stored commit is gone from this clone (run
+`keel map`), more than 500 source files differ from `HEAD` (run `keel map`), more than
+15 differ and the compile named explicit files (run `keel compile` with no arguments),
+or the re-sync itself failed (run `keel map`). These limits include dependent caller
+files and recorded recovery paths. A refusal leaves the marker unmoved and nothing
+is checked; partial graph writes may remain. The next working-tree compile, at
+whatever `HEAD`, completes or reverts them using the recorded paths. Completion
+clears the record and moves the marker atomically.
+
+`keel compile --since <ref>` keeps the old guard, because it checks a committed range
+against the stored base graph and a re-sync would erase the differences it reports. If
+the stored commit is not an ancestor of `HEAD`, it **exits 2** with:
 
 ```
 keel compile: the stored graph was built at commit 4f1c0a9b2d3e, which is not an
@@ -73,13 +98,16 @@ ancestor of HEAD — it describes code this checkout does not contain, so its ca
 and removals would be phantom. Run `keel map` to rebuild the graph.
 ```
 
-This is what makes a poisoned cache fail loudly instead of annotating fiction. It also
-fires locally after a rebase, an amend, or a branch switch away from the mapped
-history — the fix is the same: `keel map`.
+This is what makes a poisoned cache fail loudly instead of annotating fiction.
 
-The guard stays silent whenever it cannot be certain: a graph with no marker (mapped
-by an older keel, or outside a git repo), no git, or a commit this clone does not
-have. Existing graphs never start failing because of it.
+While a re-sync is recorded as unfinished, `--since` also **exits 2**, with stdout empty and
+one line starting `keel compile: no usable graph — `: the stored graph has an unfinished
+re-sync, so run `keel compile` to finish it. Nothing is checked until then.
+
+With no marker (mapped by an older keel, or outside a git repo) or no git/HEAD,
+working-tree compiles stay silent. A stored commit this clone does not have makes
+them refuse until `keel map` rebuilds the graph. The `--since` guard retains its
+legacy silence when it cannot resolve the stored commit.
 
 ## One sticky comment
 

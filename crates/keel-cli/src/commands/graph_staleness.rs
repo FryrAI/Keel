@@ -1,7 +1,10 @@
-//! The staleness guard: refuse to enforce against a graph built somewhere
-//! else in history.
+//! The staleness guard of `keel compile --since`: refuse to enforce against a
+//! graph built somewhere else in history. Every other working-tree compile
+//! brings the graph to HEAD instead (see [`super::graph_resync`]); `--since`
+//! checks a committed range against the stored base graph, which a re-sync
+//! would erase.
 //!
-//! `keel compile --changed` reads the stored graph for everything it cannot
+//! `keel compile --since` reads the stored graph for everything it cannot
 //! see in the file it was handed — who calls this function, which functions
 //! existed before the edit. When the graph was built from a commit this
 //! checkout does not contain (a poisoned CI cache, a rebase, a branch switch,

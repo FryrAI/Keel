@@ -46,11 +46,27 @@ pub const LAST_MAP_AT: &str = "last_map_at";
 /// never treated as stale, so pre-existing graphs keep working.
 pub const LAST_MAP_COMMIT: &str = "last_map_commit";
 
+/// Baseline commit, changed paths and dependents of an unfinished re-sync.
+pub const RESYNC_PENDING: &str = "resync_pending";
+
 /// `keel_meta` key holding the batch-mode state blob (opaque JSON owned by
 /// `keel-enforce`).
 pub const BATCH_STATE: &str = "batch";
 
 impl SqliteGraphStore {
+    /// Move the baseline and clear recovery paths atomically after all graph writes.
+    pub fn complete_resync(&self, head: &str) -> Result<(), GraphError> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO keel_meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![LAST_MAP_COMMIT, head],
+        )?;
+        tx.execute("DELETE FROM keel_meta WHERE key = ?1", [RESYNC_PENDING])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Read a single `keel_meta` value.
     pub(crate) fn query_meta_value(&self, key: &str) -> Option<String> {
         self.conn
@@ -81,6 +97,11 @@ impl SqliteGraphStore {
         self.conn
             .execute("DELETE FROM keel_meta WHERE key = ?1", params![key])?;
         Ok(())
+    }
+
+    /// Drop the unfinished re-sync record; a full map replaces what it describes.
+    pub fn clear_resync_pending(&self) -> Result<(), GraphError> {
+        self.clear_meta_value(RESYNC_PENDING)
     }
 
     /// Drop both map markers, declaring the graph never-mapped.

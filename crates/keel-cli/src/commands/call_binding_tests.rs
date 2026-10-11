@@ -8,7 +8,7 @@ use keel_core::types::{EdgeDirection, EdgeKind};
 use keel_parsers::resolver::{FileIndex, ReferenceKind};
 use keel_parsers::treesitter::TreeSitterParser;
 
-use super::super::compile_sync::{resolve_call_targets, sync_compiled_files};
+use super::super::compile_sync::{resolve_call_targets, sync_compiled_files, SyncSource};
 use super::super::map_lang_resolve::ResolverSet;
 
 fn parsed(language: &str, file: &str, source: &str) -> FileIndex {
@@ -38,6 +38,7 @@ fn check_bare_and_method(language: &str, file: &str, source: &str, method: &str)
         std::slice::from_ref(&file),
         &resolvers,
         false,
+        SyncSource::WorkingTree,
         false,
     );
     let target = store
@@ -157,6 +158,7 @@ fn python_class_body_keeps_its_local_function_calls() {
         &[file],
         &resolvers,
         false,
+        SyncSource::WorkingTree,
         false,
     );
     let helper = store
@@ -199,6 +201,7 @@ fn bare_cross_file_calls_cannot_bind_receiver_methods() {
         &[target, caller.clone()],
         &resolvers,
         false,
+        SyncSource::WorkingTree,
         false,
     );
     sync_compiled_files(
@@ -207,6 +210,7 @@ fn bare_cross_file_calls_cannot_bind_receiver_methods() {
         std::slice::from_ref(&caller),
         &resolvers,
         false,
+        SyncSource::WorkingTree,
         false,
     );
     resolve_call_targets(&store, cwd, std::slice::from_mut(&mut caller), &resolvers);
@@ -270,6 +274,7 @@ fn fresh_mixed_siblings_keep_or_reject_the_first_inserted_definition() {
             &[file],
             &resolvers,
             false,
+            SyncSource::WorkingTree,
             false,
         );
         let target = store

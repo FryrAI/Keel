@@ -81,6 +81,7 @@ fn seeded_file(store: &mut SqliteGraphStore, cwd: &Path, resolvers: &ResolverSet
         std::slice::from_ref(&seed),
         resolvers,
         false,
+        SyncSource::WorkingTree,
         false,
     );
     seed
@@ -129,7 +130,15 @@ fn seeded_cross_file_edge(
         caller_only_file(),
         index("lib/b.rs", vec![def_at("target", "lib/b.rs", 1, 3)]),
     ];
-    sync_compiled_files(store, cwd, &files, resolvers, false, false);
+    sync_compiled_files(
+        store,
+        cwd,
+        &files,
+        resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
     let caller_id = node_id(store, "src/a.rs", "caller");
     let target_id = node_id(store, "lib/b.rs", "target");
     let edge_id = store.max_id() + 1;
@@ -161,7 +170,15 @@ fn unresolvable_cross_file_call_edge_survives_repeated_compiles() {
     for _ in 0..2 {
         let mut recompiled = caller_only_file();
         recompiled.references = vec![call_ref("target", "src/a.rs", 2, 1)];
-        sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
+        sync_compiled_files(
+            &mut store,
+            &cwd,
+            &[recompiled],
+            &resolvers,
+            false,
+            SyncSource::WorkingTree,
+            false,
+        );
 
         let calls: Vec<_> = incoming_of(&store, "lib/b.rs", "target")
             .into_iter()
@@ -196,7 +213,15 @@ fn re_resolved_cross_file_call_replaces_stale_edge_line() {
         line: 1,
         is_relative: true,
     }];
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[recompiled],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     let calls: Vec<_> = incoming_of(&store, "lib/b.rs", "target")
         .into_iter()
@@ -229,7 +254,15 @@ fn same_file_deleted_call_site_edge_is_pruned() {
     );
     let mut with_call = without_call.clone();
     with_call.references = vec![call_ref("callee", "src/a.rs", 11, 0)];
-    sync_compiled_files(&mut store, &cwd, &[with_call], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[with_call],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
     assert!(
         incoming_of(&store, "src/a.rs", "callee")
             .iter()
@@ -237,7 +270,15 @@ fn same_file_deleted_call_site_edge_is_pruned() {
         "seed: the same-file call edge exists"
     );
 
-    sync_compiled_files(&mut store, &cwd, &[without_call], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[without_call],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
     assert!(
         !incoming_of(&store, "src/a.rs", "callee")
             .iter()
@@ -260,7 +301,15 @@ fn cross_file_deleted_call_site_edge_lingers_until_map() {
 
     // Recompile the caller with the call site removed entirely.
     let recompiled = caller_only_file();
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[recompiled],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
     assert!(
         incoming_of(&store, "lib/b.rs", "target")
             .iter()
@@ -287,7 +336,15 @@ fn cross_file_deleted_value_reference_uses_edge_lingers_until_map() {
 
     // Recompile the caller with the value reference removed entirely.
     let recompiled = caller_only_file();
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[recompiled],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
     assert!(
         incoming_of(&store, "lib/b.rs", "target")
             .iter()
@@ -309,7 +366,15 @@ fn zero_definition_parse_leaves_graph_untouched() {
     let edges_before = store.all_edges().len();
 
     let empty_parse = index("src/a.rs", vec![]);
-    sync_compiled_files(&mut store, &cwd, &[empty_parse], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[empty_parse],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     assert_eq!(
         store.get_nodes_in_file("src/a.rs").len(),
@@ -321,6 +386,275 @@ fn zero_definition_parse_leaves_graph_untouched() {
         edges_before,
         "a zero-definition parse must not remove edges"
     );
+}
+
+/// A committed blob is authoritative: the same zero-definition parse that a
+/// working-tree sync ignores removes the file's definitions and their edges.
+#[test]
+fn committed_zero_definition_parse_removes_the_files_definitions() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let cwd = std::env::current_dir().unwrap();
+    let resolvers = empty_resolvers();
+    seeded_cross_file_edge(&mut store, &cwd, &resolvers, EdgeKind::Calls);
+
+    let done = sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[index("src/a.rs", vec![])],
+        &resolvers,
+        false,
+        SyncSource::Committed,
+        false,
+    );
+
+    assert!(done, "a successful sync reports completion");
+    assert!(
+        store
+            .get_nodes_in_file("src/a.rs")
+            .iter()
+            .all(|n| n.kind == NodeKind::Module),
+        "the emptied file keeps no definition"
+    );
+    assert!(
+        store.all_edges().iter().all(|e| e.kind != EdgeKind::Calls),
+        "the emptied file's call edges go with its definitions"
+    );
+}
+
+/// A definition gone from a committed blob is removed even though a caller
+/// outside the batch still points at it; a working-tree sync keeps the node so
+/// the callee-side E004 keeps firing.
+#[test]
+fn committed_sync_removes_a_vanished_definition_with_outside_callers() {
+    let recompiled = || index("lib/b.rs", vec![def_at("other", "lib/b.rs", 1, 3)]);
+    for (source, target_survives) in [
+        (SyncSource::WorkingTree, true),
+        (SyncSource::Committed, false),
+    ] {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        let resolvers = empty_resolvers();
+        seeded_cross_file_edge(&mut store, &cwd, &resolvers, EdgeKind::Calls);
+
+        sync_compiled_files(
+            &mut store,
+            &cwd,
+            &[recompiled()],
+            &resolvers,
+            false,
+            source,
+            false,
+        );
+
+        assert_eq!(
+            store
+                .get_nodes_in_file("lib/b.rs")
+                .iter()
+                .any(|n| n.name == "target"),
+            target_survives
+        );
+    }
+}
+
+fn sync_one(store: &mut SqliteGraphStore, file: FileIndex, source: SyncSource) {
+    let cwd = std::env::current_dir().unwrap();
+    assert!(sync_compiled_files(
+        store,
+        &cwd,
+        &[file],
+        &empty_resolvers(),
+        false,
+        source,
+        false,
+    ));
+}
+
+fn changed_signature_file() -> FileIndex {
+    let mut changed = def_at("callee", "src/a.rs", 1, 3);
+    changed.signature = "fn callee(extra: u32)".to_string();
+    index("src/a.rs", vec![changed])
+}
+
+/// A committed blob brings a surviving definition's stored signature and hash
+/// to the parsed one and preserves history; a working-tree sync leaves that
+/// to the engine and keeps the node as stored.
+#[test]
+fn committed_sync_refreshes_a_surviving_definition_and_working_tree_does_not() {
+    for (source, refreshed) in [
+        (SyncSource::Committed, true),
+        (SyncSource::WorkingTree, false),
+    ] {
+        let mut store = SqliteGraphStore::in_memory().unwrap();
+        sync_one(
+            &mut store,
+            index("src/a.rs", vec![def_at("callee", "src/a.rs", 1, 3)]),
+            SyncSource::WorkingTree,
+        );
+        let mut historical = store
+            .get_nodes_in_file("src/a.rs")
+            .into_iter()
+            .find(|n| n.name == "callee")
+            .unwrap();
+        historical.previous_hashes.push("olderhash11".into());
+        store
+            .update_nodes(vec![NodeChange::Update(historical)])
+            .unwrap();
+        let before = store.get_nodes_in_file("src/a.rs");
+        let before = before.iter().find(|n| n.name == "callee").unwrap();
+
+        sync_one(&mut store, changed_signature_file(), source);
+
+        let after = store.get_nodes_in_file("src/a.rs");
+        let after = after.iter().find(|n| n.name == "callee").unwrap();
+        assert_eq!(after.id, before.id, "the node keeps its identity");
+        assert_eq!(after.signature == "fn callee(extra: u32)", refreshed);
+        assert_eq!(after.hash != before.hash, refreshed);
+        assert_eq!(
+            after.previous_hashes, before.previous_hashes,
+            "committed sync leaves history unchanged"
+        );
+    }
+}
+
+fn same_named_pair() -> (SqliteGraphStore, Definition, Definition, u64, u64) {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let mut alpha = def_at("same", "src/a.rs", 1, 3);
+    alpha.body_text = "1".into();
+    let mut beta = def_at("same", "src/a.rs", 10, 12);
+    beta.body_text = "2".into();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![alpha.clone()]),
+        SyncSource::WorkingTree,
+    );
+    let alpha_id = node_id(&store, "src/a.rs", "same");
+    let module_id = store
+        .get_nodes_in_file("src/a.rs")
+        .iter()
+        .find(|n| n.kind == NodeKind::Module)
+        .unwrap()
+        .id;
+    let beta_id = store.max_id() + 1;
+    store
+        .update_nodes(vec![NodeChange::Add(definition_node(
+            beta_id,
+            beta.hash(),
+            &beta,
+            "src/a.rs",
+            module_id,
+            None,
+        ))])
+        .unwrap();
+    (store, alpha, beta, alpha_id, beta_id)
+}
+
+#[test]
+fn committed_binding_uses_unique_leftovers_after_hash_evidence() {
+    let (mut store, alpha, mut beta, alpha_id, beta_id) = same_named_pair();
+    beta.body_text = "3".into();
+    let expected_beta = beta.hash();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![beta, alpha.clone()]),
+        SyncSource::Committed,
+    );
+    assert_eq!(
+        store.get_node_by_id(alpha_id).unwrap().hash,
+        alpha.hash(),
+        "hash-bound sibling must retain its identity regardless of parse order"
+    );
+    assert_eq!(
+        store.get_node_by_id(beta_id).unwrap().hash,
+        expected_beta,
+        "unique remaining pair must refresh"
+    );
+}
+
+#[test]
+fn committed_binding_never_guesses_between_ambiguous_leftovers() {
+    let (mut store, mut alpha, mut beta, alpha_id, beta_id) = same_named_pair();
+    alpha.body_text = "3".into();
+    beta.body_text = "4".into();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![alpha, beta]),
+        SyncSource::Committed,
+    );
+    assert!(
+        store.get_node_by_id(alpha_id).is_none() && store.get_node_by_id(beta_id).is_none(),
+        "ambiguous old nodes must be removed rather than positionally refreshed"
+    );
+    assert_eq!(
+        store
+            .get_nodes_in_file("src/a.rs")
+            .iter()
+            .filter(|n| n.name == "same")
+            .count(),
+        2
+    );
+}
+
+/// A definition whose parse equals its stored node produces no update at all,
+/// so an own commit that was already compiled stays a no-op write; a changed
+/// one produces exactly one.
+#[test]
+fn committed_refresh_emits_an_update_only_when_something_differs() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    let file = index("src/a.rs", vec![def_at("callee", "src/a.rs", 1, 3)]);
+    sync_one(&mut store, file.clone(), SyncSource::WorkingTree);
+    let existing = store.get_nodes_in_file("src/a.rs");
+    let module_id = existing
+        .iter()
+        .find(|n| n.kind == NodeKind::Module)
+        .unwrap()
+        .id;
+    let refresh = |definitions: &[Definition]| {
+        committed_refreshes(
+            &store,
+            &[existing.iter().find(|n| n.id != module_id)],
+            definitions,
+            &mut HashSet::new(),
+        )
+    };
+
+    assert!(refresh(&file.definitions).is_empty());
+    assert_eq!(refresh(&changed_signature_file().definitions).len(), 1);
+}
+
+/// A new hash another node already owns is not taken: the stored hash stays and
+/// the other fields still move.
+#[test]
+fn committed_refresh_keeps_the_stored_hash_on_a_collision() {
+    let mut store = SqliteGraphStore::in_memory().unwrap();
+    sync_one(
+        &mut store,
+        index("src/a.rs", vec![def_at("callee", "src/a.rs", 1, 3)]),
+        SyncSource::WorkingTree,
+    );
+    let existing = store.get_nodes_in_file("src/a.rs");
+    let module_id = existing
+        .iter()
+        .find(|n| n.kind == NodeKind::Module)
+        .unwrap()
+        .id;
+    let changed = changed_signature_file().definitions;
+    let mut taken = HashSet::new();
+    taken.insert(changed[0].hash());
+
+    let updates = committed_refreshes(
+        &store,
+        &[existing.iter().find(|n| n.id != module_id)],
+        &changed,
+        &mut taken,
+    );
+
+    let [NodeChange::Update(node)] = updates.as_slice() else {
+        panic!("one update expected");
+    };
+    assert_eq!(node.signature, "fn callee(extra: u32)");
+    let stored = existing.iter().find(|n| n.name == "callee").unwrap();
+    assert_eq!(node.hash, stored.hash);
+    assert!(node.previous_hashes.is_empty());
 }
 
 /// The replace key includes the edge KIND: resolving a `calls` edge to a
@@ -344,7 +678,15 @@ fn calls_resolution_does_not_replace_uses_edge_to_same_target() {
         line: 1,
         is_relative: true,
     }];
-    sync_compiled_files(&mut store, &cwd, &[recompiled], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[recompiled],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     let incoming = incoming_of(&store, "lib/b.rs", "target");
     assert!(
@@ -373,7 +715,15 @@ fn same_file_value_reference_becomes_a_uses_edge() {
         ],
     );
     file.references = vec![value_ref("handler", "src/a.rs", 11)];
-    sync_compiled_files(&mut store, &cwd, &[file], &empty_resolvers(), false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[file],
+        &empty_resolvers(),
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     let incoming = incoming_of(&store, "src/a.rs", "handler");
     let uses: Vec<_> = incoming
@@ -402,7 +752,15 @@ fn cross_file_value_reference_resolves_to_a_uses_edge() {
         "src/mod.rs",
         vec![def_at("cross_file_cb", "src/mod.rs", 1, 3)],
     );
-    sync_compiled_files(&mut store, &cwd, &[owner], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[owner],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     // The user's file references it as a value through an import.
     let mut caller = index("src/child.rs", vec![def_at("wire", "src/child.rs", 5, 9)]);
@@ -414,7 +772,15 @@ fn cross_file_value_reference_resolves_to_a_uses_edge() {
         line: 1,
         is_relative: true,
     }];
-    sync_compiled_files(&mut store, &cwd, &[caller], &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &[caller],
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     let incoming = incoming_of(&store, "src/mod.rs", "cross_file_cb");
     assert!(
@@ -440,7 +806,15 @@ fn same_batch_identical_defs_get_distinct_hashes() {
         index("src/a.rs", vec![def("twin", "src/a.rs")]),
         index("src/b.rs", vec![def("twin", "src/b.rs")]),
     ];
-    sync_compiled_files(&mut store, &cwd, &files, &resolvers, false, false);
+    sync_compiled_files(
+        &mut store,
+        &cwd,
+        &files,
+        &resolvers,
+        false,
+        SyncSource::WorkingTree,
+        false,
+    );
 
     let a_nodes: Vec<_> = store
         .get_nodes_in_file("src/a.rs")
@@ -555,6 +929,7 @@ fn resolve_call_targets_refuses_same_file_ambiguous_names() {
         std::slice::from_ref(&seed),
         &resolvers,
         false,
+        SyncSource::WorkingTree,
         false,
     );
 

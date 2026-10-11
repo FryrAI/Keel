@@ -101,6 +101,12 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
+    // The full map replaces everything an unfinished re-sync's record describes.
+    if let Err(e) = store.clear_resync_pending() {
+        eprintln!("keel map: failed to clear graph database: {}", e);
+        return (2, EventMetrics::default());
+    }
+
     // The graph is now empty, so the previous run's map markers describe
     // nothing. Drop them before doing any work: if this run dies partway, the
     // graph must read as never-mapped rather than as freshly mapped at HEAD —

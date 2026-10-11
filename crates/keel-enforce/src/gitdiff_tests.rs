@@ -377,3 +377,94 @@ fn non_utf8_rename_and_copy_records_preserve_only_changed_valid_endpoints() {
         ]
     );
 }
+
+fn rev_parse(dir: &Path) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+/// Two committed revisions diff with statuses, renames and the ignore rules,
+/// and the working tree is never consulted.
+#[test]
+fn changed_paths_between_lists_two_revisions_only() {
+    let dir = init_repo();
+    let root = dir.path();
+    std::fs::write(root.join(".keelignore"), "vendor/\n").unwrap();
+    std::fs::create_dir(root.join("vendor")).unwrap();
+    std::fs::write(root.join("keep.rs"), "fn keep() {}\n").unwrap();
+    std::fs::write(root.join("stable.rs"), "fn stable() {}\n").unwrap();
+    std::fs::write(root.join("gone.rs"), "fn gone() {}\n").unwrap();
+    std::fs::write(root.join("old.rs"), "fn moved() { let _ = 1; }\n").unwrap();
+    std::fs::write(root.join("vendor/lib.rs"), "fn v() {}\n").unwrap();
+    git(&["add", "-f", "."], root);
+    git(&["commit", "-m", "base"], root);
+    let base = rev_parse(root);
+
+    std::fs::write(root.join("keep.rs"), "fn keep() { let _ = 2; }\n").unwrap();
+    git(&["rm", "-q", "gone.rs"], root);
+    git(&["mv", "old.rs", "new.rs"], root);
+    std::fs::write(root.join("added.rs"), "fn added() {}\n").unwrap();
+    std::fs::write(root.join("vendor/lib.rs"), "fn v() { let _ = 3; }\n").unwrap();
+    git(&["add", "-f", "."], root);
+    git(&["commit", "-m", "head"], root);
+    let head = rev_parse(root);
+    // An uncommitted edit of a file both revisions share lies outside the diff.
+    std::fs::write(root.join("stable.rs"), "fn stable() { let _ = 9; }\n").unwrap();
+
+    let mut got = changed_paths_between(root, &base, &head).unwrap();
+    got.sort_by(|a, b| a.path.cmp(&b.path));
+    let entry = |path: &str, status| ChangedPath {
+        path: path.into(),
+        status,
+    };
+    assert_eq!(
+        got,
+        vec![
+            entry("added.rs", ChangeStatus::Added),
+            entry("gone.rs", ChangeStatus::Deleted),
+            entry("keep.rs", ChangeStatus::Modified),
+            entry(
+                "new.rs",
+                ChangeStatus::Renamed {
+                    from: "old.rs".into()
+                }
+            ),
+        ]
+    );
+    assert!(changed_paths_between(root, "no-such-rev", &head).is_err());
+}
+
+/// `source_at` returns text only for a UTF-8 regular blob; every other state
+/// is `Ok(None)` (nothing to parse), and a failing git is the only `Err`.
+#[cfg(unix)]
+#[test]
+fn source_at_reads_only_utf8_regular_blobs() {
+    let dir = init_repo();
+    let root = dir.path();
+    std::fs::write(root.join("a.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(root.join("bin.rs"), b"fn b() {} \xff\n").unwrap();
+    std::os::unix::fs::symlink("a.rs", root.join("link.rs")).unwrap();
+    std::fs::create_dir(root.join("sub.rs")).unwrap();
+    std::fs::write(root.join("sub.rs/inner.rs"), "fn i() {}\n").unwrap();
+    git(&["add", "."], root);
+    git(&["commit", "-m", "init"], root);
+    let rev = rev_parse(root);
+
+    assert_eq!(
+        source_at(root, &rev, "a.rs").unwrap(),
+        Some("fn a() {}\n".to_string())
+    );
+    assert_eq!(source_at(root, &rev, "missing.rs").unwrap(), None);
+    assert_eq!(source_at(root, &rev, "bin.rs").unwrap(), None);
+    assert_eq!(source_at(root, &rev, "link.rs").unwrap(), None);
+    assert_eq!(source_at(root, &rev, "sub.rs").unwrap(), None, "a tree");
+    assert!(source_at(root, "no-such-rev", "a.rs").is_err());
+    // `blob_at_checked` keeps its stricter contract for the same inputs.
+    assert!(blob_at_checked(root, &rev, "bin.rs").is_err());
+    assert!(blob_at_checked(root, &rev, "sub.rs").is_err());
+    assert_eq!(blob_at_checked(root, &rev, "link.rs").unwrap(), None);
+}

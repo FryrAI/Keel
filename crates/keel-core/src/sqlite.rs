@@ -597,21 +597,27 @@ impl SqliteGraphStore {
         Ok(())
     }
 
+    /// Highest node id currently in use (edges excluded): grows exactly when a
+    /// node was added above everything stored.
+    pub fn max_node_id(&self) -> u64 {
+        let node_max: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM nodes", [], |r| r.get(0))
+            .unwrap_or(0);
+        node_max as u64
+    }
+
     /// Highest id currently in use across nodes and edges.
     ///
     /// The incremental `keel compile` graph sync allocates new node/edge ids
     /// above this watermark so they never collide with rows written by `keel
     /// map` or a previous compile. Returns 0 for an empty graph.
     pub fn max_id(&self) -> u64 {
-        let node_max: i64 = self
-            .conn
-            .query_row("SELECT COALESCE(MAX(id), 0) FROM nodes", [], |r| r.get(0))
-            .unwrap_or(0);
         let edge_max: i64 = self
             .conn
             .query_row("SELECT COALESCE(MAX(id), 0) FROM edges", [], |r| r.get(0))
             .unwrap_or(0);
-        node_max.max(edge_max) as u64
+        self.max_node_id().max(edge_max as u64)
     }
 
     /// Every stored `calls`/`uses` edge originating in `file_path`, paired
