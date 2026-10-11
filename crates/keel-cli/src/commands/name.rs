@@ -13,6 +13,10 @@ pub fn run(
 ) -> i32 {
     // Open graph store from the worktree-aware `.keel` location.
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    if !keel_core::paths::keel_dir(&cwd).exists() {
+        eprintln!("keel name: not initialized. Run `keel init` first.");
+        return 2;
+    }
     let graph_dir = match super::ensure_graph_dir("name", &cwd) {
         Ok(dir) => dir,
         Err(code) => return code,
