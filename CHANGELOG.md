@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-11
+
+**Read first.** The post-edit hook now blocks (exit 2) in three places where it was silent, and
+`keel compile` can exit 1 where it exited 0:
+- New code with missing type hints or docstrings (E002/E003) stays an ERROR on every compile until
+  it is fixed or committed. Before, the second compile of a file, or any `keel map` on a dirty
+  tree, turned it into a "pre-existing" warning. "Pre-existing" now means: unchanged against
+  `HEAD` (or the `--since` ref). The first hook compile after upgrading reports each such file once.
+- An edit made while another keel process holds the graph lock is reported as not checked.
+- An edit to a file in another keel-initialised checkout (another clone, a linked worktree) is
+  checked there instead of being skipped.
+
+Existing projects run `keel init --update-docs` once to get the new hook script and ignore entry.
+
 ### Changed
 - **Read first.** Compiles that exited 0 can exit 1: pre-existing E002/E003 debt is now what the Git base holds, not what the graph remembers. Escalation ends at a commit or a revert to the base text; the first hook compile after upgrading reports each such file once.
 

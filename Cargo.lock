@@ -1242,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "keel-cli"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1263,7 +1263,7 @@ dependencies = [
 
 [[package]]
 name = "keel-core"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "globset",
  "regex",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "keel-enforce"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "aho-corasick",
  "globset",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "keel-output"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "keel-enforce",
  "serde_json",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "keel-parsers"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "ignore",
  "keel-core",
@@ -1331,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "keel-server"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "keel-core",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "keel-tests"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "axum",
  "criterion",
