@@ -958,6 +958,16 @@ fn refresh_reference_edges(
             _ => None,
         })
         .collect();
+    if source == SyncSource::ResolveReferences {
+        // A dependent's blob parse came first: the working-tree text wins for
+        // every (source, target, kind) both yield.
+        let fresh = edge_changes.split_off(fresh_start);
+        edge_changes.retain(|c| {
+            !matches!(c, EdgeChange::Add(e) if e.file_path == *rel_path
+                && added.contains(&(e.source_id, e.target_id, e.kind.clone())))
+        });
+        edge_changes.extend(fresh);
+    }
     edge_removals.extend(
         stored
             .iter()

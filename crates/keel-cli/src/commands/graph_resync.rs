@@ -241,7 +241,8 @@ pub(crate) fn bring_to_head(
     // renamed away without a compile) and, unless it is a target of this
     // compile, its working-tree text, which already holds the edits compiled
     // since HEAD. A target's working-tree text is what the compile is about to
-    // check; an absent or non-UTF-8 file is skipped.
+    // check; an absent or non-UTF-8 file is skipped. Where both texts yield the
+    // same call, the working-tree line is kept.
     for path in &dependents {
         let blob = gitdiff::source_at(root, &head, path).map_err(fail)?;
         if let Some(text) = &blob {
