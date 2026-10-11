@@ -68,6 +68,8 @@ pub(super) fn run(cwd: &Path, verbose: bool) -> i32 {
     if hooks_dir.join("plan-check.sh").exists() {
         hook_script::install_plan_check_hook(cwd, verbose);
     }
+    // Appends only entries a later release added; every other line stays.
+    super::helpers::update_gitignore(cwd, verbose);
 
     let binary_version = env!("CARGO_PKG_VERSION");
     if let Err(e) = keel_core::config::KeelConfig::sync_version(&keel_dir, binary_version) {
