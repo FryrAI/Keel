@@ -270,8 +270,10 @@ Runs after every file edit. The `.keel/hooks/post-edit.sh` hook:
    a timeout): prints the reason and exits 1, which surfaces to the user without
    blocking the agent
 
-A file outside the repository is skipped without running keel. Every non-zero exit
-carries a reason on stderr.
+A file in another keel-initialised checkout (another clone or a linked worktree) is
+checked there: `keel hook post-edit` runs the session's script in that checkout and
+names it on a non-zero exit. A file in a directory keel does not know is skipped
+without running keel. Every non-zero exit carries a reason on stderr.
 
 This keeps the agent in a tight validate-fix loop without wasting tokens on clean compiles.
 

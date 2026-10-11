@@ -169,6 +169,9 @@ Every `keel.json` writer uses `config::write_atomic` (exclusive temp file + rena
 `keel hook` runs the script of the nearest directory from the cwd up to the worktree
 root that holds `.keel/hooks/<name>.sh` (with that directory as its cwd), and falls
 back to the main checkout's script only when none exists. It exits before graph or telemetry setup.
+For `post-edit`, the payload is read first; another initialised checkout becomes
+the script's cwd. The script still comes from the session's cwd; the other
+checkout's script is never executed. A non-zero exit names that checkout.
 Capture its name and arguments as one trailing clap positional: splitting them
 lets global flags consume script arguments before trailing capture starts.
 

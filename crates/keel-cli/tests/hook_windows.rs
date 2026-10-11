@@ -31,7 +31,12 @@ fn git(dir: &Path, args: &[&str]) {
 
 /// A repository in `<tmp>/demo` with one commit.
 fn repo(tmp: &Path) -> std::path::PathBuf {
-    let root = tmp.join("demo");
+    repo_named(tmp, "demo")
+}
+
+/// A repository in `<tmp>/<name>` with one commit.
+fn repo_named(tmp: &Path, name: &str) -> std::path::PathBuf {
+    let root = tmp.join(name);
     fs::create_dir_all(&root).unwrap();
     git(&root, &["init", "-q"]);
     git(&root, &["commit", "-q", "--allow-empty", "-m", "init"]);
@@ -154,4 +159,25 @@ fn hook_in_a_linked_worktree_prefers_its_own_script() {
     let out = hook(&linked, &[], b"");
 
     assert_ran(&out, 5, "own dir=linked mode=bash args= stdin=");
+}
+
+#[test]
+fn hook_post_edit_runs_the_sessions_script_in_another_initialised_repository() {
+    let tmp = tempfile::tempdir().unwrap();
+    let a = repo(tmp.path());
+    let b = repo_named(tmp.path(), "bravo");
+    write_stub(&a, "a", 7);
+    write_stub(&b, "b", 9);
+    fs::write(b.join(".keel").join("keel.json"), "{}").unwrap();
+    let file = b.join("alpha.py");
+    fs::write(&file, "x = 1\n").unwrap();
+    let payload = serde_json::json!({"tool_input": {"file_path": file}}).to_string();
+
+    let out = hook(&a, &["claude-code"], payload.as_bytes());
+
+    assert_ran(
+        &out,
+        7,
+        &format!("a dir=bravo mode=bash args=[claude-code] stdin={payload}"),
+    );
 }
