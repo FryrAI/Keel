@@ -115,6 +115,28 @@ fn linked_worktree_mcp_reads_its_checkpoint_skeleton_and_compile() {
     );
 }
 
+/// The MCP engine in a linked worktree takes its rules from the main checkout's
+/// `keel.json`, not from the directory its own graph lives in.
+#[test]
+fn linked_worktree_mcp_obeys_the_main_checkouts_config() {
+    let (_dir, main, worktree) = linked_fixture();
+    let missing_doc = |value: &Value| {
+        value["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["code"] == "E003" && v["file"] == "src/b.rs")
+    };
+    let args = json!({"files":["src/b.rs"]});
+    assert!(missing_doc(&mcp(&worktree, "keel/compile", args.clone())));
+    let config = main.join(".keel/keel.json");
+    let text = fs::read_to_string(&config).unwrap();
+    let edited = text.replace("\"docstrings\": true", "\"docstrings\": false");
+    assert_ne!(edited, text, "fixture: keel.json has no docstrings rule");
+    fs::write(config, edited).unwrap();
+    assert!(!missing_doc(&mcp(&worktree, "keel/compile", args)));
+}
+
 #[cfg(unix)]
 #[test]
 fn mcp_checkpoint_keeps_canonical_key_after_tracked_directory_becomes_alias() {
