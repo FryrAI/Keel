@@ -128,6 +128,21 @@ fn assert_no_note(o: &Output) {
     );
 }
 
+/// No stderr line says anything about uncommitted files: neither the count
+/// line nor the `could not list` line.
+fn assert_no_uncommitted_line(o: &Output) {
+    let lines: Vec<String> = err_s(o)
+        .lines()
+        .filter(|l| l.starts_with("keel map: ") && l.contains("uncommitted"))
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        lines.is_empty(),
+        "no `keel map: ... uncommitted ...` line expected, got {lines:?}\n{}",
+        describe(o)
+    );
+}
+
 // ------------------------------------------------------------------ T1, T2
 
 #[test]
@@ -194,7 +209,9 @@ fn outside_git_prints_no_note() {
     );
     write(dir.path(), "alpha.py", ALPHA_EDITED);
     write(dir.path(), "gamma.py", EXTRA);
-    assert_no_note(&keel_run(dir.path(), &["map"]));
+    let out = keel_run(dir.path(), &["map"]);
+    assert_no_note(&out);
+    assert_no_uncommitted_line(&out);
 }
 
 #[test]
@@ -212,7 +229,9 @@ fn a_repository_without_a_commit_prints_no_note() {
         .output()
         .unwrap();
     assert!(!head.status.success(), "fixture must have no commit");
-    assert_no_note(&keel_run(dir.path(), &["map"]));
+    let out = keel_run(dir.path(), &["map"]);
+    assert_no_note(&out);
+    assert_no_uncommitted_line(&out);
 }
 
 #[test]
@@ -245,6 +264,14 @@ fn json_stdout_stays_json_and_free_of_the_note() {
         "the note goes to stderr only\n{}",
         describe(&out)
     );
+    let line = assert_one_note(
+        &out,
+        "keel map: 1 modified and 0 untracked source file(s) were mapped as they are",
+    );
+    assert!(
+        line.ends_with("were not checked against their callers"),
+        "{line}"
+    );
 }
 
 // ---------------------------------------------------------------------- T6
@@ -274,14 +301,14 @@ fn a_keelignored_untracked_source_file_does_not_count() {
 
 // ---------------------------------------------------------------------- T7
 
-/// A `git` that exits 128 on `ls-files --others` while `switch` exists and
+/// A `git` that exits 128 on `<cmd> ... <flag>` while its switch file exists and
 /// otherwise runs the real one.
 struct FakeGit {
     dir: TempDir,
 }
 
 impl FakeGit {
-    fn new() -> Self {
+    fn new(cmd: &str, flag: &str) -> Self {
         let real = Command::new("sh")
             .args(["-c", "command -v git"])
             .output()
@@ -290,7 +317,7 @@ impl FakeGit {
         assert!(real.starts_with('/'), "git resolves to an absolute path");
         let dir = TempDir::new().unwrap();
         let script = format!(
-            "#!/bin/sh\nif [ -e '{}' ]; then\n  case \"$*\" in\n    *ls-files*) case \"$*\" in *--others*) exit 128;; esac;;\n  esac\nfi\nexec '{real}' \"$@\"\n",
+            "#!/bin/sh\nif [ -e '{}' ]; then\n  case \"$*\" in\n    *{cmd}*) case \"$*\" in *{flag}*) exit 128;; esac;;\n  esac\nfi\nexec '{real}' \"$@\"\n",
             dir.path().join("fail-ls-files").display()
         );
         let git_path = dir.path().join("git");
@@ -335,7 +362,7 @@ impl FakeGit {
 fn a_failing_untracked_listing_is_one_could_not_list_line() {
     let dir = dirty_repo();
     let root = dir.path();
-    let fake = FakeGit::new();
+    let fake = FakeGit::new("ls-files", "--others");
     // Positive control: fails exactly `ls-files --others`, and only while on.
     fake.set(true);
     assert_eq!(fake.code(root, &["ls-files", "--others", "-z"]), Some(128));
@@ -343,6 +370,115 @@ fn a_failing_untracked_listing_is_one_could_not_list_line() {
     assert_eq!(fake.code(root, &["rev-parse", "HEAD"]), Some(0));
     fake.set(false);
     assert_eq!(fake.code(root, &["ls-files", "--others", "-z"]), Some(0));
+
+    fake.set(true);
+    let out = Command::new(keel_bin())
+        .arg("map")
+        .current_dir(root)
+        .env("KEEL_NO_TELEMETRY", "true")
+        .env("PATH", fake.path())
+        .output()
+        .unwrap();
+    assert_map_ok(&out);
+    let lines: Vec<String> = err_s(&out)
+        .lines()
+        .filter(|l| l.starts_with(COULD_NOT))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "stderr must hold exactly one `{COULD_NOT}` line\n{}",
+        describe(&out)
+    );
+    assert!(
+        note_lines(&out).is_empty(),
+        "no count line on error\n{}",
+        describe(&out)
+    );
+}
+
+// ---------------------------------------------------------------------- C1
+
+/// `keel map --json` with stderr pointing at `/dev/full` (every write fails).
+fn map_json_with_full_stderr(dir: &Path) -> Output {
+    let full = fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/full")
+        .expect("/dev/full must be openable");
+    Command::new(keel_bin())
+        .args(["map", "--json"])
+        .current_dir(dir)
+        .env("KEEL_NO_TELEMETRY", "true")
+        .stderr(full)
+        .output()
+        .unwrap()
+}
+
+fn assert_json_map(o: &Output) {
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "an unwritable stderr must not change the exit code\nexit={:?}\nstdout: {}",
+        o.status.code(),
+        out_s(o)
+    );
+    serde_json::from_str::<serde_json::Value>(&out_s(o))
+        .unwrap_or_else(|e| panic!("stdout must parse as JSON: {e}\nstdout: {}", out_s(o)));
+}
+
+#[test]
+fn an_unwritable_stderr_does_not_change_a_dirty_map() {
+    let dir = dirty_repo();
+    assert_json_map(&map_json_with_full_stderr(dir.path()));
+}
+
+#[test]
+fn control_an_unwritable_stderr_does_not_change_a_clean_map() {
+    let dir = committed_repo();
+    assert_json_map(&map_json_with_full_stderr(dir.path()));
+}
+
+// ---------------------------------------------------------------------- Q1
+
+#[test]
+fn only_untracked_files_still_print_the_line() {
+    let dir = committed_repo();
+    for name in ["gamma.py", "delta.py", "epsilon.py"] {
+        write(dir.path(), name, EXTRA);
+    }
+    let out = keel_run(dir.path(), &["map"]);
+    assert_one_note(
+        &out,
+        "keel map: 0 modified and 3 untracked source file(s) were mapped as they are",
+    );
+}
+
+// ---------------------------------------------------------------------- Q2
+
+#[test]
+fn a_failing_modified_listing_is_one_could_not_list_line() {
+    let dir = dirty_repo();
+    let root = dir.path();
+    let fake = FakeGit::new("diff", "--name-only");
+    // Positive control: fails the name-only diff in both forms the helper tries,
+    // and only while on; rev-parse and ls-files stay healthy.
+    fake.set(true);
+    assert_eq!(
+        fake.code(root, &["diff", "--name-only", "-z", "HEAD"]),
+        Some(128)
+    );
+    assert_eq!(
+        fake.code(root, &["diff", "--name-only", "-z", "--cached"]),
+        Some(128)
+    );
+    assert_eq!(fake.code(root, &["rev-parse", "HEAD"]), Some(0));
+    assert_eq!(fake.code(root, &["ls-files", "--others", "-z"]), Some(0));
+    fake.set(false);
+    assert_eq!(
+        fake.code(root, &["diff", "--name-only", "-z", "HEAD"]),
+        Some(0)
+    );
 
     fake.set(true);
     let out = Command::new(keel_bin())
