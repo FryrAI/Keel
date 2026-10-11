@@ -12,15 +12,13 @@ pub fn run(_formatter: &dyn OutputFormatter, _verbose: bool) -> i32 {
         }
     };
 
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
-        eprintln!("keel deinit: no .keel/ directory found — nothing to remove");
-        return 0;
-    }
-
     // A linked worktree owns only its graph directory; `.keel` is the main
     // checkout's and stays. Elsewhere the graph lives in `.keel` itself.
     let target = keel_core::paths::graph_dir(&cwd);
+    if !keel_core::paths::keel_dir(&cwd).exists() && !target.exists() {
+        eprintln!("keel deinit: no .keel/ directory found — nothing to remove");
+        return 0;
+    }
     if !target.exists() {
         eprintln!("keel deinit: no graph directory found — nothing to remove");
         return 0;
