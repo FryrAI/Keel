@@ -71,13 +71,17 @@ pub fn run(
     // One config load serves both the drift check and the engine below.
     let config = keel_core::config::KeelConfig::load(&keel_dir);
 
-    // Acquire the shared graph lock to prevent concurrent map/compile writes.
-    let _lock = match super::writer_lock::acquire("compile", &keel_dir) {
+    // Acquire the graph lock to prevent concurrent map/compile writes.
+    let graph_dir = match super::ensure_graph_dir("compile", &root) {
+        Ok(dir) => dir,
+        Err(code) => return (code, EventMetrics::default()),
+    };
+    let _lock = match super::writer_lock::acquire("compile", &graph_dir) {
         Ok(lock) => lock,
         Err(code) => return (code, EventMetrics::default()),
     };
 
-    let db_path = keel_dir.join("graph.db");
+    let db_path = graph_dir.join("graph.db");
     let mut store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or(""))
     {
         Ok(s) => s,
@@ -480,7 +484,7 @@ pub fn run(
     // --delta compile saved (a map deletes it), so telemetry has data once one exists.
     {
         use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};
-        if let Some(prev) = ViolationSnapshot::load(&keel_dir) {
+        if let Some(prev) = ViolationSnapshot::load(&graph_dir) {
             let delta = compute_delta(&prev, &result);
             metrics.violations_resolved =
                 (delta.resolved_errors.len() + delta.resolved_warnings.len()) as u32;
@@ -497,11 +501,11 @@ pub fn run(
     if delta {
         use keel_enforce::snapshot::{compute_delta, ViolationSnapshot};
 
-        let previous = ViolationSnapshot::load(&keel_dir);
+        let previous = ViolationSnapshot::load(&graph_dir);
 
         // Always save current snapshot
         let current_snapshot = ViolationSnapshot::from_compile_result(&result);
-        if let Err(e) = current_snapshot.save(&keel_dir) {
+        if let Err(e) = current_snapshot.save(&graph_dir) {
             if verbose {
                 eprintln!("keel compile: failed to save snapshot: {}", e);
             }

@@ -6,9 +6,10 @@ use std::time::Duration;
 use keel_core::graph_lock::{self, GraphLock, GraphLockError};
 
 /// Hold the graph lock for a CLI writer, preserving compile's skip-success policy.
-pub(super) fn acquire(cmd: &str, keel_dir: &Path) -> Result<GraphLock, i32> {
+/// `graph_dir` must exist (see [`super::ensure_graph_dir`]).
+pub(super) fn acquire(cmd: &str, graph_dir: &Path) -> Result<GraphLock, i32> {
     let timeout = Duration::from_secs(if cmd == "map" { 10 } else { 2 });
-    graph_lock::acquire(keel_dir, timeout).map_err(|error| {
+    graph_lock::acquire(graph_dir, timeout).map_err(|error| {
         match error {
             GraphLockError::Busy if cmd == "compile" => {
                 eprintln!("keel compile: another keel process holds the graph lock, skipping");
@@ -16,7 +17,7 @@ pub(super) fn acquire(cmd: &str, keel_dir: &Path) -> Result<GraphLock, i32> {
             }
             GraphLockError::Busy if cmd == "map" => eprintln!(
                 "keel map: failed to acquire graph lock within 10s: {}",
-                keel_dir.join("compile.lock").display()
+                graph_dir.join("compile.lock").display()
             ),
             GraphLockError::Busy => {
                 eprintln!("keel {cmd}: another keel process holds the graph lock, refusing")
@@ -38,5 +39,5 @@ pub(super) fn for_command(cmd: &str) -> Result<GraphLock, i32> {
         eprintln!("keel {cmd}: not initialized. Run `keel init` first.");
         return Err(2);
     }
-    acquire(cmd, &keel_dir)
+    acquire(cmd, &super::ensure_graph_dir(cmd, &cwd)?)
 }

@@ -294,11 +294,21 @@ pub(crate) fn lock_engine(
 pub fn create_shared_engine(
     db_path: Option<&str>,
 ) -> Result<SharedEngine, keel_core::types::GraphError> {
+    create_shared_engine_with_config(db_path, None)
+}
+
+/// [`create_shared_engine`] loading `keel.json` from `config_dir` (the project's
+/// `.keel`). Without one it reads the database's own directory, which holds the
+/// config only when the graph lives in `.keel` itself.
+pub fn create_shared_engine_with_config(
+    db_path: Option<&str>,
+    config_dir: Option<&std::path::Path>,
+) -> Result<SharedEngine, keel_core::types::GraphError> {
     // A supplied path is not proof of a disk backend: opening may fall back
     // to memory. Record only the backend we actually built.
     let candidate_dir = db_path.and_then(crate::writer::disk_lock_dir);
-    let config = candidate_dir
-        .as_deref()
+    let config = config_dir
+        .or(candidate_dir.as_deref())
         .map(keel_core::config::KeelConfig::load)
         .unwrap_or_default();
     let (engine_store, disk_dir): (Box<dyn keel_core::store::GraphStore + Send>, _) = match db_path

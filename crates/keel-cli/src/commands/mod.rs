@@ -51,12 +51,14 @@ pub mod watch;
 pub mod where_cmd;
 pub(crate) mod writer_lock;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use keel_core::sqlite::SqliteGraphStore;
 
 /// The resolved repo context for a graph-backed command: the working directory,
-/// the worktree-aware `.keel` directory, and an open handle to its `graph.db`.
+/// the worktree-aware `.keel` directory (config), the graph directory (the
+/// database, lock and delta baseline; a linked worktree's own), and an open
+/// handle to its `graph.db`.
 ///
 /// Produced by [`open_repo`] so commands that need the `.keel` dir (for config,
 /// the db path, or a second store handle) don't re-derive the open-store
@@ -64,13 +66,14 @@ use keel_core::sqlite::SqliteGraphStore;
 pub(crate) struct RepoContext {
     pub cwd: PathBuf,
     pub keel_dir: PathBuf,
+    pub graph_dir: PathBuf,
     pub store: SqliteGraphStore,
 }
 
 impl RepoContext {
-    /// Path to the graph database inside the resolved `.keel` dir.
+    /// Path to the graph database inside the graph directory.
     pub fn db_path(&self) -> PathBuf {
-        self.keel_dir.join("graph.db")
+        self.graph_dir.join("graph.db")
     }
 
     /// Open a SECOND, independent handle to the same `graph.db` — e.g. for an
@@ -86,8 +89,28 @@ impl RepoContext {
     }
 }
 
-/// Resolve the current directory, the worktree-aware `.keel` dir, and an open
-/// `graph.db` handle for `cmd`.
+/// Resolve the graph directory of the checkout containing `start` and create it
+/// if it is missing (and the project is initialised), so whoever opens or locks
+/// the graph first can. A directory
+/// that cannot be created prints ONE line naming it and returns `Err(2)`.
+pub(crate) fn ensure_graph_dir(cmd: &str, start: &Path) -> Result<PathBuf, i32> {
+    let dir = keel_core::paths::graph_dir(start);
+    // An uninitialised project stays uninitialised: nothing here creates `.keel`.
+    if !keel_core::paths::keel_dir(start).is_dir() {
+        return Ok(dir);
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        eprintln!(
+            "keel {cmd}: cannot create graph directory {}: {e}",
+            dir.display()
+        );
+        2
+    })?;
+    Ok(dir)
+}
+
+/// Resolve the current directory, the worktree-aware `.keel` dir, the graph
+/// dir, and an open `graph.db` handle for `cmd`.
 ///
 /// Centralizes the "resolve cwd -> locate the worktree-aware `.keel` dir -> open
 /// `graph.db`" preamble that every graph-backed command shares. On any failure it
@@ -108,11 +131,13 @@ pub(crate) fn open_repo(cmd: &str) -> Result<RepoContext, i32> {
         return Err(2);
     }
 
-    let db_path = keel_dir.join("graph.db");
+    let graph_dir = ensure_graph_dir(cmd, &cwd)?;
+    let db_path = graph_dir.join("graph.db");
     match SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(store) => Ok(RepoContext {
             cwd,
             keel_dir,
+            graph_dir,
             store,
         }),
         Err(e) => {

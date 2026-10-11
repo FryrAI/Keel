@@ -36,7 +36,7 @@ pub fn run(formatter: &dyn keel_output::OutputFormatter, verbose: bool, yes: boo
         }
     };
     let keel_dir = keel_core::paths::keel_dir(&cwd);
-    let graph_path = keel_dir.join("graph.db");
+    let graph_path = keel_core::paths::graph_dir(&cwd).join("graph.db");
 
     if !graph_path.exists() {
         eprintln!("error: no graph.db found. Run `keel map` first.");

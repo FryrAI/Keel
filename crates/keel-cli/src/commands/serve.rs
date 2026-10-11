@@ -77,7 +77,11 @@ pub fn run(
         eprintln!("keel serve: not initialized. Run `keel init` first.");
         return 2;
     }
-    let db_path = keel_dir.join("graph.db");
+    let graph_dir = match super::ensure_graph_dir("serve", &root_dir) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
+    let db_path = graph_dir.join("graph.db");
 
     // Fast path: MCP alone is a synchronous stdio loop — no tokio needed.
     if plan.is_stdio_only() {

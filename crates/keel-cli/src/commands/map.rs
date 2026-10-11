@@ -103,7 +103,9 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
-    if let Err(e) = std::fs::remove_file(keel_dir.join("last_compile.json")) {
+    if let Err(e) =
+        std::fs::remove_file(keel_core::paths::graph_dir(&cwd).join("last_compile.json"))
+    {
         if e.kind() != std::io::ErrorKind::NotFound {
             eprintln!("keel map: failed to reset delta baseline: {e}");
             return (2, EventMetrics::default());

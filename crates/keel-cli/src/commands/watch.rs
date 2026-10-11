@@ -21,8 +21,12 @@ pub fn run(verbose: bool) -> i32 {
         return 2;
     }
 
+    let graph_dir = match super::ensure_graph_dir("watch", &root) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
     let engine = match keel_server::KeelServer::open(
-        keel_dir
+        graph_dir
             .join("graph.db")
             .to_str()
             .unwrap_or(".keel/graph.db"),

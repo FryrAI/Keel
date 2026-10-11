@@ -173,11 +173,15 @@ pub fn run(
     };
 
     let config_path = keel_dir.join("keel.json");
-    let db_path = keel_dir.join("graph.db");
+    let graph_dir = match super::ensure_graph_dir("init", &cwd) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
+    let db_path = graph_dir.join("graph.db");
     // Prompts above and hook/config generation below must never hold the graph
     // lock. Only config read/write, schema opening, and breaker reset need it.
     {
-        let _lock = match super::writer_lock::acquire("init", &keel_dir) {
+        let _lock = match super::writer_lock::acquire("init", &graph_dir) {
             Ok(lock) => lock,
             Err(code) => return code,
         };
@@ -327,10 +331,13 @@ pub fn run(
         file_count
     );
 
-    // When run from a linked git worktree, `.keel` is shared with the main
-    // checkout rather than living under the worktree — make that explicit.
+    // When run from a linked git worktree, `.keel` (config) is shared with the
+    // main checkout while the graph is the worktree's own — make that explicit.
     if keel_dir.parent() != Some(cwd.as_path()) {
-        eprintln!("  shared graph location: {}", keel_dir.display());
+        eprintln!("  shared config location: {}", keel_dir.display());
+    }
+    if graph_dir != keel_dir {
+        eprintln!("  graph location: {}", graph_dir.display());
     }
 
     if monorepo_config.enabled {
