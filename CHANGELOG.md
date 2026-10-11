@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `keel map --cached` refuses an unfinished map without parsing or locking, and warns with both commits when the stored graph differs from HEAD.
 - Generated hook commands work from any directory inside the project.
-- The git pre-commit hook still blocks on every non-zero keel exit, but says `keel could not check this commit` for anything other than exit 1 (violations).
 - `keel init --update-docs` migrates existing generated JSON hook commands and installs a missing session-start script.
 
 ### Fixed

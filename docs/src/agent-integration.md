@@ -259,11 +259,13 @@ Runs after every file edit. The `.keel/hooks/post-edit.sh` hook:
 3. If exit 0 (clean compile): outputs nothing
 4. If exit 1 (violations): outputs the violations in LLM format and exits 2, the
    blocking code — the agent fixes them before proceeding
-5. If keel refuses because the graph was never mapped (`keel compile: no usable
-   graph — …`): prints the refusal and exits 2, the blocking code — the agent runs
-   `keel map`
-6. If keel could not check the file for any other reason (internal error, timeout):
-   prints the reason and exits 1, which surfaces to the user without blocking the agent
+5. If any line of keel's output starts with `keel compile: no usable graph — `
+   (the graph was never mapped, or it could not be brought to `HEAD`): prints the
+   refusal and exits 2, the blocking code — the agent runs the command the line
+   names (`keel map` or `keel compile`)
+6. If keel could not check the file for any other reason (another internal error,
+   a timeout): prints the reason and exits 1, which surfaces to the user without
+   blocking the agent
 
 A file outside the repository is skipped without running keel. Every non-zero exit
 carries a reason on stderr.
