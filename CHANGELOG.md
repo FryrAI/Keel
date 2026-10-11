@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-11
+
+**Read first.** Linked git worktrees on diverged branches still share one graph in this
+release; each worktree gets its own graph in 0.7.2. And the post-edit hook now BLOCKS where it
+used to pass silently: on a never-mapped repository (run `keel map`), and when more than 15
+source files differ between the graph's commit and `HEAD` (run `keel compile`).
+
+Hooks check edits again in the states where they silently did not (#107): `keel compile`
+brings a stale graph to `HEAD` instead of refusing, a never-mapped graph is refused in every
+mode, generated hook commands run from any directory, and `KEEL_NO_TELEMETRY=1` no longer
+makes every command exit 2.
+
+**Upgrading.** Run `keel init --update-docs` in each project: hook commands and scripts
+generated before 0.7.1 stay relative to the working directory and keep treating a refusal as
+non-blocking until then. A project mapped before its first commit, or by a keel older than
+0.5.0, is refused once until `keel map` runs. Upgrade every keel that writes the same graph
+together.
+
 ### Added
 - `keel hook <name>` runs agent hooks from any directory, using the nearest `.keel/hooks` script up to the project root, with a main-checkout fallback for linked worktrees.
 
