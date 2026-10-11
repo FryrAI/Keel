@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- An edit made while another keel process held the graph lock passed the post-edit hook as checked; the hook now exits 2 and names the unchecked file. Existing projects get the script with `keel init --update-docs`.
+
 ## [0.7.2] - 2026-10-11
 
 **Read first.** Each linked git worktree now has its own graph. After upgrading, every existing

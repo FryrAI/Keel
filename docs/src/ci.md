@@ -146,6 +146,7 @@ keeps the same output.
 The generated post-edit hook exits **2** when any line of compile output starts
 with `keel compile: no usable graph — `, so the refusal reaches the agent even if
 a version-drift warning precedes it. A prefix mentioned mid-line does not block.
+When any line starts with `keel compile: another keel process holds the graph lock, skipping` (keel exits 0 without checking), the hook prints it with the unchecked file and exits 2 so the agent re-runs `keel compile <file>` once the lock is free.
 Violations also block; other keel exit-2 errors and timeouts remain non-blocking
 (hook exit 1), with their diagnostic on stderr.
 

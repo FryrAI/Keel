@@ -321,6 +321,19 @@ fn hook_blocks_a_refusal_after_a_version_warning() {
 /// lock; it exits 0, so the file it names was not checked.
 const LOCK_SKIP: &str = "keel compile: another keel process holds the graph lock, skipping";
 
+#[test]
+fn hook_lock_skip_literal_matches_the_rust_constant() {
+    let template = include_str!("../../../templates/hooks/post-edit.sh");
+    let literal = template
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("LOCK_SKIP='")
+                .and_then(|s| s.strip_suffix('\''))
+        })
+        .expect("hook lock-skip literal");
+    assert_eq!(literal, crate::commands::writer_lock::LOCK_SKIP);
+}
+
 /// A version-drift warning keel prints before its real output.
 const VERSION_WARNING: &str =
     "keel: .keel/keel.json records 0.7.2, binary is 0.7.3 — run keel init --update-docs";

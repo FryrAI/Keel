@@ -11,7 +11,9 @@ set -euo pipefail
 #
 # Exit codes (as the Tier 1 tools read them):
 #   0 = nothing to report.
-#   2 = blocking: violations or no usable graph; stderr reaches the LLM.
+#   2 = blocking: violations, no usable graph, or an edit keel skipped because
+#       the graph lock was busy; stderr reaches the LLM. The agent re-runs the
+#       compile: this is 2 rather than 1 because nobody else re-checks the file.
 #   1 = non-blocking error: keel could not check the file (internal error,
 #       timeout, a path this script will not pass along). Surfaced to the
 #       user, not as "fix before proceeding" — no edit to this file can
@@ -19,6 +21,7 @@ set -euo pipefail
 # A non-zero exit ALWAYS carries a reason on stderr; a silent block is a bug.
 CLIENT="${1:-}"
 NO_USABLE_GRAPH='keel compile: no usable graph — '
+LOCK_SKIP='keel compile: another keel process holds the graph lock, skipping'
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 [ -z "$FILE_PATH" ] && exit 0
@@ -58,7 +61,14 @@ fi
 # status could be read, throwing the diagnostic away — that is what made every
 # failure a content-free block. In an `&&`/`||` list `set -e` stands down.
 RESULT=$(timeout 5 keel "${ARGS[@]}" -- "$FILE_PATH" 2>&1) && EXIT_CODE=0 || EXIT_CODE=$?
-[ "$EXIT_CODE" -eq 0 ] && exit 0
+if [ "$EXIT_CODE" -eq 0 ]; then
+  if ! grep -q "^$LOCK_SKIP" <<< "$RESULT"; then
+    exit 0
+  fi
+  echo "$RESULT" >&2
+  echo "keel: $FILE_PATH was NOT checked — another keel process holds the graph lock (usually a running keel map). Nothing in the file needs fixing because of this message; run keel compile $FILE_PATH once the lock is free." >&2
+  exit 2
+fi
 
 if [ -z "$RESULT" ]; then
   if [ "$EXIT_CODE" -eq 124 ]; then
