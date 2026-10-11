@@ -256,14 +256,17 @@ Runs after every file edit. The `.keel/hooks/post-edit.sh` hook:
 
 1. Receives the editor's JSON payload on stdin and extracts `tool_input.file_path`
 2. Runs `keel compile --delta --llm` on that file with the explicit client argument and a five-second timeout
-3. If exit 0 (clean compile): outputs nothing
-4. If exit 1 (violations): outputs the violations in LLM format and exits 2, the
+3. If exit 0 and nothing skipped: outputs nothing
+4. If any line of keel's output starts with `keel compile: another keel process holds the graph lock, skipping`
+   (keel exits 0 without checking): prints it with the unchecked file and exits 2
+   so the agent re-runs `keel compile <file>` once the lock is free
+5. If exit 1 (violations): outputs the violations in LLM format and exits 2, the
    blocking code — the agent fixes them before proceeding
-5. If any line of keel's output starts with `keel compile: no usable graph — `
+6. If any line of keel's output starts with `keel compile: no usable graph — `
    (the graph was never mapped, or it could not be brought to `HEAD`): prints the
    refusal and exits 2, the blocking code — the agent runs the command the line
    names (`keel map` or `keel compile`)
-6. If keel could not check the file for any other reason (another internal error,
+7. If keel could not check the file for any other reason (another internal error,
    a timeout): prints the reason and exits 1, which surfaces to the user without
    blocking the agent
 

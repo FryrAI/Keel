@@ -12,6 +12,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use keel_core::graph_lock;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
@@ -241,6 +242,73 @@ fn hook_post_edit_reports_violation_from_nested_cwd_and_is_silent_when_clean() {
         out.status.code(),
         Some(2),
         "violations must block with exit 2"
+    );
+}
+
+/// A compile that skipped because another process holds the graph lock checked
+/// nothing. The real script, driven by the real binary, must say so with exit 2
+/// (not pass the edit as checked), and the command it names must check the edit
+/// once the lock is free.
+#[test]
+fn hook_post_edit_says_an_edit_was_not_checked_while_the_graph_lock_is_held() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let (_dir, root, nested) = repo();
+    fs::create_dir_all(root.join(".claude")).unwrap();
+    fs::write(
+        nested.join("alpha.py"),
+        "def alpha(x: int) -> int:\n    \"\"\"Return x.\"\"\"\n    return x\n",
+    )
+    .unwrap();
+    assert!(run(&root, &["init", "--yes"], b"").status.success());
+    // `--update-docs` re-installs an existing post-edit.sh: an empty one yields the real script.
+    write_script(&root.join(".keel/hooks/post-edit.sh"), "");
+    assert!(run(&root, &["init", "--update-docs"], b"").status.success());
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "base"]);
+    assert!(run(&root, &["map"], b"").status.success());
+
+    let bad = nested.join("widget.py");
+    fs::write(&bad, "def widget(x): return x\n").unwrap();
+    let payload = json!({"tool_input": {"file_path": &bad}}).to_string();
+    let hook = || {
+        run(
+            &nested,
+            &["hook", "post-edit", "claude-code"],
+            payload.as_bytes(),
+        )
+    };
+
+    let held = graph_lock::try_acquire(&root.join(".keel")).unwrap();
+    let skipped = hook();
+    let stderr = stderr_of(&skipped);
+    assert_eq!(
+        skipped.status.code(),
+        Some(2),
+        "a skipped compile must not pass as checked; got stderr={stderr:?}"
+    );
+    assert!(
+        stderr.contains("NOT checked"),
+        "the message must say the file was not checked; got stderr={stderr:?}"
+    );
+    assert!(
+        stderr.contains(&bad.display().to_string()),
+        "the unchecked file must be named; got stderr={stderr:?}"
+    );
+    assert!(
+        !stderr.contains("E002"),
+        "nothing was checked, so no violation may be reported; got stderr={stderr:?}"
+    );
+
+    drop(held);
+    let checked = hook();
+    assert_eq!(checked.status.code(), Some(2), "violations must block");
+    assert!(
+        stderr_of(&checked).contains("E002"),
+        "with the lock free the same call must check the edit; got stderr={:?}",
+        stderr_of(&checked)
     );
 }
 

@@ -184,7 +184,8 @@ the whole-file exclusive lock is held; read it after release.
 Acquire once at the operation boundary, BEFORE opening a writer store (schema
 initialization/migration writes) or reading a baseline that will inform a write;
 hold through the last write. Map waits 10 s, then exits 2. Compile waits 2 s,
-then skips with exit 0. Fix (including plan-only compilation and verification),
+then skips with exit 0. The generated post-edit hook turns that skip line into
+exit 2 (the edit was not checked). Fix (including plan-only compilation and verification),
 checkpoint (including diff), validate-plan (breaker load/restore), quality
 snapshot/import, init, and deinit wait 2 s, then refuse with exit 2. Init takes
 the lock after interactive prompts and releases it after config/schema/breaker

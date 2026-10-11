@@ -5,6 +5,10 @@ use std::time::Duration;
 
 use keel_core::graph_lock::{self, GraphLock, GraphLockError};
 
+/// The generated post-edit hook matches this line to report an unchecked edit.
+pub(super) const LOCK_SKIP: &str =
+    "keel compile: another keel process holds the graph lock, skipping";
+
 /// Hold the graph lock for a CLI writer, preserving compile's skip-success policy.
 /// `graph_dir` must exist (see [`super::ensure_graph_dir`]).
 pub(super) fn acquire(cmd: &str, graph_dir: &Path) -> Result<GraphLock, i32> {
@@ -12,7 +16,7 @@ pub(super) fn acquire(cmd: &str, graph_dir: &Path) -> Result<GraphLock, i32> {
     graph_lock::acquire(graph_dir, timeout).map_err(|error| {
         match error {
             GraphLockError::Busy if cmd == "compile" => {
-                eprintln!("keel compile: another keel process holds the graph lock, skipping");
+                eprintln!("{LOCK_SKIP}");
                 return 0;
             }
             GraphLockError::Busy if cmd == "map" => eprintln!(
