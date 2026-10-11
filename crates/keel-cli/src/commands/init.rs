@@ -219,7 +219,7 @@ pub fn run(
             if existing_json.ends_with('\n') {
                 json.push('\n');
             }
-            match fs::write(&config_path, json) {
+            match keel_core::config::write_atomic(&config_path, json) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("keel init: failed to write merged config: {}", e);
@@ -238,7 +238,10 @@ pub fn run(
                 telemetry_id: Some(generate_telemetry_id(&cwd)),
                 ..KeelConfig::default()
             };
-            match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
+            match keel_core::config::write_atomic(
+                &config_path,
+                serde_json::to_string_pretty(&config).unwrap(),
+            ) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("keel init: failed to write config: {}", e);

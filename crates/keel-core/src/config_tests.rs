@@ -335,3 +335,37 @@ fn test_removed_naming_conventions_key_is_tolerated() {
     assert_eq!(cfg.version, "0.1.0");
     assert_eq!(cfg.languages, vec!["rust"]);
 }
+
+/// A handle opened before the write still reads the OLD content afterwards: the
+/// file was replaced by a rename, not rewritten in place.
+#[cfg(unix)]
+#[test]
+fn write_atomic_keeps_old_content_readable_until_the_rename() {
+    use std::io::Read;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old content").unwrap();
+    let mut before = fs::File::open(&path).unwrap();
+    write_atomic(&path, "new").unwrap();
+    let mut seen = String::new();
+    before.read_to_string(&mut seen).unwrap();
+    assert_eq!(seen, "old content");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+}
+
+#[test]
+fn write_atomic_leaves_no_temporary_file_on_success_or_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    write_atomic(&path, "one").unwrap();
+    let blocked = dir.path().join("blocked");
+    fs::create_dir(&blocked).unwrap();
+    assert!(write_atomic(&blocked, "two").is_err());
+    assert!(write_atomic(&dir.path().join("missing/keel.json"), "three").is_err());
+    let mut names: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["blocked", "keel.json"]);
+}

@@ -181,7 +181,7 @@ fn set_config(config_path: &Path, key: &str, value: &str) -> i32 {
     if content.ends_with('\n') {
         json.push('\n');
     }
-    match fs::write(config_path, json) {
+    match keel_core::config::write_atomic(config_path, json) {
         Ok(_) => {
             eprintln!("keel config: {} = {}", key, value);
             0

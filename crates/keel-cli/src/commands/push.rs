@@ -225,7 +225,8 @@ fn save_project_id(keel_dir: &Path, project_id: &str) -> Result<(), String> {
     if content.ends_with('\n') {
         serialized.push('\n');
     }
-    std::fs::write(config_path, serialized).map_err(|e| format!("failed to write config: {e}"))
+    keel_core::config::write_atomic(&config_path, serialized)
+        .map_err(|e| format!("failed to write config: {e}"))
 }
 
 #[cfg(test)]

@@ -271,6 +271,22 @@ impl Default for KeelConfig {
     }
 }
 
+/// Publish `contents` as the file `path` atomically: write a temporary file in
+/// the same directory (named with the process id), then rename it over `path`,
+/// so a reader sees the old content or the new, never a truncated file. On any
+/// error the temporary file is removed and the error returned unchanged.
+pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let mut name = std::ffi::OsString::from(".");
+    name.push(path.file_name().unwrap_or_default());
+    name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = path.with_file_name(name);
+    let result = std::fs::write(&tmp, contents).and_then(|()| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 impl KeelConfig {
     /// Load configuration from `.keel/keel.json` inside the given keel directory.
     /// Returns defaults if the file doesn't exist or can't be parsed.
@@ -317,7 +333,7 @@ impl KeelConfig {
         if content.ends_with('\n') {
             json.push('\n');
         }
-        std::fs::write(&config_path, json).map_err(|e| e.to_string())
+        write_atomic(&config_path, json).map_err(|e| e.to_string())
     }
 }
 
