@@ -241,7 +241,8 @@ jobs:
   # The documented performance contract (<200ms single-file compile, etc.) is
   # asserted by tests/benchmarks under #[cfg(not(debug_assertions))] — they
   # compile to no-ops in the debug-mode `test` job, so this is the only job
-  # where those asserts actually execute (issue #65).
+  # where those asserts actually execute (issue #65). They run one at a time:
+  # a timing assert must not share the runner's cores with its neighbours.
   perf-contract:
     name: Perf contract (release asserts)
     runs-on: ubuntu-latest
@@ -264,7 +265,7 @@ jobs:
             ${{ runner.os }}-cargo-relperf-
 
       - name: Run release-mode benchmark asserts
-        run: cargo test --release --test benchmarks
+        run: cargo test --release --test benchmarks -- --test-threads=1
 
   coverage:
     name: Coverage
