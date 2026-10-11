@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Each linked git worktree now keeps its own graph (`graph.db`, `compile.lock` and the delta baseline) in its git directory instead of sharing the main checkout's, so worktrees on different branches no longer drag one graph back and forth; `keel.json` is still read from the main checkout, `keel deinit` in a worktree removes only that worktree's graph. Upgrading: each existing linked worktree needs one `keel map`.
+
 ### Fixed
 - A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
 - `keel compile --changed` and a bare `keel compile` exit 2 with `keel compile: git diff failed: …` when git fails inside a repository, instead of reading the failure as "nothing changed" (exit 0, nothing checked).
