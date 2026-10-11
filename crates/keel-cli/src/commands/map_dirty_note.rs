@@ -1,5 +1,6 @@
 //! One stderr line when a full `keel map` baselined uncommitted source files.
 
+use std::io::Write;
 use std::path::Path;
 
 use keel_enforce::gitdiff::{
@@ -16,9 +17,17 @@ pub(super) fn note_uncommitted(root: &Path) {
         .and_then(|m| untracked_files_checked(root).map(|u| (m.len(), u.len())));
     match counts {
         Ok((0, 0)) => {}
-        Ok((m, u)) => eprintln!(
-            "keel map: {m} modified and {u} untracked source file(s) were mapped as they are — uncommitted changes are now baseline and were not checked against their callers"
-        ),
-        Err(e) => eprintln!("keel map: could not list uncommitted files: {e}"),
+        Ok((m, u)) => {
+            let _ = writeln!(
+                std::io::stderr(),
+                "keel map: {m} modified and {u} untracked source file(s) were mapped as they are — uncommitted changes are now baseline and were not checked against their callers"
+            );
+        }
+        Err(e) => {
+            let _ = writeln!(
+                std::io::stderr(),
+                "keel map: could not list uncommitted files: {e}"
+            );
+        }
     }
 }
