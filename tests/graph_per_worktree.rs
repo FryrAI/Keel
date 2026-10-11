@@ -241,11 +241,10 @@ fn t4_first_discover_in_new_worktree_matches_never_mapped_main() {
 
 // ------------------------------------------------------------------- T5
 
-#[cfg(unix)] // unix: a FIFO, `mkfifo`, a shell git wrapper and mode bits
+#[cfg(unix)] // unix: a FIFO, `mkfifo` and a shell git wrapper
 mod concurrent {
     use super::*;
     use std::io::Write;
-    use std::os::unix::fs::PermissionsExt;
     use std::process::{Child, Command, Stdio};
     use std::time::{Duration, Instant};
 
@@ -273,18 +272,16 @@ mod concurrent {
                 .find(|c| c.is_file())
                 .expect("git on PATH");
             let wrapper = bin.path().join("git");
-            fs::write(
+            common::write_executable(
                 &wrapper,
-                format!(
+                &format!(
                     "#!/bin/sh\nif [ ! -e '{d}' ]; then\n  : > '{d}'\n  : > '{r}'\n  read _hold < '{f}'\nfi\nexec '{g}' \"$@\"\n",
                     d = done.display(),
                     r = reached.display(),
                     f = fifo.display(),
                     g = real.display()
                 ),
-            )
-            .unwrap();
-            fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+            );
             assert!(
                 Command::new("mkfifo")
                     .arg(&fifo)

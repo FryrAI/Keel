@@ -241,3 +241,19 @@ pub fn in_memory_store() -> keel_core::sqlite::SqliteGraphStore {
     keel_core::sqlite::SqliteGraphStore::in_memory()
         .expect("Failed to create in-memory SqliteGraphStore")
 }
+
+/// Write an executable script at `path` through a child shell, so this process
+/// never holds a write handle to it. A handle opened here can be inherited by a
+/// child that another test thread is forking at that moment, and executing the
+/// script while that copy is open fails with ETXTBSY ("Text file busy").
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn write_executable(path: &Path, body: &str) {
+    let status = Command::new("sh")
+        .args(["-c", r#"printf '%s' "$1" > "$2" && chmod 755 "$2""#, "sh"])
+        .arg(body)
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(status.success(), "writing {}", path.display());
+}
