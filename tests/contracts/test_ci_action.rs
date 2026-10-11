@@ -408,12 +408,7 @@ impl StickyHarness {
         let bin = dir.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let gh = bin.join("gh");
-        std::fs::write(&gh, GH_STUB).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        crate::common::write_executable(&gh, GH_STUB);
         Self { dir }
     }
 

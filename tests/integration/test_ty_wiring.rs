@@ -8,7 +8,6 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -30,18 +29,14 @@ fn keel_bin() -> std::path::PathBuf {
 fn make_ty_stub() -> TempDir {
     let bin = TempDir::new().unwrap();
     let stub = bin.path().join("ty");
-    fs::write(
+    crate::common::write_executable(
         &stub,
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then echo 'ty 0.0.0-stub'; exit 0; fi\n\
          if [ -n \"$KEEL_TY_MARKER\" ]; then echo \"$@\" >> \"$KEEL_TY_MARKER\"; fi\n\
          echo '[]'\n\
          exit 0\n",
-    )
-    .unwrap();
-    let mut perms = fs::metadata(&stub).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&stub, perms).unwrap();
+    );
     bin
 }
 

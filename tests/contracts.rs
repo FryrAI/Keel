@@ -1,4 +1,5 @@
 // Integration test entry point for contract tests.
+mod common;
 #[path = "contracts/test_ci_action.rs"]
 mod test_ci_action;
 #[path = "contracts/test_graph_store_contract.rs"]
