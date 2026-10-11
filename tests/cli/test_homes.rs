@@ -389,6 +389,8 @@ fn homes_linked_worktree_uses_its_own_paths_and_head() {
             "HEAD",
         ],
     );
+    // A linked worktree has no graph until it is mapped (one graph per worktree).
+    assert!(keel(&worktree, &["map"]).status.success());
     write(&worktree, "src/lib.rs", ADDED);
     let out = keel(&worktree.join("src"), &["compile", "./lib.rs", "--json"]);
     let hits = violations_with_code(&parse(&out), "W011");

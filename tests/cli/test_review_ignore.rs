@@ -68,7 +68,7 @@ fn assert_moved_in_is_new_code(root: &Path, dest: &str) {
 }
 
 /// The gate config is already in place (a linked worktree reads the main
-/// checkout's `.keel`).
+/// checkout's `.keel` config, though it keeps a graph of its own).
 fn assert_gates_as_new_code(root: &Path, dest: &str) {
     let (code, json) = review_json(root, &["--gate"]);
     assert_eq!(code, Some(1), "new violations at {dest} must gate: {json}");
