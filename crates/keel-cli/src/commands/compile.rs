@@ -101,6 +101,19 @@ pub fn run(
     // git-deleted paths under --changed/--since must still skip silently.
     let explicit_targets = !changed && since.is_none() && !files.is_empty();
 
+    // A bare `keel compile` — no explicit files, no --changed, no --since —
+    // used to fall through to an unscoped walk of the ENTIRE repo: every file
+    // re-parsed and re-checked against the stored graph with no caching
+    // (~15s on a mid-size repo vs <100ms for one scoped file; a hook that
+    // drops its file argument silently pays this on every edit). The CLI help
+    // text already promised "empty = all changed"; in a git repository, bare
+    // compile now actually defaults to the same working-tree-vs-HEAD diff as
+    // `--changed`, closing that gap. Repos with no `.git` (integration-test
+    // fixtures, non-git checkouts) keep the old full-repo-scan default, since
+    // there is no git history to scope against.
+    let bare_compile = files.is_empty() && !changed && since.is_none();
+    let default_to_changed = bare_compile && root.join(".git").exists();
+
     // A graph built on a commit this checkout does not contain would make every
     // caller and removal phantom. `--since` checks a committed range against
     // the stored base graph, so it refuses (exit 2, never 0 — a stale graph
@@ -110,7 +123,29 @@ pub fn run(
             .or_else(|| super::graph_resync::unfinished_message(&store))
             .map_or(Ok(()), Err)
     } else {
-        super::graph_resync::bring_to_head(&root, &mut store, explicit_targets, &config, verbose)
+        // The repo-relative paths this run checks: a dependent among them is
+        // resolved from HEAD's blob only.
+        let targets: std::collections::BTreeSet<String> = if explicit_targets {
+            files
+                .iter()
+                .map(|f| make_relative(&root, &cwd.join(f)))
+                .collect()
+        } else if changed || default_to_changed {
+            git_changed_files(&None)
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        } else {
+            Default::default()
+        };
+        super::graph_resync::bring_to_head(
+            &root,
+            &mut store,
+            explicit_targets,
+            &targets,
+            &config,
+            verbose,
+        )
     };
     if let Err(line) = guard {
         eprintln!("{line}");
@@ -160,19 +195,6 @@ pub fn run(
     // compile prunes and re-resolves each touched file's outgoing edges, so a
     // literal edge it cannot reproduce would be deleted until the next map.
     let literal_keys = super::map_boundary::persisted_literal_keys(&root, &store);
-
-    // A bare `keel compile` — no explicit files, no --changed, no --since —
-    // used to fall through to an unscoped walk of the ENTIRE repo: every file
-    // re-parsed and re-checked against the stored graph with no caching
-    // (~15s on a mid-size repo vs <100ms for one scoped file; a hook that
-    // drops its file argument silently pays this on every edit). The CLI help
-    // text already promised "empty = all changed"; in a git repository, bare
-    // compile now actually defaults to the same working-tree-vs-HEAD diff as
-    // `--changed`, closing that gap. Repos with no `.git` (integration-test
-    // fixtures, non-git checkouts) keep the old full-repo-scan default, since
-    // there is no git history to scope against.
-    let bare_compile = files.is_empty() && !changed && since.is_none();
-    let default_to_changed = bare_compile && root.join(".git").exists();
 
     // Resolve target files: --changed, --since, default-to-changed, explicit
     // list, or (only for a non-git bare compile) all.

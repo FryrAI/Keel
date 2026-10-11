@@ -49,7 +49,14 @@ fn mapped_repo() -> (tempfile::TempDir, SqliteGraphStore, String) {
 }
 
 fn resync(dir: &Path, store: &mut SqliteGraphStore, explicit_targets: bool) -> Result<(), String> {
-    bring_to_head(dir, store, explicit_targets, &KeelConfig::default(), false)
+    bring_to_head(
+        dir,
+        store,
+        explicit_targets,
+        &BTreeSet::new(),
+        &KeelConfig::default(),
+        false,
+    )
 }
 
 #[test]

@@ -5,7 +5,9 @@
 //! moved off that commit (a branch checkout, a squash merge, a pull), the
 //! graph is re-synced from HEAD's committed blobs — never the working tree, or
 //! the edit about to be checked would be folded into its own baseline — and
-//! the marker moves to HEAD only once every write has landed.
+//! the marker moves to HEAD only once every write has landed. A dependent's
+//! references are read from HEAD's blob, plus its working-tree text unless the
+//! file is a target of this compile.
 //!
 //! Where the move cannot be bridged (the stored commit is gone, too many
 //! files differ, a write failed) the compile refuses with exit 2 and one line
@@ -112,6 +114,7 @@ pub(crate) fn bring_to_head(
     root: &Path,
     store: &mut SqliteGraphStore,
     explicit_targets: bool,
+    targets: &BTreeSet<String>,
     config: &KeelConfig,
     verbose: bool,
 ) -> Result<(), String> {
@@ -234,11 +237,22 @@ pub(crate) fn bring_to_head(
         }
     }
     let mut dependent_files = Vec::new();
-    // A dependent's references come from its working-tree text, which already
-    // holds the edits compiled since HEAD; an absent or non-UTF-8 file is skipped.
+    // A dependent's references come from HEAD's blob (a call the working tree
+    // renamed away without a compile) and, unless it is a target of this
+    // compile, its working-tree text, which already holds the edits compiled
+    // since HEAD. A target's working-tree text is what the compile is about to
+    // check; an absent or non-UTF-8 file is skipped.
     for path in &dependents {
-        if let Ok(text) = std::fs::read_to_string(root.join(path)) {
-            dependent_files.extend(parser.parse(&root.join(path), &text));
+        let blob = gitdiff::source_at(root, &head, path).map_err(fail)?;
+        if let Some(text) = &blob {
+            dependent_files.extend(parser.parse(&root.join(path), text));
+        }
+        if !targets.contains(path) {
+            if let Ok(text) = std::fs::read_to_string(root.join(path)) {
+                if blob.as_ref() != Some(&text) {
+                    dependent_files.extend(parser.parse(&root.join(path), &text));
+                }
+            }
         }
     }
     if !dependent_files.is_empty() {

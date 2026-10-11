@@ -73,8 +73,9 @@ working after a branch switch, a squash merge or a pull.
 
 Definitions bind one-to-one by matching hashes, then by a unique remaining
 name and module/non-module kind; ambiguous old nodes are replaced. Unchanged
-callers of removed nodes re-resolve references from their working-tree text without changing
-stored nodes. When a re-sync adds a definition, every modified or untracked file the graph
+callers of removed nodes re-resolve references without changing stored nodes: from `HEAD`'s blob and,
+unless the file is a target of this compile, from its working-tree text. A reference-only pass removes
+no edge it does not re-add. When a re-sync adds a definition, every modified or untracked file the graph
 holds is re-resolved the same way.
 Re-synced code is pre-existing, while committed refresh preserves session history.
 

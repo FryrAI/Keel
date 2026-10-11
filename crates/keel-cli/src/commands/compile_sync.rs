@@ -675,6 +675,7 @@ fn sync_one_file(
             edge_changes,
             node_tiers,
             edge_removals,
+            source,
         );
         return;
     }
@@ -910,6 +911,7 @@ fn sync_one_file(
         edge_changes,
         node_tiers,
         edge_removals,
+        source,
     );
 }
 
@@ -925,12 +927,14 @@ fn refresh_reference_edges(
     edge_changes: &mut Vec<EdgeChange>,
     node_tiers: &mut HashMap<u64, String>,
     edge_removals: &mut Vec<u64>,
+    source: SyncSource,
 ) {
     let rel_path = &file.file_path;
     // Re-resolve this file's outgoing reference edges, then decide per stored
     // edge whether the fresh result replaces it (see the module docs): delete
     // a stored edge only when this pass re-added the same
-    // (source, target, kind), or when its target lives inside this file —
+    // (source, target, kind), or when its target lives inside this file (not
+    // for a reference-only pass: the file's own definitions did not change) —
     // never because a cross-file reference failed to re-resolve. The
     // deletions land in the WRITE phase (after node writes succeed), so a
     // failed node write can never leave the file edge-less.
@@ -959,7 +963,7 @@ fn refresh_reference_edges(
             .iter()
             .filter(|(e, target_file)| {
                 added.contains(&(e.source_id, e.target_id, e.kind.clone()))
-                    || target_file == rel_path
+                    || (source != SyncSource::ResolveReferences && target_file == rel_path)
             })
             .map(|(e, _)| e.id),
     );

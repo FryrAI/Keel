@@ -47,6 +47,7 @@ together.
   Dependent files re-resolve from their working-tree text, and a re-sync that adds a definition
   re-resolves every modified or untracked file the graph holds. `keel compile --since` keeps its
   ancestor refusal and also refuses (exit 2) while a re-sync is unfinished.
+- A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
 
 ## [0.7.0] - 2026-10-10
 
