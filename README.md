@@ -331,8 +331,7 @@ scripts/
 Opt-in `homes` rules flag new literal expressions outside a declared home as
 W011, or E007 with `enforce.homes: "error"`. Matching includes code, strings,
 comments and test source. Compile compares with Git HEAD (or `--since`), while
-review compares with `--base`; the baseline is independent of a fresh map or a
-shared worktree graph. For the committed ratchet, configure
+review compares with `--base`; the baseline is independent of any map. For the committed ratchet, configure
 `review.gate: ["W011"]` (or `["E007"]`) and run
 `keel review --base origin/main --gate` in CI after `keel map`. Escalation alone
 does not gate review. See [configuration](docs/src/config.md#expression-homes-w011--e007)

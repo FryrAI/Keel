@@ -163,8 +163,8 @@ every other case, submodules and broken pointers included, gets `keel_dir`. `kee
 (the main checkout's `.keel`). `commands::ensure_graph_dir` creates the directory for
 every opener, readers too, unless `.keel` is absent (no command creates it); a failure is
 one stderr line naming the path, exit 2. A linked worktree without a graph is never
-mapped (`keel map` there). `keel deinit` there removes only its `graph_dir`.
-Every `keel.json` writer goes through `keel_core::config::write_atomic` (temp file + rename).
+mapped (`keel map` there). `keel deinit` there deletes only its `graph_dir`, `.keel` or not.
+Every `keel.json` writer uses `config::write_atomic` (exclusive temp file + rename).
 
 `keel hook` runs the script of the nearest directory from the cwd up to the worktree
 root that holds `.keel/hooks/<name>.sh` (with that directory as its cwd), and falls
@@ -212,7 +212,7 @@ not reliably exclude one another; upgrade every writer.
 A first open migrating an old schema concurrently with map has the same
 pre-existing migration race as any nominal reader.
 Network-filesystem lock semantics are not guaranteed. Deinit deletes the lock
-with `.keel`; an already-open waiter can acquire an orphaned inode after deletion.
+with its graph dir; an already-open waiter can acquire an orphaned inode after deletion.
 
 ### A Working-Tree Compile Brings the Graph to HEAD
 `last_map_commit` names the graph's baseline plus compiled working-tree edits; only map and completed re-syncs
@@ -248,7 +248,7 @@ discover` and W009's stored-boundary baseline.
 ### Expression Homes Use a Git Base, Not the Graph
 W011 (or E007 with `enforce.homes: "error"`) compares source lines to one resolved Git commit:
 `compile` uses HEAD or `--since`; `review` uses `--base`. A fresh map must never grandfather a PR's own
-additions, and a shared worktree graph must never re-baseline another branch, so there is no graph baseline.
+additions, and a graph mapped elsewhere must never re-baseline them: no graph baseline.
 Patterns are case-sensitive substrings or `{"regex": "…"}` line-local regexes; invalid, empty, and
 empty-string-matching regexes skip their rule and are refused by `keel config homes` writes.
 Matches include strings (including Python docstrings). Tree-sitter comments and hash-bang lines are deleted
