@@ -41,6 +41,7 @@ pub fn run(
     };
     let config = keel_core::config::KeelConfig::load(keel_dir);
     let mut engine = EnforcementEngine::with_config(Box::new(engine_store), &config);
+    engine.set_progressive_base(&root, "HEAD");
 
     let mode = if staged {
         CheckpointMode::Staged

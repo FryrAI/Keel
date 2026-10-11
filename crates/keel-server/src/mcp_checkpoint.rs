@@ -27,6 +27,7 @@ pub(crate) fn handle_checkpoint(
 ) -> Result<Value, JsonRpcError> {
     let mut engine = engine.writer().map_err(internal_err)?;
     engine.set_project_root(root);
+    engine.set_progressive_base(root, "HEAD");
     let since = param_str_opt(&params, "since").map(String::from);
     let staged = param_bool(&params, "staged", false);
 

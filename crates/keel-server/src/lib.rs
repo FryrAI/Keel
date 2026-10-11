@@ -58,6 +58,7 @@ impl KeelServer {
         let config = keel_core::config::KeelConfig::load(&keel_core::paths::keel_dir(&root_dir));
         let mut engine = EnforcementEngine::with_config(Box::new(store), &config);
         engine.set_project_root(&root_dir);
+        engine.set_progressive_base(&root_dir, "HEAD");
         Ok(Self {
             engine: SharedEngine::new(engine, keel_dir),
             root_dir,

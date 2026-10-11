@@ -1,3 +1,4 @@
+//! Existing tests pin the no-Git rule; Git tests pin the commit baseline.
 use super::*;
 use keel_core::types::NodeKind;
 use keel_parsers::resolver::Definition;
@@ -94,7 +95,7 @@ fn untouched_function_downgrades_to_warning() {
     let node = matching_node(&def);
     let file = file_with(def.clone());
 
-    let out = apply_progressive_adoption(vec![e003_violation(&def)], &file, &[node]);
+    let out = apply_progressive_adoption(vec![e003_violation(&def)], &file, &[node], None);
     assert_eq!(out[0].severity, "WARNING");
     assert!(out[0].fix_hint.as_deref().unwrap().contains("pre-existing"));
 }
@@ -106,7 +107,7 @@ fn modified_function_stays_error() {
     node.hash = "differentHash".to_string(); // stored state differs → touched
     let file = file_with(def.clone());
 
-    let out = apply_progressive_adoption(vec![e003_violation(&def)], &file, &[node]);
+    let out = apply_progressive_adoption(vec![e003_violation(&def)], &file, &[node], None);
     assert_eq!(out[0].severity, "ERROR");
 }
 
@@ -115,7 +116,7 @@ fn new_function_stays_error() {
     let def = undocumented_def("brand_new", "src/new.rs");
     let file = file_with(def.clone());
 
-    let out = apply_progressive_adoption(vec![e003_violation(&def)], &file, &[]);
+    let out = apply_progressive_adoption(vec![e003_violation(&def)], &file, &[], None);
     assert_eq!(out[0].severity, "ERROR");
 }
 
@@ -128,6 +129,112 @@ fn structural_codes_never_downgrade() {
     let mut v = e003_violation(&def);
     v.code = "E001".to_string();
     v.category = "broken_caller".to_string();
-    let out = apply_progressive_adoption(vec![v], &file, &[node]);
+    let out = apply_progressive_adoption(vec![v], &file, &[node], None);
     assert_eq!(out[0].severity, "ERROR", "E001 must never be grandfathered");
+}
+
+fn git_repo(text: &str) -> tempfile::TempDir {
+    let dir = tempfile::TempDir::new().unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.name", "Test"],
+        vec!["config", "user.email", "test@example.com"],
+    ] {
+        git(dir.path(), &args);
+    }
+    std::fs::write(dir.path().join("legacy.py"), text).unwrap();
+    git(dir.path(), &["add", "legacy.py"]);
+    git(dir.path(), &["commit", "-qm", "base"]);
+    dir
+}
+
+fn git(root: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn parse_working(root: &Path, text: &str) -> FileIndex {
+    std::fs::write(root.join("legacy.py"), text).unwrap();
+    BlobParser::new().parse("legacy.py", text).unwrap()
+}
+
+#[test]
+fn pasted_same_named_twin_is_new() {
+    let definition = "def run(x):\n    return x\n\n";
+    let dir = git_repo(&definition.repeat(2));
+    let file = parse_working(dir.path(), &definition.repeat(3));
+    assert_eq!(file.definitions.len(), 3);
+    let violations = file.definitions.iter().map(e003_violation).collect();
+    let mut base = GitBase::new(dir.path(), "HEAD");
+    let out = apply_progressive_adoption(violations, &file, &[], Some(&mut base));
+    assert_eq!(
+        out.iter().map(|v| v.severity.as_str()).collect::<Vec<_>>(),
+        ["WARNING", "WARNING", "ERROR"]
+    );
+}
+
+#[test]
+fn unreadable_base_never_downgrades() {
+    let text = "def legacy(x):\n    return x\n";
+    let dir = git_repo(text);
+    let file = parse_working(dir.path(), text);
+    let def = &file.definitions[0];
+    let node = matching_node(def);
+    let mut base = GitBase::new(dir.path(), "HEAD");
+    base.commit = Some(Ok("unavailable-base".to_string()));
+    let out =
+        apply_progressive_adoption(vec![e003_violation(def)], &file, &[node], Some(&mut base));
+    assert_eq!(out[0].severity, "ERROR");
+    assert!(out[0]
+        .fix_hint
+        .as_deref()
+        .is_some_and(|hint| !hint.contains("pre-existing")));
+}
+
+#[test]
+fn nothing_to_judge_runs_no_git() {
+    let dir = git_repo("def legacy(x):\n    return x\n");
+    let def = undocumented_def("legacy", "legacy.py");
+    let file = file_with(def.clone());
+    let mut base = GitBase::new(dir.path(), "HEAD");
+    let mut warning = e003_violation(&def);
+    warning.severity = "WARNING".to_string();
+    let mut structural = e003_violation(&def);
+    structural.code = "E001".to_string();
+    let out = apply_progressive_adoption(vec![warning, structural], &file, &[], Some(&mut base));
+    assert_eq!(out[0].severity, "WARNING");
+    assert_eq!(out[1].severity, "ERROR");
+    assert!(base.commit.is_none());
+    assert!(base.renames.is_none());
+}
+
+#[test]
+fn crlf_working_tree_against_lf_blob_is_pre_existing() {
+    let text = "def legacy(\n    first,\n    second,\n):\n    return first + second\n";
+    let dir = git_repo(text);
+    let file = parse_working(dir.path(), &text.replace('\n', "\r\n"));
+    assert_eq!(file.definitions.len(), 1);
+    let mut base = GitBase::new(dir.path(), "HEAD");
+    let out = apply_progressive_adoption(
+        vec![e003_violation(&file.definitions[0])],
+        &file,
+        &[],
+        Some(&mut base),
+    );
+    assert_eq!(out[0].severity, "WARNING");
+    assert!(out[0].fix_hint.as_deref().unwrap().contains("pre-existing"));
 }

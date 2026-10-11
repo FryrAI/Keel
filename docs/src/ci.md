@@ -103,6 +103,10 @@ and removals would be phantom. Run `keel map` to rebuild the graph.
 
 This is what makes a poisoned cache fail loudly instead of annotating fiction.
 
+`keel compile --since <base>` judges E002/E003 against that Git commit, so a
+branch's own new or edited annotation/documentation debt reports as ERROR even
+after `keel map`. Unchanged debt in the base stays WARNING.
+
 While a re-sync is recorded as unfinished, `--since` also **exits 2**, with stdout empty and
 one line starting `keel compile: no usable graph — `: the stored graph has an unfinished
 re-sync, so run `keel compile` to finish it. Nothing is checked until then.
