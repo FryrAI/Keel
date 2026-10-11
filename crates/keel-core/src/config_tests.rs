@@ -338,7 +338,7 @@ fn test_removed_naming_conventions_key_is_tolerated() {
 
 /// A handle opened before the write still reads the OLD content afterwards: the
 /// file was replaced by a rename, not rewritten in place.
-#[cfg(unix)]
+#[cfg(unix)] // unix: reads through a handle that outlives the rename (inode semantics)
 #[test]
 fn write_atomic_keeps_old_content_readable_until_the_rename() {
     use std::io::Read;
@@ -370,6 +370,7 @@ fn write_atomic_leaves_no_temporary_file_on_success_or_error() {
     assert_eq!(names, ["blocked", "keel.json"]);
 }
 
+#[cfg(unix)] // only the unix-only tests below call it
 fn dir_names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
         .unwrap()
@@ -383,7 +384,7 @@ fn dir_names(dir: &Path) -> Vec<String> {
 /// current temporary name and at the first names of the counter scheme (stale
 /// files, symlinks to the destination) are never opened, followed, truncated or
 /// removed.
-#[cfg(unix)]
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
 #[test]
 fn write_atomic_never_touches_a_pre_existing_temporary_name() {
     let dir = tempfile::tempdir().unwrap();
@@ -422,7 +423,7 @@ fn write_atomic_never_touches_a_pre_existing_temporary_name() {
 }
 
 /// B2: the published file keeps the destination's permissions.
-#[cfg(unix)]
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
 #[test]
 fn write_atomic_keeps_the_destinations_permissions() {
     use std::os::unix::fs::PermissionsExt;
@@ -440,7 +441,7 @@ fn write_atomic_keeps_the_destinations_permissions() {
 
 /// B2: a read-only destination is refused with `PermissionDenied`, keeps its
 /// content, and no temporary file is left.
-#[cfg(unix)]
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
 #[test]
 fn write_atomic_refuses_a_read_only_destination() {
     use std::os::unix::fs::PermissionsExt;
@@ -454,8 +455,30 @@ fn write_atomic_refuses_a_read_only_destination() {
     assert_eq!(dir_names(dir.path()), ["keel.json"]);
 }
 
+/// E4: the refusal is decided by what the caller may write, not by mode bits: a
+/// destination the owner cannot write (0464) is refused although another class
+/// has the write bit.
+#[cfg(unix)] // unix: mode bits (PermissionsExt); uid check via `id -u`
+#[test]
+fn write_atomic_refuses_a_destination_its_owner_cannot_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let uid = std::process::Command::new("id").arg("-u").output().unwrap();
+    if String::from_utf8_lossy(&uid.stdout).trim() == "0" {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o464)).unwrap();
+    let result = write_atomic(&path, "new");
+    let error = result.expect_err("a destination the caller cannot write was replaced");
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "old");
+    assert_eq!(dir_names(dir.path()), ["keel.json"]);
+}
+
 /// B3: a destination that is a symlink is published beside its target; the link stays a link.
-#[cfg(unix)]
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
 #[test]
 fn write_atomic_through_a_symlink_keeps_the_link() {
     let dir = tempfile::tempdir().unwrap();
@@ -481,7 +504,7 @@ fn write_atomic_through_a_symlink_keeps_the_link() {
 }
 
 /// B3: a dangling link gets its target created; the link stays.
-#[cfg(unix)]
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
 #[test]
 fn write_atomic_through_a_dangling_symlink_creates_the_target() {
     let dir = tempfile::tempdir().unwrap();

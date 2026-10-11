@@ -241,7 +241,7 @@ fn t4_first_discover_in_new_worktree_matches_never_mapped_main() {
 
 // ------------------------------------------------------------------- T5
 
-#[cfg(unix)]
+#[cfg(unix)] // unix: a FIFO, `mkfifo`, a shell git wrapper and mode bits
 mod concurrent {
     use super::*;
     use std::io::Write;
@@ -389,7 +389,7 @@ mod concurrent {
 
 /// T5: a compile in the main checkout completes and checks while the
 /// worktree's map is held mid-run.
-#[cfg(unix)]
+#[cfg(unix)] // unix: needs the unix-only HeldMap (FIFO and shell wrapper)
 #[test]
 fn t5_compile_in_main_does_not_wait_for_a_held_worktree_map() {
     let p = pair_new_worktree();
@@ -407,7 +407,7 @@ fn t5_compile_in_main_does_not_wait_for_a_held_worktree_map() {
 }
 
 /// T5: a map in the main checkout completes while the worktree's map is held.
-#[cfg(unix)]
+#[cfg(unix)] // unix: needs the unix-only HeldMap (FIFO and shell wrapper)
 #[test]
 fn t5_map_in_main_does_not_wait_for_a_held_worktree_map() {
     let p = pair_new_worktree();

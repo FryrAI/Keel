@@ -43,7 +43,7 @@ fn own_graph_dir(p: &Pair) -> std::path::PathBuf {
 // ------------------------------------------------------------------- B2, B3
 
 /// B2: a config write keeps the file's mode (0600 stays 0600).
-#[cfg(unix)]
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
 #[test]
 fn b2_config_write_keeps_the_destination_mode() {
     use std::os::unix::fs::PermissionsExt;
@@ -63,7 +63,7 @@ fn b2_config_write_keeps_the_destination_mode() {
 
 /// B2: a read-only `keel.json` is refused, as an in-place write was: non-zero
 /// exit, content and mode kept, no temporary file left.
-#[cfg(unix)]
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
 #[test]
 fn b2_config_write_refuses_a_read_only_destination() {
     use std::os::unix::fs::PermissionsExt;
@@ -90,9 +90,46 @@ fn b2_config_write_refuses_a_read_only_destination() {
     assert_eq!(entries(&dir), names, "a temporary file was left behind");
 }
 
+/// E4: a `keel.json` its owner cannot write (0464: another class has the write
+/// bit) is refused as an in-place write was: exit 2, bytes unchanged.
+#[cfg(unix)] // unix: mode bits (PermissionsExt); uid check
+#[test]
+fn e4_config_write_refuses_a_file_its_owner_cannot_write() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let tmp = initialised_repo();
+    let file = tmp.path().join(".keel/keel.json");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o464)).unwrap();
+    let bytes = fs::read(&file).unwrap();
+    let o = keel(tmp.path(), &["config", "enforce.max_file_lines", "500"]);
+    assert_eq!(o.status.code(), Some(2), "{}", describe(&o));
+    assert_eq!(fs::read(&file).unwrap(), bytes, "keel.json changed");
+}
+
+/// E4: the refusal line carries the OS error, as an in-place write's did.
+#[cfg(unix)] // unix: mode bits (PermissionsExt); uid check
+#[test]
+fn e4_config_write_refusal_names_the_os_error() {
+    use std::os::unix::fs::PermissionsExt;
+    if running_as_root() {
+        return;
+    }
+    let tmp = initialised_repo();
+    let file = tmp.path().join(".keel/keel.json");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
+    let o = keel(tmp.path(), &["config", "enforce.max_file_lines", "500"]);
+    assert!(
+        err(&o).contains("Permission denied (os error 13)"),
+        "{}",
+        describe(&o)
+    );
+}
+
 /// B3: `keel.json` as a symlink to `widget/keel.json`: after a config write the
 /// link is still a link and its target holds the new content.
-#[cfg(unix)]
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
 #[test]
 fn b3_config_write_through_a_symlink_keeps_the_link() {
     let tmp = initialised_repo();
@@ -193,7 +230,7 @@ fn b5_name_refuses_when_the_shared_keel_dir_is_gone() {
 
 /// B5 (R8): the refusal comes before any graph file is opened - an unreadable
 /// `graph.db` must not turn it into an open error.
-#[cfg(unix)]
+#[cfg(unix)] // unix: graph.db made unreadable with chmod; uid check
 #[test]
 fn b5_name_opens_no_graph_file_when_uninitialised() {
     use std::os::unix::fs::PermissionsExt;
@@ -219,7 +256,7 @@ fn b5_name_opens_no_graph_file_when_uninitialised() {
 /// B7: `keel init --yes` in a linked worktree whose git directory cannot take a
 /// new directory stops with R4's one line before anything is written - the main
 /// checkout (not initialised) gets no `.keel` and no ignore-file edit.
-#[cfg(unix)]
+#[cfg(unix)] // unix: git directory made read-only with chmod; uid check
 #[test]
 fn b7_init_in_a_worktree_with_uncreatable_graph_dir_writes_nothing() {
     if running_as_root() {
@@ -443,7 +480,7 @@ fn p2_map_resets_only_its_own_baseline() {
 
 /// A `keel.json` writer replaced the file by rename (a new inode) and left no
 /// temporary file beside it.
-#[cfg(unix)]
+#[cfg(unix)] // unix: inode comparison (MetadataExt)
 fn assert_published_by_rename(dir: &Path, run: impl FnOnce()) {
     use std::os::unix::fs::MetadataExt;
     let (file, keel_dir) = (dir.join(".keel/keel.json"), dir.join(".keel"));
@@ -469,7 +506,7 @@ fn initialised_repo() -> tempfile::TempDir {
 }
 
 /// P3: `keel config <key> <value>`.
-#[cfg(unix)]
+#[cfg(unix)] // unix: inode comparison, via assert_published_by_rename
 #[test]
 fn p3_config_writer_publishes_by_rename() {
     let tmp = initialised_repo();
@@ -479,7 +516,7 @@ fn p3_config_writer_publishes_by_rename() {
 }
 
 /// P3: `keel init --merge`.
-#[cfg(unix)]
+#[cfg(unix)] // unix: inode comparison, via assert_published_by_rename
 #[test]
 fn p3_init_merge_writer_publishes_by_rename() {
     let tmp = initialised_repo();
@@ -489,7 +526,7 @@ fn p3_init_merge_writer_publishes_by_rename() {
 }
 
 /// P3: `keel init --update-docs` (the version sync).
-#[cfg(unix)]
+#[cfg(unix)] // unix: inode comparison, via assert_published_by_rename
 #[test]
 fn p3_update_docs_version_sync_publishes_by_rename() {
     let tmp = initialised_repo();

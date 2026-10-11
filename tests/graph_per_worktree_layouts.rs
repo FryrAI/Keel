@@ -11,6 +11,7 @@ mod wg;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(unix)] // only the unix-only `readonly` module uses it
 use std::process::Output;
 
 use common::git;
@@ -208,7 +209,7 @@ fn t8_commondir_target_missing_keeps_the_graph_beside_keel_json() {
 
 // ------------------------------------------------------------------- T9
 
-#[cfg(unix)]
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
 mod readonly {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
@@ -250,7 +251,7 @@ mod readonly {
 
 /// T9 (R4): a `graph_dir` that cannot be created stops `keel map` with one
 /// stderr line naming the path, exit 2.
-#[cfg(unix)]
+#[cfg(unix)] // unix: git directory made read-only with chmod; uid check
 #[test]
 fn t9_map_with_uncreatable_graph_dir_is_one_line_exit_2() {
     if readonly::running_as_root() {
@@ -264,7 +265,7 @@ fn t9_map_with_uncreatable_graph_dir_is_one_line_exit_2() {
 }
 
 /// T9 (R4, F05): the same for a nominal reader.
-#[cfg(unix)]
+#[cfg(unix)] // unix: git directory made read-only with chmod; uid check
 #[test]
 fn t9_reader_with_uncreatable_graph_dir_is_one_line_exit_2() {
     if readonly::running_as_root() {
@@ -281,7 +282,7 @@ fn t9_reader_with_uncreatable_graph_dir_is_one_line_exit_2() {
 
 /// T10 (R7): a config write publishes `keel.json` by rename - a new inode, the
 /// old one untouched until then - and leaves no temporary file beside it.
-#[cfg(unix)]
+#[cfg(unix)] // unix: inode comparison (MetadataExt)
 #[test]
 fn t10_config_write_replaces_keel_json_by_rename() {
     use std::os::unix::fs::MetadataExt;

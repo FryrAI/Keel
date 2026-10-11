@@ -297,16 +297,16 @@ pub fn assert_violation_isolated(violator: &Path, cwd: &Path, alpha_arg: &str, o
 // ---- additions for the fold of review round 1 (tests/graph_per_worktree_fold.rs) ----
 
 /// True when the process may ignore file permissions (permission tests skip).
-#[cfg(unix)]
+#[cfg(unix)] // unix: uid check via `id -u`
 pub fn running_as_root() -> bool {
     out(&Command::new("id").arg("-u").output().unwrap()).trim() == "0"
 }
 
 /// Makes a directory read-only, restoring it on drop so the tempdir can go.
-#[cfg(unix)]
+#[cfg(unix)] // unix: directory made read-only with chmod
 pub struct Locked(PathBuf);
 
-#[cfg(unix)]
+#[cfg(unix)] // unix: directory made read-only with chmod
 impl Locked {
     pub fn new(dir: &Path) -> Locked {
         use std::os::unix::fs::PermissionsExt;
@@ -315,7 +315,7 @@ impl Locked {
     }
 }
 
-#[cfg(unix)]
+#[cfg(unix)] // unix: restores the chmod on drop
 impl Drop for Locked {
     fn drop(&mut self) {
         use std::os::unix::fs::PermissionsExt;
