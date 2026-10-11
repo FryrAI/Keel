@@ -66,7 +66,7 @@ if [ "$EXIT_CODE" -eq 0 ]; then
     exit 0
   fi
   echo "$RESULT" >&2
-  echo "keel: $FILE_PATH was NOT checked — another keel process holds the graph lock (usually a running keel map). Nothing in the file needs fixing because of this message; run keel compile $FILE_PATH once the lock is free." >&2
+  echo "keel: $FILE_PATH was NOT checked — another keel process holds the graph lock (usually a running keel map). Nothing in the file needs fixing because of this message; once the lock is free, run in $PWD: keel compile -- $FILE_PATH" >&2
   exit 2
 fi
 

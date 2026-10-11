@@ -369,7 +369,7 @@ fn test_lock_skip_blocks_and_names_the_unchecked_file() {
         "the message must say the file was not checked: {stderr}"
     );
     assert!(
-        stderr.contains(&format!("keel compile {}", file.display())),
+        stderr.contains(&format!("keel compile -- {}", file.display())),
         "the message must name the command that checks it: {stderr}"
     );
 }
@@ -404,7 +404,10 @@ fn test_other_output_on_a_clean_exit_stays_silent() {
         return;
     }
     let notice = "keel: .baml is not a tracked language — no checks ran";
-    let dir = fixture(0, &format!("{VERSION_WARNING}\n{notice}"));
+    let dir = fixture(
+        0,
+        &format!("{VERSION_WARNING}\n{notice}\nnote: {LOCK_SKIP} — mentioned mid-line"),
+    );
     let out = run_hook(dir.path(), &target(dir.path()));
 
     assert_eq!(
