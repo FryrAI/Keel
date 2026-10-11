@@ -293,3 +293,218 @@ pub fn assert_violation_isolated(violator: &Path, cwd: &Path, alpha_arg: &str, o
         "the other checkout's graph changed"
     );
 }
+
+// ---- additions for the fold of review round 1 (tests/graph_per_worktree_fold.rs) ----
+
+/// True when the process may ignore file permissions (permission tests skip).
+#[cfg(unix)]
+pub fn running_as_root() -> bool {
+    out(&Command::new("id").arg("-u").output().unwrap()).trim() == "0"
+}
+
+/// Makes a directory read-only, restoring it on drop so the tempdir can go.
+#[cfg(unix)]
+pub struct Locked(PathBuf);
+
+#[cfg(unix)]
+impl Locked {
+    pub fn new(dir: &Path) -> Locked {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o555)).unwrap();
+        Locked(dir.to_path_buf())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Locked {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// The failure is ONE non-empty stderr line naming `graph_dir`, exit 2.
+pub fn assert_one_line_naming(o: &Output, graph_dir: &Path) {
+    assert_eq!(o.status.code(), Some(2), "{}", describe(o));
+    let stderr = err(o);
+    let lines: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "expected ONE stderr line\n{}", describe(o));
+    assert!(
+        lines[0].contains(graph_dir.to_str().unwrap()),
+        "the line must name {}\n{}",
+        graph_dir.display(),
+        describe(o)
+    );
+}
+
+/// A node only the main checkout's graph has: `delta_only` (mapped in main).
+pub fn main_only_node(p: &Pair) {
+    write(
+        &p.main,
+        "delta_only.py",
+        "def delta_only() -> int:\n    \"\"\"Only in main.\"\"\"\n    return 4\n",
+    );
+    commit_all(&p.main, "add delta_only");
+    keel_ok(&p.main, &["map"]);
+}
+
+/// The `hash=` token `keel discover --name <name>` prints in `dir`.
+pub fn hash_of(dir: &Path, name: &str) -> String {
+    let o = keel_ok(dir, &["discover", "--name", name]);
+    out(&o)
+        .split_whitespace()
+        .find_map(|t| t.strip_prefix("hash="))
+        .unwrap_or_else(|| panic!("no hash for {name} in {}\n{}", dir.display(), describe(&o)))
+        .to_string()
+}
+
+pub fn has_node(s: &Snap, name: &str) -> bool {
+    s.nodes
+        .iter()
+        .any(|n| n.starts_with(&format!("[\"{name}\",")))
+}
+
+/// A running `keel` server process; killed on drop so a failed test never leaks it.
+pub struct Server {
+    pub child: std::process::Child,
+    lines: Option<std::sync::mpsc::Receiver<String>>,
+}
+
+pub const WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+impl Server {
+    /// Spawn `keel <args>` with piped stdin and stdout, stderr lines forwarded.
+    pub fn start(dir: &Path, args: &[&str]) -> Server {
+        use std::io::BufRead;
+        use std::process::Stdio;
+        let mut child = Command::new(keel_bin())
+            .args(args)
+            .current_dir(dir)
+            .env("KEEL_NO_TELEMETRY", "true")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stderr = child.stderr.take().unwrap();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stderr)
+                .lines()
+                .map_while(Result::ok)
+            {
+                let _ = tx.send(line);
+            }
+        });
+        Server {
+            child,
+            lines: Some(rx),
+        }
+    }
+
+    /// Wait up to `timeout` for a stderr line containing `needle`.
+    pub fn saw_stderr(&mut self, needle: &str, timeout: std::time::Duration) -> bool {
+        let rx = self.lines.as_ref().unwrap();
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if let Ok(l) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                if l.contains(needle) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Wait (bounded) for a stderr line containing `needle`.
+    pub fn wait_for_stderr(&mut self, needle: &str) {
+        assert!(
+            self.saw_stderr(needle, WAIT),
+            "no stderr line containing {needle:?}"
+        );
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// One MCP session over the real `keel serve --mcp` stdio loop.
+pub struct Mcp {
+    server: Server,
+    replies: std::sync::mpsc::Receiver<String>,
+    next_id: u64,
+}
+
+impl Mcp {
+    pub fn start(dir: &Path) -> Mcp {
+        use std::io::BufRead;
+        let mut server = Server::start(dir, &["serve", "--mcp", "--no-telemetry"]);
+        let stdout = server.child.stdout.take().unwrap();
+        let (tx, replies) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stdout)
+                .lines()
+                .map_while(Result::ok)
+            {
+                let _ = tx.send(line);
+            }
+        });
+        Mcp {
+            server,
+            replies,
+            next_id: 1,
+        }
+    }
+
+    /// `tools/call`: (is_error, the tool's text content).
+    pub fn call(&mut self, tool: &str, arguments: serde_json::Value) -> (bool, String) {
+        use std::io::Write;
+        let id = self.next_id;
+        self.next_id += 1;
+        let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call",
+            "params":{"name":tool,"arguments":arguments}});
+        let stdin = self.server.child.stdin.as_mut().unwrap();
+        writeln!(stdin, "{request}").unwrap();
+        stdin.flush().unwrap();
+        let line = self
+            .replies
+            .recv_timeout(WAIT)
+            .unwrap_or_else(|_| panic!("no reply to {tool}"));
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let text = reply["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let failed =
+            reply["result"]["isError"].as_bool().unwrap_or(false) || reply.get("error").is_some();
+        (failed, if text.is_empty() { line } else { text })
+    }
+}
+
+/// One HTTP/1.1 request to the local `keel serve --http` port (bounded by socket timeouts).
+pub fn http(method: &str, path: &str, body: &str) -> (u16, String) {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", 4815)).unwrap();
+    s.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    let req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    s.write_all(req.as_bytes()).unwrap();
+    let mut raw = String::new();
+    let _ = s.read_to_string(&mut raw);
+    let status = raw
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    (
+        status,
+        raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string(),
+    )
+}
