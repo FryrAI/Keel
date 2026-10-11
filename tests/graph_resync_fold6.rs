@@ -353,6 +353,108 @@ fn a_failing_git_query_is_an_error_not_an_empty_list() {
     require_w009(&out, "git healthy again");
 }
 
+/// Pins the ORDER of rule A3(i): when the target-set git query fails, compile exits 2
+/// before the re-sync writes anything. The pull only removes a definition, so the
+/// re-sync itself needs no failing query and a late error would show as a moved marker.
+#[cfg(unix)]
+#[test]
+fn a_failing_target_query_stops_before_the_resync_writes() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = ws_fixture();
+    let root = dir.path();
+    let with_gone = format!("{WS_X}\n/// Soon gone.\npub fn gone() -> i32 {{ 2 }}\n");
+    write(root, "crates/a/src/x.rs", &with_gone);
+    commit(root);
+    map(root);
+    let mapped = marker(root);
+    write(root, "crates/a/src/x.rs", WS_X);
+    git(root, &["add", "crates/a/src/x.rs"]);
+    git(root, &["commit", "-q", "--no-verify", "-m", "pull removes"]);
+    assert_ne!(head(root), mapped);
+    write(root, Z, WS_Z_EDITED);
+    let real = Command::new("sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .unwrap();
+    let real = String::from_utf8(real.stdout).unwrap().trim().to_owned();
+    assert!(real.starts_with('/'), "git resolves to an absolute path");
+    let fake = tempfile::tempdir().unwrap();
+    let switch = fake.path().join("fail-name-only");
+    let script = format!(
+        "#!/bin/sh\nif [ -e '{}' ]; then\n  case \"$*\" in\n    *diff*) case \"$*\" in *--name-only*) exit 128;; esac;;\n  esac\nfi\nexec '{real}' \"$@\"\n",
+        switch.display()
+    );
+    let git_path = fake.path().join("git");
+    fs::write(&git_path, script).unwrap();
+    fs::set_permissions(&git_path, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        fake.path().display(),
+        std::env::var("PATH").unwrap()
+    );
+    let changed = || {
+        Command::new(keel_bin())
+            .args(["compile", "--changed"])
+            .current_dir(root)
+            .env("PATH", &path)
+            .output()
+            .unwrap()
+    };
+    let name_only = |on: bool| {
+        if on {
+            fs::write(&switch, "on").unwrap();
+        } else if switch.exists() {
+            fs::remove_file(&switch).unwrap();
+        }
+        Command::new(&git_path)
+            .args(["-C", ".", "diff", "--name-only", "-z", "HEAD"])
+            .current_dir(root)
+            .output()
+            .unwrap()
+            .status
+            .code()
+    };
+    // Positive control: the fake fails exactly the name-only diff, and only while on.
+    assert_eq!(name_only(true), Some(128));
+    assert_eq!(name_only(false), Some(0));
+    fs::write(&switch, "on").unwrap();
+    let out = changed();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "a failing query exits 2: {out:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("keel compile: git diff failed"),
+        "the git diff failed line: {out:?}"
+    );
+    assert_eq!(
+        marker(root),
+        mapped,
+        "the re-sync did not run: marker is the old commit"
+    );
+    assert_eq!(
+        count(
+            root,
+            "SELECT count(*) FROM keel_meta WHERE key='resync_pending'"
+        ),
+        0,
+        "no recovery record"
+    );
+    assert_eq!(
+        calls(root, Z, "run", "existing"),
+        0,
+        "the dirty file's edge is not stored"
+    );
+    fs::remove_file(&switch).unwrap();
+    let out = keel(root, &["compile", Z]);
+    assert_eq!(
+        stdout_of(&out).matches("W009").count(),
+        1,
+        "git healthy again: W009 once: {out:?}"
+    );
+}
+
 // ---- Pins: green today ----
 
 /// Pins the `source != ResolveReferences` clause of `refresh_reference_edges`
