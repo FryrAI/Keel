@@ -61,6 +61,8 @@ keel map [--depth 0-3] [--scope modules] [--strict] [--llm-verbose]
 
 **What it does:** Parses every source file with tree-sitter, applies per-language resolvers (Oxc for TS, ty for Python, heuristics for Go, rust-analyzer for Rust), builds call/import/contains edges, and stores everything in `.keel/graph.db`.
 
+**Uncommitted changes:** in a repository with a commit, a full `keel map` (not `--cached`) prints one stderr line when source files differ from `HEAD`: `keel map: <m> modified and <u> untracked source file(s) were mapped as they are — uncommitted changes are now baseline and were not checked against their callers`. If git cannot list them it prints `keel map: could not list uncommitted files: <error>` instead. Exit code, stdout and the graph are unchanged. Source files inside a submodule or a nested repository are mapped but not counted; a deleted tracked file and a mode-only change count as modified.
+
 **Performance:** <5s for 100k LOC.
 
 **Examples:**

@@ -450,6 +450,7 @@ pub fn run(
             total_edges
         );
     }
+    super::map_dirty_note::note_uncommitted(&root);
 
     // Build language mix from entries
     let mut lang_counts: HashMap<String, u32> = HashMap::new();

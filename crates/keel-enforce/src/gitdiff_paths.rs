@@ -1,6 +1,7 @@
 //! Strict changed-path decoding and process-wide diagnostic deduplication.
 
 use std::collections::HashSet;
+use std::io::Write;
 use std::sync::{LazyLock, Mutex};
 
 use keel_parsers::walker::KeelIgnore;
@@ -40,7 +41,10 @@ pub(super) fn decode_path<'a>(
                 .flat_map(|b| std::ascii::escape_default(*b))
                 .map(char::from)
                 .collect();
-            eprintln!("keel: skipping a changed path that is not valid UTF-8: {escaped}");
+            let _ = writeln!(
+                std::io::stderr(),
+                "keel: skipping a changed path that is not valid UTF-8: {escaped}"
+            );
             None
         }
     }
