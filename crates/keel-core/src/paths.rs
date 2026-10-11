@@ -188,7 +188,7 @@ fn linked_git_dir(start: &Path) -> Option<PathBuf> {
     if !git_path.is_file() {
         return None;
     }
-    let gitdir = pointer_target(&git_path).filter(|d| d.is_dir())?;
+    let gitdir = pointer_target(&git_path)?;
     common_dir_of(&gitdir).filter(|c| c.is_dir())?;
     Some(gitdir)
 }
