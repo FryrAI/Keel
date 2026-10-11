@@ -402,17 +402,24 @@ fn a_failing_untracked_listing_is_one_could_not_list_line() {
 
 /// `keel map --json` with stderr pointing at `/dev/full` (every write fails).
 fn map_json_with_full_stderr(dir: &Path) -> Output {
+    map_json_with_full_stderr_on(dir, None)
+}
+
+/// The same, with `path` as the child's `PATH` when given.
+fn map_json_with_full_stderr_on(dir: &Path, path: Option<&str>) -> Output {
     let full = fs::OpenOptions::new()
         .write(true)
         .open("/dev/full")
         .expect("/dev/full must be openable");
-    Command::new(keel_bin())
-        .args(["map", "--json"])
+    let mut cmd = Command::new(keel_bin());
+    cmd.args(["map", "--json"])
         .current_dir(dir)
         .env("KEEL_NO_TELEMETRY", "true")
-        .stderr(full)
-        .output()
-        .unwrap()
+        .stderr(full);
+    if let Some(path) = path {
+        cmd.env("PATH", path);
+    }
+    cmd.output().unwrap()
 }
 
 fn assert_json_map(o: &Output) {
@@ -437,6 +444,39 @@ fn an_unwritable_stderr_does_not_change_a_dirty_map() {
 fn control_an_unwritable_stderr_does_not_change_a_clean_map() {
     let dir = committed_repo();
     assert_json_map(&map_json_with_full_stderr(dir.path()));
+}
+
+// Linux only: other filesystems refuse a file name that is not valid UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_unwritable_stderr_does_not_change_a_map_with_a_non_utf8_untracked_name() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = committed_repo();
+    fs::write(dir.path().join(OsStr::from_bytes(b"bad\xff.py")), EXTRA).unwrap();
+    // Control: with an ordinary stderr the same tree maps fine.
+    let ordinary = keel_run(dir.path(), &["map", "--json"]);
+    assert_map_ok(&ordinary);
+    assert_json_map(&ordinary);
+    assert_json_map(&map_json_with_full_stderr(dir.path()));
+}
+
+#[test]
+fn an_unwritable_stderr_does_not_change_a_map_whose_untracked_listing_fails() {
+    let dir = dirty_repo();
+    let root = dir.path();
+    let fake = FakeGit::new("ls-files", "--others");
+    // Positive control: fails exactly `ls-files --others`, and only while on.
+    fake.set(true);
+    assert_eq!(fake.code(root, &["ls-files", "--others", "-z"]), Some(128));
+    assert_eq!(fake.code(root, &["ls-files", "-z"]), Some(0));
+    assert_eq!(fake.code(root, &["rev-parse", "HEAD"]), Some(0));
+    fake.set(false);
+    assert_eq!(fake.code(root, &["ls-files", "--others", "-z"]), Some(0));
+
+    fake.set(true);
+    assert_json_map(&map_json_with_full_stderr_on(root, Some(&fake.path())));
 }
 
 // ---------------------------------------------------------------------- Q1
