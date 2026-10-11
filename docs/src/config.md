@@ -50,8 +50,8 @@ The main configuration file. All fields have sensible defaults -- you only need 
 Progressive adoption compares each function's name and plain definition hash with
 the base file, using each base definition once. The file's own base path wins;
 an indexed rename can use its old path. Body comments, blank lines and line shifts
-keep the hash, while signature whitespace changes can escalate debt. Git blobs
-are parsed with the checkout's CRLF line endings when needed.
+keep the hash, while signature whitespace changes can escalate debt. A definition
+matches the base blob in either line-ending form (LF or CRLF).
 
 An unreadable base never downgrades: after a commit resolves, a Git read failure
 keeps the file's E002/E003 as ERROR and prints a notice on stderr. Missing source

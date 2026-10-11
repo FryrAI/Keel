@@ -238,3 +238,26 @@ fn crlf_working_tree_against_lf_blob_is_pre_existing() {
     assert_eq!(out[0].severity, "WARNING");
     assert!(out[0].fix_hint.as_deref().unwrap().contains("pre-existing"));
 }
+
+#[test]
+fn mixed_or_reversed_line_endings_keep_untouched_debt_pre_existing() {
+    let text = "def legacy(\n    first,\n    second,\n):\n    return first + second\n";
+    let crlf = text.replace('\n', "\r\n");
+    // (base blob, working tree): a CRLF line appended to an LF file, and a
+    // CRLF blob checked out as LF.
+    for (blob, working) in [
+        (text, format!("{text}# extra\r\n")),
+        (crlf.as_str(), text.to_string()),
+    ] {
+        let dir = git_repo(blob);
+        let file = parse_working(dir.path(), &working);
+        let mut base = GitBase::new(dir.path(), "HEAD");
+        let out = apply_progressive_adoption(
+            vec![e003_violation(&file.definitions[0])],
+            &file,
+            &[],
+            Some(&mut base),
+        );
+        assert_eq!(out[0].severity, "WARNING", "working tree {working:?}");
+    }
+}

@@ -90,20 +90,32 @@ impl GitBase {
                 text = gitdiff::source_at(&self.root, commit, from)?;
             }
         }
-        let mut counts = HashMap::new();
-        if let Some(mut text) = text {
-            // Signature whitespace participates in hashes; Git may store LF
-            // while the checkout uses CRLF, so parse both in checkout form.
-            if !text.contains('\r')
-                && std::fs::read_to_string(self.root.join(path))
-                    .is_ok_and(|working| working.contains("\r\n"))
+        let mut counts: HashMap<(String, String), usize> = HashMap::new();
+        if let Some(text) = text {
+            // Signature whitespace participates in hashes and Git may store one
+            // line ending while the checkout holds another (or a mix), so a
+            // definition is the base's in any line-ending form of the blob.
+            let lf = text.replace("\r\n", "\n");
+            let mut forms = vec![lf.clone()];
+            if std::fs::read_to_string(self.root.join(path))
+                .is_ok_and(|working| working.contains("\r\n"))
             {
-                text = text.replace('\n', "\r\n");
+                forms.push(lf.replace('\n', "\r\n"));
             }
-            if let Some(file) = self.parser.parse(&base_path, &text) {
-                for def in file.definitions {
-                    let hash = def.hash();
-                    *counts.entry((def.name, hash)).or_default() += 1;
+            if !forms.contains(&text) {
+                forms.push(text);
+            }
+            for form in &forms {
+                let mut form_counts: HashMap<(String, String), usize> = HashMap::new();
+                if let Some(file) = self.parser.parse(&base_path, form) {
+                    for def in file.definitions {
+                        let hash = def.hash();
+                        *form_counts.entry((def.name, hash)).or_default() += 1;
+                    }
+                }
+                for (key, count) in form_counts {
+                    let merged = counts.entry(key).or_default();
+                    *merged = (*merged).max(count);
                 }
             }
         }
