@@ -48,8 +48,7 @@ fn stderr_of(out: &Output) -> String {
 
 fn write_script(path: &Path, body: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    common::write_executable(path, body);
 }
 
 const REPORTING_STUB: &str = "#!/bin/sh\n\

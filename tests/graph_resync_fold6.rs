@@ -290,7 +290,6 @@ fn require_w009(out: &Output, what: &str) {
 #[cfg(unix)]
 #[test]
 fn a_failing_git_query_is_an_error_not_an_empty_list() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = pulled_then_edited();
     let root = dir.path();
     let real = Command::new("sh")
@@ -306,8 +305,7 @@ fn a_failing_git_query_is_an_error_not_an_empty_list() {
         switch.display()
     );
     let git_path = fake.path().join("git");
-    fs::write(&git_path, script).unwrap();
-    fs::set_permissions(&git_path, fs::Permissions::from_mode(0o755)).unwrap();
+    common::write_executable(&git_path, &script);
     let path = format!(
         "{}:{}",
         fake.path().display(),
@@ -359,7 +357,6 @@ fn a_failing_git_query_is_an_error_not_an_empty_list() {
 #[cfg(unix)]
 #[test]
 fn a_failing_target_query_stops_before_the_resync_writes() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = ws_fixture();
     let root = dir.path();
     let with_gone = format!("{WS_X}\n/// Soon gone.\npub fn gone() -> i32 {{ 2 }}\n");
@@ -385,8 +382,7 @@ fn a_failing_target_query_stops_before_the_resync_writes() {
         switch.display()
     );
     let git_path = fake.path().join("git");
-    fs::write(&git_path, script).unwrap();
-    fs::set_permissions(&git_path, fs::Permissions::from_mode(0o755)).unwrap();
+    common::write_executable(&git_path, &script);
     let path = format!(
         "{}:{}",
         fake.path().display(),

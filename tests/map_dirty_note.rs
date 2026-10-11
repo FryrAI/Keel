@@ -8,7 +8,6 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -321,8 +320,7 @@ impl FakeGit {
             dir.path().join("fail-ls-files").display()
         );
         let git_path = dir.path().join("git");
-        fs::write(&git_path, script).unwrap();
-        fs::set_permissions(&git_path, fs::Permissions::from_mode(0o755)).unwrap();
+        common::write_executable(&git_path, &script);
         FakeGit { dir }
     }
 
