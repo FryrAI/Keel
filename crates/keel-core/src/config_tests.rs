@@ -335,3 +335,192 @@ fn test_removed_naming_conventions_key_is_tolerated() {
     assert_eq!(cfg.version, "0.1.0");
     assert_eq!(cfg.languages, vec!["rust"]);
 }
+
+/// A handle opened before the write still reads the OLD content afterwards: the
+/// file was replaced by a rename, not rewritten in place.
+#[cfg(unix)] // unix: reads through a handle that outlives the rename (inode semantics)
+#[test]
+fn write_atomic_keeps_old_content_readable_until_the_rename() {
+    use std::io::Read;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old content").unwrap();
+    let mut before = fs::File::open(&path).unwrap();
+    write_atomic(&path, "new").unwrap();
+    let mut seen = String::new();
+    before.read_to_string(&mut seen).unwrap();
+    assert_eq!(seen, "old content");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+}
+
+#[test]
+fn write_atomic_leaves_no_temporary_file_on_success_or_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    write_atomic(&path, "one").unwrap();
+    let blocked = dir.path().join("blocked");
+    fs::create_dir(&blocked).unwrap();
+    assert!(write_atomic(&blocked, "two").is_err());
+    assert!(write_atomic(&dir.path().join("missing/keel.json"), "three").is_err());
+    let mut names: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["blocked", "keel.json"]);
+}
+
+#[cfg(unix)] // only the unix-only tests below call it
+fn dir_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// B1: the temporary file is created exclusively - entries already sitting at the
+/// current temporary name and at the first names of the counter scheme (stale
+/// files, symlinks to the destination) are never opened, followed, truncated or
+/// removed.
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
+#[test]
+fn write_atomic_never_touches_a_pre_existing_temporary_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old").unwrap();
+    let pid = std::process::id();
+    let mut names = vec![format!(".keel.json.{pid}.tmp")];
+    names.extend((0..=8).map(|n| format!(".keel.json.{pid}.{n}.tmp")));
+    for (i, name) in names.iter().enumerate() {
+        let entry = dir.path().join(name);
+        if i % 2 == 0 {
+            std::os::unix::fs::symlink(&path, entry).unwrap();
+        } else {
+            fs::write(entry, format!("stale {i}")).unwrap();
+        }
+    }
+    let state = |name: &String| {
+        let entry = dir.path().join(name);
+        let link = fs::read_link(&entry).ok();
+        let bytes = if link.is_none() {
+            fs::read(&entry).ok()
+        } else {
+            None
+        };
+        (link, bytes)
+    };
+    let before: Vec<_> = names.iter().map(state).collect();
+    write_atomic(&path, "new").unwrap();
+    assert!(
+        fs::symlink_metadata(&path).unwrap().file_type().is_file(),
+        "destination is not a regular file"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+    let after: Vec<_> = names.iter().map(state).collect();
+    assert_eq!(after, before, "a pre-existing temporary entry was touched");
+}
+
+/// B2: the published file keeps the destination's permissions.
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
+#[test]
+fn write_atomic_keeps_the_destinations_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    write_atomic(&path, "new").unwrap();
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+}
+
+/// B2: a read-only destination is refused with `PermissionDenied`, keeps its
+/// content, and no temporary file is left.
+#[cfg(unix)] // unix: mode bits (PermissionsExt)
+#[test]
+fn write_atomic_refuses_a_read_only_destination() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+    let error = write_atomic(&path, "new").unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "old");
+    assert_eq!(dir_names(dir.path()), ["keel.json"]);
+}
+
+/// E4: the refusal is decided by what the caller may write, not by mode bits: a
+/// destination the owner cannot write (0464) is refused although another class
+/// has the write bit.
+#[cfg(unix)] // unix: mode bits (PermissionsExt); uid check via `id -u`
+#[test]
+fn write_atomic_refuses_a_destination_its_owner_cannot_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let uid = std::process::Command::new("id").arg("-u").output().unwrap();
+    if String::from_utf8_lossy(&uid.stdout).trim() == "0" {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("keel.json");
+    fs::write(&path, "old").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o464)).unwrap();
+    let result = write_atomic(&path, "new");
+    let error = result.expect_err("a destination the caller cannot write was replaced");
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "old");
+    assert_eq!(dir_names(dir.path()), ["keel.json"]);
+}
+
+/// B3: a destination that is a symlink is published beside its target; the link stays a link.
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
+#[test]
+fn write_atomic_through_a_symlink_keeps_the_link() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("widget")).unwrap();
+    fs::write(dir.path().join("widget/keel.json"), "old").unwrap();
+    let link = dir.path().join("keel.json");
+    std::os::unix::fs::symlink("widget/keel.json", &link).unwrap();
+    write_atomic(&link, "new").unwrap();
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the link was replaced"
+    );
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new("widget/keel.json"));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("widget/keel.json")).unwrap(),
+        "new"
+    );
+    assert_eq!(dir_names(&dir.path().join("widget")), ["keel.json"]);
+    assert_eq!(dir_names(dir.path()), ["keel.json", "widget"]);
+}
+
+/// B3: a dangling link gets its target created; the link stays.
+#[cfg(unix)] // unix: symlink API (std::os::unix::fs::symlink)
+#[test]
+fn write_atomic_through_a_dangling_symlink_creates_the_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let link = dir.path().join("keel.json");
+    std::os::unix::fs::symlink("missing.json", &link).unwrap();
+    write_atomic(&link, "new").unwrap();
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the link was replaced"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("missing.json")).unwrap(),
+        "new"
+    );
+    assert_eq!(dir_names(dir.path()), ["keel.json", "missing.json"]);
+}

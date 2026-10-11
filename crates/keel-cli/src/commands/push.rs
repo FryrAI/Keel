@@ -36,7 +36,7 @@ pub fn run(formatter: &dyn keel_output::OutputFormatter, verbose: bool, yes: boo
         }
     };
     let keel_dir = keel_core::paths::keel_dir(&cwd);
-    let graph_path = keel_dir.join("graph.db");
+    let graph_path = keel_core::paths::graph_dir(&cwd).join("graph.db");
 
     if !graph_path.exists() {
         eprintln!("error: no graph.db found. Run `keel map` first.");
@@ -225,7 +225,8 @@ fn save_project_id(keel_dir: &Path, project_id: &str) -> Result<(), String> {
     if content.ends_with('\n') {
         serialized.push('\n');
     }
-    std::fs::write(config_path, serialized).map_err(|e| format!("failed to write config: {e}"))
+    keel_core::config::write_atomic(&config_path, serialized)
+        .map_err(|e| format!("failed to write config: {e}"))
 }
 
 #[cfg(test)]

@@ -103,7 +103,9 @@ pub fn run(
         return (2, EventMetrics::default());
     }
 
-    if let Err(e) = std::fs::remove_file(keel_dir.join("last_compile.json")) {
+    if let Err(e) =
+        std::fs::remove_file(keel_core::paths::graph_dir(&cwd).join("last_compile.json"))
+    {
         if e.kind() != std::io::ErrorKind::NotFound {
             eprintln!("keel map: failed to reset delta baseline: {e}");
             return (2, EventMetrics::default());
@@ -352,8 +354,12 @@ pub fn run(
 
     if let Err(e) = store.update_nodes(node_changes) {
         eprintln!("keel map: failed to update nodes: {}", e);
+        let db = keel_core::paths::graph_dir(&cwd)
+            .join("graph.db")
+            .display()
+            .to_string();
         eprintln!(
-            "Recovery:\n  1. keel quality --export keel-quality-backup.jsonl\n  2. delete .keel/graph.db, .keel/graph.db-wal, and .keel/graph.db-shm\n  3. keel map\n  4. keel quality --import keel-quality-backup.jsonl"
+            "Recovery:\n  1. keel quality --export keel-quality-backup.jsonl\n  2. delete {db}, {db}-wal, and {db}-shm\n  3. keel map\n  4. keel quality --import keel-quality-backup.jsonl"
         );
         return (2, EventMetrics::default());
     }

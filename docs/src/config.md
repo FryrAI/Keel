@@ -104,6 +104,8 @@ After initialization, the `.keel/` directory contains:
 | `telemetry.db` | Compilation history and statistics (used by `keel stats`) |
 | `session.json` | Temporary session state (batch mode, circuit breaker state) |
 
+In a linked git worktree the graph (`graph.db`, `compile.lock`, `last_compile.json`) lives in the worktree's own git directory instead; see [CI](ci.md#linked-git-worktrees).
+
 The `graph.db`, `telemetry.db`, and `session.json` files should be added to `.gitignore` (they are environment-specific). The `keel.json` file should be committed to version control so all team members share the same enforcement settings.
 
 ## Example Configurations

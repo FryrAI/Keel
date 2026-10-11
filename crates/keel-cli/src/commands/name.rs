@@ -13,7 +13,15 @@ pub fn run(
 ) -> i32 {
     // Open graph store from the worktree-aware `.keel` location.
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let db_path = keel_core::paths::keel_dir(&cwd).join("graph.db");
+    if !keel_core::paths::keel_dir(&cwd).exists() {
+        eprintln!("keel name: not initialized. Run `keel init` first.");
+        return 2;
+    }
+    let graph_dir = match super::ensure_graph_dir("name", &cwd) {
+        Ok(dir) => dir,
+        Err(code) => return code,
+    };
+    let db_path = graph_dir.join("graph.db");
     let store = match keel_core::sqlite::SqliteGraphStore::open(db_path.to_str().unwrap_or("")) {
         Ok(s) => s,
         Err(e) => {

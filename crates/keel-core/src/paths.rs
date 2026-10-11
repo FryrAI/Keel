@@ -1,10 +1,10 @@
-//! Resolution of the `.keel` directory, shared across git worktrees.
+//! Resolution of the `.keel` directory and the graph directory.
 //!
-//! `.keel/graph.db` is gitignored, so keying it to `cwd.join(".keel")` makes
-//! every git worktree of a repo build and maintain its own full graph from
-//! scratch. [`keel_dir`] instead resolves `.keel` to the **main checkout root**,
-//! so all worktrees of a repo share one `.keel/graph.db`. Concurrent access is
-//! made safe by the SQLite `busy_timeout` configured on every connection.
+//! [`keel_dir`] resolves `.keel` to the **main checkout root**, so every git
+//! worktree of a repo shares one `keel.json`. Graph state (`graph.db`,
+//! `compile.lock`, `last_compile.json`) does not: it describes one checked-out
+//! tree, so [`graph_dir`] gives a linked worktree its own directory under its
+//! git directory.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,6 +24,21 @@ pub fn keel_dir(start: &Path) -> PathBuf {
     resolve_repo_root(start)
         .map(|root| root.join(".keel"))
         .unwrap_or_else(|| start.join(".keel"))
+}
+
+/// The directory holding the graph state of the checkout containing `start`:
+/// `graph.db` (with its `-wal`/`-shm`), `compile.lock` and `last_compile.json`.
+///
+/// A linked worktree keeps its own, `<its git dir>/keel` (for a normal layout
+/// `.git/worktrees/<name>/keel`), so worktrees on different branches never
+/// share a graph. A checkout is linked only if its `.git` file has a `gitdir:`
+/// line naming an existing directory whose `commondir` file names an existing
+/// directory. Every other case (main checkout, no git, a submodule, a pointer
+/// failing any of those tests) uses [`keel_dir`]. Nothing is created.
+pub fn graph_dir(start: &Path) -> PathBuf {
+    linked_git_dir(start)
+        .map(|git_dir| git_dir.join("keel"))
+        .unwrap_or_else(|| keel_dir(start))
 }
 
 /// Render `path` as a normalized project-root-relative graph path.
@@ -151,29 +166,37 @@ fn is_git_entry(path: &Path) -> bool {
     }
 }
 
+/// The `gitdir:` target of a `.git` pointer file (`.git/worktrees/<name>` for
+/// a linked worktree): absolute by default; if relative it is relative to the
+/// dir holding the `.git` file. Not checked for existence.
+fn pointer_target(git_file: &Path) -> Option<PathBuf> {
+    let content = fs::read_to_string(git_file).ok()?;
+    let value = content.lines().find_map(|l| l.strip_prefix("gitdir:"))?;
+    Some(git_file.parent()?.join(value.trim()))
+}
+
+/// The shared git dir named by `<gitdir>/commondir` (usually `../..`).
+fn common_dir_of(gitdir: &Path) -> Option<PathBuf> {
+    let common_rel = fs::read_to_string(gitdir.join("commondir")).ok()?;
+    Some(gitdir.join(common_rel.trim()))
+}
+
+/// The git directory of the linked worktree containing `start`, when its
+/// `.git` pointer resolves completely (see [`graph_dir`]).
+fn linked_git_dir(start: &Path) -> Option<PathBuf> {
+    let (_, git_path) = find_dot_git(start)?;
+    if !git_path.is_file() {
+        return None;
+    }
+    let gitdir = pointer_target(&git_path)?;
+    common_dir_of(&gitdir).filter(|c| c.is_dir())?;
+    Some(gitdir)
+}
+
 /// Given a worktree's `.git` file, resolve the main checkout root via its
 /// `gitdir:` pointer and the shared git dir's `commondir` file.
 fn main_root_from_worktree(git_file: &Path) -> Option<PathBuf> {
-    let content = fs::read_to_string(git_file).ok()?;
-    let gitdir_value = content.lines().find_map(|l| l.strip_prefix("gitdir:"))?;
-
-    // `.git/worktrees/<name>` for this worktree (absolute by default; if
-    // relative it is relative to the dir holding the `.git` file).
-    let raw = PathBuf::from(gitdir_value.trim());
-    let gitdir = if raw.is_absolute() {
-        raw
-    } else {
-        git_file.parent()?.join(raw)
-    };
-
-    // `commondir` points at the shared `.git` dir (usually `../..`).
-    let common_rel = fs::read_to_string(gitdir.join("commondir")).ok()?;
-    let common_rel = common_rel.trim();
-    let common_git = if Path::new(common_rel).is_absolute() {
-        PathBuf::from(common_rel)
-    } else {
-        gitdir.join(common_rel)
-    };
+    let common_git = common_dir_of(&pointer_target(git_file)?)?;
 
     // Collapse `..` segments; the shared `.git` dir's parent is the main root.
     let common_git = canonicalize_portable(&common_git).unwrap_or(common_git);

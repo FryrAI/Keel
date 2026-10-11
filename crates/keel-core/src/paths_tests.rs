@@ -1,6 +1,6 @@
 //! Tests for `.keel` directory resolution (issue #29 — worktree-aware graph).
 
-use super::{confine, keel_dir, make_relative, worktree_root};
+use super::{confine, graph_dir, keel_dir, make_relative, worktree_root};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
@@ -55,7 +55,8 @@ fn no_git_falls_back_to_cwd_keel() {
 }
 
 /// (b) A linked worktree resolves `.keel` to the MAIN checkout, so every
-/// worktree of the repo shares one `.keel/graph.db`.
+/// worktree of the repo shares one `keel.json` (but not the graph: see
+/// `graph_dir`).
 #[test]
 fn linked_worktree_resolves_to_main_checkout_keel() {
     let dir = TempDir::new().unwrap();
@@ -80,8 +81,87 @@ fn linked_worktree_resolves_to_main_checkout_keel() {
     assert_eq!(
         resolved.parent().unwrap(),
         super::canonicalize_portable(&main).unwrap(),
-        "worktree must share the main checkout's .keel",
+        "worktree must share the main checkout's .keel (config, not the graph)",
     );
+    let admin = admin_dir(&wt);
+    assert_eq!(graph_dir(&wt), admin.join("keel"));
+    assert!(admin.starts_with(
+        super::canonicalize_portable(&main)
+            .unwrap()
+            .join(".git/worktrees")
+    ));
+}
+
+/// The worktree's own git directory, as the `.git` pointer names it.
+fn admin_dir(wt: &Path) -> PathBuf {
+    let pointer = std::fs::read_to_string(wt.join(".git")).unwrap();
+    PathBuf::from(pointer.trim().strip_prefix("gitdir:").unwrap().trim())
+}
+
+/// A repository with one commit and a linked worktree `wt`: `(main, wt)`.
+fn main_with_worktree(dir: &Path) -> (PathBuf, PathBuf) {
+    let (main, wt) = (dir.join("main"), dir.join("wt"));
+    std::fs::create_dir_all(&main).unwrap();
+    git(&["init"], &main);
+    git(&["config", "user.email", "test@test.com"], &main);
+    git(&["config", "user.name", "Test"], &main);
+    std::fs::write(main.join("f.txt"), "hi").unwrap();
+    git(&["add", "."], &main);
+    git(&["commit", "-m", "init"], &main);
+    git(&["worktree", "add", wt.to_str().unwrap()], &main);
+    (main, wt)
+}
+
+/// R1: a main checkout, a plain directory and a subdirectory of a linked
+/// worktree each resolve `graph_dir` as documented.
+#[test]
+fn graph_dir_is_keel_dir_except_in_a_complete_linked_worktree() {
+    let dir = TempDir::new().unwrap();
+    let (main, wt) = main_with_worktree(dir.path());
+    assert_eq!(graph_dir(&main), keel_dir(&main));
+    let plain = dir.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    assert_eq!(graph_dir(&plain), plain.join(".keel"));
+    let sub = wt.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    assert_eq!(graph_dir(&sub), admin_dir(&wt).join("keel"));
+    assert_ne!(graph_dir(&wt), keel_dir(&wt));
+}
+
+/// R1 precedence: a relative `gitdir:` pointer resolves against the `.git`
+/// file's directory.
+#[test]
+fn graph_dir_resolves_a_relative_pointer() {
+    let dir = TempDir::new().unwrap();
+    let (_, wt) = main_with_worktree(dir.path());
+    let name = admin_dir(&wt).file_name().unwrap().to_owned();
+    let relative = Path::new("../main/.git/worktrees").join(&name);
+    std::fs::write(wt.join(".git"), format!("gitdir: {}\n", relative.display())).unwrap();
+    assert_eq!(graph_dir(&wt), wt.join(relative).join("keel"));
+}
+
+/// R1 precedence: each failing test of the pointer falls back to `keel_dir`:
+/// a missing `gitdir:` target, a missing `commondir` file, a `commondir`
+/// naming no directory, and a submodule-style git dir without `commondir`.
+#[test]
+fn graph_dir_falls_back_to_keel_dir_for_every_incomplete_pointer() {
+    let dir = TempDir::new().unwrap();
+    let (_, wt) = main_with_worktree(dir.path());
+    let admin = admin_dir(&wt);
+    let pointer = std::fs::read_to_string(wt.join(".git")).unwrap();
+
+    std::fs::write(wt.join(".git"), "gitdir: /no/such/git/dir\n").unwrap();
+    assert_eq!(graph_dir(&wt), keel_dir(&wt), "gitdir target missing");
+    std::fs::write(wt.join(".git"), &pointer).unwrap();
+    assert_ne!(graph_dir(&wt), keel_dir(&wt), "fixture: restored pointer");
+
+    let commondir = std::fs::read_to_string(admin.join("commondir")).unwrap();
+    std::fs::write(admin.join("commondir"), "../missing-common\n").unwrap();
+    assert_eq!(graph_dir(&wt), keel_dir(&wt), "commondir target missing");
+    std::fs::remove_file(admin.join("commondir")).unwrap();
+    assert_eq!(graph_dir(&wt), keel_dir(&wt), "no commondir (submodule)");
+    std::fs::write(admin.join("commondir"), commondir).unwrap();
+    assert_eq!(graph_dir(&wt), admin.join("keel"), "fixture: restored");
 }
 
 /// `worktree_root` is the nearest `.git`-holding ancestor: the repo root for a

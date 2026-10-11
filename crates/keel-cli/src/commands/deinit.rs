@@ -12,13 +12,19 @@ pub fn run(_formatter: &dyn OutputFormatter, _verbose: bool) -> i32 {
         }
     };
 
-    let keel_dir = keel_core::paths::keel_dir(&cwd);
-    if !keel_dir.exists() {
+    // A linked worktree owns only its graph directory; `.keel` is the main
+    // checkout's and stays. Elsewhere the graph lives in `.keel` itself.
+    let target = keel_core::paths::graph_dir(&cwd);
+    if !keel_core::paths::keel_dir(&cwd).exists() && !target.exists() {
         eprintln!("keel deinit: no .keel/ directory found — nothing to remove");
         return 0;
     }
+    if !target.exists() {
+        eprintln!("keel deinit: no graph directory found — nothing to remove");
+        return 0;
+    }
 
-    let _lock = match keel_core::graph_lock::acquire(&keel_dir, std::time::Duration::from_secs(2)) {
+    let _lock = match keel_core::graph_lock::acquire(&target, std::time::Duration::from_secs(2)) {
         Ok(lock) => Some(lock),
         Err(keel_core::graph_lock::GraphLockError::Busy) => {
             eprintln!("keel deinit: another keel process holds the graph lock, refusing");
@@ -30,13 +36,13 @@ pub fn run(_formatter: &dyn OutputFormatter, _verbose: bool) -> i32 {
         }
     };
 
-    match fs::remove_dir_all(&keel_dir) {
+    match fs::remove_dir_all(&target) {
         Ok(_) => {
-            eprintln!("keel deinit: removed {}", keel_dir.display());
+            eprintln!("keel deinit: removed {}", target.display());
             0
         }
         Err(e) => {
-            eprintln!("keel deinit: failed to remove .keel/: {}", e);
+            eprintln!("keel deinit: failed to remove {}: {}", target.display(), e);
             2
         }
     }

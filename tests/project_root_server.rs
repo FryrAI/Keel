@@ -1,4 +1,4 @@
-//! Real stdio and server roots must stay in a linked worktree, with shared storage.
+//! Real stdio and server roots must stay in a linked worktree, with a graph of its own.
 
 #[path = "common/mod.rs"]
 mod common;
@@ -62,6 +62,8 @@ fn linked_fixture() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBu
             worktree.to_str().unwrap(),
         ],
     );
+    // A linked worktree has no graph until it is mapped (one graph per worktree).
+    assert!(keel(&worktree, &["map"]).status.success());
     fs::write(main.join("src/a.rs"), "pub fn main_only() {}\n").unwrap();
     fs::write(
         worktree.join("src/b.rs"),
@@ -101,14 +103,38 @@ fn linked_worktree_mcp_reads_its_checkpoint_skeleton_and_compile() {
     );
     assert_eq!(keel_core::paths::keel_dir(&subdir), main.join(".keel"));
     assert!(!worktree.join(".keel/graph.db").exists());
+    let graph = keel_core::paths::graph_dir(&subdir);
+    assert_ne!(graph, main.join(".keel"));
+    assert!(graph.join("graph.db").is_file());
 
     let server =
-        keel_server::KeelServer::open(main.join(".keel/graph.db").to_str().unwrap(), subdir)
-            .unwrap();
+        keel_server::KeelServer::open(graph.join("graph.db").to_str().unwrap(), subdir).unwrap();
     assert_eq!(
         server.root_dir,
         keel_core::paths::canonicalize_portable(&worktree).unwrap()
     );
+}
+
+/// The MCP engine in a linked worktree takes its rules from the main checkout's
+/// `keel.json`, not from the directory its own graph lives in.
+#[test]
+fn linked_worktree_mcp_obeys_the_main_checkouts_config() {
+    let (_dir, main, worktree) = linked_fixture();
+    let missing_doc = |value: &Value| {
+        value["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["code"] == "E003" && v["file"] == "src/b.rs")
+    };
+    let args = json!({"files":["src/b.rs"]});
+    assert!(missing_doc(&mcp(&worktree, "keel/compile", args.clone())));
+    let config = main.join(".keel/keel.json");
+    let text = fs::read_to_string(&config).unwrap();
+    let edited = text.replace("\"docstrings\": true", "\"docstrings\": false");
+    assert_ne!(edited, text, "fixture: keel.json has no docstrings rule");
+    fs::write(config, edited).unwrap();
+    assert!(!missing_doc(&mcp(&worktree, "keel/compile", args)));
 }
 
 #[cfg(unix)]
@@ -163,8 +189,8 @@ async fn linked_worktree_http_and_watcher_use_root_relative_graph_paths() {
     use keel_server::watcher::{apply_batch, WatchBatch};
     use tower::ServiceExt;
 
-    let (_dir, main, worktree) = linked_fixture();
-    let db = main.join(".keel/graph.db");
+    let (_dir, _main, worktree) = linked_fixture();
+    let db = keel_core::paths::graph_dir(&worktree).join("graph.db");
     let server = keel_server::KeelServer::open(db.to_str().unwrap(), worktree.join("src")).unwrap();
     let app = keel_server::http::router(server.engine.clone(), worktree.join("src"));
     let response = app
@@ -228,7 +254,7 @@ async fn aliased_checkout_http_compile_and_mcp_skeleton_are_confined() {
     let subalias = dir.path().join("subalias");
     std::os::unix::fs::symlink(&worktree, &alias).unwrap();
     std::os::unix::fs::symlink(worktree.join("src"), &subalias).unwrap();
-    let db = main.join(".keel/graph.db");
+    let db = keel_core::paths::graph_dir(&worktree).join("graph.db");
     for start in [&alias, &subalias] {
         let server = keel_server::KeelServer::open(db.to_str().unwrap(), start.clone()).unwrap();
         assert_eq!(

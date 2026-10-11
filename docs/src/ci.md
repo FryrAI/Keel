@@ -157,6 +157,16 @@ the next post-edit hook's findings. A full `keel map` deletes the snapshot; the
 next delta compile reports its full results and establishes a new baseline.
 Repeating the same delta compile then reports only changes from that baseline.
 
+## Linked git worktrees
+
+A linked worktree (`git worktree add`) keeps its own graph, lock and delta baseline in
+its git directory (`.git/worktrees/<name>/keel`), not in `.keel/`. Worktrees sit on
+different branches, so they never share a graph. `keel.json`, `telemetry.db` and the
+hook-script fallback still come from the main checkout's `.keel/`. A new worktree has no
+graph: `keel compile` refuses there until `keel map` has run once in it. `keel deinit`
+in a worktree removes only that worktree's graph. The graph is deleted with the worktree
+by `git worktree remove`.
+
 ## One sticky comment
 
 In review mode the action keeps a single comment on the PR, found by a hidden HTML

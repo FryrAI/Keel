@@ -67,7 +67,7 @@ pub fn keel_bin() -> PathBuf {
     let mut path = std::env::current_exe().unwrap();
     path.pop(); // remove test binary name
     path.pop(); // remove 'deps'
-    path.push("keel");
+    path.push(format!("keel{}", std::env::consts::EXE_SUFFIX));
     if path.exists() {
         return path;
     }
@@ -76,7 +76,9 @@ pub fn keel_bin() -> PathBuf {
     // which builds tests into target/llvm-cov-target/ while the pre-built
     // binary lives in target/debug/)
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fallback = workspace.join("target/debug/keel");
+    let fallback = workspace
+        .join("target/debug")
+        .join(format!("keel{}", std::env::consts::EXE_SUFFIX));
     if fallback.exists() {
         return fallback;
     }

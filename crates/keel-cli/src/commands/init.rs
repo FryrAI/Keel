@@ -73,6 +73,12 @@ pub fn run(
         return 2;
     }
 
+    // The graph directory first: when it cannot be created nothing else is written.
+    let graph_dir = keel_core::paths::graph_dir(&cwd);
+    if let Err(code) = super::create_graph_dir("init", &graph_dir) {
+        return code;
+    }
+
     // Create .keel directory structure
     if let Err(e) = fs::create_dir_all(keel_dir.join("cache")) {
         eprintln!("keel init: failed to create .keel/cache: {}", e);
@@ -173,11 +179,11 @@ pub fn run(
     };
 
     let config_path = keel_dir.join("keel.json");
-    let db_path = keel_dir.join("graph.db");
+    let db_path = graph_dir.join("graph.db");
     // Prompts above and hook/config generation below must never hold the graph
     // lock. Only config read/write, schema opening, and breaker reset need it.
     {
-        let _lock = match super::writer_lock::acquire("init", &keel_dir) {
+        let _lock = match super::writer_lock::acquire("init", &graph_dir) {
             Ok(lock) => lock,
             Err(code) => return code,
         };
@@ -215,7 +221,7 @@ pub fn run(
             if existing_json.ends_with('\n') {
                 json.push('\n');
             }
-            match fs::write(&config_path, json) {
+            match keel_core::config::write_atomic(&config_path, json) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("keel init: failed to write merged config: {}", e);
@@ -234,7 +240,10 @@ pub fn run(
                 telemetry_id: Some(generate_telemetry_id(&cwd)),
                 ..KeelConfig::default()
             };
-            match fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()) {
+            match keel_core::config::write_atomic(
+                &config_path,
+                serde_json::to_string_pretty(&config).unwrap(),
+            ) {
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("keel init: failed to write config: {}", e);
@@ -327,10 +336,13 @@ pub fn run(
         file_count
     );
 
-    // When run from a linked git worktree, `.keel` is shared with the main
-    // checkout rather than living under the worktree — make that explicit.
+    // When run from a linked git worktree, `.keel` (config) is shared with the
+    // main checkout while the graph is the worktree's own — make that explicit.
     if keel_dir.parent() != Some(cwd.as_path()) {
-        eprintln!("  shared graph location: {}", keel_dir.display());
+        eprintln!("  shared config location: {}", keel_dir.display());
+    }
+    if graph_dir != keel_dir {
+        eprintln!("  graph location: {}", graph_dir.display());
     }
 
     if monorepo_config.enabled {

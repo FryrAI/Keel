@@ -151,9 +151,20 @@ cargo test                    # All unit tests
 ### Graph Paths Belong to the Project Root
 Compile, file queries and audit resolve graph paths from the current worktree's
 project root. A full `keel map` always walks that entire root, even from a package
-subdirectory, because it replaces the shared graph. Directory aliases resolve to
+subdirectory, because it replaces the checkout's graph. Directory aliases resolve to
 canonical parents; source symlink leaves retain their own identity. `keel init`
 keeps tool detection, agent documents, ignore files and hooks local to its cwd.
+
+`keel_core::paths::graph_dir` is where graph state lives: `graph.db` (+ `-wal`/`-shm`),
+`compile.lock`, `last_compile.json`. A LINKED worktree (its `.git` file's `gitdir:`
+target is a directory whose `commondir` names a directory) gets `<its git dir>/keel`;
+every other case, submodules and broken pointers included, gets `keel_dir`. `keel.json`,
+`telemetry.db`, `cache/`, the hook fallback and the initialised test stay on `keel_dir`
+(the main checkout's `.keel`). `commands::ensure_graph_dir` creates the directory for
+every opener, readers too, unless `.keel` is absent (no command creates it); a failure is
+one stderr line naming the path, exit 2. A linked worktree without a graph is never
+mapped (`keel map` there). `keel deinit` there deletes only its `graph_dir`, `.keel` or not.
+Every `keel.json` writer uses `config::write_atomic` (exclusive temp file + rename).
 
 `keel hook` runs the script of the nearest directory from the cwd up to the worktree
 root that holds `.keel/hooks/<name>.sh` (with that directory as its cwd), and falls
@@ -162,8 +173,9 @@ Capture its name and arguments as one trailing clap positional: splitting them
 lets global flags consume script arguments before trailing capture starts.
 
 ### Every Disk-Backed Graph Writer Shares the Graph Lock
-`keel-core::graph_lock` holds an OS lock on an open `.keel/compile.lock` handle
-(`File::try_lock`: flock on Unix, LockFileEx on Windows). The kernel releases it
+`keel-core::graph_lock` holds an OS lock on an open `compile.lock` handle in `graph_dir`
+(a linked worktree's own: worktrees never wait for each other) via `File::try_lock`
+(flock on Unix, LockFileEx on Windows). The kernel releases it
 on drop or process death. The persistent file's PID is diagnostic only; never
 interpret it as ownership or delete the file during normal graph operations.
 Windows prevents reading the diagnostic PID through a second handle while
@@ -200,7 +212,7 @@ not reliably exclude one another; upgrade every writer.
 A first open migrating an old schema concurrently with map has the same
 pre-existing migration race as any nominal reader.
 Network-filesystem lock semantics are not guaranteed. Deinit deletes the lock
-with `.keel`; an already-open waiter can acquire an orphaned inode after deletion.
+with its graph dir; an already-open waiter can acquire an orphaned inode after deletion.
 
 ### A Working-Tree Compile Brings the Graph to HEAD
 `last_map_commit` names the graph's baseline plus compiled working-tree edits; only map and completed re-syncs
@@ -236,7 +248,7 @@ discover` and W009's stored-boundary baseline.
 ### Expression Homes Use a Git Base, Not the Graph
 W011 (or E007 with `enforce.homes: "error"`) compares source lines to one resolved Git commit:
 `compile` uses HEAD or `--since`; `review` uses `--base`. A fresh map must never grandfather a PR's own
-additions, and a shared worktree graph must never re-baseline another branch, so there is no graph baseline.
+additions, and a graph mapped elsewhere must never re-baseline them: no graph baseline.
 Patterns are case-sensitive substrings or `{"regex": "…"}` line-local regexes; invalid, empty, and
 empty-string-matching regexes skip their rule and are refused by `keel config homes` writes.
 Matches include strings (including Python docstrings). Tree-sitter comments and hash-bang lines are deleted

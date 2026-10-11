@@ -271,6 +271,76 @@ impl Default for KeelConfig {
     }
 }
 
+/// Follow the symlink chain at `path` to the entry that holds the content (a
+/// dangling link resolves to the path it points at).
+fn resolve_links(path: &Path) -> std::io::Result<std::path::PathBuf> {
+    let mut resolved = path.to_path_buf();
+    for _ in 0..40 {
+        if !std::fs::symlink_metadata(&resolved).is_ok_and(|m| m.is_symlink()) {
+            return Ok(resolved);
+        }
+        let target = std::fs::read_link(&resolved)?;
+        resolved = resolved.parent().unwrap_or(Path::new("")).join(target);
+    }
+    Err(std::io::Error::other("too many levels of symbolic links"))
+}
+
+/// Publish `contents` as the file `path` atomically: write a temporary file in
+/// the same directory, then rename it over `path`, so a reader sees the old
+/// content or the new, never a truncated file.
+///
+/// The temporary file is created exclusively as `.<name>.<pid>.<n>.tmp` (n from a
+/// process-wide counter; the next n is tried when the name is taken, at most 16
+/// times), so an existing entry is never opened, followed or removed. It takes the
+/// destination's permissions. An existing destination is first opened for
+/// writing (no truncation, no creation) before any temporary file is created; if
+/// that open fails its error is returned unchanged, so the refusal is decided by
+/// what the caller may write, as an in-place write would be. A symlink destination is
+/// published beside its target and stays a link. On any error the temporary file
+/// is removed and the error returned.
+pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    let path = resolve_links(path)?;
+    let permissions = std::fs::metadata(&path).ok().map(|m| m.permissions());
+    if permissions.is_some() {
+        std::fs::OpenOptions::new().write(true).open(&path)?;
+    }
+    let mut attempt = 0;
+    let (tmp, mut file) = loop {
+        let mut name = std::ffi::OsString::from(".");
+        name.push(path.file_name().unwrap_or_default());
+        name.push(format!(
+            ".{}.{}.tmp",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let tmp = path.with_file_name(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => break (tmp, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt < 15 => attempt += 1,
+            Err(e) => return Err(e),
+        }
+    };
+    let result = file
+        .write_all(contents.as_ref())
+        .and_then(|()| match permissions {
+            Some(p) => file.set_permissions(p),
+            None => Ok(()),
+        })
+        .and_then(|()| std::fs::rename(&tmp, &path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 impl KeelConfig {
     /// Load configuration from `.keel/keel.json` inside the given keel directory.
     /// Returns defaults if the file doesn't exist or can't be parsed.
@@ -317,7 +387,7 @@ impl KeelConfig {
         if content.ends_with('\n') {
             json.push('\n');
         }
-        std::fs::write(&config_path, json).map_err(|e| e.to_string())
+        write_atomic(&config_path, json).map_err(|e| e.to_string())
     }
 }
 

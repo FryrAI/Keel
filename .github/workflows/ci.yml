@@ -29,6 +29,20 @@ jobs:
       - name: Hook scripts start through a POSIX shell on PATH
         run: cargo test -p keel-cli --test hook_windows
 
+  windows-worktree-graph:
+    name: Windows worktree graph
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the binary the integration tests drive
+        run: cargo build -p keel-cli
+      - name: Graph directory resolution and atomic config writes
+        # Only the graph-directory tests of `paths::`: five older tests there use POSIX absolute paths.
+        run: 'cargo test -p keel-core --lib -- paths::tests::graph_dir config::'
+      - name: A graph per linked worktree
+        run: cargo test -p keel-tests --test graph_per_worktree --test graph_per_worktree_layouts --test graph_per_worktree_locks
+
   check:
     name: Check
     runs-on: ubuntu-latest
