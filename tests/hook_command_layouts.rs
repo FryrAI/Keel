@@ -124,7 +124,9 @@ fn hook_finds_scripts_installed_in_a_package_subdirectory() {
 fn hook_runs_the_nearest_ancestor_script_in_its_own_directory() {
     let (_dir, pkg, sub) = mono_repo();
     write_script(&pkg.join(".keel/hooks/post-edit.sh"), REPORTING_STUB);
-    let out = run(&sub, &["hook", "post-edit"], b"");
+    // An absolute file of the same checkout changes nothing.
+    let stdin = payload(&sub.join("alpha.py"));
+    let out = run(&sub, &["hook", "post-edit"], stdin.as_bytes());
     assert_eq!(out.status.code(), Some(7), "{}", stderr_of(&out));
     assert!(
         stdout_of(&out).contains(&format!("cwd={}", pkg.display())),
@@ -459,6 +461,14 @@ fn hook_post_edit_stays_in_the_cwd_checkout_for_a_file_in_a_directory_keel_does_
         "no notice without a re-route; stderr={:?}",
         stderr_of(&out)
     );
+
+    // A bare `.keel` (keel's user-level directory in a home) is not a project.
+    let home = parent.join("home");
+    fs::create_dir_all(home.join(".keel")).unwrap();
+    let file = home.join("notes.py");
+    fs::write(&file, TYPED).unwrap();
+    let stdin = payload(&file);
+    assert_stub_ran_in(&post_edit(&a, stdin.as_bytes()), &a, &stdin);
 }
 
 #[test]

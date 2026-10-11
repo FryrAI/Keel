@@ -168,6 +168,7 @@ fn hook_post_edit_runs_the_sessions_script_in_another_initialised_repository() {
     let b = repo_named(tmp.path(), "bravo");
     write_stub(&a, "a", 7);
     write_stub(&b, "b", 9);
+    fs::write(b.join(".keel").join("keel.json"), "{}").unwrap();
     let file = b.join("alpha.py");
     fs::write(&file, "x = 1\n").unwrap();
     let payload = serde_json::json!({"tool_input": {"file_path": file}}).to_string();

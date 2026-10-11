@@ -20,6 +20,12 @@ pub fn run(name: &str, args: &[OsString]) -> i32 {
         }
     };
     let root = keel_core::paths::project_root(&cwd);
+    let (script, dir) = hook_script(&cwd, &root, name);
+    if !script.try_exists().unwrap_or(true) {
+        let local = root.join(".keel").join(format!("hooks/{name}.sh"));
+        eprintln!("keel hook: script not found: {}", local.display());
+        return 1;
+    }
     let payload = if name == "post-edit" {
         let mut bytes = Vec::new();
         if let Err(e) = io::stdin().read_to_end(&mut bytes) {
@@ -33,12 +39,6 @@ pub fn run(name: &str, args: &[OsString]) -> i32 {
     let edited_root = payload
         .as_deref()
         .and_then(|bytes| edited_checkout(bytes, &root));
-    let (script, dir) = hook_script(&cwd, &root, name);
-    if !script.try_exists().unwrap_or(true) {
-        let local = root.join(".keel").join(format!("hooks/{name}.sh"));
-        eprintln!("keel hook: script not found: {}", local.display());
-        return 1;
-    }
     // Hook scripts are tracked files: editing a freshly cloned repository must
     // not execute its script. Only the working directory comes from the payload.
     match run_script(
@@ -46,6 +46,7 @@ pub fn run(name: &str, args: &[OsString]) -> i32 {
         edited_root.as_deref().unwrap_or(&dir),
         args,
         payload.as_deref(),
+        edited_root.is_some(),
     ) {
         Ok(status) => {
             let code = status.code().unwrap_or_else(|| {
@@ -74,8 +75,11 @@ fn edited_checkout(payload: &[u8], root: &Path) -> Option<PathBuf> {
     let parent = keel_core::paths::canonicalize_portable(file.parent()?).ok()?;
     let edited_root = keel_core::paths::project_root(&parent);
     let root = keel_core::paths::canonicalize_portable(root).ok()?;
-    (edited_root != root && keel_core::paths::keel_dir(&edited_root).exists())
-        .then_some(edited_root)
+    // `keel.json`, not a bare `.keel`: keel's user-level state lives in `~/.keel`.
+    let initialised = keel_core::paths::keel_dir(&edited_root)
+        .join("keel.json")
+        .exists();
+    (edited_root != root && initialised).then_some(edited_root)
 }
 
 fn hook_script(cwd: &Path, root: &Path, name: &str) -> (PathBuf, PathBuf) {
@@ -108,6 +112,7 @@ fn run_script(
     dir: &Path,
     args: &[OsString],
     payload: Option<&[u8]>,
+    other_checkout: bool,
 ) -> io::Result<ExitStatus> {
     // On Windows, `sh` resolves through PATH; a bare `bash` finds the WSL launcher.
     // Let `sh` exec the script so its shebang selects the interpreter.
@@ -120,6 +125,13 @@ fn run_script(
     #[cfg(not(windows))]
     let mut command = Command::new(script);
     command.args(args).current_dir(dir);
+    // A relative `PATH` entry would resolve to files of the other checkout.
+    if let Some(path) = std::env::var_os("PATH").filter(|_| other_checkout) {
+        let absolute = std::env::split_paths(&path).filter(|entry| entry.is_absolute());
+        if let Ok(path) = std::env::join_paths(absolute) {
+            command.env("PATH", path);
+        }
+    }
     if let Some(bytes) = payload {
         let mut child = command.stdin(Stdio::piped()).spawn()?;
         if let Err(e) = child.stdin.take().expect("piped stdin").write_all(bytes) {

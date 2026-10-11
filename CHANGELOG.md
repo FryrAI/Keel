@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - An edit made while another keel process held the graph lock passed the post-edit hook as checked; the hook now exits 2 and names the unchecked file. Existing projects get the script with `keel init --update-docs`.
-- An edit to a file in another checkout than the session's cwd (another clone or a linked worktree) was skipped as "outside the repository" and never checked; `keel hook post-edit` now checks it in its own checkout.
+- An edit to a file in another checkout than the session's cwd (another clone or a linked worktree) was skipped as "outside the repository" and never checked; `keel hook post-edit` now checks it in its own checkout (one that holds `.keel/keel.json`). A linked worktree that was never mapped therefore answers with the refusal naming it, instead of being skipped or judged by the main checkout's graph.
 
 ## [0.7.2] - 2026-10-11
 
