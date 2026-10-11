@@ -413,8 +413,8 @@ Low-confidence call edges (trait dispatch, interface methods) produce **WARNING 
 - JavaScript: requires JSDoc `@param` and `@returns`.
 
 ### Progressive Adoption
-- New/modified code: ERROR
-- Pre-existing code: WARNING (configurable escalation)
+- E002/E003: unchanged vs Git HEAD (`compile --since`: ref) = WARNING; new/edited = ERROR. Indexed renames use the old path.
+- No commit: graph fallback; unreadable base never downgrades. CLI compile/checkpoint, serve/watch, MCP compile/checkpoint/fix; CLI fix keeps graph.
 
 ## Related Documents
 

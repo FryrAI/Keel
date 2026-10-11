@@ -34,7 +34,7 @@ The main configuration file. All fields have sensible defaults -- you only need 
 | `enforce.type_hints` | `bool` | `true` | Enforce type annotations. When true, functions without type hints produce E002 errors. Applies primarily to Python (which requires explicit annotations) and JavaScript (which requires JSDoc `@param`/`@returns`). TypeScript, Go, and Rust are already statically typed. |
 | `enforce.docstrings` | `bool` | `true` | Enforce documentation. When true, public functions without docstrings produce E003 errors. |
 | `enforce.placement` | `bool` | `true` | Enforce structural placement. When true, functions placed in modules where they don't belong produce W001 warnings. |
-| `enforce.progressive` | `bool` | `true` | Progressive adoption. When true, E002/E003 on pre-existing functions the current change didn't touch are downgraded to WARNING instead of ERROR, so adopting keel on a legacy repo doesn't flood errors. |
+| `enforce.progressive` | `bool` | `true` | Progressive adoption. E002/E003 on functions unchanged against `HEAD` (the supplied ref under `compile --since`) become WARNING. Uncommitted new or edited code is ERROR; without a Git commit, the graph baseline applies silently. |
 | `enforce.dead_code` | `bool` | `true` | Enforce liveness. When true, private functions with no callers anywhere in the graph produce W005 warnings. |
 | `enforce.duplication` | `bool` | `true` | Enforce non-duplication. When true, function bodies identical (whitespace-normalized, Type-1) or structurally identical after identifier/literal normalization (Type-2, lower confidence) to a function elsewhere in the graph produce W006 warnings. |
 | `enforce.oversized_files` | `bool` | `true` | Enforce file size budgets. When true, files that exceed `enforce.max_file_lines` and grew since the last `keel map` produce W007 warnings. |
@@ -46,6 +46,20 @@ The main configuration file. All fields have sensible defaults -- you only need 
 | `architecture.count_type_deps` | `bool` | `false` | Count type-only references as cross-boundary dependencies for W009. Off by default: depending on another package's *types* is the behaviour you want, and in a workspace sharing a canonical types crate that pattern dominates. Only `calls` count unless this is enabled. |
 | `architecture.deny` | `[string, string][]` | `[]` | Ordered boundary pairs that must never depend on each other, e.g. `[["harness", "core"]]`. A dependency matching a pair is reported as E006 `layer_violation` (ERROR, exit 1) instead of W009. Empty by default — keel stays non-opinionated about which layers a repo has. |
 | `review.gate` | `string[]` | `[]` | Violation codes that make `keel review --gate` exit 1 when the diff *introduced* one, e.g. `["E003", "W007"]`. Empty by default: a new finding is a report, not a broken build, until a repo opts in per code. `--gate` without a list gates nothing, deliberately — turning the switch on in CI before agreeing the list must not fail every PR. |
+
+Progressive adoption compares each function's name and plain definition hash with
+the base file, using each base definition once. The file's own base path wins;
+an indexed rename can use its old path. Body comments, blank lines and line shifts
+keep the hash, while signature whitespace changes can escalate debt. A definition
+matches the base blob in either line-ending form (LF or CRLF).
+
+An unreadable base never downgrades: after a commit resolves, a Git read failure
+keeps the file's E002/E003 as ERROR and prints a notice on stderr. Missing source
+or an unsupported grammar also proves no pre-existing debt. CLI compile and
+checkpoint, serve/watch, and MCP compile/checkpoint/fix use this rule; CLI fix
+keeps the graph baseline. Checkpoint always judges against HEAD, even when
+`--since` selects its files. Without Git or a resolvable commit, the graph rule
+applies silently and a full map can still reset escalation.
 
 W009 itself has no toggle: it is self-baselining (everything already in the graph is grandfathered) and silent
 in repos that declare no packages, so there is nothing to turn off. Use `keel compile --suppress W009` for a

@@ -6,7 +6,7 @@ use keel_parsers::resolver::FileIndex;
 use crate::batch::is_deferrable;
 use crate::circuit_breaker::{BreakerAction, CircuitBreaker};
 use crate::definer_search_path::DefinerSearchPath;
-use crate::progressive::apply_progressive_adoption;
+use crate::progressive::{apply_progressive_adoption, GitBase};
 use crate::suppress::SuppressionManager;
 use crate::types::{CompileInfo, CompileResult, Violation};
 use crate::violations;
@@ -45,6 +45,7 @@ pub struct EnforcementEngine {
     /// Where graph paths live on disk. W013 replays SQL files from here; an
     /// engine without it leaves that check off.
     pub(crate) project_root: Option<std::path::PathBuf>,
+    progressive_base: Option<(std::path::PathBuf, String)>,
 }
 
 /// `node` brought to the freshly parsed `def` under `new_hash`: the one place
@@ -86,6 +87,7 @@ impl EnforcementEngine {
             architecture: keel_core::config::ArchitectureConfig::default(),
             packages_declared: false,
             project_root: None,
+            progressive_base: None,
         }
     }
 
@@ -103,6 +105,7 @@ impl EnforcementEngine {
             architecture: config.architecture.clone(),
             packages_declared: config.monorepo.enabled && !config.monorepo.packages.is_empty(),
             project_root: None,
+            progressive_base: None,
         }
     }
 
@@ -110,6 +113,11 @@ impl EnforcementEngine {
     /// that read files beside the compiled ones (W013).
     pub fn set_project_root(&mut self, root: &std::path::Path) {
         self.project_root = Some(root.to_path_buf());
+    }
+
+    /// Configure the Git ref used to judge pre-existing E002/E003 debt.
+    pub fn set_progressive_base(&mut self, root: &std::path::Path, rev: &str) {
+        self.progressive_base = Some((root.to_path_buf(), rev.to_string()));
     }
 
     /// Compile (validate) a set of files. Returns violations.
@@ -156,6 +164,10 @@ impl EnforcementEngine {
             BoundaryContext::new(&*self.store, &self.architecture, self.packages_declared);
         // W013 replays each SQL directory once per compile.
         let mut definer = self.project_root.as_deref().map(DefinerSearchPath::new);
+        let mut base = self
+            .progressive_base
+            .as_ref()
+            .map(|(root, rev)| GitBase::new(root, rev));
 
         for file in files {
             // Pre-fetch existing nodes once — used by E001, E004, and hash tracking
@@ -228,20 +240,25 @@ impl EnforcementEngine {
                 if !DEF_HASH_CODES.contains(&v.code.as_str()) {
                     continue;
                 }
-                if let Some(node) = existing_nodes
-                    .iter()
-                    .find(|n| n.file_path == v.file && n.line_start == v.line)
-                {
+                if let Some(node) = existing_nodes.iter().find(|n| {
+                    n.kind != keel_core::types::NodeKind::Module
+                        && n.file_path == v.file
+                        && n.line_start == v.line
+                }) {
                     v.hash = node.hash.clone();
                 }
             }
 
-            // Progressive adoption: E002/E003 on untouched functions become
-            // WARNING (gated by config). Runs before the circuit breaker so
+            // Progressive adoption uses Git, or the graph fallback without
+            // a usable commit. Runs before the circuit breaker so
             // pre-existing debt never accumulates failure counts.
             if self.enforce_config.progressive {
-                file_violations =
-                    apply_progressive_adoption(file_violations, file, &existing_nodes);
+                file_violations = apply_progressive_adoption(
+                    file_violations,
+                    file,
+                    &existing_nodes,
+                    base.as_mut(),
+                );
             }
 
             // Downgrade low-confidence violations (dynamic dispatch) to WARNING
@@ -426,8 +443,8 @@ impl EnforcementEngine {
                         hashes_changed.push(node.hash.clone());
                         nodes_updated += 1;
                         // Persist updated hash; record the old one so
-                        // "modified since last map" survives the sync (see
-                        // progressive adoption — a full map re-baselines).
+                        // "modified since last map" survives the sync for
+                        // progressive adoption's no-Git graph fallback.
                         let mut updated_node = refreshed_node(node, def, target_hash);
                         updated_node.previous_hashes.push(node.hash.clone());
                         node_changes.push(keel_core::types::NodeChange::Update(updated_node));

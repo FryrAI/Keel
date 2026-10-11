@@ -345,6 +345,16 @@ pub fn changed_paths(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String>
     )
 }
 
+/// List indexed changes against `base`, retaining staged rename sources.
+pub fn changed_paths_staged(dir: &Path, base: &str) -> Result<Vec<ChangedPath>, String> {
+    name_status_paths(
+        dir,
+        &["diff", "--cached", "--name-status", "-z", "-M", base],
+        base,
+        true,
+    )
+}
+
 /// Like [`changed_paths`], but between two revisions: `git diff --name-status
 /// -z -M <base> <head>`. Parsing and ignore handling are identical; the
 /// ignore rules are those of the current checkout, as the walker applies them.
