@@ -1,5 +1,6 @@
 //! `keel hook` script lookup in nested project layouts, `init --merge`
-//! migration, and unreadable hook directories.
+//! migration, unreadable hook directories, and the checkout in which
+//! `post-edit` checks a file edited outside the session's own.
 #![cfg(unix)]
 
 #[path = "common/mod.rs"]
@@ -51,8 +52,12 @@ fn write_script(path: &Path, body: &str) {
     common::write_executable(path, body);
 }
 
+/// A stub hook that reports its cwd, its arguments and its stdin on stdout,
+/// then exits 7. Mirrors `tests/hook_command.rs`.
 const REPORTING_STUB: &str = "#!/bin/sh\n\
     printf 'cwd=%s\\n' \"$(pwd -P)\"\n\
+    printf 'args='; for a in \"$@\"; do printf '[%s]' \"$a\"; done; printf '\\n'\n\
+    printf 'stdin='; cat\n\
     exit 7\n";
 
 fn commands_in(value: &Value, out: &mut Vec<String>) {
@@ -224,4 +229,299 @@ fn hook_with_an_unreadable_local_hooks_dir_fails_instead_of_using_main() {
     }
     assert_eq!(out.status.code(), Some(1), "{}", stderr_of(&out));
     assert!(!stdout_of(&out).contains("from=main-checkout"));
+}
+
+// The tests below pin where `keel hook post-edit` checks a file that lies in
+// another checkout than the session's cwd.
+
+/// Whether `tool` is on `PATH`; the real `post-edit.sh` needs `bash` and `jq`.
+/// Mirrors `tests/hook_command.rs`.
+fn have(tool: &str) -> bool {
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("command -v {tool}"))
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+const UNTYPED: &str = "def widget(x): return x\n";
+const TYPED: &str = "def gadget(x: int) -> int:\n    \"\"\"Return x.\"\"\"\n    return x\n";
+
+/// A stub hook that must never run: it leaves `marker` behind and exits 9.
+fn marker_stub(marker: &Path) -> String {
+    format!("#!/bin/sh\ntouch '{}'\nexit 9\n", marker.display())
+}
+
+/// The payload an editor sends for an edit of `file`.
+fn payload(file: &Path) -> String {
+    json!({"tool_input": {"file_path": file}}).to_string()
+}
+
+/// A python file `name` under `root/sub/deep`.
+fn add_file(root: &Path, name: &str, body: &str) -> PathBuf {
+    let file = root.join("sub/deep").join(name);
+    fs::write(&file, body).unwrap();
+    file
+}
+
+/// A git repository `<parent>/<name>` holding `.claude/` and one clean file,
+/// with `keel init --yes` run. `parent` must be canonical; returns the root.
+fn initialised_repo(parent: &Path, name: &str) -> PathBuf {
+    let root = parent.join(name);
+    fs::create_dir_all(root.join("sub/deep")).unwrap();
+    git(&root, &["init", "-q"]);
+    fs::create_dir_all(root.join(".claude")).unwrap();
+    add_file(&root, "alpha.py", TYPED);
+    let init = run(&root, &["init", "--yes"], b"");
+    assert!(init.status.success(), "init failed: {}", stderr_of(&init));
+    root
+}
+
+/// `initialised_repo` carrying the REAL post-edit.sh, committed and mapped.
+fn real_hook_repo(parent: &Path, name: &str) -> PathBuf {
+    let root = initialised_repo(parent, name);
+    // `--update-docs` re-installs an existing post-edit.sh: an empty one yields the real script.
+    write_script(&root.join(".keel/hooks/post-edit.sh"), "");
+    let update = run(&root, &["init", "--update-docs"], b"");
+    assert!(
+        update.status.success(),
+        "update-docs failed: {}",
+        stderr_of(&update)
+    );
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "base"]);
+    let map = run(&root, &["map"], b"");
+    assert!(map.status.success(), "map failed: {}", stderr_of(&map));
+    root
+}
+
+/// `keel hook post-edit claude-code` in `cwd` with `stdin`.
+fn post_edit(cwd: &Path, stdin: &[u8]) -> Output {
+    run(cwd, &["hook", "post-edit", "claude-code"], stdin)
+}
+
+/// The notice `keel hook` adds when it checked a file in another checkout:
+/// exactly one stderr line, after the script's output, naming `root`.
+#[track_caller]
+fn assert_checked_in(out: &Output, root: &Path) {
+    let stderr = stderr_of(out);
+    let notices: Vec<&str> = stderr
+        .lines()
+        .filter(|l| l.starts_with("keel hook: checked in "))
+        .collect();
+    assert_eq!(notices.len(), 1, "one notice line; stderr={stderr:?}");
+    assert!(
+        notices[0].contains(&root.display().to_string()),
+        "notice must name {}; got {:?}",
+        root.display(),
+        notices[0]
+    );
+    assert_eq!(
+        stderr.trim_end().lines().last(),
+        Some(notices[0]),
+        "notice must follow the script's output; stderr={stderr:?}"
+    );
+}
+
+/// The reporting stub ran in `root`, with the args and `stdin` intact, and
+/// `keel hook` passed its exit code 7 through.
+#[track_caller]
+fn assert_stub_ran_in(out: &Output, root: &Path, stdin: &str) {
+    assert_eq!(
+        stdout_of(out),
+        format!("cwd={}\nargs=[claude-code]\nstdin={stdin}", root.display()),
+        "stub must run in {}; stderr={}",
+        root.display(),
+        stderr_of(out)
+    );
+    assert_eq!(out.status.code(), Some(7), "stderr={}", stderr_of(out));
+}
+
+/// Control for the real script: an untyped file edited from inside `root`
+/// itself blocks with E002 and needs no notice, so a silent run from another
+/// checkout cannot be a broken fixture.
+#[track_caller]
+fn assert_blocks_from_inside(root: &Path) {
+    let file = add_file(root, "gizmo.py", UNTYPED);
+    let out = post_edit(root, payload(&file).as_bytes());
+    assert_eq!(out.status.code(), Some(2), "stderr={}", stderr_of(&out));
+    assert!(stderr_of(&out).contains("E002"), "{}", stderr_of(&out));
+    assert!(!stderr_of(&out).contains("keel hook: checked in"));
+}
+
+#[test]
+fn hook_post_edit_checks_a_file_in_another_initialised_repository() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = real_hook_repo(&parent, "a");
+    let b = real_hook_repo(&parent, "b");
+    assert_blocks_from_inside(&b);
+
+    let bad = add_file(&b, "widget.py", UNTYPED);
+    let out = post_edit(&a, payload(&bad).as_bytes());
+
+    assert_eq!(
+        (out.status.code(), stderr_of(&out).contains("E002")),
+        (Some(2), true),
+        "an untyped function in another repository must block; stdout={:?} stderr={:?}",
+        stdout_of(&out),
+        stderr_of(&out)
+    );
+    assert_checked_in(&out, &b);
+}
+
+#[test]
+fn hook_post_edit_checks_a_file_in_a_linked_worktree_from_the_main_checkout() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = real_hook_repo(&parent, "a");
+    let linked = parent.join("linked");
+    git(
+        &a,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            linked.to_str().unwrap(),
+        ],
+    );
+    // A linked worktree has its own graph.
+    let map = run(&linked, &["map"], b"");
+    assert!(map.status.success(), "map failed: {}", stderr_of(&map));
+    assert_blocks_from_inside(&linked);
+
+    let bad = add_file(&linked, "widget.py", UNTYPED);
+    let out = post_edit(&a, payload(&bad).as_bytes());
+
+    assert_eq!(
+        (out.status.code(), stderr_of(&out).contains("E002")),
+        (Some(2), true),
+        "an untyped function in a linked worktree must block; stdout={:?} stderr={:?}",
+        stdout_of(&out),
+        stderr_of(&out)
+    );
+    assert_checked_in(&out, &linked);
+}
+
+#[test]
+fn hook_post_edit_runs_the_sessions_script_in_the_files_checkout_and_never_the_other_checkouts_script(
+) {
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = initialised_repo(&parent, "a");
+    let b = initialised_repo(&parent, "b");
+    let marker = b.join("ran-in-b.marker");
+    write_script(&a.join(".keel/hooks/post-edit.sh"), REPORTING_STUB);
+    write_script(&b.join(".keel/hooks/post-edit.sh"), &marker_stub(&marker));
+    let file = b.join("sub/deep/alpha.py");
+    // Valid JSON with whitespace around it: a re-serialised payload would differ.
+    let stdin = format!(" \n{}\n\n", payload(&file));
+
+    let out = post_edit(&a, stdin.as_bytes());
+
+    assert_stub_ran_in(&out, &b, &stdin);
+    assert!(
+        !marker.exists(),
+        "the other checkout's own script must never run"
+    );
+    assert_checked_in(&out, &b);
+}
+
+#[test]
+fn hook_post_edit_stays_in_the_cwd_checkout_for_a_file_in_a_directory_keel_does_not_know() {
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = initialised_repo(&parent, "a");
+    write_script(&a.join(".keel/hooks/post-edit.sh"), REPORTING_STUB);
+    let plain = parent.join("plain");
+    fs::create_dir_all(&plain).unwrap();
+    git(&plain, &["init", "-q"]);
+    let file = plain.join("alpha.py");
+    fs::write(&file, TYPED).unwrap();
+    let stdin = payload(&file);
+
+    let out = post_edit(&a, stdin.as_bytes());
+
+    assert_stub_ran_in(&out, &a, &stdin);
+    assert!(
+        !stderr_of(&out).contains("keel hook: checked in"),
+        "no notice without a re-route; stderr={:?}",
+        stderr_of(&out)
+    );
+}
+
+#[test]
+fn hook_plan_check_is_never_rerouted_by_a_file_path() {
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = initialised_repo(&parent, "a");
+    let b = initialised_repo(&parent, "b");
+    write_script(&a.join(".keel/hooks/plan-check.sh"), REPORTING_STUB);
+    let stdin = payload(&b.join("sub/deep/alpha.py"));
+
+    let out = run(&a, &["hook", "plan-check", "claude-code"], stdin.as_bytes());
+
+    assert_stub_ran_in(&out, &a, &stdin);
+    assert!(
+        !stderr_of(&out).contains("keel hook: checked in"),
+        "no notice without a re-route; stderr={:?}",
+        stderr_of(&out)
+    );
+}
+
+#[test]
+fn hook_post_edit_with_a_relative_or_unparsable_payload_stays_in_the_cwd_checkout() {
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = initialised_repo(&parent, "a");
+    let _b = initialised_repo(&parent, "b");
+    write_script(&a.join(".keel/hooks/post-edit.sh"), REPORTING_STUB);
+
+    for stdin in [
+        r#"{"tool_input":{"file_path":"sub/alpha.py"}}"#,
+        // Relative, but it names a file of the initialised repository `b` from `a`.
+        r#"{"tool_input":{"file_path":"../b/sub/deep/alpha.py"}}"#,
+        "not json at all",
+    ] {
+        let out = post_edit(&a, stdin.as_bytes());
+
+        assert_stub_ran_in(&out, &a, stdin);
+        assert!(
+            !stderr_of(&out).contains("keel hook: checked in"),
+            "no notice without a re-route for {stdin:?}; stderr={:?}",
+            stderr_of(&out)
+        );
+    }
+}
+
+#[test]
+fn hook_post_edit_is_silent_for_a_clean_file_in_another_repository() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().canonicalize().unwrap();
+    let a = real_hook_repo(&parent, "a");
+    let b = real_hook_repo(&parent, "b");
+    let clean = add_file(&b, "gadget.py", TYPED);
+
+    let out = post_edit(&a, payload(&clean).as_bytes());
+
+    assert_eq!(
+        (out.status.code(), stdout_of(&out), stderr_of(&out)),
+        (Some(0), String::new(), String::new()),
+        "a clean file must exit 0 with nothing on stdout or stderr"
+    );
 }
