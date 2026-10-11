@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `keel map` prints one stderr line when uncommitted source files were mapped as they are (`keel map: <m> modified and <u> untracked source file(s) were mapped as they are — …`); nothing else changes (#114).
+- `keel map` prints one stderr line when uncommitted source files were mapped as they are (`keel map: <m> modified and <u> untracked source file(s) were mapped as they are — …`); if git cannot list the files it prints `keel map: could not list uncommitted files: <error>` instead; nothing else changes (#114).
 
 ### Fixed
 - A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
