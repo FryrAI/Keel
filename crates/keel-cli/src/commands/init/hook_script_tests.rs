@@ -316,3 +316,87 @@ fn hook_blocks_a_refusal_after_a_version_warning() {
         format!("keel: version drift\n{prefix}Run keel map.\n")
     );
 }
+
+/// The skip line `keel compile` prints when another process holds the graph
+/// lock; it exits 0, so the file it names was not checked.
+const LOCK_SKIP: &str = "keel compile: another keel process holds the graph lock, skipping";
+
+/// A version-drift warning keel prints before its real output.
+const VERSION_WARNING: &str =
+    "keel: .keel/keel.json records 0.7.2, binary is 0.7.3 — run keel init --update-docs";
+
+/// A skipped compile checked nothing: the hook must reach the agent with the
+/// file, the fact that it was not checked, and the command that checks it.
+#[test]
+fn test_lock_skip_blocks_and_names_the_unchecked_file() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = fixture(0, LOCK_SKIP);
+    let file = target(dir.path());
+    let out = run_hook(dir.path(), &file);
+
+    let stderr = stderr_of(&out);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "a skipped compile must not pass as checked: {stderr}"
+    );
+    assert!(
+        stderr.contains(LOCK_SKIP),
+        "keel's own skip line must reach stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&file.display().to_string()),
+        "the unchecked file must be named: {stderr}"
+    );
+    assert!(
+        stderr.contains("NOT checked"),
+        "the message must say the file was not checked: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("keel compile {}", file.display())),
+        "the message must name the command that checks it: {stderr}"
+    );
+}
+
+/// A version-drift line may precede the skip line; the hook must still block.
+#[test]
+fn test_lock_skip_after_a_version_warning_still_blocks() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let dir = fixture(0, &format!("{VERSION_WARNING}\n{LOCK_SKIP}"));
+    let out = run_hook(dir.path(), &target(dir.path()));
+
+    let stderr = stderr_of(&out);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "the skip line must be found after a warning: {stderr}"
+    );
+    assert!(
+        stderr.contains(LOCK_SKIP),
+        "keel's own skip line must reach stderr: {stderr}"
+    );
+}
+
+/// Control: output on a clean exit is not a skip — only the skip line blocks.
+#[test]
+fn test_other_output_on_a_clean_exit_stays_silent() {
+    if !have("bash") || !have("jq") {
+        eprintln!("skipping: bash/jq not available");
+        return;
+    }
+    let notice = "keel: .baml is not a tracked language — no checks ran";
+    let dir = fixture(0, &format!("{VERSION_WARNING}\n{notice}"));
+    let out = run_hook(dir.path(), &target(dir.path()));
+
+    assert_eq!(
+        (out.status.code(), stderr_of(&out).as_str()),
+        (Some(0), ""),
+        "a clean exit with other output must stay silent"
+    );
+}
