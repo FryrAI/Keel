@@ -76,7 +76,8 @@ name and module/non-module kind; ambiguous old nodes are replaced. Unchanged
 callers of removed nodes re-resolve references without changing stored nodes: from `HEAD`'s blob and,
 unless the file is a target of this compile, from its working-tree text (where both texts yield the
 same call, the working-tree line is kept). A reference-only pass removes
-no edge it does not re-add. When a re-sync adds a definition, every modified or untracked file the graph
+no edge it does not re-add. A run that does not check its files — a batch control command, a
+missing argument — has no targets. When a re-sync adds a definition, every modified or untracked file the graph
 holds is re-resolved the same way.
 Re-synced code is pre-existing, while committed refresh preserves session history.
 

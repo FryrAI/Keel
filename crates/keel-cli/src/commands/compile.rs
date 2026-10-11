@@ -123,18 +123,27 @@ pub fn run(
             .or_else(|| super::graph_resync::unfinished_message(&store))
             .map_or(Ok(()), Err)
     } else {
-        // The repo-relative paths this run checks: a dependent among them is
-        // resolved from HEAD's blob only.
-        let targets: std::collections::BTreeSet<String> = if explicit_targets {
+        // The repo-relative paths this run checks and then syncs: a dependent
+        // among them is resolved from HEAD's blob only. A run that ends before
+        // that (a batch control command, a named file that does not exist) has none.
+        let targets: std::collections::BTreeSet<String> = if batch_start
+            || batch_end
+            || (explicit_targets && files.iter().any(|f| !cwd.join(f).exists()))
+        {
+            Default::default()
+        } else if explicit_targets {
             files
                 .iter()
                 .map(|f| make_relative(&root, &cwd.join(f)))
                 .collect()
         } else if changed || default_to_changed {
-            git_changed_files(&None)
-                .unwrap_or_default()
-                .into_iter()
-                .collect()
+            match git_changed_files(&None) {
+                Ok(listed) => listed.into_iter().collect(),
+                Err(e) => {
+                    eprintln!("keel compile: git diff failed: {}", e);
+                    return (2, EventMetrics::default());
+                }
+            }
         } else {
             Default::default()
         };

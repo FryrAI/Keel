@@ -45,16 +45,17 @@ pub enum DiffMode {
 /// from "git ran and exited non-zero" (`Ok(None)`), so callers that must not
 /// silently treat a missing git as "no changes" can surface it.
 fn run_git_checked(dir: &Path, args: &[&str]) -> Result<Option<Vec<u8>>, String> {
-    let out = Command::new("git")
+    let out = run_git(dir, args)?;
+    Ok(out.status.success().then_some(out.stdout))
+}
+
+fn run_git(dir: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
         .output()
-        .map_err(|e| format!("failed to run git: {}", e))?;
-    if !out.status.success() {
-        return Ok(None);
-    }
-    Ok(Some(out.stdout))
+        .map_err(|e| format!("failed to run git: {}", e))
 }
 
 /// The repository root, which is what git prints its diff paths relative to —
@@ -109,7 +110,8 @@ pub fn changed_files(dir: &Path, mode: &DiffMode, only_supported: bool) -> Vec<S
     changed_files_checked(dir, mode, only_supported).unwrap_or_default()
 }
 
-/// Like [`changed_files`], but a git that cannot run at all is an `Err` instead
+/// Like [`changed_files`], but a git that cannot run at all, or that fails in
+/// every form tried inside a repository, is an `Err` instead
 /// of an empty list — for callers (`keel compile --changed/--since`) where
 /// "git is broken" must not silently read as "nothing changed, exit 0".
 pub fn changed_files_checked(
@@ -117,31 +119,49 @@ pub fn changed_files_checked(
     mode: &DiffMode,
     only_supported: bool,
 ) -> Result<Vec<String>, String> {
+    // `Err` inside is git's own first stderr line (or its exit status).
+    let diff = |rest: &[&str]| -> Result<Result<Vec<u8>, String>, String> {
+        let out = run_git(dir, &[&["diff", "--name-only", "-z"], rest].concat())?;
+        Ok(if out.status.success() {
+            Ok(out.stdout)
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(match stderr.lines().next() {
+                Some(line) if !line.trim().is_empty() => line.trim().to_owned(),
+                _ => format!("git diff exited with {}", out.status),
+            })
+        })
+    };
     let raw = match mode {
-        DiffMode::Staged => run_git_checked(dir, &["diff", "--name-only", "-z", "--cached"])?,
+        DiffMode::Staged => diff(&["--cached"])?,
         DiffMode::Range(base) => {
             let range = format!("{}..HEAD", base);
-            match run_git_checked(dir, &["diff", "--name-only", "-z", &range])? {
-                Some(t) => Some(t),
-                // An explicit base that git cannot resolve is a user error, not
-                // an initial-commit repo: `--since typo` must NOT quietly become
-                // the staged diff (in CI that compiles zero files and exits 0,
-                // reading as "clean"). Only `Since` owns the index fallback.
-                None => return Err(format!("cannot resolve --since base '{}'", base)),
-            }
+            // An explicit base that git cannot resolve is a user error, not
+            // an initial-commit repo: `--since typo` must NOT quietly become
+            // the staged diff (in CI that compiles zero files and exits 0,
+            // reading as "clean"). Only `Since` owns the index fallback.
+            Ok(diff(&[&range])?.map_err(|_| format!("cannot resolve --since base '{}'", base))?)
         }
         DiffMode::Since(base) => {
             let arg = base.as_deref().unwrap_or("HEAD");
-            match run_git_checked(dir, &["diff", "--name-only", "-z", arg])? {
-                Some(t) => Some(t),
+            match diff(&[arg])? {
+                Ok(t) => Ok(t),
                 // Initial commit / unresolvable base: fall back to the index.
-                None => run_git_checked(dir, &["diff", "--name-only", "-z", "--cached"])?,
+                Err(_) => diff(&["--cached"])?,
             }
         }
     };
-    Ok(raw
-        .map(|t| collect_paths(&t, only_supported, &KeelIgnore::new(&repo_root(dir))))
-        .unwrap_or_default())
+    match raw {
+        Ok(bytes) => Ok(collect_paths(
+            &bytes,
+            only_supported,
+            &KeelIgnore::new(&repo_root(dir)),
+        )),
+        // Git failed in every form tried: inside a repository that is an error,
+        // never "nothing changed"; outside one there is nothing to list.
+        Err(reason) if run_git_checked(dir, &["rev-parse", "--git-dir"])?.is_some() => Err(reason),
+        Err(_) => Ok(Vec::new()),
+    }
 }
 
 /// Untracked, not ignored source files (repo-relative): the ones

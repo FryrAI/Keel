@@ -23,6 +23,7 @@ use keel_core::sqlite_meta::{LAST_MAP_AT, LAST_MAP_COMMIT, RESYNC_PENDING};
 use keel_core::store::GraphStore;
 use keel_core::types::{EdgeDirection, EdgeKind, NodeChange, NodeKind};
 use keel_enforce::gitdiff::{self, DiffMode};
+use keel_parsers::resolver::FileIndex;
 use keel_parsers::treesitter::detect_language;
 
 use super::compile_parse::CompileParser;
@@ -236,37 +237,34 @@ pub(crate) fn bring_to_head(
             }
         }
     }
-    let mut dependent_files = Vec::new();
     // A dependent's references come from HEAD's blob (a call the working tree
     // renamed away without a compile) and, unless it is a target of this
     // compile, its working-tree text, which already holds the edits compiled
     // since HEAD. A target's working-tree text is what the compile is about to
-    // check; an absent or non-UTF-8 file is skipped. Where both texts yield the
-    // same call, the working-tree line is kept.
+    // check; an absent or non-UTF-8 file is skipped. Each text is parsed,
+    // resolved and written in its own batch, so it resolves with its own imports;
+    // where both texts yield the same call, the working-tree line is kept.
+    let mut blobs = Vec::new();
+    let mut blob_files = Vec::new();
     for path in &dependents {
         let blob = gitdiff::source_at(root, &head, path).map_err(fail)?;
         if let Some(text) = &blob {
-            dependent_files.extend(parser.parse(&root.join(path), text));
+            blob_files.extend(parser.parse(&root.join(path), text));
         }
+        blobs.push((path, blob));
+    }
+    write_references(store, root, &parser, &blob_files, config).map_err(fail)?;
+    let mut working_files = Vec::new();
+    for (path, blob) in blobs {
         if !targets.contains(path) {
             if let Ok(text) = std::fs::read_to_string(root.join(path)) {
                 if blob.as_ref() != Some(&text) {
-                    dependent_files.extend(parser.parse(&root.join(path), &text));
+                    working_files.extend(parser.parse(&root.join(path), &text));
                 }
             }
         }
     }
-    if !dependent_files.is_empty() {
-        let changes = compiled_file_changes(
-            store,
-            root,
-            &dependent_files,
-            &parser.resolver_set(),
-            config.monorepo.enabled,
-            SyncSource::ResolveReferences,
-        );
-        write_compiled_changes(store, changes, false).map_err(fail)?;
-    }
+    write_references(store, root, &parser, &working_files, config).map_err(fail)?;
     store
         .remove_body_rows_without_nodes(&changed)
         .map_err(|e| fail(e.to_string()))?;
@@ -282,6 +280,28 @@ pub(crate) fn bring_to_head(
         );
     }
     Ok(())
+}
+
+/// Re-resolves the references of `files` without changing stored nodes.
+fn write_references(
+    store: &mut SqliteGraphStore,
+    root: &Path,
+    parser: &CompileParser,
+    files: &[FileIndex],
+    config: &KeelConfig,
+) -> Result<(), String> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let changes = compiled_file_changes(
+        store,
+        root,
+        files,
+        &parser.resolver_set(),
+        config.monorepo.enabled,
+        SyncSource::ResolveReferences,
+    );
+    write_compiled_changes(store, changes, false)
 }
 
 /// Files outside `changed` that the graph holds nodes for and whose working-tree
