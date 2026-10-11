@@ -131,6 +131,8 @@ A stored commit this clone does not have makes working-tree compiles refuse unti
 `keel map` rebuilds the graph. The `--since` guard retains its legacy silence when
 it cannot resolve an otherwise recorded commit.
 
+A full `keel map` on uncommitted changes prints one stderr line; see [`keel map`](commands.md#keel-map).
+
 ## Cached maps and post-edit hooks
 
 `keel map --cached` never runs a full map or takes the graph lock. On a never-mapped

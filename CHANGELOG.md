@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `keel map` prints one stderr line when uncommitted source files were mapped as they are (`keel map: <m> modified and <u> untracked source file(s) were mapped as they are — …`); if git cannot list the files it prints `keel map: could not list uncommitted files: <error>` instead; nothing else changes (#114).
+
 ### Changed
 - Each linked git worktree now keeps its own graph (`graph.db`, `compile.lock` and the delta baseline) in its git directory instead of sharing the main checkout's, so worktrees on different branches no longer drag one graph back and forth; `keel.json` is still read from the main checkout, `keel deinit` in a worktree removes only that worktree's graph, and every write of `keel.json` replaces the file by rename so a concurrent reader never sees a truncated config. Upgrading: each existing linked worktree needs one `keel map`.
 
 ### Fixed
 - A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
 - `keel compile --changed` and a bare `keel compile` exit 2 with `keel compile: git diff failed: …` when git fails inside a repository, instead of reading the failure as "nothing changed" (exit 0, nothing checked).
+- A changed file whose name is not valid UTF-8 no longer makes `keel compile --changed`, `keel compile --since`, `keel review`, `keel checkpoint` or `keel audit --changed` exit 101 with no output when stderr cannot be written; the notice about the skipped path is dropped instead.
 
 ## [0.7.1] - 2026-10-11
 

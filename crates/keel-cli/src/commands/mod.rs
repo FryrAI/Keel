@@ -30,6 +30,7 @@ pub mod logout;
 pub mod map;
 pub mod map_boundary;
 pub mod map_cached;
+mod map_dirty_note;
 pub mod map_lang_resolve;
 pub(crate) mod map_passes;
 pub mod map_resolve;
