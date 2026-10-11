@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `keel map` prints one stderr line when uncommitted source files were mapped as they are (`keel map: <m> modified and <u> untracked source file(s) were mapped as they are — …`); nothing else changes (#114).
+
 ### Fixed
 - A re-sync keeps the call edge of a caller whose function was renamed in an uncompiled working-tree edit, and no longer stores the edited file's new cross-package call before W009 checks it.
 - `keel compile --changed` and a bare `keel compile` exit 2 with `keel compile: git diff failed: …` when git fails inside a repository, instead of reading the failure as "nothing changed" (exit 0, nothing checked).
